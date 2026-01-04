@@ -64,6 +64,7 @@ suite("test_alter_rollup_table") {
         DUPLICATE KEY(`user_id`, `event_time`, `event_date`)
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 3
         PROPERTIES (
+        "replication_num" = "1",
         "file_cache_ttl_seconds" = "0",
         "bloom_filter_columns" = "country, city",
         "is_being_synced" = "false",
@@ -101,7 +102,7 @@ suite("test_alter_rollup_table") {
             balance
         );
     """
-    
+
     sleep(10000)
 
     sql """
@@ -131,6 +132,12 @@ suite("test_alter_rollup_table") {
         values
         (1003, '2025-09-19', '2025-09-19 10:00:00', 'japan', 'tokyo', 30, 1, 1000.50, 88.8, '192.168.0.1', '{"device":"iphone"}', 1),
         (1004, '2025-09-19', '2025-09-19 11:30:00', 'usa', null, null, 0, 500.00, null, '10.0.0.2', '{"device":"android"}', 2);
+    """
+
+    sleep(10000)
+
+    sql """
+        select event_date, user_id from ${tbName}
     """
 }
 

@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddColumnClause;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -91,11 +89,6 @@ public class AddColumnOp extends AlterTableOp {
     }
 
     @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new AddColumnClause(toSql(), column, colPos, rollupName, properties);
-    }
-
-    @Override
     public Map<String, String> getProperties() {
         return this.properties;
     }
@@ -143,44 +136,47 @@ public class AddColumnOp extends AlterTableOp {
         boolean isEnableMergeOnWrite = false;
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrDdlException(tableName.getCtl())
-                .getDbOrDdlException(tableName.getDb())
-                .getTableOrDdlException(tableName.getTbl());
-        if (table instanceof OlapTable) {
-            isOlap = true;
-            olapTable = (OlapTable) table;
-            keysType = olapTable.getKeysType();
-            AggregateType aggregateType = columnDef.getAggType();
-            Long indexId = olapTable.getIndexIdByName(rollupName);
-            if (indexId != null) {
-                MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
-                if (indexMeta.getDefineStmt() != null) {
-                    throw new AnalysisException("Cannot add column in rollup " + rollupName);
-                }
-            }
-            if (keysType == KeysType.AGG_KEYS) {
-                if (aggregateType == null) {
-                    columnDef.setIsKey(true);
-                } else {
-                    if (aggregateType == AggregateType.NONE) {
-                        throw new AnalysisException(
-                                String.format("can't set NONE as aggregation type on column %s",
-                                        columnDef.getName()));
+        if (tableName != null) {
+            TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrDdlException(tableName.getCtl())
+                    .getDbOrDdlException(tableName.getDb())
+                    .getTableOrDdlException(tableName.getTbl());
+            if (table instanceof OlapTable) {
+                isOlap = true;
+                olapTable = (OlapTable) table;
+                keysType = olapTable.getKeysType();
+                AggregateType aggregateType = columnDef.getAggType();
+                Long indexId = olapTable.getIndexIdByName(rollupName);
+                if (indexId != null) {
+                    MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
+                    if (indexMeta.getDefineStmt() != null) {
+                        throw new AnalysisException("Cannot add column in rollup " + rollupName);
                     }
                 }
-            } else if (keysType == KeysType.UNIQUE_KEYS) {
-                if (aggregateType != null && !aggregateType.isReplaceFamily() && columnDef.isVisible()) {
-                    throw new AnalysisException(
-                            String.format("Can not assign aggregation method on column in Unique data model table: %s",
+                if (keysType == KeysType.AGG_KEYS) {
+                    if (aggregateType == null) {
+                        columnDef.setIsKey(true);
+                    } else {
+                        if (aggregateType == AggregateType.NONE) {
+                            throw new AnalysisException(
+                                String.format("can't set NONE as aggregation type on column %s",
                                     columnDef.getName()));
+                        }
+                    }
+                } else if (keysType == KeysType.UNIQUE_KEYS) {
+                    if (aggregateType != null && !aggregateType.isReplaceFamily() && columnDef.isVisible()) {
+                        throw new AnalysisException(
+                            String.format("Can not assign aggregation method on column in Unique data model table: %s",
+                                columnDef.getName()));
+                    }
                 }
+                isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+                clusterKeySet
+                        .addAll(olapTable.getBaseSchema().stream().filter(Column::isClusterKey).map(Column::getName)
+                        .collect(Collectors.toList()));
             }
-            isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
-            clusterKeySet
-                    .addAll(olapTable.getBaseSchema().stream().filter(Column::isClusterKey).map(Column::getName)
-                            .collect(Collectors.toList()));
         }
+
         columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());

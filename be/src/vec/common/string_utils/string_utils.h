@@ -76,3 +76,7 @@ inline bool is_whitespace_ascii(char c) {
 inline bool is_not_whitespace_ascii(char c) {
     return !is_whitespace_ascii(c);
 }
+
+inline bool is_hex_ascii(char c) {
+    return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || is_numeric_ascii(c);
+}

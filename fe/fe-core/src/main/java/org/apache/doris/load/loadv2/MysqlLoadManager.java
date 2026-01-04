@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -185,7 +186,7 @@ public class MysqlLoadManager {
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
         LOG.info("Executing mysql load with id: {}.", loadId);
-        try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
+        try (final CloseableHttpClient httpclient = HttpUtils.getHttpClient()) {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, clientLocal, file, loadId);
                 HttpPut request = generateRequestForMySqlLoadV2(entity, dataDesc, database, table, token);
@@ -529,10 +530,10 @@ public class MysqlLoadManager {
         }
 
         // partitions
-        if (desc.getPartitionNames() != null && !desc.getPartitionNames().getPartitionNames().isEmpty()) {
-            List<String> ps = desc.getPartitionNames().getPartitionNames();
+        if (desc.getPartitionNamesInfo() != null && !desc.getPartitionNamesInfo().getPartitionNames().isEmpty()) {
+            List<String> ps = desc.getPartitionNamesInfo().getPartitionNames();
             String pNames = Joiner.on(",").join(ps);
-            if (desc.getPartitionNames().isTemp()) {
+            if (desc.getPartitionNamesInfo().isTemp()) {
                 httpPut.addHeader(LoadCommand.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
             } else {
                 httpPut.addHeader(LoadCommand.KEY_IN_PARAM_PARTITIONS, pNames);

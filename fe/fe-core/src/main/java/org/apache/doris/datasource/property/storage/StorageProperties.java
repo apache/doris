@@ -23,6 +23,8 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import lombok.Getter;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
@@ -31,6 +33,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 public abstract class StorageProperties extends ConnectionProperties {
@@ -46,9 +49,14 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_COS_SUPPORT = "fs.cos.support";
     public static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
     public static final String FS_LOCAL_SUPPORT = "fs.local.support";
+    public static final String FS_HTTP_SUPPORT = "fs.http.support";
+
     public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
+    protected static final String URI_KEY = "uri";
 
     public static final String FS_PROVIDER_KEY = "provider";
+
+    protected final String userFsPropsPrefix = "fs.";
 
     public enum Type {
         HDFS,
@@ -62,6 +70,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         AZURE,
         BROKER,
         LOCAL,
+        HTTP,
         UNKNOWN
     }
 
@@ -109,12 +118,19 @@ public abstract class StorageProperties extends ConnectionProperties {
     /**
      * Creates a list of StorageProperties instances based on the provided properties.
      * <p>
-     * This method iterates through the list of supported storage types and creates an instance
-     * for each supported type. If no supported type is found, an HDFSProperties instance is added
-     * by default.
+     * This method iterates through all registered storage providers and constructs one
+     * {@link StorageProperties} instance for each provider that recognizes the given properties.
+     * <p>
+     * If no HDFSProperties is explicitly configured, a default HDFSProperties will be added
+     * automatically. The default HDFSProperties is inserted at index 0 to ensure that:
+     * <ul>
+     *   <li>The list preserves a deterministic order (it is an ordered List).</li>
+     *   <li>The default HDFS configuration does not override or shadow explicitly configured
+     *       object storage providers, which are appended after detection.</li>
+     * </ul>
      *
-     * @param origProps the original properties map to create the StorageProperties instances
-     * @return a list of StorageProperties instances for all supported storage types
+     * @param origProps the raw property map used to initialize each StorageProperties instance
+     * @return an ordered list of StorageProperties instances
      */
     public static List<StorageProperties> createAll(Map<String, String> origProps) throws UserException {
         List<StorageProperties> result = new ArrayList<>();
@@ -124,13 +140,14 @@ public abstract class StorageProperties extends ConnectionProperties {
                 result.add(p);
             }
         }
+        // Add default HDFS storage if not explicitly configured
         if (result.stream().noneMatch(HdfsProperties.class::isInstance)) {
-            result.add(new HdfsProperties(origProps));
+            result.add(0, new HdfsProperties(origProps, false));
         }
 
         for (StorageProperties storageProperties : result) {
             storageProperties.initNormalizeAndCheckProps();
-            storageProperties.initializeHadoopStorageConfig();
+            storageProperties.buildHadoopStorageConfig();
         }
         return result;
     }
@@ -150,7 +167,7 @@ public abstract class StorageProperties extends ConnectionProperties {
             StorageProperties p = func.apply(origProps);
             if (p != null) {
                 p.initNormalizeAndCheckProps();
-                p.initializeHadoopStorageConfig();
+                p.buildHadoopStorageConfig();
                 return p;
             }
         }
@@ -161,13 +178,22 @@ public abstract class StorageProperties extends ConnectionProperties {
             Arrays.asList(
                     props -> (isFsSupport(props, FS_HDFS_SUPPORT)
                             || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
-                    props -> ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
-                            || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
-                            || OSSHdfsProperties.guessIsMe(props)) ? new OSSHdfsProperties(props) : null,
+                    props -> {
+                        // OSS-HDFS and OSS are mutually exclusive - check OSS-HDFS first
+                        if ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
+                                || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
+                                || OSSHdfsProperties.guessIsMe(props)) {
+                            return new OSSHdfsProperties(props);
+                        }
+                        // Only check for regular OSS if OSS-HDFS is not enabled
+                        if (isFsSupport(props, FS_OSS_SUPPORT)
+                                || OSSProperties.guessIsMe(props)) {
+                            return new OSSProperties(props);
+                        }
+                        return null;
+                    },
                     props -> (isFsSupport(props, FS_S3_SUPPORT)
                             || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
-                    props -> (isFsSupport(props, FS_OSS_SUPPORT)
-                            || OSSProperties.guessIsMe(props)) ? new OSSProperties(props) : null,
                     props -> (isFsSupport(props, FS_OBS_SUPPORT)
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
@@ -181,7 +207,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
+                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
+                    props -> (isFsSupport(props, FS_HTTP_SUPPORT)
+                            || HttpProperties.guessIsMe(props)) ? new HttpProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
@@ -232,5 +260,56 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     public abstract String getStorageName();
 
-    public abstract void initializeHadoopStorageConfig();
+    private void buildHadoopStorageConfig() {
+        initializeHadoopStorageConfig();
+        if (null == hadoopStorageConfig) {
+            return;
+        }
+        appendUserFsConfig(origProps);
+        ensureDisableCache(hadoopStorageConfig, origProps);
+    }
+
+    private void appendUserFsConfig(Map<String, String> userProps) {
+        userProps.forEach((k, v) -> {
+            if (k.startsWith(userFsPropsPrefix) && StringUtils.isNotBlank(v)) {
+                hadoopStorageConfig.set(k, v);
+            }
+        });
+    }
+
+    protected abstract void initializeHadoopStorageConfig();
+
+    protected abstract Set<String> schemas();
+
+    /**
+     * By default, Hadoop caches FileSystem instances per scheme and authority (e.g. s3a://bucket/), meaning that all
+     * subsequent calls using the same URI will reuse the same FileSystem object.
+     * In multi-tenant or dynamic credential environments — where different users may access the same bucket using
+     * different access keys or tokens — this cache reuse can lead to cross-credential contamination.
+     * <p>
+     * Specifically, if the cache is not disabled, a FileSystem instance initialized with one set of credentials may
+     * be reused by another session targeting the same bucket but with a different AK/SK. This results in:
+     * <p>
+     * Incorrect authentication (using stale credentials)
+     * <p>
+     * Unexpected permission errors or access denial
+     * <p>
+     * Potential data leakage between users
+     * <p>
+     * To avoid such risks, the configuration property
+     * fs.<schema>.impl.disable.cache
+     * must be set to true for all object storage backends (e.g., S3A, OSS, COS, OBS), ensuring that each new access
+     * creates an isolated FileSystem instance with its own credentials and configuration context.
+     */
+    private void ensureDisableCache(Configuration conf, Map<String, String> origProps) {
+        for (String schema : schemas()) {
+            String key = "fs." + schema + ".impl.disable.cache";
+            String userValue = origProps.get(key);
+            if (StringUtils.isNotBlank(userValue)) {
+                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
+            } else {
+                conf.setBoolean(key, true);
+            }
+        }
+    }
 }

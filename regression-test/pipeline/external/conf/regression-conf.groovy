@@ -25,6 +25,14 @@ targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLo
 jdbcUser = "root"
 jdbcPassword = ""
 
+//arrow flight sql test config
+extArrowFlightSqlHost = "172.19.0.2"
+extArrowFlightSqlPort = 8081
+extArrowFlightSqlUser = "root"
+extArrowFlightSqlPassword= ""
+extArrowFlightHttpPort= 8131
+extFeThriftPort = 9020
+
 ccrDownstreamUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
 ccrDownstreamUser = "root"
 ccrDownstreamPassword = ""
@@ -46,8 +54,6 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 trinoPluginsPath = "/tmp/trino_connector"
-// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
-//sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group

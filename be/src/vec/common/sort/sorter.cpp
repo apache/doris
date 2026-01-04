@@ -139,20 +139,27 @@ Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized:
 
 Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) {
     size_t num_cols = src_block.columns();
+    RETURN_IF_ERROR(_prepare_sort_columns(src_block, dest_block, reversed));
+    {
+        SCOPED_TIMER(_partial_sort_timer);
+        uint64_t limit = reversed ? 0 : (_offset + _limit);
+        sort_block(_materialize_sort_exprs ? dest_block : src_block, dest_block, _sort_description,
+                   limit);
+    }
+
+    src_block.clear_column_data(num_cols);
+    return Status::OK();
+}
+
+Status Sorter::_prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed) {
     if (_materialize_sort_exprs) {
         auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
-        std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());
+        ColumnsWithTypeAndName columns_data(output_tuple_expr_ctxs.size());
         for (int i = 0; i < output_tuple_expr_ctxs.size(); ++i) {
-            RETURN_IF_ERROR(output_tuple_expr_ctxs[i]->execute(&src_block, &valid_column_ids[i]));
+            RETURN_IF_ERROR(output_tuple_expr_ctxs[i]->execute(&src_block, columns_data[i]));
         }
 
-        Block new_block;
-        for (auto column_id : valid_column_ids) {
-            if (column_id < 0) {
-                continue;
-            }
-            new_block.insert(src_block.get_by_position(column_id));
-        }
+        Block new_block {columns_data};
         dest_block.swap(new_block);
     }
 
@@ -169,14 +176,6 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
             _sort_description[i].direction *= -1;
         }
     }
-
-    {
-        SCOPED_TIMER(_partial_sort_timer);
-        uint64_t limit = reversed ? 0 : (_offset + _limit);
-        sort_block(*result_block, dest_block, _sort_description, limit);
-    }
-
-    src_block.clear_column_data(num_cols);
     return Status::OK();
 }
 

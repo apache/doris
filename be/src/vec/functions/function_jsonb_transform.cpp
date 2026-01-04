@@ -87,13 +87,7 @@ void normalize_json_numbers_to_double(JsonbWriter& jsonb_writer, const JsonbValu
             CastParameters params;
             params.is_strict = false;
             JsonbCast::cast_from_json_to_float(jsonb_value, to, params);
-            if (to == 0.0) {
-                // to avoid -0.0
-                to = 0.0;
-            } else if (std::isnan(to)) {
-                // to avoid -nan
-                to = std::numeric_limits<double>::quiet_NaN();
-            }
+            NormalizeFloat(to);
             jsonb_writer.writeDouble(to);
         } else {
             jsonb_writer.writeValue(jsonb_value);
@@ -130,7 +124,7 @@ public:
         JsonbWriter writer;
         for (size_t i = 0; i < size; ++i) {
             StringRef val = input_jsonb_column.get_data_at(i);
-            JsonbDocument* doc = nullptr;
+            const JsonbDocument* doc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
             if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                 // mayby be invalid jsonb, just insert default
@@ -139,7 +133,7 @@ public:
                 to_column->insert_default();
                 continue;
             }
-            JsonbValue* value = doc->getValue();
+            const JsonbValue* value = doc->getValue();
             if (UNLIKELY(!value)) {
                 // mayby be invalid jsonb, just insert default
                 // invalid jsonb value may be caused by the default null processing

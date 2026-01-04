@@ -22,7 +22,6 @@
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
-#include "olap/types.h"
 #include "util/faststring.h"
 
 namespace doris::segment_v2 {
@@ -73,7 +72,7 @@ Status InvertedIndexColumnWriter<field_type>::init() {
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "Inverted index writer init error occurred: " << e.what();
         return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "Inverted index writer init error occurred");
+                "Inverted index writer init error occurred: {}", e.what());
     }
 }
 
@@ -110,8 +109,8 @@ Status InvertedIndexColumnWriter<field_type>::init_bkd_index() {
 }
 
 template <FieldType field_type>
-Result<std::unique_ptr<lucene::util::Reader>>
-InvertedIndexColumnWriter<field_type>::create_char_string_reader(CharFilterMap& char_filter_map) {
+Result<ReaderPtr> InvertedIndexColumnWriter<field_type>::create_char_string_reader(
+        CharFilterMap& char_filter_map) {
     try {
         return inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
     } catch (CLuceneError& e) {
@@ -192,9 +191,9 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
 template <FieldType field_type>
 Result<std::shared_ptr<lucene::analysis::Analyzer>>
 InvertedIndexColumnWriter<field_type>::create_analyzer(
-        std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx) {
+        const InvertedIndexAnalyzerConfig& analyzer_config) {
     try {
-        return inverted_index::InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
+        return inverted_index::InvertedIndexAnalyzer::create_analyzer(&analyzer_config);
     } catch (CLuceneError& e) {
         return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "inverted index create analyzer failed: {}", e.what()));
@@ -206,20 +205,20 @@ InvertedIndexColumnWriter<field_type>::create_analyzer(
 
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
-    _inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
-            get_custom_analyzer_string_from_properties(_index_meta->properties()),
-            get_inverted_index_parser_type_from_string(
-                    get_parser_string_from_properties(_index_meta->properties())),
-            get_parser_mode_string_from_properties(_index_meta->properties()),
-            get_parser_phrase_support_string_from_properties(_index_meta->properties()),
-            get_parser_char_filter_map_from_properties(_index_meta->properties()),
-            get_parser_lowercase_from_properties<true>(_index_meta->properties()),
-            get_parser_stopwords_from_properties(_index_meta->properties()));
+    _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
+    _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(_index_meta->properties()));
+    _analyzer_config.parser_mode =
+            get_parser_mode_string_from_properties(_index_meta->properties());
+    _analyzer_config.char_filter_map =
+            get_parser_char_filter_map_from_properties(_index_meta->properties());
+    _analyzer_config.lower_case =
+            get_parser_lowercase_from_properties<true>(_index_meta->properties());
+    _analyzer_config.stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
     RETURN_IF_ERROR(open_index_directory());
-    _char_string_reader =
-            DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
+    _char_string_reader = DORIS_TRY(create_char_string_reader(_analyzer_config.char_filter_map));
     if (_should_analyzer) {
-        _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        _analyzer = DORIS_TRY(create_analyzer(_analyzer_config));
     }
     _similarity = std::make_unique<lucene::search::LengthSimilarity>();
     _index_writer = create_index_writer();
@@ -339,7 +338,7 @@ void InvertedIndexColumnWriter<field_type>::new_char_token_stream(const char* s,
                 _CLTHROWA(CL_ERR_UnsupportedOperation,
                           "UnsupportedOperationException: CLStream::init");
             })
-    auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
+    auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader);
     field->setValue(stream);
 }
 
@@ -408,6 +407,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
             return Status::InternalError("index writer is null in inverted index writer");
         }
         size_t start_off = 0;
+        std::vector<ReaderPtr> keep_readers;
         for (size_t i = 0; i < count; ++i) {
             // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
             // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
@@ -447,15 +447,13 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                         // in this case stream need to delete after add_document, because the
                         // stream can not reuse for different field
                         bool own_token_stream = true;
-                        bool own_reader = true;
-                        std::unique_ptr<lucene::util::Reader> char_string_reader = DORIS_TRY(
-                                create_char_string_reader(_inverted_index_ctx->char_filter_map));
+                        ReaderPtr char_string_reader = DORIS_TRY(
+                                create_char_string_reader(_analyzer_config.char_filter_map));
                         char_string_reader->init(v->get_data(), cast_set<int32_t>(v->get_size()),
                                                  false);
-                        _analyzer->set_ownReader(own_reader);
-                        ts = _analyzer->tokenStream(new_field->name(),
-                                                    char_string_reader.release());
+                        ts = _analyzer->tokenStream(new_field->name(), char_string_reader);
                         new_field->setValue(ts, own_token_stream);
+                        keep_readers.emplace_back(std::move(char_string_reader));
                     } else {
                         new_field_char_value(v->get_data(), v->get_size(), new_field.get());
                     }
@@ -507,6 +505,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                 _doc->clear();
             }
             _rid++;
+            keep_readers.clear();
         }
     } else if constexpr (field_is_numeric_type(field_type)) {
         size_t start_off = 0;
@@ -543,7 +542,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
             return Status::InternalError("field or index writer is null in inverted index writer");
         }
         for (int i = 0; i < count; ++i) {
-            auto* item_data_ptr = const_cast<CollectionValue*>(values)->mutable_data();
+            const auto* item_data_ptr = values->data();
             std::vector<std::string> strings;
 
             for (size_t j = 0; j < values->length(); ++j) {
@@ -562,7 +561,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
         }
     } else if constexpr (field_is_numeric_type(field_type)) {
         for (int i = 0; i < count; ++i) {
-            auto* item_data_ptr = const_cast<CollectionValue*>(values)->mutable_data();
+            const auto* item_data_ptr = values->data();
 
             for (size_t j = 0; j < values->length(); ++j) {
                 const auto* p = reinterpret_cast<const CppType*>(item_data_ptr);
@@ -721,6 +720,7 @@ template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIME>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATEV2>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL32>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL64>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>;

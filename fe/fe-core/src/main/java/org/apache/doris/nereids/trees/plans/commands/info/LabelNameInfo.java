@@ -20,7 +20,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -96,13 +95,5 @@ public class LabelNameInfo {
      */
     public String getLabel() {
         return label;
-    }
-
-    /**
-     * transferToLabelName
-     * @return LabelName
-     */
-    public LabelName transferToLabelName() {
-        return new LabelName(db, label);
     }
 }

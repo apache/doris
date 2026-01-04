@@ -19,7 +19,6 @@ package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -28,6 +27,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.FileLoadScanNode;
@@ -146,14 +147,22 @@ public class NereidsLoadingTaskPlanner {
 
         Preconditions.checkState(!fileGroups.isEmpty() && fileGroups.size() == fileStatusesList.size());
 
-        PartitionNames partitionNames = getPartitionNames();
+        // make sure StatementContext is set in ConnectContext
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() == null) {
+            StatementContext statementContext = new StatementContext();
+            connectContext.setStatementContext(statementContext);
+            statementContext.setConnectContext(connectContext);
+        }
+
+        PartitionNamesInfo partitionNamesInfo = getPartitionNamesInfo();
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeoutS() : timeoutS;
         if (txnTimeout > Integer.MAX_VALUE) {
             txnTimeout = Integer.MAX_VALUE;
         }
         NereidsBrokerLoadTask nereidsBrokerLoadTask = new NereidsBrokerLoadTask(txnId, (int) txnTimeout,
                 sendBatchParallelism,
-                strictMode, enableMemtableOnSinkNode, partitionNames);
+                strictMode, enableMemtableOnSinkNode, singleTabletLoadPerSink, partitionNamesInfo);
 
         TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor();
         scanTupleDesc.setTable(table);
@@ -170,7 +179,7 @@ public class NereidsLoadingTaskPlanner {
             NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
                     partialUpdateInputColumns);
             NereidsParamCreateContext context = loadScanProvider.createLoadContext();
-            LogicalPlan loadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNames, context,
+            LogicalPlan loadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNamesInfo, context,
                     isPartialUpdate, partialUpdateNewKeyPolicy);
 
             NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(table,
@@ -220,8 +229,8 @@ public class NereidsLoadingTaskPlanner {
         return timezone;
     }
 
-    private PartitionNames getPartitionNames() throws LoadException {
-        PartitionNames partitionNames = null;
+    private PartitionNamesInfo getPartitionNamesInfo() throws LoadException {
+        PartitionNamesInfo partitionNames = null;
         List<String> partitions = Lists.newArrayList();
         boolean isTemp = false;
         for (NereidsBrokerFileGroup brokerFileGroup : fileGroups) {
@@ -246,7 +255,7 @@ public class NereidsLoadingTaskPlanner {
             break;
         }
         if (!partitions.isEmpty()) {
-            partitionNames = new PartitionNames(isTemp, partitions);
+            partitionNames = new PartitionNamesInfo(isTemp, partitions);
         }
         return partitionNames;
 

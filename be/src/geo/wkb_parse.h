@@ -46,26 +46,26 @@ constexpr uint32_t WKB_TYPE_MASK = 0xFF;
 
 class WkbParse {
 public:
-    static GeoParseStatus parse_wkb(std::istream& is, GeoShape** shape);
-
-    static WkbParseContext* read_hex(std::istream& is, WkbParseContext* ctx);
-
-    static WkbParseContext* read(std::istream& is, WkbParseContext* ctx);
-
-    static std::unique_ptr<GeoShape> readGeometry(WkbParseContext* ctx);
+    static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
 
 private:
-    static std::unique_ptr<GeoPoint> readPoint(WkbParseContext* ctx);
+    static void read_hex(std::istream& is, WkbParseContext& ctx);
 
-    static std::unique_ptr<GeoLine> readLine(WkbParseContext* ctx);
+    static void read(std::istream& is, WkbParseContext& ctx);
 
-    static std::unique_ptr<GeoPolygon> readPolygon(WkbParseContext* ctx);
+    static std::unique_ptr<GeoShape> readGeometry(WkbParseContext& ctx);
 
-    static GeoCoordinateList readCoordinateList(unsigned size, WkbParseContext* ctx);
+    static std::unique_ptr<GeoPoint> readPoint(WkbParseContext& ctx);
 
-    static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext* ctx);
+    static std::unique_ptr<GeoLine> readLine(WkbParseContext& ctx);
 
-    static bool readCoordinate(WkbParseContext* ctx);
+    static std::unique_ptr<GeoPolygon> readPolygon(WkbParseContext& ctx);
+
+    static GeoCoordinateList readCoordinateList(unsigned size, WkbParseContext& ctx);
+
+    static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext& ctx);
+
+    static bool readCoordinate(WkbParseContext& ctx);
 };
 
 } // namespace doris

@@ -38,7 +38,7 @@ public class TimeToSec extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.INSTANCE));
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.WILDCARD));
 
     /**
      * constructor with 1 argument.

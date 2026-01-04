@@ -201,6 +201,104 @@ suite("test_iceberg_runtime_filter_partition_pruning_transform", "p0,external,do
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
+
+        // Time transform partitions (day/year/month/hour)
+        // Note: Bucket and Truncate transforms are not supported for runtime filter partition pruning,
+        // but Day/Year/Month/Hour transforms are supported.
+        
+        // Day transform tests
+        qt_day_eq """
+            select count(*) from day_partitioned where ts =
+                (select ts from day_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 1);
+        """
+        qt_day_in """
+            select count(*) from day_partitioned where ts in
+                (select ts from day_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 2);
+        """
+        qt_day_range_ge """
+            select count(*) from day_partitioned where ts >= '2024-01-15 00:00:00';
+        """
+        qt_day_range_lt """
+            select count(*) from day_partitioned where ts < '2024-01-16 00:00:00';
+        """
+        qt_day_range_between """
+            select count(*) from day_partitioned where ts >= '2024-01-15 00:00:00' 
+                and ts < '2024-01-16 00:00:00';
+        """
+        qt_day_range_multi """
+            select count(*) from day_partitioned where ts >= '2024-01-15 00:00:00' 
+                and ts < '2024-01-17 00:00:00';
+        """
+
+        // Year transform tests
+        qt_year_eq """
+            select count(*) from year_partitioned where ts =
+                (select ts from year_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 1);
+        """
+        qt_year_in """
+            select count(*) from year_partitioned where ts in
+                (select ts from year_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 2);
+        """
+        qt_year_range """
+            select count(*) from year_partitioned where ts >= '2024-01-01 00:00:00' 
+                and ts < '2025-01-01 00:00:00';
+        """
+        qt_year_range_cross """
+            select count(*) from year_partitioned where ts >= '2023-06-01 00:00:00' 
+                and ts < '2024-06-01 00:00:00';
+        """
+
+        // Month transform tests
+        qt_month_eq """
+            select count(*) from month_partitioned where ts =
+                (select ts from month_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 1);
+        """
+        qt_month_in """
+            select count(*) from month_partitioned where ts in
+                (select ts from month_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 2);
+        """
+        qt_month_range """
+            select count(*) from month_partitioned where ts >= '2024-01-01 00:00:00' 
+                and ts < '2024-02-01 00:00:00';
+        """
+        qt_month_range_multi """
+            select count(*) from month_partitioned where ts >= '2024-01-01 00:00:00' 
+                and ts < '2024-03-01 00:00:00';
+        """
+
+        // Hour transform tests
+        qt_hour_eq """
+            select count(*) from hour_partitioned where ts =
+                (select ts from hour_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 1);
+        """
+        qt_hour_in """
+            select count(*) from hour_partitioned where ts in
+                (select ts from hour_partitioned
+                 group by ts having count(*) > 0
+                 order by ts desc limit 2);
+        """
+        qt_hour_range """
+            select count(*) from hour_partitioned where ts >= '2024-01-15 10:00:00' 
+                and ts < '2024-01-15 11:00:00';
+        """
+        qt_hour_range_multi """
+            select count(*) from hour_partitioned where ts >= '2024-01-15 10:00:00' 
+                and ts < '2024-01-15 12:00:00';
+        """
     }
     try {
         sql """ set time_zone = 'Asia/Shanghai'; """

@@ -29,10 +29,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -69,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
@@ -78,7 +81,7 @@ import org.apache.doris.system.Backend;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -137,7 +140,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.cte = cte;
         this.needNormalizePlan = needNormalizePlan;
         this.branchName = branchName;
-        this.jobId = Env.getCurrentEnv().getNextId();
+        if (Env.getCurrentEnv().isMaster()) {
+            this.jobId = Env.getCurrentEnv().getNextId();
+        } else {
+            this.jobId = -1;
+        }
     }
 
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
@@ -237,7 +244,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             // check auth
-            if (!Env.getCurrentEnv().getAccessManager()
+            if (needAuthCheck(targetTableIf) && !Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
                             targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
                             PrivPredicate.LOAD)) {
@@ -305,6 +312,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    /**
+     * Hook method to determine if auth check is needed.
+     * Subclasses can override this to skip auth check, e.g., WarmupSelectCommand.
+     * @param targetTableIf the target table
+     * @return true if auth check is needed, false otherwise
+     */
+    protected boolean needAuthCheck(TableIf targetTableIf) {
+        return true;
     }
 
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
@@ -421,7 +438,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         dataSink,
                         physicalSink,
                         () -> new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert)
+                                Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert, jobId)
                 );
                 // set hive query options
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
@@ -437,7 +454,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                                 Optional.of(icebergInsertCtx),
-                                emptyInsert
+                                emptyInsert, jobId
                         )
                 );
             } else if (physicalSink instanceof PhysicalJdbcTableSink) {
@@ -461,19 +478,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         dataSink,
                         physicalSink,
                         () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert)
+                                Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalDictionarySink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 Dictionary dictionary = (Dictionary) targetTableIf;
                 // insertCtx is not useful for dictionary. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
-                        () -> new DictionaryInsertExecutor(ctx, dictionary, label, planner, insertCtx, emptyInsert));
+                        () -> new DictionaryInsertExecutor(
+                                ctx, dictionary, label, planner, insertCtx, emptyInsert, jobId));
             } else if (physicalSink instanceof PhysicalBlackholeSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 // insertCtx is not useful for blackhole. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
-                        () -> new BlackholeInsertExecutor(ctx, targetTableIf, label, planner, insertCtx, emptyInsert));
+                        () -> new BlackholeInsertExecutor(
+                                ctx, targetTableIf, label, planner, insertCtx, emptyInsert, jobId));
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
@@ -523,9 +542,27 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             LOG.debug("insert into plan for query_id: {} is: {}.", DebugUtil.printId(ctx.queryId()),
                     planner.getPhysicalPlan().treeString());
         }
+
         // step 4
         BuildInsertExecutorResult build = executorFactoryRef.get().build();
+
+        // apply insert plan Statistic
+        applyInsertPlanStatistic(planner);
         return build;
+    }
+
+    private void applyInsertPlanStatistic(FastInsertIntoValuesPlanner planner) {
+        LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId());
+        if (loadJob == null) {
+            return;
+        }
+        for (PlanFragment fragment : planner.getFragments()) {
+            if (fragment.getPlanRoot() instanceof FileScanNode) {
+                FileScanNode fileScanNode = (FileScanNode) fragment.getPlanRoot();
+                Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId())
+                        .addLoadFileInfo((int) fileScanNode.getSelectedSplitNum(), fileScanNode.getTotalFileSize());
+            }
+        }
     }
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
@@ -537,7 +574,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         if (insertExecutorListener != null) {
             insertExecutor.registerListener(insertExecutorListener);
         }
-        insertExecutor.executeSingleInsert(executor, jobId);
+        insertExecutor.executeSingleInsert(executor);
     }
 
     public boolean isExternalTableSink() {
@@ -684,5 +721,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             this.dataSink = dataSink;
             this.physicalSink = physicalSink;
         }
+    }
+
+    @Override
+    public String toDigest() {
+        // if with cte, query will be print twice
+        StringBuilder sb = new StringBuilder();
+        sb.append(originLogicalQuery.toDigest());
+        if (cte.isPresent()) {
+            sb.append(" ").append(cte.get().toDigest());
+        }
+        return sb.toString();
     }
 }

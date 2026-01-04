@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 
@@ -31,8 +32,10 @@ import java.util.List;
 public class PartitionNamesInfo {
     // Default partition count to collect statistic for external table.
     private static final long DEFAULT_PARTITION_COUNT = 100;
+    @SerializedName(value = "partitionNames")
     private final List<String> partitionNames;
     // true if these partitions are temp partitions
+    @SerializedName(value = "isTemp")
     private final boolean isTemp;
     private final boolean isStar;
     private final long count;

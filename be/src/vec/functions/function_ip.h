@@ -647,6 +647,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -713,14 +714,14 @@ public:
         // >= min ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &min_ip, query_param));
-        segment_v2::InvertedIndexParam res_param;
-        res_param.column_name = data_type_with_name.first;
-        res_param.column_type = data_type_with_name.second;
-        res_param.query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
-        res_param.query_value = query_param->get_value();
-        res_param.num_rows = num_rows;
-        res_param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&res_param));
+        segment_v2::InvertedIndexParam min_param;
+        min_param.column_name = data_type_with_name.first;
+        min_param.column_type = data_type_with_name.second;
+        min_param.query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+        min_param.query_value = query_param->get_value();
+        min_param.num_rows = num_rows;
+        min_param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iter->read_from_index(&min_param));
 
         // <= max ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
@@ -734,21 +735,18 @@ public:
         max_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iter->read_from_index(&max_param));
 
+        auto result_roaring = std::make_shared<roaring::Roaring>();
+        *result_roaring = *min_param.roaring & *max_param.roaring;
+
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "ip.inverted_index_filtered", "req_id", 0);
             LOG(INFO) << "execute inverted index req_id: " << req_id
-                      << " min: " << res_param.roaring->cardinality();
-        });
-        *res_param.roaring &= *max_param.roaring;
-        DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
-            auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                    "ip.inverted_index_filtered", "req_id", 0);
-            LOG(INFO) << "execute inverted index req_id: " << req_id
+                      << " min: " << min_param.roaring->cardinality()
                       << " max: " << max_param.roaring->cardinality()
-                      << " result: " << res_param.roaring->cardinality();
+                      << " result: " << result_roaring->cardinality();
         });
-        segment_v2::InvertedIndexResultBitmap result(res_param.roaring, null_bitmap);
+        segment_v2::InvertedIndexResultBitmap result(result_roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
         return Status::OK();

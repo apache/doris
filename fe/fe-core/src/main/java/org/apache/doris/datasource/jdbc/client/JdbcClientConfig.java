@@ -19,6 +19,7 @@
 package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.datasource.CatalogProperty;
 
 import com.google.common.collect.Maps;
 
@@ -39,6 +40,9 @@ public class JdbcClientConfig implements Cloneable {
     private int connectionPoolMaxWaitTime;
     private int connectionPoolMaxLifeTime;
     private boolean connectionPoolKeepAlive;
+    // Whether to enable mapping BINARY to doris VARBINARY
+    // default: false, mapping to doris string type
+    private boolean enableMappingVarbinary;
 
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
@@ -61,6 +65,8 @@ public class JdbcClientConfig implements Cloneable {
         this.includeDatabaseMap = Maps.newHashMap();
         this.excludeDatabaseMap = Maps.newHashMap();
         this.customizedProperties = Maps.newHashMap();
+        this.enableMappingVarbinary = Boolean.parseBoolean(
+                JdbcResource.getDefaultPropertyValue(CatalogProperty.ENABLE_MAPPING_VARBINARY));
     }
 
     @Override
@@ -224,6 +230,15 @@ public class JdbcClientConfig implements Cloneable {
     public JdbcClientConfig setExcludeDatabaseMap(Map<String, Boolean> excludeDatabaseMap) {
         this.excludeDatabaseMap = excludeDatabaseMap;
         return this;
+    }
+
+    public JdbcClientConfig setEnableMappingVarbinary(boolean enableMappingVarbinary) {
+        this.enableMappingVarbinary = enableMappingVarbinary;
+        return this;
+    }
+
+    public boolean isEnableMappingVarbinary() {
+        return enableMappingVarbinary;
     }
 
     public void setCustomizedProperties(Map<String, String> customizedProperties) {

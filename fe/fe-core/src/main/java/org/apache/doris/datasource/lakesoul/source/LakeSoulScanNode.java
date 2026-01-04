@@ -28,7 +28,6 @@ import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
@@ -60,6 +59,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulScanNode extends FileQueryScanNode {
 
     private static final Logger LOG = LogManager.getLogger(LakeSoulScanNode.class);
@@ -80,7 +83,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     String readType;
 
     public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv, sv);
+        super(id, desc, "planNodeName", needCheckColumnPriv, sv);
     }
 
     @Override

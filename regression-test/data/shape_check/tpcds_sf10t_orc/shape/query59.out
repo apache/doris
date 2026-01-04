@@ -16,13 +16,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF5 d_week_seq->[d_week_seq]
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF6 d_week_seq->[d_week_seq]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(cast(d_week_seq2 as BIGINT) - 52)) and (y.s_store_id1 = x.s_store_id2)) otherCondition=() build RFs:RF4 s_store_id2->[s_store_id]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(cast(d_week_seq2 as BIGINT) - 52)) and (y.s_store_id1 = x.s_store_id2)) otherCondition=() build RFs:RF4 s_store_id2->[s_store_id];RF5 expr_(cast(d_week_seq2 as BIGINT) - 52)->[cast(d_week_seq as BIGINT)]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk]
 ----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF5
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF5 RF6
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store] apply RFs: RF4
 ------------------PhysicalProject

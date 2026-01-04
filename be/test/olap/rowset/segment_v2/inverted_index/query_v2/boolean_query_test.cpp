@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -28,8 +26,9 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query_builder.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
@@ -89,7 +88,7 @@ private:
         indexwriter->setMergeFactor(1000000000);
         indexwriter->setUseCompoundFile(false);
 
-        auto* char_string_reader = _CLNEW lucene::util::SStringReader<char>;
+        auto char_string_reader = std::make_shared<lucene::util::SStringReader<char>>();
 
         auto* doc = _CLNEW lucene::document::Document();
         int32_t field_config = lucene::document::Field::STORE_NO;
@@ -114,7 +113,6 @@ private:
 
         _CLLDELETE(indexwriter);
         _CLLDELETE(doc);
-        _CLLDELETE(char_string_reader);
     }
 };
 
@@ -130,9 +128,9 @@ static Status boolean_query_search(
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
-    query_v2::BooleanQuery::Builder builder(op);
+    query_v2::OperatorBooleanQueryBuilder builder(op);
     {
-        query_v2::BooleanQuery::Builder builder_child(query_v2::OperatorType::OP_AND);
+        query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_AND);
         for (const auto& term : terms.first) {
             std::wstring t = StringHelper::to_wstring(term);
             auto clause = std::make_shared<query_v2::TermQuery>(context, field, t);
@@ -142,7 +140,7 @@ static Status boolean_query_search(
         builder.add(boolean_query, binding_key);
     }
     {
-        query_v2::BooleanQuery::Builder builder_child(query_v2::OperatorType::OP_OR);
+        query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_OR);
         for (const auto& term : terms.second) {
             std::wstring t = StringHelper::to_wstring(term);
             auto clause = std::make_shared<query_v2::TermQuery>(context, field, t);
@@ -280,7 +278,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_not_operation) {
     std::string binding_key =
             std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
 
-    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_NOT);
+    query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_NOT);
     builder.add(std::make_shared<query_v2::TermQuery>(context, field,
                                                       StringHelper::to_wstring("apple")),
                 binding_key);
@@ -318,7 +316,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_with_not_operation) {
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
     ASSERT_TRUE(reader_holder != nullptr);
 
-    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_OR);
     auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
     std::string include_key =
             std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
@@ -326,7 +324,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_with_not_operation) {
                                                       StringHelper::to_wstring("apple")),
                 include_key);
     {
-        query_v2::BooleanQuery::Builder not_builder(query_v2::OperatorType::OP_NOT);
+        query_v2::OperatorBooleanQueryBuilder not_builder(query_v2::OperatorType::OP_NOT);
         not_builder.add(std::make_shared<query_v2::TermQuery>(context, field,
                                                               StringHelper::to_wstring("banana")),
                         include_key);
@@ -382,19 +380,19 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
     auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
     ASSERT_TRUE(reader_holder != nullptr);
 
-    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_OR);
     auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
     std::string binding_key =
             std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
     {
-        query_v2::BooleanQuery::Builder builder_child(query_v2::OperatorType::OP_AND);
+        query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_AND);
         auto clause = std::make_shared<query_v2::TermQuery>(context, field,
                                                             StringHelper::to_wstring("apple"));
         builder_child.add(clause, binding_key);
         builder.add(builder_child.build(), binding_key);
     }
     {
-        query_v2::BooleanQuery::Builder builder_child(query_v2::OperatorType::OP_OR);
+        query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_OR);
         auto clause = std::make_shared<query_v2::TermQuery>(context, field,
                                                             StringHelper::to_wstring("kiwi"));
         builder_child.add(clause, binding_key);
@@ -467,7 +465,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     {
-        query_v2::BooleanQuery::Builder b(query_v2::OperatorType::OP_AND);
+        query_v2::OperatorBooleanQueryBuilder b(query_v2::OperatorType::OP_AND);
         b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
                                                     StringHelper::to_wstring("apple")),
               binding1);
@@ -488,7 +486,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
     }
 
     {
-        query_v2::BooleanQuery::Builder b(query_v2::OperatorType::OP_OR);
+        query_v2::OperatorBooleanQueryBuilder b(query_v2::OperatorType::OP_OR);
         b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
                                                     StringHelper::to_wstring("apple")),
               binding1);
@@ -543,10 +541,10 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
         }
     }
 
-    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_AND);
+    query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_AND);
     builder.add(std::make_shared<query_v2::TermQuery>(context, field,
                                                       StringHelper::to_wstring("apple")));
-    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    builder.add(std::make_shared<query_v2::BitSetQuery>(bm));
     auto q = builder.build();
 
     auto w = q->weight(false);
@@ -594,10 +592,10 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
         }
     }
 
-    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_OR);
     builder.add(std::make_shared<query_v2::TermQuery>(context, field,
                                                       StringHelper::to_wstring("apple")));
-    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    builder.add(std::make_shared<query_v2::BitSetQuery>(bm));
     auto q = builder.build();
 
     auto w = q->weight(false);

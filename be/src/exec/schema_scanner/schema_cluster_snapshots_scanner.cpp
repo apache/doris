@@ -174,25 +174,12 @@ Status SchemaClusterSnapshotsScanner::_fill_block_impl(vectorized::Block* block)
     }
     // status
     {
-        std::string prepare_status = "PREPARE";
-        std::string normal_status = "NORMAL";
-        std::string aborted_status = "ABORTED";
+        std::vector<std::string> status(row_num);
         for (int i = 0; i < row_num; ++i) {
             auto& snapshot = _snapshots[i];
             if (snapshot.has_status()) {
-                auto status = snapshot.status();
-                std::string* value;
-                if (status == cloud::SnapshotStatus::SNAPSHOT_PREPARE) {
-                    value = &prepare_status;
-                } else if (status == cloud::SnapshotStatus::SNAPSHOT_NORMAL) {
-                    value = &normal_status;
-                } else if (status == cloud::SnapshotStatus::SNAPSHOT_ABORTED) {
-                    value = &aborted_status;
-                } else {
-                    return Status::InternalError("Unknown snapshot status: ",
-                                                 std::to_string(status));
-                }
-                strs[i] = StringRef(value->c_str(), value->size());
+                status[i] = SnapshotStatus_Name(snapshot.status());
+                strs[i] = StringRef(status[i].c_str(), status[i].size());
                 datas[i] = strs.data() + i;
             } else {
                 datas[i] = nullptr;

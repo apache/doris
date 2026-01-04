@@ -17,22 +17,23 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 
 public class InsertTarget {
     private final TableNameInfo tblName;
-    private final PartitionNames partitionNames;
+    private final PartitionNamesInfo partitionNamesInfo;
 
-    public InsertTarget(TableNameInfo tblName, PartitionNames partitionNames) {
+    public InsertTarget(TableNameInfo tblName, PartitionNamesInfo partitionNamesInfo) {
         this.tblName = tblName;
-        this.partitionNames = partitionNames;
+        this.partitionNamesInfo = partitionNamesInfo;
     }
 
     public TableNameInfo getTblName() {
         return tblName;
     }
 
-    public PartitionNames getPartitionNames() {
-        return partitionNames;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 }

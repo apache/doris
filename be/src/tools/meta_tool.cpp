@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gflags/gflags.h>
@@ -37,7 +38,6 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 
 using doris::DataDir;
 using doris::StorageEngine;
@@ -88,7 +88,7 @@ void show_meta() {
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
     doris::TabletMetaPB tablet_meta_pb;
-    tablet_meta.to_meta_pb(&tablet_meta_pb);
+    tablet_meta.to_meta_pb(&tablet_meta_pb, false);
     json2pb::ProtoMessageToJson(tablet_meta_pb, &json_meta, json_options);
     std::cout << json_meta << std::endl;
 }
@@ -183,7 +183,7 @@ void batch_delete_meta(const std::string& tablet_file) {
         if (dir_map.find(dir) == dir_map.end()) {
             // new data dir, init it
             std::unique_ptr<DataDir> data_dir_p;
-            Status st = init_data_dir(engine, dir, &data_dir_p);
+            st = init_data_dir(engine, dir, &data_dir_p);
             if (!st.ok()) {
                 std::cout << "invalid root path:" << FLAGS_root_path
                           << ", error: " << st.to_string() << std::endl;
@@ -263,7 +263,7 @@ Status get_segment_footer(doris::io::FileReader* file_reader, SegmentFooterPB* f
 
     // validate footer PB's checksum
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
-    uint32_t actual_checksum = doris::crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t actual_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
                 "Bad segment file {}: footer checksum not match, actual={} vs expect={}", file_name,

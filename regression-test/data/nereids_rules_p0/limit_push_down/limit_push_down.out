@@ -99,24 +99,24 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[t1]
 
 -- !limit_offset_agg --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[t1]
 
 -- !limit_distinct --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------NestedLoopJoin[CROSS_JOIN]
 ----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
+------------hashAgg[GLOBAL]
 --------------PhysicalOlapScan[t1]
 ----------PhysicalStorageLayerAggregate[t2]
 
@@ -124,10 +124,10 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------NestedLoopJoin[CROSS_JOIN]
 ----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
+------------hashAgg[GLOBAL]
 --------------PhysicalOlapScan[t1]
 ----------PhysicalStorageLayerAggregate[t2]
 
@@ -135,10 +135,10 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
+------------hashAgg[GLOBAL]
 --------------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 
@@ -151,7 +151,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalTopN[LOCAL_SORT]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[t1]
 
 -- !limit_set_operation --
@@ -162,10 +162,10 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------PhysicalOlapScan[t1]
 ------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------PhysicalOlapScan[t2]
 
 -- !limit_offset_set_operation --
@@ -270,7 +270,7 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------PhysicalUnion
 --------PhysicalLimit[LOCAL]
-----------filter((cast(msg as DOUBLE) > 100.0))
+----------filter((cast(msg as DECIMALV3(38, 6)) > 100.000000))
 ------------PhysicalOlapScan[t1]
 --------PhysicalLimit[LOCAL]
 ----------filter((t2.id > 100))
@@ -351,12 +351,12 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
 ------------------PhysicalOlapScan[t2]
 ------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
 ------------------PhysicalOlapScan[t3]
 ------------------PhysicalOlapScan[t4]
@@ -506,7 +506,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[t1]
 
 -- !limit_cross_join --
@@ -704,5 +704,5 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 ------------PhysicalOlapScan[t4]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t4]
+----------PhysicalOlapScan[t4(x)]
 

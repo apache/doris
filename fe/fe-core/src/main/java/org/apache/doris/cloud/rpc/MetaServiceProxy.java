@@ -419,6 +419,11 @@ public class MetaServiceProxy {
         return w.executeRequest((client) -> client.resetRLProgress(request));
     }
 
+    public Cloud.ResetStreamingJobOffsetResponse resetStreamingJobOffset(Cloud.ResetStreamingJobOffsetRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.resetStreamingJobOffset(request));
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
         return w.executeRequest((client) -> client.getObjStoreInfo(request));

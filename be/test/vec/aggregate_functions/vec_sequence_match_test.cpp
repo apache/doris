@@ -55,9 +55,9 @@ public:
                 std::make_shared<DataTypeString>(), std::make_shared<DataTypeDateTimeV2>(),
                 std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>()};
-        agg_function_sequence_match = factory.get("sequence_match", data_types, false, -1);
+        agg_function_sequence_match = factory.get("sequence_match", data_types, nullptr, false, -1);
         EXPECT_NE(agg_function_sequence_match, nullptr);
-        agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
+        agg_function_sequence_count = factory.get("sequence_count", data_types, nullptr, false, -1);
         EXPECT_NE(agg_function_sequence_count, nullptr);
     }
 
@@ -193,7 +193,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     DataTypes data_types = {std::make_shared<DataTypeString>(),
                             std::make_shared<DataTypeDateTimeV2>(),
                             std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
-    agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
+    agg_function_sequence_count = factory.get("sequence_count", data_types, nullptr, false, -1);
     EXPECT_NE(agg_function_sequence_count, nullptr);
 
     const int NUM_CONDS = 4;
@@ -258,7 +258,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     DataTypes data_types = {std::make_shared<DataTypeString>(),
                             std::make_shared<DataTypeDateTimeV2>(),
                             std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
-    agg_function_sequence_match = factory.get("sequence_match", data_types, false, -1);
+    agg_function_sequence_match = factory.get("sequence_match", data_types, nullptr, false, -1);
     EXPECT_NE(agg_function_sequence_match, nullptr);
 
     const int NUM_CONDS = 2;
@@ -347,7 +347,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     DataTypes data_types = {std::make_shared<DataTypeString>(),
                             std::make_shared<DataTypeDateTimeV2>(),
                             std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
-    agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
+    agg_function_sequence_count = factory.get("sequence_count", data_types, nullptr, false, -1);
     EXPECT_NE(agg_function_sequence_count, nullptr);
 
     const int NUM_CONDS = 2;

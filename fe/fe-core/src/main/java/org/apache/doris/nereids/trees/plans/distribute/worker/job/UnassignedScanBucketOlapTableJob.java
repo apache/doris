@@ -204,34 +204,52 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         BucketScanSource serialScanSource = split.key();
         BucketScanSource nonSerialScanSource = split.value();
 
-        List<BucketScanSource> parallelizedSources = (List) nonSerialScanSource.parallelize(scanNodes, instanceNum);
-        BucketScanSource firstInstanceScanSource = serialScanSource;
-        if (!parallelizedSources.isEmpty()) {
-            firstInstanceScanSource = serialScanSource.newMergeBucketScanSource(parallelizedSources.get(0));
-        }
-        int shareScanId = shareScanIdGenerator.getAndIncrement();
-        LocalShuffleBucketJoinAssignedJob firstInstance = new LocalShuffleBucketJoinAssignedJob(
-                instances.size(), shareScanId, context.nextInstanceId(),
-                this, worker,
-                firstInstanceScanSource,
-                Utils.fastToImmutableSet(firstInstanceScanSource.bucketIndexToScanNodeToTablets.keySet())
-        );
-        instances.add(firstInstance);
-
-        for (int i = 1; i < parallelizedSources.size(); i++) {
-            BucketScanSource nonFirstInstanceScanSource = parallelizedSources.get(i);
-            LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
-                    instances.size(), shareScanId, context.nextInstanceId(),
-                    this, worker,
-                    nonFirstInstanceScanSource,
-                    Utils.fastToImmutableSet(nonFirstInstanceScanSource.bucketIndexToScanNodeToTablets.keySet())
-            );
-            instances.add(instance);
-        }
-
         BucketScanSource shareScanSource = (BucketScanSource) scanSource;
         ScanSource emptyShareScanSource = shareScanSource.newEmpty();
-        for (int i = instances.size(); i < instanceNum; ++i) {
+        int shareScanId = shareScanIdGenerator.getAndIncrement();
+        int existsInstanceNum = instances.size();
+        if (nonSerialScanSource.isEmpty()) {
+            List<BucketScanSource> assignedJoinBuckets
+                    = (List) serialScanSource.parallelize(scanNodes, instanceNum);
+            for (int i = 0; i < assignedJoinBuckets.size(); i++) {
+                BucketScanSource assignedJoinBucket = assignedJoinBuckets.get(i);
+                LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
+                        instances.size(), shareScanId, context.nextInstanceId(),
+                        this, worker,
+                        // only first instance to scan all data
+                        i == 0 ? serialScanSource : emptyShareScanSource,
+                        // but join can assign to multiple instances
+                        Utils.fastToImmutableSet(assignedJoinBucket.bucketIndexToScanNodeToTablets.keySet())
+                );
+                instances.add(instance);
+            }
+        } else {
+            List<BucketScanSource> parallelizedSources
+                    = (List) nonSerialScanSource.parallelize(scanNodes, instanceNum);
+            BucketScanSource firstInstanceScanSource
+                    = serialScanSource.newMergeBucketScanSource(parallelizedSources.get(0));
+            LocalShuffleBucketJoinAssignedJob firstInstance = new LocalShuffleBucketJoinAssignedJob(
+                    instances.size(), shareScanId, context.nextInstanceId(),
+                    this, worker,
+                    firstInstanceScanSource,
+                    Utils.fastToImmutableSet(parallelizedSources.get(0).bucketIndexToScanNodeToTablets.keySet())
+            );
+            instances.add(firstInstance);
+
+            for (int i = 1; i < parallelizedSources.size(); i++) {
+                BucketScanSource nonFirstInstanceScanSource = parallelizedSources.get(i);
+                LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
+                        instances.size(), shareScanId, context.nextInstanceId(),
+                        this, worker,
+                        nonFirstInstanceScanSource,
+                        Utils.fastToImmutableSet(nonFirstInstanceScanSource.bucketIndexToScanNodeToTablets.keySet())
+                );
+                instances.add(instance);
+            }
+        }
+
+        int thisWorkerInstanceNum = instances.size() - existsInstanceNum;
+        for (int i = thisWorkerInstanceNum; i < instanceNum; ++i) {
             LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
                     instances.size(), shareScanId, context.nextInstanceId(),
                     this, worker, emptyShareScanSource,
@@ -437,7 +455,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         for (Integer bucketIndex : selectBucketIndexes) {
             Long tabletIdInBucket = tabletIdsInOrder.get(bucketIndex);
             Tablet tabletInBucket = partition.getTablet(tabletIdInBucket);
-            List<DistributedPlanWorker> workers = getWorkersByReplicas(tabletInBucket);
+            List<DistributedPlanWorker> workers = getWorkersByReplicas(tabletInBucket, olapScanNode.getCatalogId());
             if (workers.isEmpty()) {
                 throw new IllegalStateException("Can not found available replica for bucket " + bucketIndex
                         + ", table: " + olapScanNode);
@@ -448,12 +466,12 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         return fillUpWorkerToBuckets;
     }
 
-    private List<DistributedPlanWorker> getWorkersByReplicas(Tablet tablet) {
+    private List<DistributedPlanWorker> getWorkersByReplicas(Tablet tablet, long catalogId) {
         DistributedPlanWorkerManager workerManager = scanWorkerSelector.getWorkerManager();
         List<Replica> replicas = tablet.getReplicas();
         List<DistributedPlanWorker> workers = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
-            DistributedPlanWorker worker = workerManager.getWorker(replica.getBackendIdWithoutException());
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, replica.getBackendIdWithoutException());
             if (worker.available()) {
                 workers.add(worker);
             }

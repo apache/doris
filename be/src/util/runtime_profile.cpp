@@ -87,7 +87,7 @@ bool RuntimeProfile::Counter::operator==(const Counter& other) const {
            _type == other._type && _level == other._level;
 }
 
-void RuntimeProfile::merge(RuntimeProfile* other) {
+void RuntimeProfile::merge(const RuntimeProfile* other) {
     DCHECK(other != nullptr);
 
     // Merge this level
@@ -427,11 +427,11 @@ RuntimeProfile* RuntimeProfile::get_child(std::string name) {
     return it->second;
 }
 
-void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) {
+void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) const {
     children->clear();
     std::lock_guard<std::mutex> l(_children_lock);
 
-    for (ChildMap::iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
+    for (ChildMap::const_iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
         children->push_back(i->second);
     }
 }

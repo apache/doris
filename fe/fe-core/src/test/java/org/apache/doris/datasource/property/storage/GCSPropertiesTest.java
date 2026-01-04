@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -109,5 +110,22 @@ public class GCSPropertiesTest {
         gcsProps.put("gs.secret_key", "mySecretKey");
         gcsStorageProperties = (GCSProperties) StorageProperties.createPrimary(gcsProps);
         Assertions.assertEquals(StaticCredentialsProvider.class, gcsStorageProperties.getAwsCredentialsProvider().getClass());
+    }
+
+    @Test
+    public void testS3DisableHadoopCache() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("fs.gcs.support", "true");
+        GCSProperties s3Properties = (GCSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.gs.impl.disable.cache", false));
+        props.put("fs.gs.impl.disable.cache", "true");
+        s3Properties = (GCSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.gs.impl.disable.cache", false));
+        props.put("fs.gs.impl.disable.cache", "false");
+        s3Properties = (GCSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.gs.impl.disable.cache", false));
+        props.put("fs.gs.impl.disable.cache", "null");
+        s3Properties = (GCSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.gs.impl.disable.cache", false));
     }
 }

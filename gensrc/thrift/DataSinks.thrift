@@ -45,8 +45,8 @@ enum TDataSinkType {
 }
 
 enum TResultSinkType {
-    MYSQL_PROTOCAL = 0,
-    ARROW_FLIGHT_PROTOCAL = 1,
+    MYSQL_PROTOCOL = 0,
+    ARROW_FLIGHT_PROTOCOL = 1,
     FILE = 2,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
 }
 
@@ -426,6 +426,10 @@ struct TIcebergTableSink {
     12: optional string original_output_path
     13: optional PlanNodes.TFileCompressType compression_type
     14: optional list<Types.TNetworkAddress> broker_addresses;
+    // Static partition values for static partition overwrite
+    // Key: partition column name, Value: partition value as string
+    // When set, BE should use these values directly instead of computing from data
+    15: optional map<string, string> static_partition_values;
 }
 
 enum TDictLayoutType {

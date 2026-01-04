@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -68,7 +69,8 @@ public class InsertTask extends AbstractTask {
             new Column("TrackingUrl", ScalarType.createStringType()),
             new Column("LoadStatistic", ScalarType.createStringType()),
             new Column("User", ScalarType.createStringType()),
-            new Column("FirstErrorMsg", ScalarType.createStringType()));
+            new Column("FirstErrorMsg", ScalarType.createStringType()),
+            new Column("RunningOffset", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -276,6 +278,7 @@ public class InsertTask extends AbstractTask {
             trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
         }
         trow.addToColumnValue(new TCell().setStringVal(firstErrorMsg == null ? "" : firstErrorMsg));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         return trow;
     }
 
@@ -296,6 +299,7 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(""));
         return trow;
     }

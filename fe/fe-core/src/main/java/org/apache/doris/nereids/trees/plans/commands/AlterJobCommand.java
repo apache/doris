@@ -20,15 +20,19 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -50,16 +54,57 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     private final String jobName;
     private final Map<String, String> properties;
     private final String sql;
+    private final String sourceType;
+    private final String targetDb;
+    private final Map<String, String> sourceProperties;
+    private final Map<String, String> targetProperties;
 
-    public AlterJobCommand(String jobName, Map<String, String> properties, String sql) {
+    /**
+     * AlterJobCommand constructor.
+     */
+    public AlterJobCommand(String jobName,
+            Map<String, String> properties,
+            String sql,
+            String sourceType,
+            String targetDb,
+            Map<String, String> sourceProperties,
+            Map<String, String> targetProperties) {
         super(PlanType.ALTER_JOB_COMMAND);
         this.jobName = jobName;
         this.properties = properties;
         this.sql = sql;
+        this.sourceType = sourceType;
+        this.targetDb = targetDb;
+        this.sourceProperties = sourceProperties;
+        this.targetProperties = targetProperties;
     }
 
     public String getJobName() {
         return jobName;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public String getSql() {
+        return sql;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public String getTargetDb() {
+        return targetDb;
+    }
+
+    public Map<String, String> getSourceProperties() {
+        return sourceProperties;
+    }
+
+    public Map<String, String> getTargetProperties() {
+        return targetProperties;
     }
 
     @Override
@@ -70,31 +115,12 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
-        AbstractJob job = analyzeAndBuildJobInfo(ctx);
-        ctx.getEnv().getJobManager().alterJob(job);
+        ctx.getEnv().getJobManager().alterJob(this);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAlterJobCommand(this, context);
-    }
-
-    private AbstractJob analyzeAndBuildJobInfo(ConnectContext ctx) throws JobException {
-        AbstractJob job = Env.getCurrentEnv().getJobManager().getJobByName(jobName);
-        if (job instanceof StreamingInsertJob) {
-            StreamingInsertJob updateJob = (StreamingInsertJob) job;
-            // update sql
-            if (StringUtils.isNotEmpty(sql)) {
-                updateJob.updateExecuteSql(sql);
-            }
-            // update properties
-            if (!properties.isEmpty()) {
-                updateJob.getProperties().putAll(properties);
-            }
-            return updateJob;
-        } else {
-            throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
-        }
     }
 
     private void validate() throws Exception {
@@ -108,27 +134,112 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)
                 && job instanceof StreamingInsertJob) {
             StreamingInsertJob streamingJob = (StreamingInsertJob) job;
-            boolean proCheck = checkProperties(streamingJob.getProperties());
-            boolean sqlCheck = checkSql(streamingJob.getExecuteSql());
-            if (sqlCheck) {
-                checkUnmodifiableProperties(streamingJob.getExecuteSql());
-            }
-            if (!proCheck && !sqlCheck) {
-                throw new AnalysisException("No properties or sql changed in ALTER JOB");
+            streamingJob.checkPrivilege(ConnectContext.get());
+
+            if (sourceType == null) {
+                boolean propModified =
+                        isPropertiesModified(streamingJob.getProperties(), this.getProperties());
+                if (propModified) {
+                    validateProps(streamingJob);
+                }
+                boolean sqlModified = isSqlModified(streamingJob.getExecuteSql());
+                if (sqlModified) {
+                    checkUnmodifiableProperties(streamingJob.getExecuteSql());
+                }
+                if (!propModified && !sqlModified) {
+                    throw new AnalysisException("No properties or sql changed in ALTER JOB");
+                }
+            } else {
+                if (!sourceType.toUpperCase().equals(streamingJob.getDataSourceType().name())) {
+                    throw new AnalysisException("source type can't be modified in ALTER JOB");
+                }
+
+                if (StringUtils.isNotEmpty(targetDb) && !targetDb.equals(streamingJob.getTargetDb())) {
+                    throw new AnalysisException("target database can't be modified in ALTER JOB");
+                }
+
+                boolean propModified = isPropertiesModified(streamingJob.getProperties(), this.getProperties());
+                if (propModified) {
+                    validateProps(streamingJob);
+                }
+
+                boolean sourcePropModified =
+                        isPropertiesModified(streamingJob.getSourceProperties(), this.getSourceProperties());
+                if (sourcePropModified) {
+                    DataSourceConfigValidator.validateSource(this.getSourceProperties());
+                    checkUnmodifiableSourceProperties(streamingJob.getSourceProperties());
+                }
+
+                boolean targetPropModified =
+                        isPropertiesModified(streamingJob.getTargetProperties(), this.getTargetProperties());
+                if (targetPropModified) {
+                    DataSourceConfigValidator.validateTarget(this.getTargetProperties());
+                }
+                if (!propModified && !targetPropModified && !sourcePropModified) {
+                    throw new AnalysisException("No properties or source or target properties changed in ALTER JOB");
+                }
             }
         } else {
             throw new AnalysisException("Unsupported job type for ALTER:" + job.getJobType());
         }
     }
 
+    private void checkUnmodifiableSourceProperties(Map<String, String> originSourceProperties) {
+        if (sourceProperties.containsKey(DataSourceConfigKeys.JDBC_URL)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.JDBC_URL),
+                    sourceProperties.get(DataSourceConfigKeys.JDBC_URL)),
+                    "The jdbc_url property cannot be modified in ALTER JOB");
+        }
+
+        if (sourceProperties.containsKey(DataSourceConfigKeys.DATABASE)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.DATABASE),
+                    sourceProperties.get(DataSourceConfigKeys.DATABASE)),
+                    "The database property cannot be modified in ALTER JOB");
+        }
+
+        if (sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES),
+                    sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES)),
+                    "The include_tables property cannot be modified in ALTER JOB");
+        }
+
+        if (sourceProperties.containsKey(DataSourceConfigKeys.EXCLUDE_TABLES)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES),
+                    sourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES)),
+                    "The exclude_tables property cannot be modified in ALTER JOB");
+        }
+    }
+
+    private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
+        StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
+        jobProperties.validate();
+        // from to job no need valiate offset in job properties
+        if (streamingJob.getDataSourceType() == null
+                && jobProperties.getOffsetProperty() != null) {
+            streamingJob.validateOffset(jobProperties.getOffsetProperty());
+        }
+    }
+
     /**
      * Check if there are any unmodifiable properties in TVF
      */
-    private void checkUnmodifiableProperties(String originExecuteSql) {
-        UnboundTVFRelation originTvf = getTvf(originExecuteSql);
-        UnboundTVFRelation inputTvf = getTvf(sql);
+    private void checkUnmodifiableProperties(String originExecuteSql) throws AnalysisException {
+        Pair<List<String>, UnboundTVFRelation> origin = getTargetTableAndTvf(originExecuteSql);
+        Pair<List<String>, UnboundTVFRelation> input = getTargetTableAndTvf(sql);
+        UnboundTVFRelation originTvf = origin.second;
+        UnboundTVFRelation inputTvf = input.second;
+
+        Preconditions.checkArgument(Objects.equals(origin.first, input.first),
+                "The target table cannot be modified in ALTER JOB");
+
         Preconditions.checkArgument(originTvf.getFunctionName().equalsIgnoreCase(inputTvf.getFunctionName()),
-                "The tvf type %s cannot be modified in ALTER JOB", inputTvf);
+                "The tvf type cannot be modified in ALTER JOB: original=%s, new=%s",
+                originTvf.getFunctionName(), inputTvf.getFunctionName());
+
         switch (originTvf.getFunctionName().toLowerCase()) {
             case "s3":
                 Preconditions.checkArgument(Objects.equals(originTvf.getProperties().getMap().get("uri"),
@@ -140,26 +251,31 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         }
     }
 
-    private UnboundTVFRelation getTvf(String sql) {
+    private Pair<List<String>, UnboundTVFRelation> getTargetTableAndTvf(String sql) throws AnalysisException {
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        if (!(logicalPlan instanceof InsertIntoTableCommand)) {
+            throw new AnalysisException("Only support insert command");
+        }
+        LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+        List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ConnectContext.get());
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) logicalPlan;
         List<UnboundTVFRelation> allTVFRelation = baseCommand.getAllTVFRelation();
         Preconditions.checkArgument(allTVFRelation.size() == 1, "Only support one source in insert streaming job");
         UnboundTVFRelation unboundTVFRelation = allTVFRelation.get(0);
-        return unboundTVFRelation;
+        return Pair.of(targetTable, unboundTVFRelation);
     }
 
-    private boolean checkProperties(Map<String, String> originProps) {
-        if (this.properties == null || this.properties.isEmpty()) {
+    private boolean isPropertiesModified(Map<String, String> originProps, Map<String, String> modifiedProps) {
+        if (modifiedProps == null || modifiedProps.isEmpty()) {
             return false;
         }
-        if (!Objects.equals(this.properties, originProps)) {
+        if (!Objects.equals(modifiedProps, originProps)) {
             return true;
         }
         return false;
     }
 
-    private boolean checkSql(String originSql) {
+    private boolean isSqlModified(String originSql) {
         if (originSql == null || originSql.isEmpty() || sql == null || sql.isEmpty()) {
             return false;
         }

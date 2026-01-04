@@ -39,6 +39,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/pb_convert.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -203,7 +204,8 @@ Status Compaction::merge_input_rowsets() {
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
-        if (_is_vertical) {
+        // TODO implement vertical compaction for seq map
+        if (_is_vertical && !_tablet->tablet_schema()->has_seq_map()) {
             if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 RETURN_IF_ERROR(update_delete_bitmap());
             }
@@ -360,6 +362,10 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
+
+    // 2. check variant column path stats
+    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+            _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -1156,6 +1162,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    ctx.allow_packed_file = false;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1518,6 +1525,97 @@ int64_t CloudCompactionMixin::initiator() const {
     return HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
 }
 
+namespace cloud {
+size_t truncate_rowsets_by_txn_size(std::vector<RowsetSharedPtr>& rowsets, int64_t& kept_size_bytes,
+                                    int64_t& truncated_size_bytes) {
+    if (rowsets.empty()) {
+        kept_size_bytes = 0;
+        truncated_size_bytes = 0;
+        return 0;
+    }
+
+    int64_t max_size = config::compaction_txn_max_size_bytes;
+    int64_t cumulative_meta_size = 0;
+    size_t keep_count = 0;
+
+    for (size_t i = 0; i < rowsets.size(); ++i) {
+        const auto& rs = rowsets[i];
+
+        // Estimate rowset meta size using doris_rowset_meta_to_cloud
+        auto cloud_meta = cloud::doris_rowset_meta_to_cloud(rs->rowset_meta()->get_rowset_pb(true));
+        int64_t rowset_meta_size = cloud_meta.ByteSizeLong();
+
+        cumulative_meta_size += rowset_meta_size;
+
+        if (keep_count > 0 && cumulative_meta_size > max_size) {
+            // Rollback and stop
+            cumulative_meta_size -= rowset_meta_size;
+            break;
+        }
+
+        keep_count++;
+    }
+
+    // Ensure at least 1 rowset is kept
+    if (keep_count == 0) {
+        keep_count = 1;
+        // Recalculate size for the first rowset
+        const auto& rs = rowsets[0];
+        auto cloud_meta = cloud::doris_rowset_meta_to_cloud(rs->rowset_meta()->get_rowset_pb());
+        cumulative_meta_size = cloud_meta.ByteSizeLong();
+    }
+
+    // Calculate truncated size
+    int64_t truncated_total_size = 0;
+    size_t truncated_count = rowsets.size() - keep_count;
+    if (truncated_count > 0) {
+        for (size_t i = keep_count; i < rowsets.size(); ++i) {
+            auto cloud_meta =
+                    cloud::doris_rowset_meta_to_cloud(rowsets[i]->rowset_meta()->get_rowset_pb());
+            truncated_total_size += cloud_meta.ByteSizeLong();
+        }
+        rowsets.resize(keep_count);
+    }
+
+    kept_size_bytes = cumulative_meta_size;
+    truncated_size_bytes = truncated_total_size;
+    return truncated_count;
+}
+} // namespace cloud
+
+size_t CloudCompactionMixin::apply_txn_size_truncation_and_log(const std::string& compaction_name) {
+    if (_input_rowsets.empty()) {
+        return 0;
+    }
+
+    int64_t original_count = _input_rowsets.size();
+    int64_t original_start_version = _input_rowsets.front()->start_version();
+    int64_t original_end_version = _input_rowsets.back()->end_version();
+
+    int64_t final_size = 0;
+    int64_t truncated_size = 0;
+    size_t truncated_count =
+            cloud::truncate_rowsets_by_txn_size(_input_rowsets, final_size, truncated_size);
+
+    if (truncated_count > 0) {
+        int64_t original_size = final_size + truncated_size;
+        LOG(INFO) << compaction_name << " txn size estimation truncate"
+                  << ", tablet_id=" << _tablet->tablet_id() << ", original_version_range=["
+                  << original_start_version << "-" << original_end_version
+                  << "], final_version_range=[" << _input_rowsets.front()->start_version() << "-"
+                  << _input_rowsets.back()->end_version()
+                  << "], original_rowset_count=" << original_count
+                  << ", final_rowset_count=" << _input_rowsets.size()
+                  << ", truncated_rowset_count=" << truncated_count
+                  << ", original_size_bytes=" << original_size
+                  << ", final_size_bytes=" << final_size
+                  << ", truncated_size_bytes=" << truncated_size
+                  << ", threshold_bytes=" << config::compaction_txn_max_size_bytes;
+    }
+
+    return truncated_count;
+}
+
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
@@ -1612,6 +1710,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    ctx.allow_packed_file = false;
 
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
@@ -1620,6 +1719,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_file_cache = should_cache_compaction_output();
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
+    ctx.tablet = _tablet;
 
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(
@@ -1638,6 +1738,13 @@ Status CloudCompactionMixin::garbage_collection() {
             auto file_key = io::BlockFileCache::hash(file_writer->path().filename().native());
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached_async(file_key);
+        }
+        for (const auto& [_, index_writer] : beta_rowset_writer->index_file_writers()) {
+            for (const auto& file_name : index_writer->get_index_file_names()) {
+                auto file_key = io::BlockFileCache::hash(file_name);
+                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+                file_cache->remove_if_cached_async(file_key);
+            }
         }
     }
     return Status::OK();

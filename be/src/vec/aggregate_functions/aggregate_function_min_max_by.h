@@ -47,6 +47,9 @@ struct MaxMinValue : public MaxMinValueBase {
 
     MaxMinValue() = default;
 
+    MaxMinValue(const DataTypes& argument_types, int be_version)
+            : value(argument_types, be_version) {}
+
     ~MaxMinValue() override = default;
 
     void write(BufferWritable& buf) const override { value.write(buf); }
@@ -67,7 +70,7 @@ struct MaxMinValue : public MaxMinValueBase {
     }
 };
 
-std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type);
+std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version);
 
 /// For bitmap value
 struct BitmapValueData {
@@ -120,6 +123,25 @@ public:
     }
 };
 
+/**
+ * The template parameter KT is introduced here primarily for performance reasons.
+ *
+ * Without using a template parameter, the key type would have to be
+ * std::unique_ptr<MaxMinValueBase>. Since MaxMinValueBase is a polymorphic base
+ * class with virtual methods, comparing keys would inevitably involve virtual
+ * function calls, which can introduce significant runtime overhead.
+ *
+ * By making KT a template parameter, the concrete key type is known at compile
+ * time, allowing static dispatch and avoiding virtual function calls. This
+ * substantially reduces the cost of key comparisons.
+ *
+ * In contrast, the value type VT is intentionally not made a template parameter.
+ * On one hand, templating both key and value types would lead to an n × n
+ * explosion in template instantiations, increasing compile time and code size.
+ * On the other hand, value objects typically only invoke the change method; for
+ * random data, this method is called approximately log(x) times (where x is the
+ * data size), making the overhead acceptable.
+ */
 template <typename KT>
 struct AggregateFunctionMinMaxByBaseData {
 protected:
@@ -127,8 +149,18 @@ protected:
     KT key;
 
 public:
-    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types) {
-        value = create_max_min_value(argument_types[0]);
+    AggregateFunctionMinMaxByBaseData() {}
+
+    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version)
+        requires(std::is_same_v<KT, SingleValueDataComplexType>)
+            : key(SingleValueDataComplexType(DataTypes {argument_types[1]}, be_version)) {
+        value = create_max_min_value(argument_types[0], be_version);
+    }
+
+    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version)
+        requires(!std::is_same_v<KT, SingleValueDataComplexType>)
+    {
+        value = create_max_min_value(argument_types[0], be_version);
     }
 
     void insert_result_into(IColumn& to) const { value->insert_result_into(to); }
@@ -152,8 +184,10 @@ template <typename KT>
 struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT> {
     using Self = AggregateFunctionMaxByData;
 
-    AggregateFunctionMaxByData(const DataTypes argument_types)
-            : AggregateFunctionMinMaxByBaseData<KT>(argument_types) {}
+    AggregateFunctionMaxByData() {}
+
+    AggregateFunctionMaxByData(const DataTypes argument_types, int be_version)
+            : AggregateFunctionMinMaxByBaseData<KT>(argument_types, be_version) {}
 
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena& arena) {
@@ -188,8 +222,11 @@ template <typename KT>
 struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT> {
     using Self = AggregateFunctionMinByData;
 
-    AggregateFunctionMinByData(const DataTypes argument_types)
-            : AggregateFunctionMinMaxByBaseData<KT>(argument_types) {}
+    AggregateFunctionMinByData() {}
+
+    AggregateFunctionMinByData(const DataTypes argument_types, int be_version)
+            : AggregateFunctionMinMaxByBaseData<KT>(argument_types, be_version) {}
+
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena& arena) {
         if (this->key.change_if_less(key_column, row_num, arena)) {
@@ -221,7 +258,7 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT>
 
 template <typename Data>
 class AggregateFunctionsMinMaxBy final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>, true>,
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>,
           MultiExpression,
           NullableAggregateFunction {
 private:
@@ -230,10 +267,14 @@ private:
 
 public:
     AggregateFunctionsMinMaxBy(const DataTypes& arguments)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>, true>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>(
                       {arguments[0], arguments[1]}),
               value_type(this->argument_types[0]),
               key_type(this->argument_types[1]) {}
+
+    void create(AggregateDataPtr __restrict place) const override {
+        new (place) Data(IAggregateFunction::argument_types, IAggregateFunction::version);
+    }
 
     String get_name() const override { return Data::name(); }
 
@@ -270,9 +311,10 @@ public:
     }
 };
 
-template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
+template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     if (argument_types.size() != 2) {
@@ -282,77 +324,81 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
     switch (argument_types[1]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_BOOLEAN>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_BOOLEAN>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TINYINT:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_TINYINT>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_TINYINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_SMALLINT:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_SMALLINT>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_SMALLINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_INT:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_INT>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_INT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_BIGINT:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_BIGINT>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_BIGINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_LARGEINT:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_LARGEINT>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_LARGEINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_FLOAT:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_FLOAT>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_FLOAT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DOUBLE:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_DOUBLE>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DOUBLE>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL32:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataDecimal<TYPE_DECIMAL32>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL32>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL64:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataDecimal<TYPE_DECIMAL64>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL64>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL128I:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataDecimal<TYPE_DECIMAL128I>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL128I>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMALV2:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataDecimal<TYPE_DECIMALV2>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMALV2>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL256:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataString>>>(argument_types,
-                                                                        result_is_nullable, attr);
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataString>>>(argument_types,
+                                                                         result_is_nullable, attr);
     case PrimitiveType::TYPE_DATE:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_DATE>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATE>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATETIME:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_DATETIME>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATETIME>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATEV2:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_DATEV2>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATEV2>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATETIMEV2:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionTemplate<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
+                argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_ARRAY:
+        return creator_without_type::create_multi_arguments<
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataComplexType>>>(
                 argument_types, result_is_nullable, attr);
     default:
         return nullptr;

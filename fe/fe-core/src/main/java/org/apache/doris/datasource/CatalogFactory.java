@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -108,7 +108,9 @@ public class CatalogFactory {
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "lakesoul":
-                catalog = new LakeSoulExternalCatalog(catalogId, name, resource, props, comment);
+                throw new DdlException("Lakesoul catalog is no longer supported");
+            case "doris":
+                catalog = new RemoteDorisExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "test":
                 if (!FeConstants.runningUnitTest) {

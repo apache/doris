@@ -44,7 +44,7 @@ CREATE TABLE routine_load_agg_tbl_basic
     kd20 HLL             HLL_UNION ,
     kd21 QUANTILE_STATE  QUANTILE_UNION ,
 
-    INDEX idx_bitmap_k104 (`k01`) USING BITMAP
+    INDEX idx_bitmap_k104 (`k01`) USING INVERTED
 )
 AGGREGATE KEY(k00,k01)
 PARTITION BY RANGE(k01)

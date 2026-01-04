@@ -46,8 +46,8 @@ public class BlackholeInsertExecutor extends AbstractInsertExecutor {
      * constructor
      */
     public BlackholeInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
     }
 
     @Override

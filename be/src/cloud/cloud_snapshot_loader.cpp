@@ -190,11 +190,11 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
         LOG(INFO) << "finish to make snapshot for tablet: " << target_tablet_id;
 
         // 1.5. download files
-        for (auto& iter : remote_files) {
+        for (auto& nested_iter : remote_files) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::DOWNLOAD));
-            const std::string& remote_file = iter.first;
-            const FileStat& file_stat = iter.second;
+            const std::string& remote_file = nested_iter.first;
+            const FileStat& file_stat = nested_iter.second;
             auto find = file_mapping.find(remote_file);
             if (find == file_mapping.end()) {
                 continue;
@@ -204,14 +204,15 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             std::string full_target_file = target_path + "/" + target_file;
             LOG(INFO) << "begin to download from " << full_remote_file << " to "
                       << full_target_file;
-            io::FileReaderOptions reader_options {
+            io::FileReaderOptions nested_reader_options {
                     .cache_type = io::FileCachePolicy::NO_CACHE,
                     .is_doris_table = false,
                     .cache_base_path = "",
                     .file_size = static_cast<int64_t>(file_stat.size),
             };
             io::FileReaderSPtr file_reader = nullptr;
-            RETURN_IF_ERROR(_remote_fs->open_file(full_remote_file, &file_reader, &reader_options));
+            RETURN_IF_ERROR(
+                    _remote_fs->open_file(full_remote_file, &file_reader, &nested_reader_options));
             io::FileWriterPtr file_writer = nullptr;
             RETURN_IF_ERROR(storage_fs()->create_file(full_target_file, &file_writer));
             size_t buf_size = config::s3_file_system_local_upload_buffer_size;
@@ -221,7 +222,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             // (TODO) Add Verification that the length of the source file is consistent
             // with the length of the target file
             while (true) {
-                size_t read_len = 0;
+                read_len = 0;
                 RETURN_IF_ERROR(file_reader->read_at(
                         cur_offset, Slice {transfer_buffer.get(), buf_size}, &read_len));
                 cur_offset += read_len;

@@ -167,6 +167,7 @@ public class LoadLoadingTask extends LoadTask {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
         curCoordinator.setQueryType(TQueryType.LOAD);
+        curCoordinator.getQueryOptions().setEnableInsertStrict(strictMode);
         curCoordinator.setExecMemoryLimit(execMemLimit);
 
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);

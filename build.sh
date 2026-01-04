@@ -35,7 +35,7 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
-
+HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -142,6 +142,7 @@ if ! OPTS="$(getopt \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
+    -l 'be-cdc-client' \
     -l 'be-extension-ignore:' \
     -l 'clean' \
     -l 'coverage' \
@@ -165,6 +166,9 @@ BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
 BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
 BUILD_BE_JAVA_EXTENSIONS=0
+BUILD_BE_CDC_CLIENT=0
+BUILD_OBS_DEPENDENCIES=1
+BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -187,6 +191,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BENCHMARK='OFF'
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
+    BUILD_BE_CDC_CLIENT=1
     CLEAN=0
 else
     while true; do
@@ -200,10 +205,12 @@ else
         --be)
             BUILD_BE=1
             BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
             shift
             ;;
         --cloud)
             BUILD_CLOUD=1
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --broker)
@@ -244,6 +251,18 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
+        --be-cdc-client)
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;    
+        --exclude-obs-dependencies)
+            BUILD_OBS_DEPENDENCIES=0
+            shift
+            ;; 
+        --exclude-cos-dependencies)
+            BUILD_COS_DEPENDENCIES=0
+            shift
+            ;;           
         --clean)
             CLEAN=1
             shift
@@ -295,6 +314,7 @@ else
 	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
+        BUILD_BE_CDC_CLIENT=1
         CLEAN=0
     fi
 fi
@@ -425,6 +445,14 @@ if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
     fi
 fi
 
+if [[ -n "${DISABLE_BE_CDC_CLIENT}" ]]; then
+    if [[ "${DISABLE_BE_CDC_CLIENT}" == "ON" ]]; then
+        BUILD_BE_CDC_CLIENT=0
+    else
+        BUILD_BE_CDC_CLIENT=1
+    fi
+fi
+
 if [[ -n "${DISABLE_BUILD_UI}" ]]; then
     if [[ "${DISABLE_BUILD_UI}" == "ON" ]]; then
         BUILD_UI=0
@@ -491,6 +519,7 @@ echo "Get params:
     BUILD_BENCHMARK                     -- ${BUILD_BENCHMARK}
     BUILD_TASK_EXECUTOR_SIMULATOR       -- ${BUILD_TASK_EXECUTOR_SIMULATOR}
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
+    BUILD_BE_CDC_CLIENT                 -- ${BUILD_BE_CDC_CLIENT}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
@@ -507,6 +536,17 @@ echo "Get params:
     ENABLE_PCH                          -- ${ENABLE_PCH}
     WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
 "
+
+FEAT=()
+FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
+FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
+FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
+FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
+FEAT+=($([[ ${BUILD_HIVE_UDF} -eq 1 ]] && echo "+HIVE_UDF" || echo "-HIVE_UDF"))
+FEAT+=($([[ ${BUILD_BE_JAVA_EXTENSIONS} -eq 1 ]] && echo "+BE_JAVA_EXTENSIONS" || echo "-BE_JAVA_EXTENSIONS"))
+
+export DORIS_FEATURE_LIST=$(IFS=','; echo "${FEAT[*]}")
+echo "Feature List: ${DORIS_FEATURE_LIST}"
 
 # Clean and build generated code
 if [[ "${CLEAN}" -eq 1 ]]; then
@@ -539,8 +579,10 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
-    modules+=("be-java-extensions/lakesoul-scanner")
+    # lakesoul-scanner has been deprecated
+    # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
+    modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -711,18 +753,26 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
+    DEPENDENCIES_MVN_OPTS=" "
+    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dobs.dependency.scope=provided "
+    fi
+    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dcos.dependency.scope=provided "
+    fi
+    
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     else
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     fi
     cd "${DORIS_HOME}"
@@ -795,13 +845,9 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         "${DORIS_OUTPUT}/be/www" \
         "${DORIS_OUTPUT}/be/tools/FlameGraph"
 
-    cp -r -p "${DORIS_HOME}/bin"/*_be.sh "${DORIS_OUTPUT}/be/bin"/
+    cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
-
-    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
-    fi
 
     if [[ -f "${DORIS_THIRDPARTY}/installed/lib/libz.so" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
@@ -868,9 +914,11 @@ EOF
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
-    extensions_modules+=("lakesoul-scanner")
+    # lakesoul-scanner has been deprecated
+    # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
     extensions_modules+=("iceberg-metadata-scanner")
+    extensions_modules+=("${HADOOP_DEPS_NAME}")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -900,13 +948,34 @@ EOF
         module_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
         module_proj_jar="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-project.jar"
         mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-        if [[ -f "${module_jar}" ]]; then
-            cp "${module_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+        echo "Copy Be Extensions ${extensions_module} jar to ${BE_JAVA_EXTENSIONS_DIR}/${extensions_module}"
+     if [[ "${extensions_module}" == "${HADOOP_DEPS_NAME}" ]]; then
+          
+            BE_HADOOP_HDFS_DIR="${DORIS_OUTPUT}/be/lib/hadoop_hdfs/"
+            echo "Copy Be Extensions hadoop deps jars to ${BE_HADOOP_HDFS_DIR}"
+            rm -rf "${BE_HADOOP_HDFS_DIR}"
+            mkdir "${BE_HADOOP_HDFS_DIR}"
+            HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
+            echo "HADOOP_DEPS_JAR_DIR: ${HADOOP_DEPS_JAR_DIR}"
+            if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
+                echo "Copy Be Extensions hadoop deps jar to ${BE_HADOOP_HDFS_DIR}"
+                cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${BE_HADOOP_HDFS_DIR}"
+            fi
+            if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
+                cp -r "${HADOOP_DEPS_JAR_DIR}/lib" "${BE_HADOOP_HDFS_DIR}/"
+            fi
+        else
+            if [[ -f "${module_jar}" ]]; then
+                cp "${module_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+            fi
+            if [[ -f "${module_proj_jar}" ]]; then
+                cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
+            fi
+            if [[ -d "${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/lib" ]]; then
+                cp -r "${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/lib" "${BE_JAVA_EXTENSIONS_DIR}/${extensions_module}/"
+            fi
         fi
-        if [[ -f "${module_proj_jar}" ]]; then
-            cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
-        fi
-    done
+    done        
 
     # copy jindofs jars, only support for Linux x64 or arm
     install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
@@ -942,11 +1011,25 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     cd "${DORIS_HOME}"
 fi
 
+if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then
+    install -d "${DORIS_OUTPUT}/be/lib/cdc_client"
+    cd "${DORIS_HOME}/fs_brokers/cdc_client"
+    ./build.sh
+    rm -rf "${DORIS_OUTPUT}/be/lib/cdc_client"/*
+    cp -r -p "${DORIS_HOME}/fs_brokers/cdc_client/target/cdc-client.jar" "${DORIS_OUTPUT}/be/lib/cdc_client/"
+    cd "${DORIS_HOME}"
+fi
+
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
     rm -rf "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
-    if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_HOME}/cloud/output/lib"
+    # If hadoop dependencies are required, building cloud module must be done after building be-java-extensions first
+    # so when running ./build.sh --cloud,we also build be-java-extensions automatically.
+    # If hadoop-depencies are not needed, you can disable it explicitly, by setting DISABLE_BE_JAVA_EXTENSIONS during the build.
+    HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
+    if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi

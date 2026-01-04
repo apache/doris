@@ -32,6 +32,8 @@ public:
 
     virtual void for_one_term(const IndexQueryContextPtr& context, const std::wstring& field_name,
                               const std::wstring& term) = 0;
+    virtual void for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
+                           const std::vector<std::wstring>& terms) = 0;
 
     virtual float score(float freq, int64_t encoded_norm) = 0;
 };

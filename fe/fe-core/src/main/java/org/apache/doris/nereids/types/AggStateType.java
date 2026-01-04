@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -106,7 +107,8 @@ public class AggStateType extends DataType {
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
-        return Expr.createAggStateType(functionName, types, subTypeNullables);
+        return Expr.createAggStateType(functionName, types, subTypeNullables,
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(functionName));
     }
 
     @Override

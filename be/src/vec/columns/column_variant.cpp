@@ -851,217 +851,14 @@ void ColumnVariant::Subcolumn::serialize_to_sparse_column(ColumnString* key, std
                            "Index ({}) for serialize to sparse column is out of range", row);
 }
 
-struct PackedUInt128 {
-    // PackedInt128() : value(0) {}
-    PackedUInt128() = default;
-
-    PackedUInt128(const unsigned __int128& value_) { value = value_; }
-    PackedUInt128& operator=(const unsigned __int128& value_) {
-        value = value_;
-        return *this;
-    }
-    PackedUInt128& operator=(const PackedUInt128& rhs) = default;
-
-    uint128_t value;
-} __attribute__((packed));
-
-const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type, const char* data,
-                                                                  Field& res, FieldInfo& info_res) {
-    info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
-    const char* end = data;
-    switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_STRING: {
-        size_t size = unaligned_load<size_t>(data);
-        data += sizeof(size_t);
-        res = Field::create_field<TYPE_STRING>(String(data, size));
-        end = data + size;
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        Int8 v = unaligned_load<Int8>(data);
-        res = Field::create_field<TYPE_TINYINT>(v);
-        end = data + sizeof(Int8);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        Int16 v = unaligned_load<Int16>(data);
-        res = Field::create_field<TYPE_SMALLINT>(v);
-        end = data + sizeof(Int16);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_INT: {
-        Int32 v = unaligned_load<Int32>(data);
-        res = Field::create_field<TYPE_INT>(v);
-        end = data + sizeof(Int32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        Int64 v = unaligned_load<Int64>(data);
-        res = Field::create_field<TYPE_BIGINT>(v);
-        end = data + sizeof(Int64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        PackedInt128 pack;
-        memcpy(&pack, data, sizeof(PackedInt128));
-        res = Field::create_field<TYPE_LARGEINT>(Int128(pack.value));
-        end = data + sizeof(PackedInt128);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        Float32 v = unaligned_load<Float32>(data);
-        res = Field::create_field<TYPE_FLOAT>(v);
-        end = data + sizeof(Float32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        Float64 v = unaligned_load<Float64>(data);
-        res = Field::create_field<TYPE_DOUBLE>(v);
-        end = data + sizeof(Float64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        size_t size = unaligned_load<size_t>(data);
-        data += sizeof(size_t);
-        res = Field::create_field<TYPE_JSONB>(JsonbField(data, size));
-        end = data + size;
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        const size_t size = unaligned_load<size_t>(data);
-        data += sizeof(size_t);
-        res = Field::create_field<TYPE_ARRAY>(Array(size));
-        auto& array = res.get<Array>();
-        info_res.num_dimensions++;
-        FieldType nested_filed_type = FieldType::OLAP_FIELD_TYPE_NONE;
-        for (size_t i = 0; i < size; ++i) {
-            Field nested_field;
-            const auto nested_type =
-                    static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
-            data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
-            array[i] = std::move(nested_field);
-            if (nested_type != FieldType::OLAP_FIELD_TYPE_NONE) {
-                nested_filed_type = nested_type;
-            }
-        }
-        info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(nested_filed_type);
-        end = data;
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        IPv4 v = unaligned_load<IPv4>(data);
-        res = Field::create_field<TYPE_IPV4>(v);
-        end = data + sizeof(IPv4);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        PackedUInt128 pack;
-        memcpy(&pack, data, sizeof(PackedUInt128));
-        auto v = pack.value;
-        res = Field::create_field<TYPE_IPV6>(v);
-        end = data + sizeof(PackedUInt128);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        UInt32 v = unaligned_load<UInt32>(data);
-        res = Field::create_field<TYPE_DATEV2>(v);
-        end = data + sizeof(UInt32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        UInt64 v = unaligned_load<UInt64>(data);
-        res = Field::create_field<TYPE_DATETIMEV2>(v);
-        info_res.precision = -1;
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(UInt64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        Int32 v = unaligned_load<Int32>(data);
-        res = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(Int32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        Int64 v = unaligned_load<Int64>(data);
-        res = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(Int64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        PackedInt128 pack;
-        memcpy(&pack, data, sizeof(PackedInt128));
-        res = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(PackedInt128);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        wide::Int256 v;
-        memcpy(&v, data, sizeof(wide::Int256));
-        res = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(wide::Int256);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        res = Field::create_field<TYPE_BOOLEAN>(*reinterpret_cast<const uint8_t*>(data));
-        end = data + sizeof(uint8_t);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_NONE: {
-        res = Field();
-        end = data;
-        break;
-    }
-    default:
-        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Type ({}) for deserialize_from_sparse_column is invalid", type);
-    }
-    return end;
-}
-
 std::pair<Field, FieldInfo> ColumnVariant::deserialize_from_sparse_column(const ColumnString* value,
                                                                           size_t row) {
     const auto& data_ref = value->get_data_at(row);
-    const char* data = data_ref.data;
-    DCHECK(data_ref.size > 1);
-    const FieldType type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
+    const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     Field res;
-    FieldInfo info_res = {
-            .scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type),
-            .have_nulls = false,
-            .need_convert = false,
-            .num_dimensions = 0,
-    };
-    const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
-    DCHECK_EQ(end - data_ref.data, data_ref.size)
-            << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
-            << " data: " << data;
+    FieldInfo info_res;
+    const uint8_t* end = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info_res);
+    CHECK_EQ(end - start_data, data_ref.size);
     return {std::move(res), std::move(info_res)};
 }
 
@@ -1296,9 +1093,7 @@ void ColumnVariant::insert_from_sparse_column_and_fill_remaing_dense_column(
             const PathInData column_path(src_sparse_path);
             if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
                 // Deserialize binary value into subcolumn from src serialized sparse column data.
-                const auto& data =
-                        ColumnVariant::deserialize_from_sparse_column(src_sparse_column_values, i);
-                subcolumn->insert(data.first, data.second);
+                subcolumn->deserialize_from_sparse_column(src_sparse_column_values, i);
             } else {
                 // Before inserting this path into sparse column check if we need to
                 // insert subcolumns from sorted_src_subcolumn_for_sparse_column before.
@@ -1561,26 +1356,28 @@ void ColumnVariant::Subcolumn::wrapp_array_nullable() {
     }
 }
 
-void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string* output) const {
+void ColumnVariant::serialize_one_row_to_string(int64_t row, std::string* output,
+                                                const DataTypeSerDe::FormatOptions& options) const {
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
     if (is_scalar_variant()) {
-        subcolumns.get_root()->data.serialize_text_json(row, write_buffer);
+        subcolumns.get_root()->data.serialize_text_json(row, write_buffer, options);
     } else {
         // TODO preallocate memory
-        serialize_one_row_to_json_format(row, write_buffer, nullptr);
+        serialize_one_row_to_json_format(row, write_buffer, nullptr, options);
     }
     write_buffer.commit();
     auto str_ref = tmp_col->get_data_at(0);
     *output = std::string(str_ref.data, str_ref.size);
 }
 
-void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& output,
+                                                const DataTypeSerDe::FormatOptions& options) const {
     if (is_scalar_variant()) {
-        subcolumns.get_root()->data.serialize_text_json(row, output);
+        subcolumns.get_root()->data.serialize_text_json(row, output, options);
         return;
     }
-    serialize_one_row_to_json_format(row, output, nullptr);
+    serialize_one_row_to_json_format(row, output, nullptr, options);
 }
 
 /// Struct that represents elements of the JSON path.
@@ -1702,11 +1499,12 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
     return !root->data.is_null_at(nrow);
 }
 
-void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
-                                                     bool* is_null) const {
+void ColumnVariant::serialize_one_row_to_json_format(
+        int64_t row_num, BufferWritable& output, bool* is_null,
+        const DataTypeSerDe::FormatOptions& options) const {
     // root is not eighther null or empty, we should only process root value
     if (is_visible_root_value(row_num)) {
-        subcolumns.get_root()->data.serialize_text_json(row_num, output);
+        subcolumns.get_root()->data.serialize_text_json(row_num, output, options);
         return;
     }
     const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
@@ -1805,18 +1603,17 @@ void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWrit
         // Serialize value of current path.
         if (auto subcolumn_it = subcolumn_path_map.find(path);
             subcolumn_it != subcolumn_path_map.end()) {
-            DataTypeSerDe::FormatOptions options;
-            options.escape_char = '\\';
-            subcolumn_it->second.serialize_text_json(row_num, output, options);
+            DataTypeSerDe::FormatOptions options2 = options;
+            options2.escape_char = '\\';
+            subcolumn_it->second.serialize_text_json(row_num, output, options2);
         } else {
             // To serialize value stored in shared data we should first deserialize it from binary format.
             Subcolumn tmp_subcolumn(0, true);
-            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                    sparse_data_values, index_in_sparse_data_values++);
-            tmp_subcolumn.insert(data.first, data.second);
-            DataTypeSerDe::FormatOptions options;
-            options.escape_char = '\\';
-            tmp_subcolumn.serialize_text_json(0, output, options);
+            tmp_subcolumn.deserialize_from_sparse_column(sparse_data_values,
+                                                         index_in_sparse_data_values++);
+            DataTypeSerDe::FormatOptions options2 = options;
+            options2.escape_char = '\\';
+            tmp_subcolumn.serialize_text_json(0, output, options2);
         }
     }
 
@@ -2090,8 +1887,13 @@ void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type)
     }
 }
 
-bool ColumnVariant::empty() const {
-    return subcolumns.empty() || subcolumns.begin()->get()->path.get_path() == COLUMN_NAME_DUMMY;
+bool ColumnVariant::only_have_default_values() const {
+    for (const auto& entry : subcolumns) {
+        if (entry->data.least_common_type.get_base_type_id() != PrimitiveType::INVALID_TYPE) {
+            return false;
+        }
+    }
+    return true;
 }
 
 ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
@@ -2318,6 +2120,19 @@ void ColumnVariant::update_crc_with_value(size_t start, size_t end, uint32_t& ha
     });
 }
 
+void ColumnVariant::update_crc32c_batch(uint32_t* __restrict hashes,
+                                        const uint8_t* __restrict null_map) const {
+    for_each_imutable_column(
+            [&](const ColumnPtr column) { column->update_crc32c_batch(hashes, nullptr); });
+}
+
+void ColumnVariant::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_map) const {
+    for_each_imutable_column([&](const ColumnPtr column) {
+        column->update_crc32c_single(start, end, hash, nullptr);
+    });
+}
+
 std::string ColumnVariant::debug_string() const {
     std::stringstream res;
     res << get_name() << "(num_row = " << num_rows;
@@ -2503,6 +2318,46 @@ size_t ColumnVariant::find_path_lower_bound_in_sparse_data(StringRef path,
     return it.index;
 }
 
+void ColumnVariant::Subcolumn::deserialize_from_sparse_column(const ColumnString* value,
+                                                              size_t row) {
+    const auto& data_ref = value->get_data_at(row);
+    const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
+    const PrimitiveType type =
+            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
+    auto check_end = [&](const uint8_t* end_ptr) {
+        DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+    };
+
+    // check if the type is same as least common type
+    // if the type is same as least common type, we can directly deserialize to the subcolumn
+    // if not, we need to deserialize to the field first, then insert to the subcolumn
+    bool same_as_least_common_type = type != least_common_type.get_type_id();
+
+    // array needs to check nested type is same as least common type's nested type
+    if (!same_as_least_common_type && type == PrimitiveType::TYPE_ARRAY) {
+        // |PrimitiveType::TYPE_ARRAY| + |size_t| + |nested_type|
+        // skip the first 1 byte for PrimitiveType::TYPE_ARRAY and the next sizeof(size_t) bytes for the size of the array
+        const auto* nested_start_data = start_data + 1 + sizeof(size_t);
+        const PrimitiveType nested_type = TabletColumn::get_primitive_type_by_field_type(
+                static_cast<FieldType>(*nested_start_data));
+        same_as_least_common_type = (nested_type != least_common_type.get_base_type_id());
+    }
+
+    if (same_as_least_common_type) {
+        Field res;
+        FieldInfo info;
+        const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+        check_end(end_data);
+        insert(std::move(res), std::move(info));
+    } else {
+        CHECK(data.size() > 0);
+        const uint8_t* end_data =
+                DataTypeSerDe::deserialize_binary_to_column(start_data, *data.back());
+        check_end(end_data);
+        ++num_rows;
+    }
+}
+
 void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
                                                       StringRef path,
                                                       const ColumnPtr& sparse_data_column,
@@ -2530,12 +2385,7 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
         bool is_null = false;
         if (lower_bound_path_index != paths_end &&
             sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
-            // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
-            // ReadBufferFromMemory buf(value_data.data, value_data.size);
-            // dynamic_serialization->deserializeBinary(path_column, buf, getFormatSettings());
-            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                    &sparse_data_values, lower_bound_path_index);
-            subcolumn.insert(data.first, data.second);
+            subcolumn.deserialize_from_sparse_column(&sparse_data_values, lower_bound_path_index);
             is_null = false;
         } else {
             subcolumn.insert_default();

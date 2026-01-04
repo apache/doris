@@ -18,6 +18,7 @@
 #include "olap/base_tablet.h"
 
 #include <bthread/mutex.h>
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
@@ -44,11 +45,11 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/txn_manager.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
@@ -332,21 +333,19 @@ bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
 // should use this method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
-void BaseTablet::generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const {
-    TabletMetaPB tablet_meta_pb;
-    {
-        std::shared_lock rdlock(_meta_lock);
-        _tablet_meta->to_meta_pb(&tablet_meta_pb);
-    }
-    generate_tablet_meta_copy_unlocked(new_tablet_meta);
+void BaseTablet::generate_tablet_meta_copy(TabletMeta& new_tablet_meta,
+                                           bool cloud_get_rowset_meta) const {
+    std::shared_lock rdlock(_meta_lock);
+    generate_tablet_meta_copy_unlocked(new_tablet_meta, cloud_get_rowset_meta);
 }
 
 // this is a unlocked version of generate_tablet_meta_copy()
 // some method already hold the _meta_lock before calling this,
 // such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
-void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const {
+void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
+                                                    bool cloud_get_rowset_meta) const {
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, cloud_get_rowset_meta);
     new_tablet_meta.init_from_pb(tablet_meta_pb);
 }
 
@@ -527,13 +526,12 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 // user can get all delete bitmaps from that token.
 // if `token` is nullptr, the calculation will run in local, and user can get the result
 // delete bitmap from `delete_bitmap` directly.
-Status BaseTablet::calc_delete_bitmap(
-        const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-        const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
-        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
-        DeleteBitmapPtr tablet_delete_bitmap,
-        std::function<void(segment_v2::SegmentSharedPtr, Status)> callback) {
+Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
+                                      CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+                                      DeleteBitmapPtr tablet_delete_bitmap) {
     if (specified_rowsets.empty() || segments.empty()) {
         return Status::OK();
     }
@@ -543,8 +541,7 @@ Status BaseTablet::calc_delete_bitmap(
         const auto& seg = segment;
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
-                                          delete_bitmap, rowset_writer, tablet_delete_bitmap,
-                                          callback));
+                                          delete_bitmap, rowset_writer, tablet_delete_bitmap));
         } else {
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
                     rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
@@ -585,14 +582,6 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                rowset_schema->sequence_col_idx()) != including_cids.cend());
         }
     }
-
-    DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.sleep", {
-        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
-        auto sleep = dp->param<int64_t>("sleep", 10);
-        if (target_tablet_id == tablet_id()) {
-            std::this_thread::sleep_for(std::chrono::seconds(sleep));
-        }
-    });
 
     if (rowset_schema->num_variant_columns() > 0) {
         // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
@@ -943,11 +932,10 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
 
 const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Block& block,
                                                            size_t rows_at_least) {
-    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr) {
+    if (int pos = block.get_position_by_name(DELETE_SIGN); pos != -1) {
+        const vectorized::ColumnWithTypeAndName& delete_sign_column = block.get_by_position(pos);
         const auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+                assert_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
         if (delete_sign_col.size() >= rows_at_least) {
             return delete_sign_col.get_data().data();
         }
@@ -1342,37 +1330,6 @@ void BaseTablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
             to_del->insert(id);
         }
     }
-}
-
-Status BaseTablet::_capture_consistent_rowsets_unlocked(
-        const std::vector<Version>& version_path, std::vector<RowsetSharedPtr>* rowsets) const {
-    DCHECK(rowsets != nullptr);
-    rowsets->reserve(version_path.size());
-    for (const auto& version : version_path) {
-        bool is_find = false;
-        do {
-            auto it = _rs_version_map.find(version);
-            if (it != _rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it->second);
-                break;
-            }
-
-            auto it_expired = _stale_rs_version_map.find(version);
-            if (it_expired != _stale_rs_version_map.end()) {
-                is_find = true;
-                rowsets->push_back(it_expired->second);
-                break;
-            }
-        } while (false);
-
-        if (!is_find) {
-            return Status::Error<CAPTURE_ROWSET_ERROR>(
-                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
-                    version.to_string());
-        }
-    }
-    return Status::OK();
 }
 
 Status BaseTablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap,
@@ -2068,7 +2025,7 @@ Status BaseTablet::calc_file_crc(uint32_t* crc_value, int64_t start_version, int
             return st;
         }
         // crc_value is calculated based on the crc_value of each rowset.
-        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const uint8_t*>(&rs_crc_value),
                                     sizeof(rs_crc_value));
         *file_count += rs_file_count;
     }
@@ -2143,6 +2100,16 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
             LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
         }
     }
+}
+
+void TabletReadSource::fill_delete_predicates() {
+    DCHECK_EQ(delete_predicates.size(), 0);
+    auto delete_pred_view =
+            rs_splits | std::views::transform([](auto&& split) {
+                return split.rs_reader->rowset()->rowset_meta();
+            }) |
+            std::views::filter([](const auto& rs_meta) { return rs_meta->has_delete_predicate(); });
+    delete_predicates = {delete_pred_view.begin(), delete_pred_view.end()};
 }
 
 int32_t BaseTablet::max_version_config() {

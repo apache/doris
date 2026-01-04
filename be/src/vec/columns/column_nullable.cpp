@@ -114,6 +114,41 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
     }
 }
 
+void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
+                                         const uint8_t* __restrict null_map) const {
+    DCHECK(null_map == nullptr);
+    const auto* __restrict real_null_data =
+            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    if (_nested_column->support_replace_column_null_data()) {
+        // nullmap process is slow, replace null data to default value to avoid nullmap process
+        _nested_column->assume_mutable()->replace_column_null_data(real_null_data);
+        _nested_column->update_crc32c_batch(hashes, nullptr);
+    } else {
+        auto s = size();
+        for (int i = 0; i < s; ++i) {
+            if (real_null_data[i] != 0) {
+                hashes[i] = HashUtil::crc32c_null(hashes[i]);
+            }
+        }
+        _nested_column->update_crc32c_batch(hashes, real_null_data);
+    }
+}
+
+void ColumnNullable::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                          const uint8_t* __restrict null_map) const {
+    DCHECK(null_map == nullptr);
+    const auto* __restrict real_null_data =
+            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    constexpr int NULL_VALUE = 0;
+    auto s = size();
+    for (int i = 0; i < s; ++i) {
+        if (real_null_data[i] != 0) {
+            hash = HashUtil::crc32c_fixed(NULL_VALUE, hash);
+        }
+    }
+    _nested_column->update_crc32c_single(start, end, hash, real_null_data);
+}
+
 void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
                                               const uint8_t* __restrict null_data) const {
     DCHECK(null_data == nullptr);
@@ -244,37 +279,17 @@ size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
            get_nested_column().serialize_impl(pos + sizeof(NullMap::value_type), row);
 }
 
-void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnNullable::serialize(StringRef* keys, size_t num_rows) const {
     const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            // Used in hash_map_context.h, this address is allocated via Arena,
-            // but passed through StringRef, so using const_cast is acceptable.
-            keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
-        }
-    } else {
-        const auto& arr = get_null_map_data();
-        for (size_t i = 0; i < num_rows; ++i) {
-            // Used in hash_map_context.h, this address is allocated via Arena,
-            // but passed through StringRef, so using const_cast is acceptable.
-            memcpy_fixed<NullMap::value_type>(const_cast<char*>(keys[i].data + keys[i].size),
-                                              (char*)&arr[i]);
-            keys[i].size += sizeof(NullMap::value_type);
-        }
-        _nested_column->serialize_vec(keys, num_rows);
-    }
+    const auto* __restrict null_map =
+            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    _nested_column->serialize_with_nullable(keys, num_rows, has_null, null_map);
 }
 
-void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
-    auto& arr = get_null_map_data();
-    const size_t old_size = arr.size();
-    arr.reserve(old_size + num_rows);
-
-    for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize_impl(keys[i].data);
-        keys[i].data += sz;
-        keys[i].size -= sz;
-    }
+void ColumnNullable::deserialize(StringRef* keys, const size_t num_rows) {
+    auto& null_maps = get_null_map_data();
+    null_maps.reserve(null_maps.size() + num_rows);
+    _nested_column->deserialize_with_nullable(keys, num_rows, null_maps);
 }
 
 void ColumnNullable::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,

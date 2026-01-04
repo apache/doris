@@ -30,6 +30,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -39,15 +41,16 @@ import java.util.List;
  * Must run in analysis phase before search() gets optimized away.
  */
 public class CheckSearchUsage implements AnalysisRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(CheckSearchUsage.class);
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            any().thenApply(ctx -> {
-                Plan plan = ctx.root;
-                checkPlanRecursively(plan);
-                return plan;
-            }).toRule(RuleType.CHECK_SEARCH_USAGE)
+                any().thenApply(ctx -> {
+                    Plan plan = ctx.root;
+                    checkPlanRecursively(plan);
+                    return plan;
+                }).toRule(RuleType.CHECK_SEARCH_USAGE)
         );
     }
 
@@ -93,9 +96,10 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
     }
 
     private void validateSearchUsage(Plan plan) {
+        LOG.debug("validateSearchUsage: {}", plan.treeString());
         if (plan instanceof LogicalFilter) {
             Plan child = plan.child(0);
-            if (!(child instanceof LogicalOlapScan)) {
+            if (!isSingleTableScanPipeline(child)) {
                 throw new AnalysisException("search() predicate only supports filtering directly on a single "
                         + "table scan; remove joins, subqueries, or additional operators between search() "
                         + "and the target table");
@@ -126,5 +130,18 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
             }
         }
         return false;
+    }
+
+    private boolean isSingleTableScanPipeline(Plan plan) {
+        Plan current = plan;
+        while (true) {
+            if (current instanceof LogicalOlapScan) {
+                return true;
+            }
+            if (current.arity() != 1) {
+                return false;
+            }
+            current = current.child(0);
+        }
     }
 }

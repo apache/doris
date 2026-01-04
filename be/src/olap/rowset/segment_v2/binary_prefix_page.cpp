@@ -79,6 +79,7 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
             _last_entry.append(entry, entry_len);
         });
 
+        _raw_data_size += entry_len;
         ++_count;
     }
     *add_count = i;
@@ -212,7 +213,8 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
         _cur_pos++;
         auto st = _read_next_value();
         if (st.is<ErrorCode::END_OF_FILE>()) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("all value small than the value");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND, false>(
+                    "all value small than the value");
         }
         if (!st.ok()) {
             return st;

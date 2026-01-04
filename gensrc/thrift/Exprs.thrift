@@ -171,7 +171,7 @@ struct TMatchPredicate {
   3: optional map<string, string> char_filter_map;
   4: optional bool parser_lowercase = true;
   5: optional string parser_stopwords = "";
-  6: optional string custom_analyzer = "";
+  6: optional string analyzer_name = "";
 }
 
 struct TLiteralPredicate {
@@ -246,8 +246,11 @@ struct TSearchClause {
 }
 
 struct TSearchFieldBinding {
-  1: required string field_name   // Field name from DSL
+  1: required string field_name   // Field name from DSL (may include path like "field.subcolumn")
   2: required i32 slot_index      // Index in the slot reference arguments
+  3: optional string parent_field_name    // Parent field name for variant subcolumns
+  4: optional string subcolumn_path       // Subcolumn path for variant fields (e.g., "subcolumn" or "sub1.sub2")
+  5: optional bool is_variant_subcolumn   // True if this is a variant subcolumn access
 }
 
 struct TSearchParam {

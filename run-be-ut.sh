@@ -23,6 +23,8 @@
 #     --clean            clean and build ut
 #     --run              build and run all ut
 #     --run --filter=xx  build and run specified ut
+#     --gdb              debug with gdb, does not take effect if --run is not specified
+#     --coverage         generate coverage report, does not take effect if --gdb is specified
 #     -j                 build parallel
 #     -h                 print this help message
 #
@@ -52,7 +54,8 @@ Usage: $0 <options>
      --run --filter=xx  build and run specified ut
      --run --gen_out    generate expected check data for test
      --run --gen_regression_case    generate regression test cases corrresponding to ut cases for ut cases that support it
-     --coverage         coverage after run ut
+     --gdb              debug with gdb, DOES NOT take effect if --run is not specified
+     --coverage         generage coverage after run ut, DOES NOT take effect if --gdb is specified
      -j                 build parallel
      -h                 print this help message
 
@@ -67,12 +70,13 @@ Usage: $0 <options>
     $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
     $0 --clean                                                      clean and build tests
     $0 --clean --run                                                clean, build and run all tests
-    $0 --clean --run --coverage                                     clean, build, run all tests and coverage
+    $0 --clean --run --coverage                                     clean, build, run all tests and generate coverage report
+    $0 --clean --run --gdb --filter=FooTest.*-FooTest.Bar           clean, build, run all tests and debug FooTest with gdb
   "
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,gdb,clean,filter: -- "$@")"; then
     usage
 fi
 
@@ -80,6 +84,7 @@ eval set -- "${OPTS}"
 
 CLEAN=0
 RUN=0
+GDB=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
 FILTER=""
@@ -94,6 +99,10 @@ if [[ "$#" != 1 ]]; then
             ;;
         --run)
             RUN=1
+            shift
+            ;;
+        --gdb)
+            GDB=1
             shift
             ;;
         --coverage)
@@ -172,7 +181,7 @@ if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
 fi
 
@@ -224,6 +233,10 @@ if [[ -z "${USE_UNWIND}" ]]; then
     fi
 fi
 
+if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
+    ENABLE_INJECTION_POINT='ON'
+fi
+
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
@@ -250,6 +263,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DARM_MARCH="${ARM_MARCH}" \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
+    -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
@@ -464,6 +478,12 @@ export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
 profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
 profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
+
+
+if [[ ${GDB} -ge 1 ]]; then
+    gdb --args "${test}" "${FILTER}"
+    exit
+fi
 
 file_name="${test##*/}"
 if [[ -f "${test}" ]]; then

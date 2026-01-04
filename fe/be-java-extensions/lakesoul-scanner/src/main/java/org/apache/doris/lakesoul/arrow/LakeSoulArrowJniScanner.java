@@ -52,6 +52,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulArrowJniScanner extends JniScanner {
 
     protected static final Logger LOG = Logger.getLogger(LakeSoulArrowJniScanner.class);

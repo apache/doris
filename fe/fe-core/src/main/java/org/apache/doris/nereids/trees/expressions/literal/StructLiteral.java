@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
  * struct literal
  */
 public class StructLiteral extends Literal {
+    public static final String COL_PREFIX = "col";
 
     private final List<Literal> fields;
 
@@ -79,7 +80,7 @@ public class StructLiteral extends Literal {
             ImmutableList.Builder<Literal> newLiterals = ImmutableList.builder();
             for (int i = 0; i < fields.size(); i++) {
                 newLiterals.add((Literal) fields.get(i)
-                        .checkedCastWithFallback(((StructType) targetType).getFields().get(i).getDataType()));
+                        .checkedCastWithStrictChecking(((StructType) targetType).getFields().get(i).getDataType()));
             }
             return new StructLiteral(newLiterals.build(), targetType);
         } else {
@@ -147,7 +148,7 @@ public class StructLiteral extends Literal {
     public static StructType constructStructType(List<DataType> fieldTypes) {
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < fieldTypes.size(); i++) {
-            structFields.add(new StructField("col" + (i + 1), fieldTypes.get(i), true, ""));
+            structFields.add(new StructField(COL_PREFIX + (i + 1), fieldTypes.get(i), true, ""));
         }
         return new StructType(structFields.build());
     }

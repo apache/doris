@@ -23,40 +23,10 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.List;
-
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
-    public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
-            .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
-            .add("array_split").add("array_reverse_split")
-            .build();
-    // The functions in this set are all normal array functions when implemented initially.
-    // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
-    // rather than reimplementing a lambda function, this will be reused the implementation of normal array function
-    public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
-            .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
-            .add("element_at").add("array_split").add("array_reverse_split").add("array_match_any")
-            .add("array_match_all").build();
-
-    private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
     private LambdaFunctionCallExpr() {
         // use for serde only
-    }
-
-    public LambdaFunctionCallExpr(String functionName, List<Expr> params) {
-        super(functionName, params);
-    }
-
-    public LambdaFunctionCallExpr(FunctionName functionName, List<Expr> params) {
-        super(functionName, params);
     }
 
     public LambdaFunctionCallExpr(LambdaFunctionCallExpr other) {
@@ -64,8 +34,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     }
 
     // nereids high order function call expr constructor without finalize/analyze
-    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams) {
-        super(function, functionParams, null, false, functionParams.exprs());
+    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams, boolean nullable) {
+        super(function, functionParams, null, false, functionParams.exprs(), nullable);
     }
 
     @Override
@@ -75,12 +45,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        FunctionName fnName = getFnName();
-        if (LAMBDA_MAPPED_FUNCTION_SET.contains(fnName.getFunction().toLowerCase())) {
-            msg.node_type = TExprNodeType.FUNCTION_CALL;
-        } else {
-            msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
-        }
+        msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
     }
 
     @Override

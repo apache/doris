@@ -409,6 +409,12 @@ Status HttpClient::execute_post_request(const std::string& payload, std::string*
     return execute(response);
 }
 
+Status HttpClient::execute_put_request(const std::string& payload, std::string* response) {
+    set_payload(payload);
+    curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, "PUT");
+    return execute(response);
+}
+
 Status HttpClient::execute_delete_request(const std::string& payload, std::string* response) {
     set_method(DELETE);
     set_payload(payload);

@@ -60,7 +60,9 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                                         _wal_path);
     }
     Block src_block;
-    RETURN_IF_ERROR(src_block.deserialize(pblock));
+    size_t uncompressed_size = 0;
+    int64_t uncompressed_time = 0;
+    RETURN_IF_ERROR(src_block.deserialize(pblock, &uncompressed_size, &uncompressed_time));
     //convert to dst block
     Block dst_block;
     int index = 0;

@@ -543,6 +543,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+                if (isRegisteredRowCount(olapScan)) {
+                    // If a row count is injected for the materialized view, use it to fix the issue where
+                    // the materialized view cannot be selected by cbo stable due to selectedPartitionsRowCount being 0,
+                    // which is caused by delayed statistics reporting.
+                    selectedPartitionsRowCount = tableRowCount;
+                }
                 LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
                         selectedPartitionsRowCount);
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
@@ -562,10 +568,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         StatisticsBuilder builder = new StatisticsBuilder();
 
-        // for system table or FeUt, use ColumnStatistic.UNKNOWN
+        // query for system table or FeUt or analysis, use ColumnStatistic.UNKNOWN
+
         if (StatisticConstants.isSystemTable(olapTable) || !FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
-                || ConnectContext.get().getState().isInternal()) {
+                || ConnectContext.get().getState().isPlanWithUnKnownColumnStats()) {
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -1148,7 +1155,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
-        if (connectContext != null && connectContext.getState().isInternal()) {
+        if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
@@ -1180,7 +1187,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic getColumnStatistic(
             OlapTableStatistics olapTableStatistics, String colName, List<String> partitionNames) {
-        if (connectContext != null && connectContext.getState().isInternal()) {
+        if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
         OlapTable table = olapTableStatistics.olapTable;

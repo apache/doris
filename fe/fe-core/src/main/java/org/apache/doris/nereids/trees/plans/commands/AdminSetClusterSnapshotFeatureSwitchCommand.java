@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,6 +57,7 @@ public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command impleme
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY)
                 .putProperties(Cloud.AlterInstanceRequest.SnapshotProperty.ENABLE_SNAPSHOT.name(), String.valueOf(on));

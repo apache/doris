@@ -3,10 +3,10 @@
 1	1
 
 -- !drop --
-test_base_recreate_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
+test_base_recreate_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS	false
 
 -- !recreate --
-test_base_recreate_on_commit_mtmv_mv	NORMAL	SUCCESS
+test_base_recreate_on_commit_mtmv_mv	NORMAL	SUCCESS	true
 
 -- !select_recreate --
 2	2

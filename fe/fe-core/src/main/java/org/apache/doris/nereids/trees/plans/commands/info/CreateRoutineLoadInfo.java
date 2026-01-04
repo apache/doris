@@ -23,7 +23,6 @@ import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportDeleteOnStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -39,6 +38,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -88,6 +89,7 @@ public class CreateRoutineLoadInfo {
     public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
 
     public static final String PARTIAL_COLUMNS = "partial_columns";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
     public static final String WORKLOAD_GROUP = "workload_group";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
@@ -122,6 +124,7 @@ public class CreateRoutineLoadInfo {
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
+            .add(PARTIAL_UPDATE_NEW_KEY_POLICY)
             .add(WORKLOAD_GROUP)
             .add(FileFormatProperties.PROP_FORMAT)
             .add(JsonFileFormatProperties.PROP_JSON_PATHS)
@@ -166,6 +169,7 @@ public class CreateRoutineLoadInfo {
      * support partial columns load(Only Unique Key Columns)
      */
     private boolean isPartialUpdate = false;
+    private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private String comment = "";
 
@@ -195,6 +199,15 @@ public class CreateRoutineLoadInfo {
             .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
         this.mergeType = mergeType;
         this.isPartialUpdate = this.jobProperties.getOrDefault(PARTIAL_COLUMNS, "false").equalsIgnoreCase("true");
+        if (this.isPartialUpdate && this.jobProperties.containsKey(PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+            String policyStr = this.jobProperties.get(PARTIAL_UPDATE_NEW_KEY_POLICY).toUpperCase();
+            if ("APPEND".equals(policyStr)) {
+                this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+            } else if ("ERROR".equals(policyStr)) {
+                this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+            }
+            // validation will be done in checkJobProperties()
+        }
         if (comment != null) {
             this.comment = comment;
         }
@@ -276,6 +289,10 @@ public class CreateRoutineLoadInfo {
         return isPartialUpdate;
     }
 
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewKeyPolicy() {
+        return partialUpdateNewKeyPolicy;
+    }
+
     public String getComment() {
         return comment;
     }
@@ -313,7 +330,7 @@ public class CreateRoutineLoadInfo {
             // 64 is the length of regular expression matching
             // (FeNameFormat.COMMON_NAME_REGEX/UNDERSCORE_COMMON_NAME_REGEX)
             throw new AnalysisException(e.getMessage()
-                + " Maybe routine load job name is longer than 64 or contains illegal characters");
+                    + " Maybe routine load job name is longer than 64 or contains illegal characters");
         }
         // check load properties include column separator etc.
         routineLoadDesc = checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType);
@@ -385,7 +402,7 @@ public class CreateRoutineLoadInfo {
         ImportWhereStmt precedingImportWhereStmt = null;
         ImportWhereStmt importWhereStmt = null;
         ImportSequenceStmt importSequenceStmt = null;
-        PartitionNames partitionNames = null;
+        PartitionNamesInfo partitionNamesInfo = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
 
         if (loadPropertyMap != null) {
@@ -427,7 +444,7 @@ public class CreateRoutineLoadInfo {
                                     ctx);
                     precedingImportWhereStmt = new ImportWhereStmt(expr, true);
                 } else if (loadProperty instanceof LoadPartitionNames) {
-                    partitionNames = new PartitionNames(((LoadPartitionNames) loadProperty).isTemp(),
+                    partitionNamesInfo = new PartitionNamesInfo(((LoadPartitionNames) loadProperty).isTemp(),
                             ((LoadPartitionNames) loadProperty).getPartitionNames());
                 } else if (loadProperty instanceof LoadDeleteOnClause) {
                     Expr expr = PlanUtils.translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
@@ -441,7 +458,7 @@ public class CreateRoutineLoadInfo {
         }
         return new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
             precedingImportWhereStmt, importWhereStmt,
-            partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+            partitionNamesInfo, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
@@ -514,6 +531,19 @@ public class CreateRoutineLoadInfo {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));
+
+        // check partial_update_new_key_behavior
+        if (jobProperties.containsKey(PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+            if (!isPartialUpdate) {
+                throw new AnalysisException(
+                    PARTIAL_UPDATE_NEW_KEY_POLICY + " can only be set when partial_columns is true");
+            }
+            String policy = jobProperties.get(PARTIAL_UPDATE_NEW_KEY_POLICY).toUpperCase();
+            if (!"APPEND".equals(policy) && !"ERROR".equals(policy)) {
+                throw new AnalysisException(
+                    PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of {'APPEND', 'ERROR'}, but found " + policy);
+            }
+        }
 
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);

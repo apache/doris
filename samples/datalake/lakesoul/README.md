@@ -101,7 +101,7 @@ mysql> explain verbose select * from customer_from_spark where c_nationkey < 3;
 |   HAS_COLO_PLAN_NODE: false                                                                                                                                          |
 |                                                                                                                                                                      |
 |   VRESULT SINK                                                                                                                                                       |
-|      MYSQL_PROTOCAL                                                                                                                                                  |
+|      MYSQL_PROTOCOL                                                                                                                                                  |
 |                                                                                                                                                                      |
 |   1:VEXCHANGE                                                                                                                                                        |
 |      offset: 0                                                                                                                                                       |

@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS store_sales (
     ss_net_paid decimal(7,2),
     ss_net_paid_inc_tax decimal(7,2),
     ss_net_profit decimal(7,2),
-    INDEX ss_sold_date_sk_idx(ss_sold_date_sk) USING BITMAP COMMENT "ss_sold_date_sk index",
+    INDEX ss_sold_date_sk_idx(ss_sold_date_sk) USING INVERTED COMMENT "ss_sold_date_sk index",
     INDEX ss_sold_time_sk_idx(ss_sold_time_sk) USING INVERTED COMMENT "ss_sold_time_sk index",
     INDEX ss_item_sk_idx(ss_item_sk) USING INVERTED COMMENT "ss_item_sk index",
     INDEX ss_customer_sk_idx(ss_customer_sk) USING INVERTED COMMENT "ss_customer_sk index",

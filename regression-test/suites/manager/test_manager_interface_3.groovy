@@ -32,7 +32,7 @@ suite('test_manager_interface_3',"p0") {
     String jdbcPassword = context.config.jdbcPassword
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 //create role $role_name
 //drop role $role_name
 // create user $user_name identified by "$password" default role "$role_name"
@@ -424,7 +424,8 @@ suite('test_manager_interface_3',"p0") {
                 x ++
             }
         }
-        assertTrue(x == 20)
+        log.info("x1 = ${x}")
+        assertTrue(x == 21)
 
         connect(user, "${pwd}", url) { 
             result = sql """ show resources """
@@ -435,7 +436,8 @@ suite('test_manager_interface_3',"p0") {
                     x ++
                 }
             }
-            assertTrue(x == 20)
+            log.info("x2 = ${x}")
+            assertTrue(x == 21)
         }
 
         checkNereidsExecute("show all grants");
@@ -478,7 +480,8 @@ suite('test_manager_interface_3',"p0") {
                     x ++
                 }
             }
-            assertTrue(x == 20)
+            log.info("x3 = ${x}")
+            assertTrue(x == 21)
         }
         sql """ drop RESOURCE if exists  ${resource_name} """ 
         sql """drop user if exists ${user}"""
@@ -525,7 +528,7 @@ suite('test_manager_interface_3',"p0") {
                 Name: test_manager_resource_case
         ResourceType: jdbc
                 Item: driver_url
-            Value: mysql-connector-java-8.0.25.jar
+            Value: mysql-connector-j-8.4.0.jar
         *************************** 9. row ***************************
                 Name: test_manager_resource_case
         ResourceType: jdbc

@@ -201,7 +201,7 @@ public class RangePartitionInfo extends PartitionInfo {
 
     public static void checkPartitionColumn(Column column) throws AnalysisException {
         PrimitiveType type = column.getDataType();
-        if (!type.isFixedPointType() && !type.isDateType()) {
+        if (!type.isFixedPointType() && !type.isDateLikeType()) {
             throw new AnalysisException("Column[" + column.getName() + "] type[" + type
                     + "] cannot be a range partition key.");
         }

@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -41,16 +42,27 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException {
+            RelatedPartitionDescResult lastResult, List<Column> partitionColumns) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
             return;
         }
-        MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType(MvccUtil.getSnapshotFromContext(relatedTable));
+        Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs = lastResult.getDescs();
+        Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> res = Maps.newHashMap();
+        for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {
+            MTMVRelatedTableIf pctTable = entry.getKey();
+            res.put(pctTable, rollUpOnePctTable(mvPartitionInfo, mvProperties, pctTable, entry.getValue()));
+        }
+        lastResult.setDescs(res);
+    }
+
+    private Map<PartitionKeyDesc, Set<String>> rollUpOnePctTable(MTMVPartitionInfo mvPartitionInfo,
+            Map<String, String> mvProperties, MTMVRelatedTableIf pctTable, Map<PartitionKeyDesc, Set<String>> descs)
+            throws AnalysisException {
+        PartitionType partitionType = pctTable.getPartitionType(MvccUtil.getSnapshotFromContext(pctTable));
         if (partitionType == PartitionType.RANGE) {
-            lastResult.setDescs(rollUpRange(lastResult.getDescs(), mvPartitionInfo));
+            return rollUpRange(descs, mvPartitionInfo, pctTable);
         } else if (partitionType == PartitionType.LIST) {
-            lastResult.setDescs(rollUpList(lastResult.getDescs(), mvPartitionInfo, mvProperties));
+            return rollUpList(descs, mvPartitionInfo, mvProperties);
         } else {
             throw new AnalysisException("only RANGE/LIST partition support roll up");
         }
@@ -127,16 +139,13 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
      * @throws AnalysisException
      */
     public Map<PartitionKeyDesc, Set<String>> rollUpRange(Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs,
-            MTMVPartitionInfo mvPartitionInfo) throws AnalysisException {
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable) throws AnalysisException {
         Map<PartitionKeyDesc, Set<String>> result = Maps.newHashMap();
         MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
         for (Entry<PartitionKeyDesc, Set<String>> entry : relatedPartitionDescs.entrySet()) {
-            PartitionKeyDesc rollUpDesc = exprSerice.generateRollUpPartitionKeyDesc(entry.getKey(), mvPartitionInfo);
-            if (result.containsKey(rollUpDesc)) {
-                result.get(rollUpDesc).addAll(entry.getValue());
-            } else {
-                result.put(rollUpDesc, entry.getValue());
-            }
+            PartitionKeyDesc rollUpDesc = exprSerice.generateRollUpPartitionKeyDesc(entry.getKey(), mvPartitionInfo,
+                    pctTable);
+            result.computeIfAbsent(rollUpDesc, k -> Sets.newHashSet()).addAll(entry.getValue());
         }
         return result;
     }

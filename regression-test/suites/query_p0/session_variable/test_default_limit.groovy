@@ -48,13 +48,7 @@ suite('test_default_limit', "arrow_flight_sql") {
     sql "insert into baseall values (null, null, null)"
     sql "insert into bigtable select * from baseall"
 
-    for (int i = 0; i < 2; ++i) {
-        if (i == 0) {
-            sql 'set enable_pipeline_engine=false'
-        } else if (i == 1) {
-            sql 'set enable_pipeline_engine=true'
-        }
-
+    for (int i = 0; i < 1; ++i) {
         sql 'set default_order_by_limit = -1'
         sql 'set sql_select_limit = -1'
 

@@ -742,7 +742,7 @@ suite("test_stream_load_properties", "p0") {
             } else {
                 qt_sql_2pc_commit "select * from ${tableName1} order by k00"
             }
-            
+
             // Commit the same txnId again to trigger operate_txn_2pc() failure
             body = do_streamload_2pc.call(txnId, "commit", tableName1)
             assertEquals("analysis_error", parseJson(body).status.toLowerCase())

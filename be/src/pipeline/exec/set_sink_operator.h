@@ -61,6 +61,8 @@ private:
 
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size = nullptr;
+    RuntimeProfile::Counter* _valid_element_in_hash_table = nullptr;
 
     std::shared_ptr<RuntimeFilterProducerHelperSet> _runtime_filter_producer_helper;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;
@@ -109,12 +111,14 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    bool is_shuffled_operator() const override { return true; }
 
 private:
     template <class HashTableContext, bool is_intersected>

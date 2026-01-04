@@ -23,12 +23,14 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -46,8 +48,8 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
     /**
      * constructor with one or more argument.
      */
-    public ExplodeOuter(Expression[] args) {
-        super("explode_outer", args);
+    public ExplodeOuter(Expression arg, Expression... others) {
+        super("explode_outer", ExpressionUtils.mergeArguments(arg, others));
     }
 
     /** constructor for withChildren and reuse signature */
@@ -77,17 +79,22 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
             if (children.get(i).getDataType().isNullType()) {
                 arguments.add(ArrayType.of(NullType.INSTANCE));
                 structFields.add(
-                    new StructField("col" + (i + 1), NullType.INSTANCE, true, ""));
+                    new StructField(StructLiteral.COL_PREFIX + (i + 1), NullType.INSTANCE, true, ""));
             } else if (children.get(i).getDataType().isArrayType()) {
                 structFields.add(
-                    new StructField("col" + (i + 1),
+                    new StructField(StructLiteral.COL_PREFIX + (i + 1),
                         ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
                 arguments.add(children.get(i).getDataType());
             } else {
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             }
         }
-        return FunctionSignature.of(new StructType(structFields.build()), arguments);
+
+        StructType structType = new StructType(structFields.build());
+        if (arguments.size() == 1) {
+            return FunctionSignature.of(structType.getFields().get(0).getDataType(), arguments);
+        }
+        return FunctionSignature.of(structType, arguments);
     }
 
     @Override

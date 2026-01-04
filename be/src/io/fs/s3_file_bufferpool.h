@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <crc32c/crc32c.h>
+
 #include <condition_variable>
 #include <cstdint>
 #include <fstream>
@@ -27,7 +29,6 @@
 
 #include "common/status.h"
 #include "io/cache/file_block.h"
-#include "util/crc32c.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 

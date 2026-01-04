@@ -136,7 +136,7 @@ private:
 class StreamingAggOperatorX MOCK_REMOVE(final) : public StatefulOperatorX<StreamingAggLocalState> {
 public:
     StreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                          const DescriptorTbl& descs);
+                          const DescriptorTbl& descs, bool require_bucket_distribution);
 #ifdef BE_TEST
     StreamingAggOperatorX() : _is_first_phase {false} {}
 #endif
@@ -149,6 +149,19 @@ public:
     bool need_more_input_data(RuntimeState* state) const override;
     void set_low_memory_mode(RuntimeState* state) override {
         _spill_streaming_agg_mem_limit = 1024 * 1024;
+    }
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        if (!state->get_query_ctx()->should_be_shuffled_agg(
+                    StatefulOperatorX<StreamingAggLocalState>::node_id())) {
+            return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
+        }
+        if (_partition_exprs.empty()) {
+            return _needs_finalize
+                           ? DataDistribution(ExchangeType::NOOP)
+                           : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
+                                     state);
+        }
+        return DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
 private:
@@ -184,6 +197,7 @@ private:
     std::vector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
     RowDescriptor _agg_fn_output_row_descriptor;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

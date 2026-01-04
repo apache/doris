@@ -126,7 +126,7 @@ suite("spark_connector_for_arrow", "connector") {
     sql """DELETE FROM spark_connector_map where id > 0"""
     sql """DELETE FROM spark_connector_struct where id > 0"""
 
-    def jar_name = "spark-doris-connector-3.1_2.12-1.3.0-SNAPSHOT-with-dependencies.jar"
+    def jar_name = "spark-doris-connector-3.4_2.12-1.3.0-SNAPSHOT.jar"
 
     logger.info("start delete local spark doris demo jar...")
     def delete_local_spark_jar = "rm -rf ${jar_name}".execute()
@@ -134,7 +134,23 @@ suite("spark_connector_for_arrow", "connector") {
     logger.info("getS3Url ==== ${getS3Url()}")
     def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/${jar_name} --output ${jar_name}".execute().getText()
     logger.info("finish download spark doris demo ...")
-    def run_cmd = "java -cp ${jar_name} org.apache.doris.spark.testcase.TestStreamLoadForArrowType $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector"
+
+    def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${systemJavaPath}")
+
+    def runtimeJavaHome = System.getProperty("java.home")
+    logger.info("Runtime java home: ${runtimeJavaHome}")
+    def javaPath = "${runtimeJavaHome}/bin/java"
+
+    def javaVersion = System.getProperty("java.version")
+    logger.info("Runtime java version: ${javaVersion}")
+
+    def addOpens = ""
+    if (javaVersion.startsWith("17")) {
+        addOpens = "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED  --add-opens=java.base/java.nio=ALL-UNNAMED"
+    }
+
+    def run_cmd = "${javaPath} ${addOpens} -cp ${jar_name} org.apache.doris.spark.testcase.TestStreamLoadForArrowType $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector"
     logger.info("run_cmd : $run_cmd")
     def proc = run_cmd.execute()
     def sout = new StringBuilder()

@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class HyperGraphComparatorTest extends SqlTestBase {
@@ -61,7 +60,7 @@ class HyperGraphComparatorTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
-        Assertions.assertTrue(!res.isInvalid());
+        Assertions.assertFalse(res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
     }
 
@@ -91,7 +90,7 @@ class HyperGraphComparatorTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
-        Assertions.assertTrue(!res.isInvalid());
+        Assertions.assertFalse(res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
     }
 
@@ -122,11 +121,10 @@ class HyperGraphComparatorTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
-        Assertions.assertTrue(!res.isInvalid());
+        Assertions.assertFalse(res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
     }
 
-    @Disabled
     @Test
     void testIJAndLojAssocWithJoinCond() {
         CascadesContext c1 = createCascadesContext(
@@ -140,12 +138,9 @@ class HyperGraphComparatorTest extends SqlTestBase {
                 .rewrite()
                 .getPlan().child(0);
         CascadesContext c2 = createCascadesContext(
-                "select * from T1 left outer join "
-                        + "("
-                        + "select T1.* from T1 left outer join T3 "
-                        + "on T1.id = T3.id and T1.score = T3.score "
-                        + ") T2 "
-                        + "on T1.id = T2.id ",
+                "select * from T1 left join T2 "
+                        + "on T1.id = T2.id "
+                        + "left join T3 on T1.id = T3.id",
                 connectContext
         );
         Plan p2 = PlanChecker.from(c2)
@@ -156,7 +151,35 @@ class HyperGraphComparatorTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.builderForMv(p1).build();
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
-        Assertions.assertTrue(!res.isInvalid());
+        Assertions.assertFalse(res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
+    }
+
+    @Test
+    void testJoinEliminateShouldFail() {
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 inner join T2 "
+                        + "on T1.id = T2.id",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        CascadesContext c2 = createCascadesContext(
+                "select * from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        Plan p2 = PlanChecker.from(c2)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        HyperGraph h2 = HyperGraph.builderForMv(p2).build();
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
+        Assertions.assertTrue(res.isInvalid());
     }
 }

@@ -1234,98 +1234,100 @@ suite("test_stream_load", "p0") {
             }
         }
     }
+     if (!isCloudMode()) {
+        try {
+            sql """ DROP TABLE IF EXISTS ${tableName15} """
+            sql """
+                CREATE TABLE IF NOT EXISTS ${tableName15} (
+                    `k1` bigint(20) NULL DEFAULT "1",
+                    `k2` bigint(20) NULL ,
+                    `v1` tinyint(4) NULL,
+                    `v2` tinyint(4) NULL,
+                    `v3` tinyint(4) NULL,
+                    `v4` DATETIME NULL
+                ) ENGINE=OLAP
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+                PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+            """
+    
+            def label = UUID.randomUUID().toString().replaceAll("-", "")
+            streamLoad {
+                table "${tableName15}"
 
-    try {
-        sql """ DROP TABLE IF EXISTS ${tableName15} """
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName15} (
-                `k1` bigint(20) NULL DEFAULT "1",
-                `k2` bigint(20) NULL ,
-                `v1` tinyint(4) NULL,
-                `v2` tinyint(4) NULL,
-                `v3` tinyint(4) NULL,
-                `v4` DATETIME NULL
-            ) ENGINE=OLAP
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
-            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
-        """
-
-        def label = UUID.randomUUID().toString().replaceAll("-", "")
-        streamLoad {
-            table "${tableName15}"
-
-            set 'label', "${label}"
-            set 'column_separator', '|'
-            set 'columns', 'k1, k2, v1, v2, v3'
-            set 'two_phase_commit', 'true'
-
-            file 'test_two_phase_commit.csv'
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
+                set 'label', "${label}"
+                set 'column_separator', '|'
+                set 'columns', 'k1, k2, v1, v2, v3'
+                set 'two_phase_commit', 'true'
+    
+                file 'test_two_phase_commit.csv'
+    
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertTrue(!result.contains("ErrorURL"))
+                    assertEquals(2, json.NumberTotalRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
                 }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(!result.contains("ErrorURL"))
-                assertEquals(2, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-                assertEquals(0, json.NumberUnselectedRows)
             }
-        }
+    
+            qt_sql_2pc "select * from ${tableName15} order by k1"
 
-        qt_sql_2pc "select * from ${tableName15} order by k1"
+            do_streamload_2pc.call(label, "abort")
 
-        do_streamload_2pc.call(label, "abort")
+            qt_sql_2pc_abort "select * from ${tableName15} order by k1"
 
-        qt_sql_2pc_abort "select * from ${tableName15} order by k1"
+            streamLoad {
+                table "${tableName15}"
+    
+                set 'label', "${label}"
+                set 'column_separator', '|'
+                set 'columns', 'k1, k2, v1, v2, v3'
+                set 'two_phase_commit', 'true'
 
-        streamLoad {
-            table "${tableName15}"
+                file 'test_two_phase_commit.csv'
 
-            set 'label', "${label}"
-            set 'column_separator', '|'
-            set 'columns', 'k1, k2, v1, v2, v3'
-            set 'two_phase_commit', 'true'
-
-            file 'test_two_phase_commit.csv'
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertTrue(!result.contains("ErrorURL"))
+                    assertEquals(2, json.NumberTotalRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
                 }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(!result.contains("ErrorURL"))
-                assertEquals(2, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-                assertEquals(0, json.NumberUnselectedRows)
             }
+    
+            do_streamload_2pc.call(label, "commit")
+
+            def count = 0
+            while (true) {
+                res = sql "select count(*) from ${tableName15}"
+                if (res[0][0] > 0) {
+                    break
+                }
+                if (count >= 60) {
+                    log.error("stream load commit can not visible for long time")
+                    assertEquals(2, res[0][0])
+                    break
+                }
+                sleep(1000)
+                count++
+            }
+
+            qt_sql_2pc_commit "select * from ${tableName15} order by k1"
+        } finally {
+            sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""
         }
 
-        do_streamload_2pc.call(label, "commit")
-
-        def count = 0
-        while (true) {
-            res = sql "select count(*) from ${tableName15}"
-            if (res[0][0] > 0) {
-                break
-            }
-            if (count >= 60) {
-                log.error("stream load commit can not visible for long time")
-                assertEquals(2, res[0][0])
-                break
-            }
-            sleep(1000)
-            count++
-        }
-
-        qt_sql_2pc_commit "select * from ${tableName15} order by k1"
-    } finally {
-        sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""
-    }
+     }
 
     // test chunked transfer
     def tableName16 = "test_chunked_transfer"
@@ -1345,6 +1347,9 @@ suite("test_stream_load", "p0") {
         """
 
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3  -T ${context.dataPath}/test_chunked_transfer.csv http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
         def code = process.waitFor()
@@ -1373,6 +1378,9 @@ suite("test_stream_load", "p0") {
         """
 
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H Transfer-Encoding:chunked -H format:json -H read_json_by_line:true -T ${context.dataPath}/test_chunked_transfer.json http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
         def code = process.waitFor()
@@ -1654,6 +1662,9 @@ suite("test_stream_load", "p0") {
        """
    
        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:0  -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3 -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
        log.info("test chunked transfer command: ${command}")
        def process = command.execute()
        def code = process.waitFor()
@@ -1684,6 +1695,9 @@ suite("test_stream_load", "p0") {
         """
 
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:  -H Transfer-Encoding: -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
         def code = process.waitFor()
@@ -1697,4 +1711,5 @@ suite("test_stream_load", "p0") {
     }
 
 }
+
 

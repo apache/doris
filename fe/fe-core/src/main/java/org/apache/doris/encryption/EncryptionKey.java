@@ -46,6 +46,23 @@ public class EncryptionKey {
         MASTER_KEY, DATA_KEY;
     }
 
+    public EncryptionKey() {}
+
+    public EncryptionKey(EncryptionKey encryptionKey) {
+        this.id = encryptionKey.id;
+        this.version = encryptionKey.version;
+        this.parentId = encryptionKey.parentId;
+        this.parentVersion = encryptionKey.parentVersion;
+        this.type = encryptionKey.type;
+        this.algorithm = encryptionKey.algorithm;
+        this.ciphertext = encryptionKey.ciphertext;
+        this.plaintext = encryptionKey.plaintext;
+        this.iv = encryptionKey.iv;
+        this.crc = encryptionKey.crc;
+        this.ctime = encryptionKey.ctime;
+        this.mtime = encryptionKey.mtime;
+    }
+
     @SerializedName(value = "id")
     public String id;
 

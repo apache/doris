@@ -99,6 +99,8 @@ public:
     uint32_t size() const { return size_; }
     bool empty() const { return size() == 0; }
 
+    void set_size(uint32_t size) { size_ = size; }
+
     bool operator==(const StringView& other) const;
     friend std::ostream& operator<<(std::ostream& os, const StringView& stringView) {
         os.write(stringView.data(), stringView.size());
@@ -124,16 +126,15 @@ public:
     std::string dump_hex() const {
         static const char* kHex = "0123456789ABCDEF";
         std::string out;
-        out.reserve(size_ * 2 + 3);
-        out.push_back('X');
-        out.push_back('\'');
+        out.reserve(size_ * 2 + 2);
+        out.push_back('0');
+        out.push_back('x');
         const char* ptr = data();
         for (uint32_t i = 0; i < size_; ++i) {
             auto c = static_cast<unsigned char>(ptr[i]);
             out.push_back(kHex[c >> 4]);
             out.push_back(kHex[c & 0x0F]);
         }
-        out.push_back('\'');
         return out;
     }
 

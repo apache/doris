@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -35,6 +36,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
+#include "revokable_task.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -94,21 +96,27 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
 }
 
 PipelineTask::~PipelineTask() {
+    auto reset_member = [&]() {
+        _shared_state_map.clear();
+        _sink_shared_state.reset();
+        _op_shared_states.clear();
+        _sink.reset();
+        _operators.clear();
+        _block.reset();
+        _pipeline.reset();
+    };
 // PipelineTask is also hold by task queue( https://github.com/apache/doris/pull/49753),
 // so that it maybe the last one to be destructed.
 // But pipeline task hold some objects, like operators, shared state, etc. So that should release
 // memory manually.
 #ifndef BE_TEST
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+    if (_query_mem_tracker) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+        reset_member();
+        return;
+    }
 #endif
-    _shared_state_map.clear();
-    _sink_shared_state.reset();
-    _op_shared_states.clear();
-    _sink.reset();
-    _operators.clear();
-    _spill_context.reset();
-    _block.reset();
-    _pipeline.reset();
+    reset_member();
 }
 
 Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
@@ -306,17 +314,12 @@ bool PipelineTask::is_blockable() const {
         }
     }
 
-    return _need_to_revoke_memory ||
-           std::ranges::any_of(_operators,
+    return std::ranges::any_of(_operators,
                                [&](OperatorPtr op) -> bool { return op->is_blockable(_state); }) ||
            _sink->is_blockable(_state);
 }
 
 bool PipelineTask::_is_blocked() {
-    if (_need_to_revoke_memory) {
-        return false;
-    }
-
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
         for (int i = cast_set<int>(_read_dependencies.size() - 1); i >= 0; i--) {
@@ -378,11 +381,15 @@ void PipelineTask::terminate() {
  * @return
  */
 Status PipelineTask::execute(bool* done) {
-    if (!_need_to_revoke_memory && (_exec_state != State::RUNNABLE || _blocked_dep != nullptr))
-            [[unlikely]] {
+    if (_exec_state != State::RUNNABLE || _blocked_dep != nullptr) [[unlikely]] {
+#ifdef BE_TEST
         return Status::InternalError("Pipeline task is not runnable! Task info: {}",
                                      debug_string());
+#else
+        return Status::FatalError("Pipeline task is not runnable! Task info: {}", debug_string());
+#endif
     }
+
     auto fragment_context = _fragment_context.lock();
     if (!fragment_context) {
         return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
@@ -477,11 +484,6 @@ Status PipelineTask::execute(bool* done) {
             break;
         }
 
-        if (_need_to_revoke_memory) {
-            _need_to_revoke_memory = false;
-            return _sink->revoke_memory(_state, _spill_context);
-        }
-
         if (time_spent > _exec_time_slice) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
@@ -538,7 +540,6 @@ Status PipelineTask::execute(bool* done) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
-            COUNTER_UPDATE(_memory_reserve_times, 1);
             if (_state->get_query_ctx()
                         ->resource_ctx()
                         ->task_controller()
@@ -610,8 +611,43 @@ Status PipelineTask::execute(bool* done) {
     return Status::OK();
 }
 
+Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
+    auto fragment_context = _fragment_context.lock();
+    if (!fragment_context) {
+        return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
+    }
+
+    SCOPED_ATTACH_TASK(_state);
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
+    Defer running_defer {[&]() {
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        fragment_context->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
+                delta_cpu_time);
+
+        // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
+        if (_wake_up_early) {
+            terminate();
+            THROW_IF_ERROR(_root->terminate(_state));
+            THROW_IF_ERROR(_sink->terminate(_state));
+            _eos = true;
+        }
+    }};
+
+    return _sink->revoke_memory(_state, spill_context);
+}
+
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
     auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
+    // If reserve memory failed and the query is not enable spill, just disable reserve memory(this will enable
+    // memory hard limit check, and will cancel the query if allocate memory failed) and let it run.
+    if (!st.ok() && !_state->enable_spill()) {
+        LOG(INFO) << print_id(_query_id) << " reserve memory failed due to " << st
+                  << ", and it is not enable spill, disable reserve memory and let it run";
+        _state->get_query_ctx()->resource_ctx()->task_controller()->disable_reserve_memory();
+        return true;
+    }
     COUNTER_UPDATE(_memory_reserve_times, 1);
     auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
     if (st.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
@@ -628,13 +664,30 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
                 op->node_id(), _state->task_id(),
                 PrettyPrinter::print_bytes(op->revocable_mem_size(_state)),
                 PrettyPrinter::print_bytes(sink_revocable_mem_size), st.to_string());
-        // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+        // PROCESS_MEMORY_EXCEEDED error msg already contains process_mem_log_str
         if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
             debug_msg +=
                     fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
         }
-        LOG_EVERY_N(INFO, 100) << debug_msg;
         // If sink has enough revocable memory, trigger revoke memory
+        LOG(INFO) << fmt::format(
+                "Query: {} sink: {}, node id: {}, task id: "
+                "{}, revocable mem size: {}",
+                print_id(_query_id), _sink->get_name(), _sink->node_id(), _state->task_id(),
+                PrettyPrinter::print_bytes(sink_revocable_mem_size));
+        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                _state->get_query_ctx()->resource_ctx()->shared_from_this(), reserve_size, st);
+        _spilling = true;
+        return false;
+        // !!! Attention:
+        // In the past, if reserve failed, not add this query to paused list, because it is very small, will not
+        // consume a lot of memory. But need set low memory mode to indicate that the system should
+        // not use too much memory.
+        // But if we only set _state->get_query_ctx()->set_low_memory_mode() here, and return true, the query will
+        // continue to run and not blocked, and this reserve maybe the last block of join sink opertorator, and it will
+        // build hash table directly and will consume a lot of memory. So that should return false directly.
+        // TODO: we should using a global system buffer management logic to deal with low memory mode.
+        /**
         if (sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
             LOG(INFO) << fmt::format(
                     "Query: {} sink: {}, node id: {}, task id: "
@@ -646,11 +699,8 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
             _spilling = true;
             return false;
         } else {
-            // If reserve failed, not add this query to paused list, because it is very small, will not
-            // consume a lot of memory. But need set low memory mode to indicate that the system should
-            // not use too much memory.
             _state->get_query_ctx()->set_low_memory_mode();
-        }
+        } */
     }
     return true;
 }
@@ -794,7 +844,7 @@ std::string PipelineTask::debug_string() {
 }
 
 size_t PipelineTask::get_revocable_size() const {
-    if (is_finalized() || _running || (_eos && !_spilling)) {
+    if (!_opened || is_finalized() || _running || (_eos && !_spilling)) {
         return 0;
     }
 
@@ -802,22 +852,19 @@ size_t PipelineTask::get_revocable_size() const {
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
+    DCHECK(spill_context);
     if (is_finalized()) {
-        if (spill_context) {
-            spill_context->on_task_finished();
-            VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
-                       << " finalized";
-        }
+        spill_context->on_task_finished();
+        VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+                   << " finalized";
         return Status::OK();
     }
 
     const auto revocable_size = _sink->revocable_mem_size(_state);
     if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-        _need_to_revoke_memory = true;
-        _spill_context = spill_context;
-        RETURN_IF_ERROR(
-                _state->get_query_ctx()->get_pipe_exec_scheduler()->submit(shared_from_this()));
-    } else if (spill_context) {
+        auto revokable_task = std::make_shared<RevokableTask>(shared_from_this(), spill_context);
+        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task));
+    } else {
         spill_context->on_task_finished();
         LOG(INFO) << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
                   << " has not enough data to revoke: " << revocable_size;

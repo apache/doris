@@ -20,18 +20,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.util.List;
 
 /**
  * This def used for column which defaultValue is an expression.
@@ -53,26 +48,15 @@ public class DefaultValueExprDef implements GsonPostProcessable {
         this.precision = precision;
     }
 
-    /**
-     * generate a FunctionCallExpr
-     * @return FunctionCallExpr of exprName
-     */
-    public FunctionCallExpr getExpr(Type type) {
-        List<Expr> exprs = null;
+    public String getSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(exprName);
+        sb.append("(");
         if (precision != null && precision != 0) {
-            exprs = Lists.newArrayList();
-            exprs.add(new IntLiteral(precision));
+            sb.append(precision);
         }
-        FunctionCallExpr expr = new FunctionCallExpr(exprName, new FunctionParams(exprs));
-        try {
-            expr.analyzeImplForDefaultValue(type);
-        } catch (AnalysisException e) {
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().getState().reset();
-            }
-            LOG.warn("analyzeImplForDefaultValue fail: {}", e);
-        }
-        return expr;
+        sb.append(")");
+        return sb.toString();
     }
 
     public String getExprName() {

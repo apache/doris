@@ -71,12 +71,13 @@ static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t inde
     first_rowset->mutable_tablet_schema()->CopyFrom(*schema);
 }
 
-static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
-                          int64_t partition_id, int64_t tablet_id, const std::string& rowset_id,
-                          int32_t schema_version) {
+static void create_tablet(MetaServiceProxy* meta_service, int64_t db_id, int64_t table_id,
+                          int64_t index_id, int64_t partition_id, int64_t tablet_id,
+                          const std::string& rowset_id, int32_t schema_version) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(db_id);
     add_tablet(req, table_id, index_id, partition_id, tablet_id, rowset_id, schema_version);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -130,10 +131,11 @@ TEST(DetachSchemaKVTest, TabletTest) {
 
     // new MS write with write_schema_kv=false, old MS read
     {
-        constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
+        constexpr auto db_id = 1, table_id = 10001, index_id = 10002, partition_id = 10003,
+                       tablet_id = 10004;
         config::write_schema_kv = false;
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), 1));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(), 1));
         // check saved values in txn_kv
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -197,10 +199,11 @@ TEST(DetachSchemaKVTest, TabletTest) {
 
     // new MS write with write_schema_kv=true, new MS read
     {
-        constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
+        constexpr auto db_id = 1, table_id = 10021, index_id = 10022, partition_id = 10023,
+                       tablet_id = 10024;
         config::write_schema_kv = true;
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), 1));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(), 1));
         // check saved values in txn_kv
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -237,6 +240,7 @@ TEST(DetachSchemaKVTest, TabletTest) {
         brpc::Controller cntl;
         CreateTabletsRequest req;
         CreateTabletsResponse res;
+        req.set_db_id(1);
         add_tablet(req, 10031, 10032, 10033, 100031, next_rowset_id(), 1);
         add_tablet(req, 10031, 10032, 10033, 100032, next_rowset_id(), 2);
         add_tablet(req, 10031, 10032, 10033, 100033, next_rowset_id(), 2);
@@ -476,8 +480,8 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     {
         constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
         config::write_schema_kv = false;
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), 1));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(), 1));
         ASSERT_NO_FATAL_FAILURE(
                 insert_rowset(meta_service.get(), db_id, "101", table_id, tablet_id, 2)); // [2-2]
         // check saved values in txn_kv
@@ -496,8 +500,8 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     {
         constexpr auto table_id = 10011, index_id = 10012, partition_id = 10013, tablet_id = 10014;
         config::write_schema_kv = false;
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), 1));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(), 1));
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         auto saved_rowset = create_rowset(10015, tablet_id, next_rowset_id(), 2, 2);
@@ -526,8 +530,8 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     {
         constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
         config::write_schema_kv = true;
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), 1));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(), 1));
         ASSERT_NO_FATAL_FAILURE(
                 insert_rowset(meta_service.get(), db_id, "201", table_id, tablet_id, 2)); // [2-2]
         // check saved values in txn_kv
@@ -575,8 +579,9 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         std::uniform_int_distribution<int> dist1(1, 4);
         std::uniform_int_distribution<int> dist2(2, 7);
         std::vector<int> schema_versions {1};
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), schema_versions[0]));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(),
+                                              schema_versions[0]));
         for (int i = 0; i < 10; ++i) {
             schema_versions.push_back(dist1(rng));
             ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), db_id,
@@ -653,12 +658,14 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     });
     sp->enable_processing();
 
+    int64_t db_id = 1000;
+
     // old MS commit rowset, new MS commit rowset again
     {
         constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
         config::write_schema_kv = false;
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), 1));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(), 1));
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         auto committed_rowset = create_rowset(10005, tablet_id, next_rowset_id(), 2, 2);
@@ -690,13 +697,13 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     }
 
     // new MS commit rowset, new MS commit rowset again
-    auto insert_existed_rowset = [&meta_service](int64_t table_id, int64_t index_id,
-                                                 int64_t partition_id, int64_t tablet_id,
-                                                 int64_t txn_id,
-                                                 google::protobuf::Arena* arena = nullptr) {
+    auto insert_existed_rowset = [&meta_service, db_id](int64_t table_id, int64_t index_id,
+                                                        int64_t partition_id, int64_t tablet_id,
+                                                        int64_t txn_id,
+                                                        google::protobuf::Arena* arena = nullptr) {
         config::write_schema_kv = true;
-        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
-                                              tablet_id, next_rowset_id(), 1));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
+                                              partition_id, tablet_id, next_rowset_id(), 1));
         auto committed_rowset = create_rowset(txn_id, tablet_id, next_rowset_id(), 2, 2);
         auto res = google::protobuf::Arena::CreateMessage<CreateRowsetResponse>(arena);
         DORIS_CLOUD_DEFER {
@@ -747,15 +754,17 @@ TEST(SchemaKVTest, InsertExistedRowsetTest) {
     });
     sp->enable_processing();
 
+    constexpr int64_t db_id = 2000;
+
     config::write_schema_kv = true;
     config::meta_schema_value_version = 0;
-    ASSERT_NO_FATAL_FAILURE(
-            create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 1));
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10004,
+                                          next_rowset_id(), 1));
     check_get_tablet(meta_service.get(), 10004, 1);
 
     config::meta_schema_value_version = 1;
-    ASSERT_NO_FATAL_FAILURE(
-            create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10005,
+                                          next_rowset_id(), 2));
     check_get_tablet(meta_service.get(), 10005, 2);
 }
 
@@ -788,18 +797,19 @@ static void update_tablet(MetaServiceProxy* meta_service, int64_t tablet_id) {
 
 TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
     //case 1 config::write_schema_kv = true;
+    constexpr int64_t db_id = 3000;
     {
         auto meta_service = get_meta_service();
         config::write_schema_kv = true;
         //config::meta_schema_value_version = 0;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10004,
+                                              next_rowset_id(), 0));
         check_get_tablet(meta_service.get(), 10004, 0);
         check_schema(meta_service.get(), 10004, 0);
 
         //config::meta_schema_value_version = 1;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10005,
+                                              next_rowset_id(), 2));
         check_get_tablet(meta_service.get(), 10005, 2);
 
         update_tablet(meta_service.get(), 10005);
@@ -814,14 +824,14 @@ TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
                 std::make_unique<std::function<void()>>([]() { config::write_schema_kv = true; });
 
         //config::meta_schema_value_version = 0;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10004,
+                                              next_rowset_id(), 0));
         check_get_tablet(meta_service.get(), 10004, 0);
         check_schema(meta_service.get(), 10004, 0);
 
         //config::meta_schema_value_version = 1;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10005,
+                                              next_rowset_id(), 2));
         check_get_tablet(meta_service.get(), 10005, 2);
 
         update_tablet(meta_service.get(), 10005);
@@ -836,14 +846,14 @@ TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
                 std::make_unique<std::function<void()>>([]() { config::write_schema_kv = true; });
 
         //config::meta_schema_value_version = 0;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10004,
+                                              next_rowset_id(), 0));
         check_get_tablet(meta_service.get(), 10004, 0);
         check_schema(meta_service.get(), 10004, 0);
 
         //config::meta_schema_value_version = 1;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10005,
+                                              next_rowset_id(), 2));
         check_get_tablet(meta_service.get(), 10005, 2);
         config::write_schema_kv = true;
         update_tablet(meta_service.get(), 10005);
@@ -861,14 +871,14 @@ TEST(AlterSchemaKVTest, AlterDisableAutoCompactionTest) {
         });
 
         config::meta_schema_value_version = 0;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10004, next_rowset_id(), 0));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10004,
+                                              next_rowset_id(), 0));
         check_get_tablet(meta_service.get(), 10004, 0);
         check_schema(meta_service.get(), 10004, 0);
 
         config::meta_schema_value_version = 1;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), 10001, 10002, 10003, 10005, next_rowset_id(), 2));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, 10001, 10002, 10003, 10005,
+                                              next_rowset_id(), 2));
         check_get_tablet(meta_service.get(), 10005, 2);
         config::write_schema_kv = true;
         update_tablet(meta_service.get(), 10005);

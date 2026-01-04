@@ -18,7 +18,6 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -32,6 +31,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -105,6 +105,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "op_time DATETIME)\n" + "DUPLICATE  KEY(timestamp, type)\n" + "DISTRIBUTED BY HASH(type) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');";
         createTable(createDupTblStmtStrForStruct);
+
+        String createSeqMapTblStmt = "CREATE TABLE IF NOT EXISTS test.sc_seq_map "
+                + "(k1 bigint, k2 date, c varchar(20), d varchar(20), s1 bigint)ENGINE = OLAP \n"
+                + "UNIQUE KEY(k1, k2) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'sequence_mapping.s1' = 'c,d', 'enable_unique_key_merge_on_write' = 'false')";
+        createTable(createSeqMapTblStmt);
     }
 
     private void waitAlterJobDone(Map<Long, AlterJobV2> alterJobs) throws Exception {
@@ -849,13 +856,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertNotNull(indexMeta);
 
             Assertions.assertEquals("idx_error_msg", tbl.getIndexes().get(0).getIndexName());
-            Assertions.assertEquals(IndexDef.IndexType.NGRAM_BF, tbl.getIndexes().get(0).getIndexType());
+            Assertions.assertEquals(IndexDefinition.IndexType.NGRAM_BF, tbl.getIndexes().get(0).getIndexType());
             Map<String, String> props = tbl.getIndexes().get(0).getProperties();
             Assertions.assertEquals("2", props.get("gram_size"));
             Assertions.assertEquals("256", props.get("bf_size"));
             Index index = tbl.getIndexes().get(0);
             LOG.warn("index:{}", index.toString());
-            Assertions.assertEquals(IndexDef.IndexType.NGRAM_BF, index.getIndexType());
+            Assertions.assertEquals(IndexDefinition.IndexType.NGRAM_BF, index.getIndexType());
             Assertions.assertTrue(index.toString().contains("USING NGRAM_BF"));
         } finally {
             tbl.readUnlock();
@@ -877,6 +884,154 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         } finally {
             tbl.readUnlock();
         }
+    }
+
+    @Test
+    public void testAddOrDropSequenceMap() throws Exception {
+        LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_seq_map", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertNotNull(tbl);
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+        } finally {
+            tbl.readUnlock();
+        }
+
+        // test should contain PROPERTIES_SEQUENCE_MAPPING properties
+        String addColumn = "ALTER TABLE test.sc_seq_map add column s2 bigint";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test value column cannot overlap
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, s3 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 'f', 'sequence_mapping.s3' = 'f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test sequence column not exists
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s3' = 'f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test uses key column as sequence column
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.k1' = 'f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test value column not exists
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 'h')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test mapping column cannot be sequence column of mapping
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 's1,f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test value column already exists in other sequence groups
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 'c,f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test value column cannot be key column
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 'k1,f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test add column should be used as sequence column or value column
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar, e varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 'f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test sequence column data type
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 varchar, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 'f')";
+        try {
+            alterTable(addColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test add ok
+        addColumn = "ALTER TABLE test.sc_seq_map add column (s2 bigint, f varchar) "
+                + "PROPERTIES ('sequence_mapping.s2' = 'f')";
+        try {
+            alterTable(addColumn, connectContext);
+            jobSize++;
+        } catch (Exception e) {
+            Assertions.fail("DdlException should not thrown");
+        }
+
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+        waitAlterJobDone(alterJobs);
+
+        // test cannot drop column of none-empty sequence mapping key column
+        String dropColumn = "ALTER TABLE test.sc_seq_map drop column s1";
+        try {
+            alterTable(dropColumn, connectContext);
+            Assertions.fail("Expected DdlException was not thrown");
+        } catch (Exception e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+
+        // test drop ok
+        dropColumn = "ALTER TABLE test.sc_seq_map drop column c";
+        try {
+            alterTable(dropColumn, connectContext);
+            jobSize++;
+        } catch (Exception e) {
+            Assertions.fail("DdlException should not thrown");
+        }
+        alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+        waitAlterJobDone(alterJobs);
     }
 
 }

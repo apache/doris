@@ -798,7 +798,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
-            FunctionUtil.translateToNereids(this.getFullName(), function);
+            try {
+                FunctionUtil.translateToNereidsThrows(this.getFullName(), function);
+            } catch (Exception e) {
+                name2Function.remove(function.getFunctionName().getFunction());
+                throw e;
+            }
         }
     }
 
@@ -859,10 +864,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    public synchronized Function getFunction(Function desc, Function.CompareMode mode) {
-        return FunctionUtil.getFunction(desc, mode, name2Function);
     }
 
     public synchronized Function getFunction(FunctionSearchDesc function) throws AnalysisException {

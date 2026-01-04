@@ -72,7 +72,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -255,6 +255,18 @@ public class Auth implements Writable {
             }
         }
         return roles;
+    }
+
+    public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
+        Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
+        Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
+        for (Role role : rolesByUserWithLdap) {
+            String roleName = role.getRoleName();
+            if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
+                res.add(roleName);
+            }
+        }
+        return res;
     }
 
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
@@ -1333,8 +1345,8 @@ public class Auth implements Writable {
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== Roles ==============
-            userAuthInfo.add(ldapUserInfo.getRoles().stream().map(role -> role.getRoleName())
-                    .collect(Collectors.joining(",")));
+            userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
+                    ConnectContext.get().getSessionVariable().showUserDefaultRole)));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
             if (user == null) {

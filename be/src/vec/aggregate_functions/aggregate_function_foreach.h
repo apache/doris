@@ -158,8 +158,8 @@ public:
         }
     }
 
-    bool has_trivial_destructor() const override {
-        return std::is_trivially_destructible_v<Data> && nested_function->has_trivial_destructor();
+    bool is_trivial() const override {
+        return std::is_trivial_v<Data> && nested_function->is_trivial();
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,

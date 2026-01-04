@@ -25,6 +25,7 @@
 
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/index_reader_helper.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -322,19 +323,20 @@ private:
 
     Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
-        auto call = [&](const auto& types) -> bool {
-            using Types = std::decay_t<decltype(types)>;
-            using LeftDataType = typename Types::LeftType;
-            using RightDataType = typename Types::RightType;
-
-            DecimalComparison<LeftDataType::PType, RightDataType::PType, Op, false>(
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            DecimalComparison<DispatchType::PType, DispatchType::PType, Op, false>(
                     block, result, col_left, col_right);
             return true;
         };
 
-        if (!call_on_basic_types<true, false, true, false>(col_left.type->get_primitive_type(),
-                                                           col_right.type->get_primitive_type(),
-                                                           call)) {
+        if (col_left.type->get_primitive_type() != col_right.type->get_primitive_type()) {
+            return Status::RuntimeError(
+                    "type of left column {} is not equal to type of right column {}",
+                    col_left.type->get_name(), col_right.type->get_name());
+        }
+
+        if (!dispatch_switch_decimal(col_right.type->get_primitive_type(), call)) {
             return Status::RuntimeError("Wrong call for {} with {} and {}", get_name(),
                                         col_left.type->get_name(), col_right.type->get_name());
         }
@@ -450,6 +452,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -489,8 +492,6 @@ public:
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &param_value, query_param));
 
         segment_v2::InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
@@ -499,7 +500,8 @@ public:
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&param));
+        param.analyzer_ctx = analyzer_ctx;
+        RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
@@ -576,14 +578,12 @@ public:
         switch (compare_type) {
         case TYPE_BOOLEAN:
             return execute_num_type<TYPE_BOOLEAN>(block, result, col_left_ptr, col_right_ptr);
-        case TYPE_DATE:
-            return execute_num_type<TYPE_DATE>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATEV2:
             return execute_num_type<TYPE_DATEV2>(block, result, col_left_ptr, col_right_ptr);
-        case TYPE_DATETIME:
-            return execute_num_type<TYPE_DATETIME>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATETIMEV2:
             return execute_num_type<TYPE_DATETIMEV2>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_TIMESTAMPTZ:
+            return execute_num_type<TYPE_TIMESTAMPTZ>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TINYINT:
             return execute_num_type<TYPE_TINYINT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_SMALLINT:

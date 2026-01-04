@@ -95,9 +95,9 @@ suite("test_streaming_job_restart_fe", "docker") {
             select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+        assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":2,\"fileSize\":256}"
 
         // Restart FE
         cluster.restartFrontends()
@@ -113,9 +113,9 @@ suite("test_streaming_job_restart_fe", "docker") {
             select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+        assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
+        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":2,\"fileSize\":256}"
 
         sql """ DROP JOB IF EXISTS where jobname =  '${jobName}' """
         sql """drop table if exists `${tableName}` force"""

@@ -136,15 +136,17 @@ static void help() {
 
 static std::string build_info() {
     std::stringstream ss;
+// clang-format off
 #if defined(NDEBUG)
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-release}"
 #else
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-debug}"
 #endif
-       << " code_version:{commit=" DORIS_CLOUD_BUILD_HASH " time=" DORIS_CLOUD_BUILD_VERSION_TIME
-          "}"
+       << " code_version:{commit=" DORIS_CLOUD_BUILD_HASH " time=" DORIS_CLOUD_BUILD_VERSION_TIME "}"
+       << " features:{" DORIS_CLOUD_FEATURE_LIST "}"
        << " build_info:{initiator=" DORIS_CLOUD_BUILD_INITIATOR " build_at=" DORIS_CLOUD_BUILD_TIME
           " build_on=" DORIS_CLOUD_BUILD_OS_VERSION "}\n";
+    // clang-format on
     return ss.str();
 }
 
@@ -331,6 +333,10 @@ int main(int argc, char** argv) {
     if (config::brpc_num_threads != -1) {
         options.num_threads = config::brpc_num_threads;
     }
+    int32_t internal_port = config::brpc_internal_listen_port;
+    if (internal_port > 0) {
+        options.internal_port = internal_port;
+    }
     int port = config::brpc_listen_port;
     if (server.Start(port, &options) != 0) {
         char buf[64];
@@ -348,7 +354,9 @@ int main(int argc, char** argv) {
     }
 
     msg = "successfully started service listening on port=" + std::to_string(port) +
-          " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count());
+          " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count()) +
+          (internal_port > 0 ? " internal_port=" + std::to_string(internal_port) : "");
+
     LOG(INFO) << msg;
     std::cout << msg << std::endl;
 

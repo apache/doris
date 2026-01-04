@@ -88,46 +88,6 @@
 2	def	2	2	def	2
 3	abc	4	3	abc	4
 
--- !leading --
-\N	def	2	1	def	2
-\N	def	2	2	def	2
-\N	def	2	2	def	2
-1	abc	9	1	abc	9
-1	def	2	1	def	2
-1	def	2	2	def	2
-1	def	2	2	def	2
-2	abc	2	1	def	2
-2	abc	2	2	def	2
-2	abc	2	2	def	2
-2	def	2	1	def	2
-2	def	2	2	def	2
-2	def	2	2	def	2
-3	abc	4	3	abc	4
-
--- !has_other_equal_condition --
-1	abc	9	1	abc	9
-1	def	2	1	def	2
-2	abc	2	2	def	2
-2	abc	2	2	def	2
-2	def	2	2	def	2
-2	def	2	2	def	2
-3	abc	4	3	abc	4
-
--- !has_other_unequal_condition --
-1	def	2	2	def	2
-1	def	2	2	def	2
-
--- !test_varchar_skew_value --
-1	abc	1	1	abc	9
-1	abc	9	1	abc	9
-1	def	2	1	def	2
-2	def	2	2	def	2
-2	def	2	2	def	2
-3	abc	\N	3	abc	\N
-3	abc	\N	3	abc	4
-3	abc	4	3	abc	\N
-3	abc	4	3	abc	4
-
 -- !test_multi_join --
 \N	def	2	1	def	2	1	def	2
 \N	def	2	1	def	2	2	def	2
@@ -258,76 +218,6 @@
 2	def	2	2	def	2	2	def	2
 3	abc	4	3	abc	4	3	abc	4
 
--- !leading_multi_join --
-1	abc	1	1	abc	9	1	abc	9
-1	abc	1	1	abc	9	3	abc	\N
-1	abc	1	1	abc	9	3	abc	4
-1	abc	9	1	abc	9	1	abc	9
-1	abc	9	1	abc	9	3	abc	\N
-1	abc	9	1	abc	9	3	abc	4
-1	def	2	1	def	2	1	def	2
-1	def	2	1	def	2	2	def	2
-1	def	2	1	def	2	2	def	2
-1	def	2	1	def	2	5	def	\N
-1	def	2	1	def	2	5	def	8
-2	def	2	2	def	2	1	def	2
-2	def	2	2	def	2	1	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	5	def	\N
-2	def	2	2	def	2	5	def	\N
-2	def	2	2	def	2	5	def	8
-2	def	2	2	def	2	5	def	8
-3	abc	\N	3	abc	\N	1	abc	9
-3	abc	\N	3	abc	\N	3	abc	\N
-3	abc	\N	3	abc	\N	3	abc	4
-3	abc	\N	3	abc	4	1	abc	9
-3	abc	\N	3	abc	4	3	abc	\N
-3	abc	\N	3	abc	4	3	abc	4
-3	abc	4	3	abc	\N	1	abc	9
-3	abc	4	3	abc	\N	3	abc	\N
-3	abc	4	3	abc	\N	3	abc	4
-3	abc	4	3	abc	4	1	abc	9
-3	abc	4	3	abc	4	3	abc	\N
-3	abc	4	3	abc	4	3	abc	4
-
--- !leading_multi_join_bracket --
-1	abc	1	1	abc	9	1	abc	9
-1	abc	1	1	abc	9	3	abc	\N
-1	abc	1	1	abc	9	3	abc	4
-1	abc	9	1	abc	9	1	abc	9
-1	abc	9	1	abc	9	3	abc	\N
-1	abc	9	1	abc	9	3	abc	4
-1	def	2	1	def	2	1	def	2
-1	def	2	1	def	2	2	def	2
-1	def	2	1	def	2	2	def	2
-1	def	2	1	def	2	5	def	\N
-1	def	2	1	def	2	5	def	8
-2	def	2	2	def	2	1	def	2
-2	def	2	2	def	2	1	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	2	def	2
-2	def	2	2	def	2	5	def	\N
-2	def	2	2	def	2	5	def	\N
-2	def	2	2	def	2	5	def	8
-2	def	2	2	def	2	5	def	8
-3	abc	\N	3	abc	\N	1	abc	9
-3	abc	\N	3	abc	\N	3	abc	\N
-3	abc	\N	3	abc	\N	3	abc	4
-3	abc	\N	3	abc	4	1	abc	9
-3	abc	\N	3	abc	4	3	abc	\N
-3	abc	\N	3	abc	4	3	abc	4
-3	abc	4	3	abc	\N	1	abc	9
-3	abc	4	3	abc	\N	3	abc	\N
-3	abc	4	3	abc	\N	3	abc	4
-3	abc	4	3	abc	4	1	abc	9
-3	abc	4	3	abc	4	3	abc	\N
-3	abc	4	3	abc	4	3	abc	4
-
 -- !agg --
 \N	3
 1	4
@@ -404,46 +294,6 @@
 2	def	2	2	def	2
 2	def	2	2	def	2
 3	abc	4	3	abc	4
-
--- !shape_leading_inner_subquery --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1$c$1 = r2$c$2)) otherCondition=()
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
-------------PhysicalOlapScan[t2]
-------------PhysicalOlapScan[t4]
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = alias1.c1)) otherCondition=()
-------------PhysicalGenerate
---------------PhysicalUnion
-------------PhysicalOlapScan[t1]
---------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(alias2 shuffle_skew t1 )
-UnUsed:
-SyntaxError:
-
--- !shape_leading_inner_subquery_switch --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1$c$1 = r2$c$2)) otherCondition=()
-----------PhysicalOlapScan[t1]
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = alias2.c2)) otherCondition=()
-------------PhysicalGenerate
---------------PhysicalUnion
-------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
---------------PhysicalOlapScan[t2]
---------------PhysicalOlapScan[t4]
---------PhysicalOlapScan[t3]
-
-Hint log:
-Used: leading(t1 shuffle_skew alias2 )
-UnUsed:
-SyntaxError:
 
 -- !inner_skew_value --
 1	\N	1	\N
@@ -967,6 +817,156 @@ PhysicalResultSink
 
 Hint log:
 Used: [shuffle_skew]_1
+UnUsed:
+SyntaxError:
+
+-- !leading_multi_join --
+1	abc	1	1	abc	9	1	abc	9
+1	abc	1	1	abc	9	3	abc	\N
+1	abc	1	1	abc	9	3	abc	4
+1	abc	9	1	abc	9	1	abc	9
+1	abc	9	1	abc	9	3	abc	\N
+1	abc	9	1	abc	9	3	abc	4
+1	def	2	1	def	2	1	def	2
+1	def	2	1	def	2	2	def	2
+1	def	2	1	def	2	2	def	2
+1	def	2	1	def	2	5	def	\N
+1	def	2	1	def	2	5	def	8
+2	def	2	2	def	2	1	def	2
+2	def	2	2	def	2	1	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	5	def	\N
+2	def	2	2	def	2	5	def	\N
+2	def	2	2	def	2	5	def	8
+2	def	2	2	def	2	5	def	8
+3	abc	\N	3	abc	\N	1	abc	9
+3	abc	\N	3	abc	\N	3	abc	\N
+3	abc	\N	3	abc	\N	3	abc	4
+3	abc	\N	3	abc	4	1	abc	9
+3	abc	\N	3	abc	4	3	abc	\N
+3	abc	\N	3	abc	4	3	abc	4
+3	abc	4	3	abc	\N	1	abc	9
+3	abc	4	3	abc	\N	3	abc	\N
+3	abc	4	3	abc	\N	3	abc	4
+3	abc	4	3	abc	4	1	abc	9
+3	abc	4	3	abc	4	3	abc	\N
+3	abc	4	3	abc	4	3	abc	4
+
+-- !leading_multi_join_bracket --
+1	abc	1	1	abc	9	1	abc	9
+1	abc	1	1	abc	9	3	abc	\N
+1	abc	1	1	abc	9	3	abc	4
+1	abc	9	1	abc	9	1	abc	9
+1	abc	9	1	abc	9	3	abc	\N
+1	abc	9	1	abc	9	3	abc	4
+1	def	2	1	def	2	1	def	2
+1	def	2	1	def	2	2	def	2
+1	def	2	1	def	2	2	def	2
+1	def	2	1	def	2	5	def	\N
+1	def	2	1	def	2	5	def	8
+2	def	2	2	def	2	1	def	2
+2	def	2	2	def	2	1	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	2	def	2
+2	def	2	2	def	2	5	def	\N
+2	def	2	2	def	2	5	def	\N
+2	def	2	2	def	2	5	def	8
+2	def	2	2	def	2	5	def	8
+3	abc	\N	3	abc	\N	1	abc	9
+3	abc	\N	3	abc	\N	3	abc	\N
+3	abc	\N	3	abc	\N	3	abc	4
+3	abc	\N	3	abc	4	1	abc	9
+3	abc	\N	3	abc	4	3	abc	\N
+3	abc	\N	3	abc	4	3	abc	4
+3	abc	4	3	abc	\N	1	abc	9
+3	abc	4	3	abc	\N	3	abc	\N
+3	abc	4	3	abc	\N	3	abc	4
+3	abc	4	3	abc	4	1	abc	9
+3	abc	4	3	abc	4	3	abc	\N
+3	abc	4	3	abc	4	3	abc	4
+
+-- !leading --
+\N	def	2	1	def	2
+\N	def	2	2	def	2
+\N	def	2	2	def	2
+1	abc	9	1	abc	9
+1	def	2	1	def	2
+1	def	2	2	def	2
+1	def	2	2	def	2
+2	abc	2	1	def	2
+2	abc	2	2	def	2
+2	abc	2	2	def	2
+2	def	2	1	def	2
+2	def	2	2	def	2
+2	def	2	2	def	2
+3	abc	4	3	abc	4
+
+-- !has_other_equal_condition --
+1	abc	9	1	abc	9
+1	def	2	1	def	2
+2	abc	2	2	def	2
+2	abc	2	2	def	2
+2	def	2	2	def	2
+2	def	2	2	def	2
+3	abc	4	3	abc	4
+
+-- !has_other_unequal_condition --
+1	def	2	2	def	2
+1	def	2	2	def	2
+
+-- !test_varchar_skew_value --
+1	abc	1	1	abc	9
+1	abc	9	1	abc	9
+1	def	2	1	def	2
+2	def	2	2	def	2
+2	def	2	2	def	2
+3	abc	\N	3	abc	\N
+3	abc	\N	3	abc	4
+3	abc	4	3	abc	\N
+3	abc	4	3	abc	4
+
+-- !shape_leading_inner_subquery --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1$c$1 = r2$c$2)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
+------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t4]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = alias1.c1)) otherCondition=()
+------------PhysicalGenerate
+--------------PhysicalUnion
+------------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t3]
+
+Hint log:
+Used: leading(alias2 shuffle_skew t1 )
+UnUsed:
+SyntaxError:
+
+-- !shape_leading_inner_subquery_switch --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = t3.c3)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((alias1.c1 = alias2.c2) and (r1$c$1 = r2$c$2)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = alias2.c2)) otherCondition=()
+------------PhysicalGenerate
+--------------PhysicalUnion
+------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t4.c4)) otherCondition=()
+--------------PhysicalOlapScan[t2]
+--------------PhysicalOlapScan[t4]
+--------PhysicalOlapScan[t3]
+
+Hint log:
+Used: leading(t1 shuffle_skew alias2 )
 UnUsed:
 SyntaxError:
 

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "resource-manager/resource_manager.h"
 #if defined(USE_LIBCPP) && _LIBCPP_ABI_VERSION <= 1
 #define _LIBCPP_ABI_INCOMPLETE_TYPES_IN_DEQUE
 #endif
@@ -130,11 +131,18 @@ public:
     int do_snapshots_check();
 
     // Return 0 if success.
-    // Return 1 if mvcc rowset meta key and segment file leak or loss is identified.
+    // Return 1 if mvcc meta key and data leak or loss is identified.
     // Return negative if a temporary error occurred during the check process.
-    int do_mvcc_rowset_meta_key_check();
+    int do_mvcc_meta_key_check();
+
+    // Return 0 if success.
+    // Return 1 if packed file metadata leak or loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_packed_file_check();
 
     StorageVaultAccessor* get_accessor(const std::string& id);
+
+    ResourceManager* resource_mgr() const { return resource_mgr_.get(); }
 
     void get_all_accessor(std::vector<StorageVaultAccessor*>* accessors);
 
@@ -243,6 +251,7 @@ private:
     // id -> accessor
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
     std::shared_ptr<SnapshotManager> snapshot_manager_;
+    std::shared_ptr<ResourceManager> resource_mgr_;
 };
 
 } // namespace doris::cloud
