@@ -191,8 +191,7 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
                 _output_distinct_rows++;
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->impl->columns[i],
-                                               current->impl->pos);
+                merged_columns[i]->insert_from(*current->impl->columns[i], current->impl->pos);
             }
             merged_rows++;
             _output_total_rows++;
