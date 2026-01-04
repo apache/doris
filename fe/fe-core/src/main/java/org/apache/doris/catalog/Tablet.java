@@ -206,6 +206,7 @@ public abstract class Tablet {
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+        TabletSlidingWindowAccessStats.recordTablet(getId());
         return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
     }
 
@@ -222,6 +223,7 @@ public abstract class Tablet {
         List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> userDropReplica = Lists.newArrayListWithCapacity(replicaNum);
+        TabletSlidingWindowAccessStats.recordTablet(getId());
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {

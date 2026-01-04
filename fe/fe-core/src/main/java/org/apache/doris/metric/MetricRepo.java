@@ -21,6 +21,7 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.cloud.catalog.CloudTabletRebalancer;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -81,6 +82,8 @@ public final class MetricRepo {
 
     public static final String TABLET_NUM = "tablet_num";
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
+    public static final String TABLET_ACCESS_RECENT = "tablet_access_recent";
+    public static final String TABLET_ACCESS_TOTAL = "tablet_access_total";
     public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
@@ -113,6 +116,9 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES;
 
     public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
+
+    public static GaugeMetric<Long> GAUGE_TABLET_ACCESS_RECENT;
+    public static GaugeMetric<Long> GAUGE_TABLET_ACCESS_TOTAL;
 
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
@@ -345,6 +351,37 @@ public final class MetricRepo {
 
         // capacity
         generateBackendsTabletMetrics();
+
+        // tablet sliding window access stats
+        GAUGE_TABLET_ACCESS_RECENT = new GaugeMetric<Long>(TABLET_ACCESS_RECENT, MetricUnit.REQUESTS,
+                "total tablet access count within sliding window") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                if (!Config.enable_active_tablet_sliding_window_access_stats) {
+                    return 0L;
+                }
+                return TabletSlidingWindowAccessStats.getInstance().getRecentAccessCountInWindow();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_TABLET_ACCESS_RECENT);
+
+        GAUGE_TABLET_ACCESS_TOTAL = new GaugeMetric<Long>(TABLET_ACCESS_TOTAL, MetricUnit.REQUESTS,
+                "total tablet access count since FE start") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                if (!Config.enable_active_tablet_sliding_window_access_stats) {
+                    return 0L;
+                }
+                return TabletSlidingWindowAccessStats.getInstance().getTotalAccessCount();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_TABLET_ACCESS_TOTAL);
 
         // connections
         USER_GAUGE_CONNECTIONS = addLabeledMetrics("user", () ->
