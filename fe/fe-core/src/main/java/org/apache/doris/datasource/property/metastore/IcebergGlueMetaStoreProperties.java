@@ -23,11 +23,11 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.catalog.Catalog;
 
 import java.util.List;
 import java.util.Map;
@@ -60,8 +60,8 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    public BaseMetastoreCatalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                                            List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         appendS3Props(catalogProps);
         appendGlueProps(catalogProps);
         catalogProps.put("client.region", glueProperties.glueRegion);

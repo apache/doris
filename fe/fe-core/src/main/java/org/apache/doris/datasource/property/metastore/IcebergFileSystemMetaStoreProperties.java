@@ -24,7 +24,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.BaseMetastoreCatalog;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
 import java.util.List;
@@ -42,8 +42,8 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
     }
 
     @Override
-    public BaseMetastoreCatalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                                            List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         Configuration configuration = buildConfiguration(storagePropertiesList);
         HadoopCatalog catalog = new HadoopCatalog();
         buildCatalogProps(storagePropertiesList);

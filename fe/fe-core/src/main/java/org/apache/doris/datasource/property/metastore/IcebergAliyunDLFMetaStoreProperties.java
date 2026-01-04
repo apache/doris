@@ -23,7 +23,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.BaseMetastoreCatalog;
+import org.apache.iceberg.catalog.Catalog;
 
 import java.util.List;
 import java.util.Map;
@@ -45,8 +45,8 @@ public class IcebergAliyunDLFMetaStoreProperties extends AbstractIcebergProperti
     }
 
     @Override
-    public BaseMetastoreCatalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                                            List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         DLFCatalog dlfCatalog = new DLFCatalog();
         // @see com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils
         Configuration conf = new Configuration();

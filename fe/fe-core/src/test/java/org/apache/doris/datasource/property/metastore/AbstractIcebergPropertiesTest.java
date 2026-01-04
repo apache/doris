@@ -19,8 +19,8 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -33,10 +33,10 @@ import java.util.Map;
 public class AbstractIcebergPropertiesTest {
 
     private static class TestIcebergProperties extends AbstractIcebergProperties {
-        private final BaseMetastoreCatalog catalogToReturn;
+        private final Catalog catalogToReturn;
         private Map<String, String> capturedCatalogProps;
 
-        TestIcebergProperties(Map<String, String> props, BaseMetastoreCatalog catalogToReturn) {
+        TestIcebergProperties(Map<String, String> props, Catalog catalogToReturn) {
             super(props);
             this.catalogToReturn = catalogToReturn;
         }
@@ -47,7 +47,7 @@ public class AbstractIcebergPropertiesTest {
         }
 
         @Override
-        protected BaseMetastoreCatalog initCatalog(String catalogName,
+        protected Catalog initCatalog(String catalogName,
                                                    Map<String, String> catalogProps,
                                                    List<StorageProperties> storagePropertiesList) {
             // Capture the catalogProps for verification
@@ -62,13 +62,13 @@ public class AbstractIcebergPropertiesTest {
 
     @Test
     void testInitializeCatalogWithWarehouse() {
-        BaseMetastoreCatalog mockCatalog = Mockito.mock(BaseMetastoreCatalog.class);
+        Catalog mockCatalog = Mockito.mock(Catalog.class);
         Mockito.when(mockCatalog.name()).thenReturn("mocked-catalog");
         Map<String, String> props = new HashMap<>();
         props.put("k1", "v1");
         TestIcebergProperties properties = new TestIcebergProperties(props, mockCatalog);
         properties.warehouse = "s3://bucket/warehouse";
-        BaseMetastoreCatalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
+        Catalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
         Assertions.assertNotNull(result);
         Assertions.assertEquals("mocked-catalog", result.name());
         // Verify that warehouse is included in catalogProps
@@ -81,11 +81,11 @@ public class AbstractIcebergPropertiesTest {
 
     @Test
     void testInitializeCatalogWithoutWarehouse() {
-        BaseMetastoreCatalog mockCatalog = Mockito.mock(BaseMetastoreCatalog.class);
+        Catalog mockCatalog = Mockito.mock(Catalog.class);
         Mockito.when(mockCatalog.name()).thenReturn("no-warehouse");
         TestIcebergProperties properties = new TestIcebergProperties(new HashMap<>(), mockCatalog);
         properties.warehouse = null;
-        BaseMetastoreCatalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
+        Catalog result = properties.initializeCatalog("testCatalog", Collections.emptyList());
         Assertions.assertNotNull(result);
         Assertions.assertEquals("no-warehouse", result.name());
         // Verify that warehouse key is not present
@@ -102,7 +102,7 @@ public class AbstractIcebergPropertiesTest {
             }
 
             @Override
-            protected BaseMetastoreCatalog initCatalog(String catalogName,
+            protected Catalog initCatalog(String catalogName,
                                           Map<String, String> catalogProps,
                                           List<StorageProperties> storagePropertiesList) {
                 return null; // Simulate a failure case
@@ -118,7 +118,7 @@ public class AbstractIcebergPropertiesTest {
 
     @Test
     void testExecutionAuthenticatorNotNull() {
-        BaseMetastoreCatalog mockCatalog = Mockito.mock(BaseMetastoreCatalog.class);
+        Catalog mockCatalog = Mockito.mock(Catalog.class);
         TestIcebergProperties properties = new TestIcebergProperties(new HashMap<>(), mockCatalog);
         Assertions.assertNotNull(properties.executionAuthenticator);
     }

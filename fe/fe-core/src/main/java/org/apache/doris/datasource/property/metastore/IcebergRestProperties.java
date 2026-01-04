@@ -27,11 +27,11 @@ import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.BaseMetastoreCatalog;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.logging.log4j.util.Strings;
 
@@ -174,8 +174,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    public BaseMetastoreCatalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                                            List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         Map<String, String> fileIOProperties = Maps.newHashMap();
         Configuration conf = new Configuration();
         toFileIOProperties(storagePropertiesList, fileIOProperties, conf);
@@ -185,7 +185,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         options.putAll(fileIOProperties);
 
         // 4. Build iceberg catalog
-        return (BaseMetastoreCatalog) CatalogUtil.buildIcebergCatalog(catalogName, options, conf);
+        return CatalogUtil.buildIcebergCatalog(catalogName, options, conf);
     }
 
     @Override
