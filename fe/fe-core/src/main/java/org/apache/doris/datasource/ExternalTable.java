@@ -86,7 +86,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     private final TableAttributes tableAttributes = new TableAttributes();
 
     // record the table update time, like insert/alter/delete
-    protected volatile long updateTime;
+    protected volatile long updateTime = 0;
 
     protected long dbId;
     protected boolean objectCreated;
