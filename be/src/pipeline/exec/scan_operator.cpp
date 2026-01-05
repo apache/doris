@@ -197,51 +197,40 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         _slot_id_to_value_range[slot->id()] = std::move(range);                        \
         break;                                                                         \
     }
-#define APPLY_FOR_PRIMITIVE_TYPE(M) \
-    M(TINYINT)                      \
-    M(SMALLINT)                     \
-    M(INT)                          \
-    M(BIGINT)                       \
-    M(LARGEINT)                     \
-    M(FLOAT)                        \
-    M(DOUBLE)                       \
-    M(CHAR)                         \
-    M(DATE)                         \
-    M(DATETIME)                     \
-    M(DATEV2)                       \
-    M(DATETIMEV2)                   \
-    M(TIMESTAMPTZ)                  \
-    M(VARCHAR)                      \
-    M(STRING)                       \
-    M(HLL)                          \
-    M(DECIMAL32)                    \
-    M(DECIMAL64)                    \
-    M(DECIMAL128I)                  \
-    M(DECIMAL256)                   \
-    M(DECIMALV2)                    \
-    M(BOOLEAN)                      \
-    M(IPV4)                         \
+#define APPLY_FOR_SCALAR_TYPE(M) \
+    M(TINYINT)                   \
+    M(SMALLINT)                  \
+    M(INT)                       \
+    M(BIGINT)                    \
+    M(LARGEINT)                  \
+    M(FLOAT)                     \
+    M(DOUBLE)                    \
+    M(CHAR)                      \
+    M(DATE)                      \
+    M(DATETIME)                  \
+    M(DATEV2)                    \
+    M(DATETIMEV2)                \
+    M(TIMESTAMPTZ)               \
+    M(VARCHAR)                   \
+    M(STRING)                    \
+    M(HLL)                       \
+    M(DECIMAL32)                 \
+    M(DECIMAL64)                 \
+    M(DECIMAL128I)               \
+    M(DECIMAL256)                \
+    M(DECIMALV2)                 \
+    M(BOOLEAN)                   \
+    M(IPV4)                      \
     M(IPV6)
-            APPLY_FOR_PRIMITIVE_TYPE(M)
+            APPLY_FOR_SCALAR_TYPE(M)
 #undef M
         default: {
-            VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slot->col_name() << "]";
             break;
         }
         }
     };
 
     for (auto& slot : slots) {
-        auto type = slot->type()->get_primitive_type();
-        if (type == TYPE_ARRAY) {
-            type = assert_cast<const vectorized::DataTypeArray*>(
-                           vectorized::remove_nullable(slot->type()).get())
-                           ->get_nested_type()
-                           ->get_primitive_type();
-            if (type == TYPE_ARRAY) {
-                continue;
-            }
-        }
         init_value_range(slot, slot->type());
         _slot_id_to_predicates.insert(
                 {slot->id(), std::vector<std::shared_ptr<ColumnPredicate>>()});
@@ -575,9 +564,6 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VEx
             _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot_ref->slot_id()];
     auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());
     if (_slot_id_to_predicates.end() == entry) {
-        return false;
-    }
-    if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
         return false;
     }
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
