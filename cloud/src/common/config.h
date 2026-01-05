@@ -30,6 +30,10 @@ CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
 CONF_String(fdb_cluster, "xxx:yyy@127.0.0.1:4500");
 CONF_String(fdb_cluster_file_path, "./conf/fdb.cluster");
+CONF_Bool(enable_fdb_external_client_directory, "true");
+// The directory path of external foundationdb client library.
+// eg: /path/to/dir1:/path/to/dir2:...
+CONF_String(fdb_external_client_directory, "");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
@@ -92,6 +96,9 @@ CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// Max number of delete tasks per batch when recycling objects.
+// Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
+CONF_Int32(recycler_max_tasks_per_batch, "1000");
 // The worker pool size for http api `statistics_recycle` worker pool
 CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");

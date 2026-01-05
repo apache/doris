@@ -117,7 +117,8 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
     }
 
     DCHECK(rs_readers.size() == _children.size());
-    _skip_same = _reader->_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS;
+    _skip_same = _reader->_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
+                 !_reader->_tablet_schema->has_seq_map();
     if (_children.empty()) {
         _inner_iter.reset(nullptr);
         return Status::OK();

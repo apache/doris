@@ -71,13 +71,11 @@ Status PackedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader
         FileReaderSPtr inner_reader;
         // Create a new FileReaderOptions with the correct file size
         FileReaderOptions local_opts = opts ? *opts : FileReaderOptions();
-        // DCHECK(opts->file_size == -1 || opts->file_size == index.size)
-        //         << "file size is not correct, expected: " << index.size
-        //         << ", actual: " << opts->file_size;
-        // local_opts.file_size = index.size + index.offset;
-        local_opts.file_size = -1;
+        // Set file_size to packed file size to avoid head object request
+        local_opts.file_size = index.packed_file_size;
         LOG(INFO) << "open packed file: " << index.packed_file_path << ", file: " << file.native()
-                  << ", offset: " << index.offset << ", size: " << index.size;
+                  << ", offset: " << index.offset << ", size: " << index.size
+                  << ", packed_file_size: " << index.packed_file_size;
         RETURN_IF_ERROR(
                 _inner_fs->open_file(Path(index.packed_file_path), &inner_reader, &local_opts));
 
