@@ -308,24 +308,32 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         Boolean fileCacheAdmission = true;
         if (Config.enable_file_cache_admission_control) {
-            String userIdentity = ConnectContext.get().getUserIdentity();
-            String catalog = ConnectContext.get().getCurrentCatalog().getName();
-            String database = ConnectContext.get().getDatabase();
-            String table = desc.getTable().getName();
+            TableIf tableIf = getTargetTable();
+            if (tableIf instanceof ExternalTable) {
+                ExternalTable externalTableIf = (ExternalTable) tableIf;
 
-            AtomicReference<String> reason = new AtomicReference<>("");
+                String userIdentity = ConnectContext.get().getUserIdentity();
+                String catalog = externalTableIf.getCatalog().getName();
+                String database = externalTableIf.getDatabase().getFullName();
+                String table = externalTableIf.getName();
 
-            long startTime = System.nanoTime();
+                AtomicReference<String> reason = new AtomicReference<>("");
 
-            fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
-                database, table, reason);
+                long startTime = System.nanoTime();
 
-            long endTime = System.nanoTime();
-            double durationMs = (double) (endTime - startTime) / 1_000_000;
+                fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
+                        database, table, reason);
 
-            LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
+                long endTime = System.nanoTime();
+                double durationMs = (double) (endTime - startTime) / 1_000_000;
 
-            addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get(), durationMs);
+                LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
+
+                addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get(), durationMs);
+            } else {
+                LOG.info("Skip file cache admission control for non-external table: {}.{}",
+                        tableIf.getDatabase().getFullName(), tableIf.getName());
+            }
         }
 
         if (isBatchMode()) {
