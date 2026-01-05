@@ -23,6 +23,7 @@
 
 #include <exception>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -65,22 +66,22 @@ private:
     std::unique_ptr<ErrMsg> _err_msg;
     std::unique_ptr<Exception> _nested_excption;
     mutable std::string _cache_string;
+    mutable std::once_flag _cache_once;
 };
 
 inline const std::string& Exception::to_string() const {
-    if (!_cache_string.empty()) {
-        return _cache_string;
-    }
-    std::stringstream ostr;
-    ostr << "[E" << _code << "] ";
-    ostr << (_err_msg ? _err_msg->_msg : "");
-    if (_err_msg && !_err_msg->_stack.empty()) {
-        ostr << '\n' << _err_msg->_stack;
-    }
-    if (_nested_excption != nullptr) {
-        ostr << '\n' << "Caused by:" << _nested_excption->to_string();
-    }
-    _cache_string = ostr.str();
+    std::call_once(_cache_once, [this]() {
+        std::stringstream ostr;
+        ostr << "[E" << _code << "] ";
+        ostr << (_err_msg ? _err_msg->_msg : "");
+        if (_err_msg && !_err_msg->_stack.empty()) {
+            ostr << '\n' << _err_msg->_stack;
+        }
+        if (_nested_excption != nullptr) {
+            ostr << '\n' << "Caused by:" << _nested_excption->to_string();
+        }
+        _cache_string = ostr.str();
+    });
     return _cache_string;
 }
 
