@@ -74,4 +74,5 @@ under the License.
 
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>
+    <suppress files="org/apache/hadoop/fs/s3a/DefaultS3ClientFactory.java" checks=".*"/>
 </suppressions>
