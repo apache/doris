@@ -2819,14 +2819,6 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         rowset_meta.set_allocated_tablet_schema(nullptr);
     }
 
-    if (is_version_write_enabled(instance_id)) {
-        std::string rowset_ref_count_key =
-                versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
-        LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
-                  << "key=" << hex(rowset_ref_count_key);
-        txn->atomic_add(rowset_ref_count_key, 1);
-    }
-
     txn->remove(recycle_rs_key);
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();

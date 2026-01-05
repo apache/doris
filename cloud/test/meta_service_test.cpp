@@ -12514,6 +12514,7 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteSkipWithoutRecycleKey) {
     auto tmp_rowset = create_rowset(txn_id, tablet_id);
     {
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -12631,6 +12632,7 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteDeleteWithRecycleKey) {
     auto tmp_rowset = create_rowset(txn_id, tablet_id);
     {
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -12780,6 +12782,7 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
         auto tmp_rowset = create_rowset(txn_id, tablet_id);
         {
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }

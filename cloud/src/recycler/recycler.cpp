@@ -1918,42 +1918,6 @@ int mark_rowset_as_recycled(TxnKv* txn_kv, const std::string& instance_id, std::
     return need_write_back ? 1 : 0;
 }
 
-int get_meta_rowset_key(Transaction* txn, const std::string& instance_id, int64_t tablet_id,
-                        const std::string& rowset_id, int64_t start_version, int64_t end_version,
-                        bool load_key, bool* exist) {
-    std::string key =
-            load_key ? versioned::meta_rowset_load_key({instance_id, tablet_id, end_version})
-                     : versioned::meta_rowset_compact_key({instance_id, tablet_id, end_version});
-    RowsetMetaCloudPB rowset_meta;
-    Versionstamp version;
-    TxnErrorCode err = versioned::document_get(txn, key, &rowset_meta, &version);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        VLOG_DEBUG << "not found load or compact meta_rowset_key."
-                   << " rowset_id=" << rowset_id << " start_version=" << start_version
-                   << " end_version=" << end_version << " key=" << hex(key);
-    } else if (err != TxnErrorCode::TXN_OK) {
-        LOG_INFO("failed to get load or compact meta_rowset_key.")
-                .tag("rowset_id", rowset_id)
-                .tag("start_version", start_version)
-                .tag("end_version", end_version)
-                .tag("key", hex(key))
-                .tag("error_code", err);
-        return -1;
-    } else if (rowset_meta.rowset_id_v2() == rowset_id) {
-        *exist = true;
-        VLOG_DEBUG << "found load or compact meta_rowset_key."
-                   << " rowset_id=" << rowset_id << " start_version=" << start_version
-                   << " end_version=" << end_version << " key=" << hex(key);
-    } else {
-        VLOG_DEBUG << "rowset_id does not match when find load or compact meta_rowset_key."
-                   << " rowset_id=" << rowset_id << " start_version=" << start_version
-                   << " end_version=" << end_version << " key=" << hex(key)
-                   << " found_rowset_id=" << rowset_meta.rowset_id_v2();
-    }
-    return 0;
-}
-
->>>>>>> cbf318fd3b (2)
 int InstanceRecycler::recycle_ref_rowsets(bool* has_unrecycled_rowsets) {
     const std::string task_name = "recycle_ref_rowsets";
     int64_t num_scanned = 0;
@@ -2091,45 +2055,6 @@ int InstanceRecycler::recycle_ref_rowsets(bool* has_unrecycled_rowsets) {
     // recycle_func and loop_done for scan and recycle
     return scan_and_recycle(data_rowset_ref_count_key_start, data_rowset_ref_count_key_end,
                             std::move(recycle_func));
-}
-template <typename T>
-int mark_rowset_as_recycled(TxnKv* txn_kv, const std::string& instance_id, std::string_view key,
-                            T& rowset_meta_pb) {
-    RowsetMetaCloudPB* rs_meta;
-
-    if constexpr (std::is_same_v<T, RecycleRowsetPB>) {
-        rs_meta = rowset_meta_pb.mutable_rowset_meta();
-    } else {
-        rs_meta = &rowset_meta_pb;
-    }
-
-    bool need_write_back = false;
-    if ((!rs_meta->has_is_recycled() || !rs_meta->is_recycled())) {
-        rs_meta->set_is_recycled(true);
-        need_write_back = true;
-    }
-
-    if (need_write_back) {
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn, instance_id=" << instance_id;
-            return -1;
-        }
-        std::string val;
-        if (!rowset_meta_pb.SerializeToString(&val)) {
-            LOG(WARNING) << "failed to serialize rs_meta, instance_id=" << instance_id;
-            return -1;
-        }
-        txn->put(key, val);
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to commit txn, instance_id=" << instance_id;
-            return -1;
-        }
-    }
-    return need_write_back ? 1 : 0;
->>>>>>> 6c6fe9717e (1)
 }
 
 int InstanceRecycler::recycle_indexes() {
