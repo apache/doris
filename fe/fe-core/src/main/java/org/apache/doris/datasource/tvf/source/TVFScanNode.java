@@ -147,12 +147,18 @@ public class TVFScanNode extends FileQueryScanNode {
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
+        long targetFileSplitSize = determineTargetFileSplitSize(fileStatuses);
+
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
-                splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
-                        getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
-                        null, fileStatus.getSize(),
-                        fileStatus.getModificationTime(), fileStatus.isSplitable, null,
+                splits.addAll(fileSplitter.splitFile(
+                        LocationPath.of(fileStatus.getPath()),
+                        targetFileSplitSize,
+                        null,
+                        fileStatus.getSize(),
+                        fileStatus.getModificationTime(),
+                        fileStatus.isSplitable && needSplit,
+                        null,
                         FileSplitCreator.DEFAULT));
             } catch (IOException e) {
                 LOG.warn("get file split failed for TVF: {}", fileStatus.getPath(), e);
@@ -160,6 +166,23 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
+        long totalFileSize = 0;
+        for (TBrokerFileStatus fileStatus : fileStatuses) {
+            totalFileSize += fileStatus.getSize();
+            if (totalFileSize
+                    >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                result = sessionVariable.getMaxSplitSize();
+                break;
+            }
+        }
+        return result;
     }
 
     @Override

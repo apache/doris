@@ -87,6 +87,7 @@ import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -121,7 +122,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean tableLevelPushDownCount = false;
     private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
-    private long targetSplitSize;
+    private long targetSplitSize = 0;
     // This is used to avoid repeatedly calculating partition info map for the same partition data.
     private Map<PartitionData, Map<String, String>> partitionMapInfos;
     private boolean isPartitionedTable;
@@ -147,6 +148,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String cachedOriginalPathPrefix;
     private String cachedNormalizedPathPrefix;
     private String cachedFsIdentifier;
+
+    private Boolean isBatchMode = null;
 
     // for test
     @VisibleForTesting
@@ -188,7 +191,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         icebergTable = source.getIcebergTable();
-        targetSplitSize = getRealFileSplitSize(0);
         partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
@@ -433,17 +435,56 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
         if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
-            long targetSplitSize = getRealFileSplitSize(0);
-            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            return splitFiles(scan);
         }
         try {
             return planFileScanTaskWithManifestCache(scan);
         } catch (Exception e) {
             manifestCacheFailures++;
             LOG.warn("Plan with manifest cache failed, fallback to original scan: " + e.getMessage(), e);
-            long targetSplitSize = getRealFileSplitSize(0);
-            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
+            return splitFiles(scan);
         }
+    }
+
+    private CloseableIterable<FileScanTask> splitFiles(TableScan scan) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return TableScanUtil.splitFiles(scan.planFiles(),
+                    sessionVariable.getFileSplitSize());
+        }
+        if (isBatchMode()) {
+            // Currently iceberg batch split mode will use max split size.
+            // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
+            return TableScanUtil.splitFiles(scan.planFiles(), sessionVariable.getMaxSplitSize());
+        }
+
+        // Non Batch Mode
+        // Materialize planFiles() into a list to avoid iterating the CloseableIterable twice.
+        // RISK: It will cost memory if the table is large.
+        List<FileScanTask> fileScanTaskList = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> scanTasksIter = scan.planFiles()) {
+            for (FileScanTask task : scanTasksIter) {
+                fileScanTaskList.add(task);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to materialize file scan tasks", e);
+        }
+
+        targetSplitSize = determineTargetFileSplitSize(fileScanTaskList);
+        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
+    }
+
+    private long determineTargetFileSplitSize(Iterable<FileScanTask> tasks) {
+        long result = sessionVariable.getMaxInitialSplitSize();
+        long accumulatedTotalFileSize = 0;
+        for (FileScanTask task : tasks) {
+            accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
+            if (accumulatedTotalFileSize
+                    >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                result = sessionVariable.getMaxSplitSize();
+                break;
+            }
+        }
+        return result;
     }
 
     private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
@@ -560,7 +601,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         // Split tasks into smaller chunks based on target split size for parallel processing
-        long targetSplitSize = getRealFileSplitSize(0);
+        targetSplitSize = determineTargetFileSplitSize(tasks);
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
     }
 
@@ -718,21 +759,36 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public boolean isBatchMode() throws UserException {
+    public boolean isBatchMode() {
+        Boolean cached = isBatchMode;
+        if (cached != null) {
+            return cached;
+        }
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT)) {
-            countFromSnapshot = getCountFromSnapshot();
+            try {
+                countFromSnapshot = getCountFromSnapshot();
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
             if (countFromSnapshot >= 0) {
                 tableLevelPushDownCount = true;
+                isBatchMode = false;
                 return false;
             }
         }
 
-        if (createTableScan().snapshot() == null) {
-            return false;
+        try {
+            if (createTableScan().snapshot() == null) {
+                isBatchMode = false;
+                return false;
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
         }
 
         if (!sessionVariable.getEnableExternalTableBatchMode()) {
+            isBatchMode = false;
             return false;
         }
 
@@ -748,10 +804,12 @@ public class IcebergScanNode extends FileQueryScanNode {
                         ManifestFile next = matchingManifest.next();
                         cnt += next.addedFilesCount() + next.existingFilesCount();
                         if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
+                            isBatchMode = true;
                             return true;
                         }
                     }
                 }
+                isBatchMode = false;
                 return false;
             });
         } catch (Exception e) {

@@ -65,9 +65,6 @@ import java.util.stream.Collectors;
  * Base class for External File Scan, including external query and load.
  */
 public abstract class FileScanNode extends ExternalScanNode {
-
-    public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
-
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
@@ -130,12 +127,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
 
         output.append(prefix);
-        boolean isBatch;
-        try {
-            isBatch = isBatchMode();
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
+        boolean isBatch = isBatchMode();
         if (isBatch) {
             output.append("(approximate)");
         }

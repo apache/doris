@@ -516,6 +516,12 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
+
+    public static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
+
+    public static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
+
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
@@ -2188,6 +2194,36 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VariableMgr.VarAttr(
+            name = MAX_INITIAL_FILE_SPLIT_SIZE,
+            description = {"对于每个 table scan，最大文件分片初始大小。"
+                    + "初始化使用 MAX_INITIAL_FILE_SPLIT_SIZE，一旦超过了 MAX_INITIAL_FILE_SPLIT_NUM，则使用 MAX_FILE_SPLIT_SIZE。",
+                    "For each table scan, The maximum initial file split size. "
+                            + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                            + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead."},
+            needForward = true)
+    public long maxInitialSplitSize = 32L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(
+            name = MAX_FILE_SPLIT_SIZE,
+            description = {"对于每个 table scan，最大文件分片大小。"
+                    + "初始化使用 MAX_INITIAL_FILE_SPLIT_SIZE，一旦超过了 MAX_INITIAL_FILE_SPLIT_NUM，则使用 MAX_FILE_SPLIT_SIZE。",
+                    "For each table scan, the maximum initial file split size. "
+                            + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                            + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead."},
+            needForward = true)
+    public long maxSplitSize = 64L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(
+            name = MAX_INITIAL_FILE_SPLIT_NUM,
+            description = {"对于每个 table scan，最大文件分片初始数目。"
+                    + "初始化使用 MAX_INITIAL_FILE_SPLIT_SIZE，一旦超过了 MAX_INITIAL_FILE_SPLIT_NUM，则使用 MAX_FILE_SPLIT_SIZE。",
+                    "For each table scan, the maximum initial file split number. "
+                            + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                            + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead."},
+            needForward = true)
+    public int maxInitialSplitNum = 200;
 
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
@@ -4246,6 +4282,30 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFileSplitSize(long fileSplitSize) {
         this.fileSplitSize = fileSplitSize;
+    }
+
+    public long getMaxInitialSplitSize() {
+        return maxInitialSplitSize;
+    }
+
+    public void setMaxInitialSplitSize(long maxInitialSplitSize) {
+        this.maxInitialSplitSize = maxInitialSplitSize;
+    }
+
+    public long getMaxSplitSize() {
+        return maxSplitSize;
+    }
+
+    public void setMaxSplitSize(long maxSplitSize) {
+        this.maxSplitSize = maxSplitSize;
+    }
+
+    public int getMaxInitialSplitNum() {
+        return maxInitialSplitNum;
+    }
+
+    public void setMaxInitialSplitNum(int maxInitialSplitNum) {
+        this.maxInitialSplitNum = maxInitialSplitNum;
     }
 
     public long getIcebergWriteTargetFileSizeBytes() {
