@@ -37,26 +37,7 @@ suite("test_mixed_format_partitions", "p0,external,hive,external_docker,external
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
             );"""
 
-            // Prepare Hive table with mixed formats
             String tableName = "mixed_format_table_${hivePrefix}"
-            hive_docker """ DROP TABLE IF EXISTS ${tableName} """
-            hive_docker """ 
-                CREATE TABLE ${tableName} (
-                    id INT,
-                    name STRING
-                ) 
-                PARTITIONED BY (dt STRING) 
-                STORED AS ORC 
-            """
-
-            // Add ORC partition (default format)
-            hive_docker """ ALTER TABLE ${tableName} ADD PARTITION (dt='2023-01-01') """
-            hive_docker """ INSERT INTO TABLE ${tableName} PARTITION (dt='2023-01-01') VALUES (1, 'orc_row') """
-
-            // Add Parquet partition (explicit format)
-            hive_docker """ ALTER TABLE ${tableName} ADD PARTITION (dt='2023-01-02') """
-            hive_docker """ ALTER TABLE ${tableName} PARTITION (dt='2023-01-02') SET FILEFORMAT PARQUET """
-            hive_docker """ INSERT INTO TABLE ${tableName} PARTITION (dt='2023-01-02') VALUES (2, 'parquet_row') """
 
             sql """refresh catalog ${catalog_name}"""
             sql """use ${catalog_name}.default"""

@@ -30,24 +30,6 @@ suite("test_iceberg_mixed_format", "p0,external,iceberg,external_docker,external
     String default_fs = "hdfs://${externalEnvIp}:${hdfsPort}"
     String warehouse = "${default_fs}/warehouse"
 
-    hive_docker """create database if not exists test_mixed_format_db"""
-    hive_docker """use test_mixed_format_db"""
-    hive_docker """drop table if exists mixed_format_table"""
-    hive_docker """
-        CREATE TABLE mixed_format_table (
-            id INT,
-            data STRING
-        ) USING iceberg
-        PARTITIONED BY (id)
-        PROPERTIES (
-            'write-format'='parquet'
-        )
-    """
-
-    hive_docker """INSERT INTO mixed_format_table VALUES (1, 'parquet_data')"""
-    hive_docker """ALTER TABLE mixed_format_table SET TBLPROPERTIES ('write.format.default'='orc')"""
-    hive_docker """INSERT INTO mixed_format_table VALUES (2, 'orc_data')"""
-
     sql """drop catalog if exists ${catalog_name}"""
     sql """create catalog if not exists ${catalog_name} properties (
         'type'='iceberg',
