@@ -25,15 +25,29 @@ public class FlussSplit extends FileSplit {
     private final String databaseName;
     private final String tableName;
     private final long tableId;
+    private final int bucketId;
+    private final String partitionName;
+    private final long snapshotId;
+    private final String bootstrapServers;
     private final TableFormatType tableFormatType;
 
-    public FlussSplit(String databaseName, String tableName, long tableId) {
-        // Create a dummy path - actual file paths will be resolved by BE using Rust bindings
-        super(LocationPath.of("/fluss-table"), 0, 0, 0, 0, null, null);
+    public FlussSplit(String databaseName, String tableName, long tableId, int bucketId,
+                      String partitionName, long snapshotId, String bootstrapServers,
+                      String filePath, long fileSize) {
+        super(LocationPath.of(filePath != null ? filePath : "/fluss/" + databaseName + "/" + tableName),
+                0, fileSize, fileSize, 0, null, null);
         this.databaseName = databaseName;
         this.tableName = tableName;
         this.tableId = tableId;
+        this.bucketId = bucketId;
+        this.partitionName = partitionName;
+        this.snapshotId = snapshotId;
+        this.bootstrapServers = bootstrapServers;
         this.tableFormatType = TableFormatType.FLUSS;
+    }
+
+    public FlussSplit(String databaseName, String tableName, long tableId) {
+        this(databaseName, tableName, tableId, 0, null, -1, null, null, 0);
     }
 
     public String getDatabaseName() {
@@ -48,13 +62,50 @@ public class FlussSplit extends FileSplit {
         return tableId;
     }
 
+    public int getBucketId() {
+        return bucketId;
+    }
+
+    public String getPartitionName() {
+        return partitionName;
+    }
+
+    public long getSnapshotId() {
+        return snapshotId;
+    }
+
+    public String getBootstrapServers() {
+        return bootstrapServers;
+    }
+
     public TableFormatType getTableFormatType() {
         return tableFormatType;
     }
 
+    public boolean isPartitioned() {
+        return partitionName != null && !partitionName.isEmpty();
+    }
+
     @Override
     public String getConsistentHashString() {
-        return databaseName + "." + tableName + "." + tableId;
+        StringBuilder sb = new StringBuilder();
+        sb.append(databaseName).append(".").append(tableName);
+        if (partitionName != null) {
+            sb.append(".").append(partitionName);
+        }
+        sb.append(".bucket").append(bucketId);
+        return sb.toString();
+    }
+
+    @Override
+    public String toString() {
+        return "FlussSplit{"
+                + "db='" + databaseName + '\''
+                + ", table='" + tableName + '\''
+                + ", tableId=" + tableId
+                + ", bucketId=" + bucketId
+                + ", partition='" + partitionName + '\''
+                + ", snapshotId=" + snapshotId
+                + '}';
     }
 }
-
