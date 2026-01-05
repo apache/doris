@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -125,6 +124,9 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
     }
 
     // eliminate the slot of primary plan in agg
+    // e.g.
+    // select primary_table_pk, primary_table_other from primary_table join foreign_table on pk = fk
+    // group by pk, primary_table_other_cols;
     private LogicalAggregate<?> eliminatePrimaryOutput(LogicalAggregate<?> agg, Plan child,
             Plan primary, Plan foreign) {
         Set<Slot> aggInputs = agg.getInputSlots();
@@ -132,24 +134,11 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             return agg;
         }
         // Firstly, using fd to eliminate group by key.
-        // group by primary_table_pk, primary_table_other
-        // -> group by primary_table_pk
-        Set<Set<Slot>> groupBySlots = new HashSet<>();
-        Set<Slot> validSlots = new HashSet<>();
-        for (Expression expression : agg.getGroupByExpressions()) {
-            groupBySlots.add(expression.getInputSlots());
-            validSlots.addAll(expression.getInputSlots());
-        }
-        DataTrait dataTrait = child.getLogicalProperties().getTrait();
-        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(validSlots);
-        Set<Slot> foreignOutput = Sets.intersection(agg.getOutputSet(), foreign.getOutputSet());
-        Set<Set<Slot>> minGroupBySlots = funcDeps.eliminateDeps(groupBySlots, foreignOutput);
-        Set<Expression> removeExpression = new HashSet<>();
-        for (Set<Slot> slots : groupBySlots) {
-            if (!minGroupBySlots.contains(slots) && !foreignOutput.containsAll(slots)) {
-                removeExpression.add(slots.iterator().next());
-            }
-        }
+        // group by pk, primary_table_other_cols;
+        // -> group by pk;
+        Set<Expression> removeExpression = EliminateGroupByKey.findCanBeRemovedExpressions(agg,
+                Sets.intersection(agg.getOutputSet(), foreign.getOutputSet()),
+                child.getLogicalProperties().getTrait());
         List<Expression> minGroupBySlotList = new ArrayList<>();
         for (Expression expression : agg.getGroupByExpressions()) {
             if (!removeExpression.contains(expression)) {
@@ -157,13 +146,14 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             }
         }
 
-        // Secondly, put bijective slot into map: {primary_table_pk : foreign_table_fk}
+        // Secondly, put bijective slot into map: {pk : fk}
         // Bijective slots are mutually interchangeable within GROUP BY keys.
-        // group by primary_table_pk equals group by foreign_table_fk
+        // group by pk -> group by fk
         Set<Slot> primaryOutputSet = primary.getOutputSet();
         Set<Slot> primarySlots = Sets.intersection(aggInputs, primaryOutputSet);
         HashMap<Slot, Slot> primaryToForeignDeps = new HashMap<>();
-        FuncDeps funcDepsForJoin = dataTrait.getAllValidFuncDeps(Sets.union(primaryOutputSet, foreign.getOutputSet()));
+        FuncDeps funcDepsForJoin = child.getLogicalProperties().getTrait()
+                .getAllValidFuncDeps(Sets.union(primaryOutputSet, foreign.getOutputSet()));
         for (Slot slot : primarySlots) {
             Set<Set<Slot>> replacedSlotSets = funcDepsForJoin.findBijectionSlots(ImmutableSet.of(slot));
             for (Set<Slot> replacedSlots : replacedSlotSets) {
@@ -176,6 +166,8 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         }
 
         // Thirdly, construct new Agg below join.
+        // For the pk-fk join, the foreign table side will not expand rows.
+        // As a result, executing agg(group by fk) before join is same with executing agg(group by fk) after join.
         Set<Expression> newGroupBySlots = constructNewGroupBy(minGroupBySlotList, primaryOutputSet,
                 primaryToForeignDeps);
         List<NamedExpression> newOutput = constructNewOutput(

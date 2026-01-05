@@ -184,7 +184,6 @@ public class FuncDeps {
         return items.contains(new FuncDepsItem(dominate, dependency));
     }
 
-    // 这个也是判断是否为双射的
     public boolean isCircleDeps(Set<Slot> dominate, Set<Slot> dependency) {
         return items.contains(new FuncDepsItem(dominate, dependency))
                 && items.contains(new FuncDepsItem(dependency, dominate));
