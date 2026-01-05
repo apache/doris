@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
@@ -90,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -145,6 +147,18 @@ public abstract class ExpressionVisitor<R, C>
     @Override
     public R visitScalarFunction(ScalarFunction scalarFunction, C context) {
         return visitBoundFunction(scalarFunction, context);
+    }
+
+    public R visitToSeconds(org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds toSeconds, C context) {
+        return visitScalarFunction(toSeconds, context);
+    }
+
+    public R visitUnicodeNormalize(org.apache.doris.nereids.trees.expressions.functions.scalar.UnicodeNormalize unicodeNormalize, C context) {
+        return visitScalarFunction(unicodeNormalize, context);
+    }
+
+    public R visitHammingDistance(org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance hammingDistance, C context) {
+        return visitScalarFunction(hammingDistance, context);
     }
 
     public R visitSearchExpression(SearchExpression searchExpression, C context) {
@@ -453,6 +467,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitSubqueryExpr(SubqueryExpr subqueryExpr, C context) {
         return visit(subqueryExpr, context);
+    }
+
+    public R visitTimestampArithmetic(TimestampArithmetic arithmetic, C context) {
+        return visit(arithmetic, context);
     }
 
     public R visitScalarSubquery(ScalarSubquery scalar, C context) {
