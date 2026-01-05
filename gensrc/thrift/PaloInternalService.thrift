@@ -422,6 +422,10 @@ struct TQueryOptions {
 
   182: optional i32 ivf_nprobe = 1;
 
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  183: optional bool enable_use_hybrid_sort = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
