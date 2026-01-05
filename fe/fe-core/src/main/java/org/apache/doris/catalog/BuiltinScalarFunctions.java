@@ -242,6 +242,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourMicrosecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourMinute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecond;
@@ -342,6 +343,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsA
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicrosecondFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsDiff;
@@ -349,6 +351,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsS
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteMicrosecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
@@ -431,6 +434,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecToTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
@@ -798,6 +802,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Hour.class, "hour"),
             scalar(HourCeil.class, "hour_ceil"),
             scalar(HourFloor.class, "hour_floor"),
+            scalar(HourFromUnixtime.class, "hour_from_unixtime"),
             scalar(HourMicrosecond.class, "hour_microsecond"),
             scalar(HourMinute.class, "hour_minute"),
             scalar(HourSecond.class, "hour_second"),
@@ -902,6 +907,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Md5.class, "md5"),
             scalar(Md5Sum.class, "md5sum"),
             scalar(Microsecond.class, "microsecond"),
+            scalar(MicrosecondFromUnixtime.class, "microsecond_from_unixtime"),
             scalar(MicroSecondsAdd.class, "microseconds_add"),
             scalar(MicroSecondsDiff.class, "microseconds_diff"),
             scalar(MicroSecondsSub.class, "microseconds_sub"),
@@ -911,6 +917,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Minute.class, "minute"),
             scalar(MinuteCeil.class, "minute_ceil"),
             scalar(MinuteFloor.class, "minute_floor"),
+            scalar(MinuteFromUnixtime.class, "minute_from_unixtime"),
             scalar(MinuteMicrosecond.class, "minute_microsecond"),
             scalar(MinuteSecond.class, "minute_second"),
             scalar(MinutesAdd.class, "minutes_add"),
@@ -994,6 +1001,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Second.class, "second"),
             scalar(SecondCeil.class, "second_ceil"),
             scalar(SecondFloor.class, "second_floor"),
+            scalar(SecondFromUnixtime.class, "second_from_unixtime"),
             scalar(SecondMicrosecond.class, "second_microsecond"),
             scalar(SecondsAdd.class, "seconds_add"),
             scalar(SecondsDiff.class, "seconds_diff"),
