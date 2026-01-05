@@ -1418,6 +1418,14 @@ suite("doc_date_functions_test") {
                                     TIMESTAMP(dt, NULL) AS all_null_1,
                                     TIMESTAMP(dttm, NULL) AS all_null_2
                                 FROM test_timestamp;"""
+    qt_timestamp_two_args_2 """SELECT TIMESTAMP('12:13:14', '11:45:14');"""
+    qt_timestamp_two_args_3 """SELECT TIMESTAMP('2026-01-05 11:45:14+05:30', '02:15:30');"""
+
+    explain {
+        sql """SELECT TIMESTAMP(dt, '65:43:21') FROM test_timestamp;"""
+        contains "add_time"
+    }
+    
     test {
         sql """SELECT TIMESTAMP('9999-12-31', '65:43:21');"""
         exception "out of range";
@@ -2333,6 +2341,8 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT TIMESTAMP('2025-12-31 23:59:59', '1:23:45')")
     testFoldConst("SELECT TIMESTAMP(NULL, '1:23:45')")
     testFoldConst("SELECT TIMESTAMP('2025-11-01', NULL)")
+    testFoldConst("SELECT TIMESTAMP('12:13:14', '11:45:14');")
+    testFoldConst("SELECT TIMESTAMP('2026-01-05 11:45:14+05:30', '02:15:30');")
 
     // // Invalid parameter tests for error conditions
     // testFoldConst("SELECT DAY_CEIL('2023-07-13', -5)")
