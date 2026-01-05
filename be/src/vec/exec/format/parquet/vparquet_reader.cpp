@@ -329,8 +329,11 @@ void ParquetReader::_init_file_description() {
 Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-        const RowDescriptor* row_descriptor,
+        const VExprContextSPtrs& conjuncts,
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates,
+        std::vector<std::shared_ptr<MutilColumnBlockPredicate>>& or_predicates,
+        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
@@ -383,21 +386,23 @@ Status ParquetReader::init_reader(
     }
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = conjuncts;
+    _lazy_read_ctx.slot_id_to_predicates = slot_id_to_predicates;
+    _lazy_read_ctx.or_predicates = or_predicates;
     return Status::OK();
 }
 
-bool ParquetReader::_exists_in_file(const VSlotRef* slot_ref) const {
+bool ParquetReader::_exists_in_file(const std::string& expr_name) const {
     // `_read_table_columns_set` is used to ensure that only columns actually read are subject to min-max filtering.
     // This primarily handles cases where partition columns also exist in a file. The reason it's not modified
     // in `_table_info_node_ptr` is that Iceberg、Hudi has inconsistent requirements for this node;
     // Iceberg partition evolution need read partition columns from a file.
     // hudi set `hoodie.datasource.write.drop.partition.columns=false` not need read partition columns from a file.
-    return _table_info_node_ptr->children_column_exists(slot_ref->expr_name()) &&
-           _read_table_columns_set.contains(slot_ref->expr_name());
+    return _table_info_node_ptr->children_column_exists(expr_name) &&
+           _read_table_columns_set.contains(expr_name);
 }
 
-bool ParquetReader::_type_matches(const VSlotRef* slot_ref) const {
-    auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+bool ParquetReader::_type_matches(const int cid) const {
+    auto* slot = _tuple_descriptor->slots()[cid];
     auto table_col_type = remove_nullable(slot->type());
 
     const auto& file_col_name = _table_info_node_ptr->children_file_column_name(slot->col_name());
@@ -415,11 +420,12 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
     new_lazy_read_ctx.fill_missing_columns = std::move(_lazy_read_ctx.fill_missing_columns);
     _lazy_read_ctx = std::move(new_lazy_read_ctx);
 
-    _top_runtime_vexprs.clear();
     _push_down_predicates.clear();
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+
+    // TODO(gabriel): we should try to clear too much structs which are used to represent conjuncts and predicates.
     // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
@@ -469,31 +475,26 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
                 VExprSPtr new_in_slot = nullptr;
                 if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
                     expr = new_in_slot;
-                } else {
-                    continue;
                 }
-            } else {
-                continue;
             }
-        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(expr.get())) {
-            // top runtime filter : only le && ge.
-            DCHECK(topn_pred->children().size() > 0);
-            visit_slot(topn_pred->children()[0].get());
-
-            if (topn_pred->children()[0]->is_slot_ref()) {
-                // can min-max filter row group and page index.
-                // Since the filtering conditions for topn are dynamic, the filtering is
-                // delayed until create next row group reader.
-                _top_runtime_vexprs.emplace_back(expr);
-            }
-            continue;
-        } else {
+        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(expr.get());
+                   topn_pred == nullptr) {
             visit_slot(expr.get());
         }
-
-        if (check_expr_can_push_down(expr)) {
-            _push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-            RETURN_IF_ERROR(convert_predicates({expr}, _push_down_predicates.back(), _arena));
+    }
+    if (!_lazy_read_ctx.slot_id_to_predicates.empty()) {
+        auto and_pred = AndBlockColumnPredicate::create_unique();
+        for (const auto& entry : _lazy_read_ctx.slot_id_to_predicates) {
+            for (const auto& pred : entry.second) {
+                if (!_exists_in_file(pred->col_name()) || !_type_matches(pred->column_id())) {
+                    continue;
+                }
+                and_pred->add_column_predicate(
+                        SingleColumnBlockPredicate::create_unique(pred->clone(pred->column_id())));
+            }
+        }
+        if (and_pred->num_of_column_predicate() > 0) {
+            _push_down_predicates.push_back(std::move(and_pred));
         }
     }
 
@@ -720,27 +721,10 @@ Status ParquetReader::_next_row_group_reader() {
             RETURN_IF_ERROR(_update_lazy_read_ctx(new_push_down_conjuncts));
         }
 
-        size_t before_predicate_size = _push_down_predicates.size();
-        _push_down_predicates.reserve(before_predicate_size + _top_runtime_vexprs.size());
-        for (const auto& vexpr : _top_runtime_vexprs) {
-            VTopNPred* topn_pred = assert_cast<VTopNPred*>(vexpr.get());
-            VExprSPtr binary_expr;
-            if (topn_pred->get_binary_expr(binary_expr)) {
-                // for min-max filter.
-                if (check_expr_can_push_down(binary_expr)) {
-                    _push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-                    RETURN_IF_ERROR(convert_predicates({binary_expr}, _push_down_predicates.back(),
-                                                       _arena));
-                }
-            }
-        }
-
         candidate_row_ranges.clear();
         // The range of lines to be read is determined by the push down predicate.
         RETURN_IF_ERROR(_process_min_max_bloom_filter(
                 _current_row_group_index, row_group, _push_down_predicates, &candidate_row_ranges));
-
-        _push_down_predicates.resize(before_predicate_size);
 
         std::function<int64_t(const FieldSchema*)> column_compressed_size =
                 [&row_group, &column_compressed_size](const FieldSchema* field) -> int64_t {

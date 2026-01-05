@@ -178,7 +178,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
         auto test = [&](const std::string& query_string, bool result) {
             auto date = timestamp_from_date(query_string);
             std::unique_ptr<ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>> date_pred(
-                    new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(0, date));
+                    new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(0, "", date));
             EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
         };
         test("2024-11-08", true);
@@ -200,7 +200,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
         auto test = [&](const std::string& query_string, bool result) {
             auto datetime = timestamp_from_datetime(query_string);
             std::unique_ptr<ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>> date_pred(
-                    new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>(0, datetime));
+                    new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>(0, "", datetime));
             EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
         };
         test("2024-11-08 09:00:00", true);
@@ -274,17 +274,17 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         test_positive({"2024-11-08", "2024-11-09"});
         std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>> date_pred0(
-                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>(0, hybrid_set,
+                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>(0, "", hybrid_set,
                                                                               false));
         EXPECT_EQ(date_pred0->evaluate_and(bf.get()), true);
         test_positive({"2024-11-08"});
         std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>> date_pred1(
-                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>(0, hybrid_set,
+                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>(0, "", hybrid_set,
                                                                               false));
         EXPECT_EQ(date_pred1->evaluate_and(bf.get()), true);
         test_positive({"2024-11-09"});
         std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>> date_pred2(
-                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>(0, hybrid_set,
+                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>(0, "", hybrid_set,
                                                                               false));
         EXPECT_EQ(date_pred2->evaluate_and(bf.get()), true);
 
@@ -299,19 +299,19 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         test_negative({"2024-11-20"});
         std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>> date_pred00(
-                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>(0, hybrid_set,
+                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 1>(0, "", hybrid_set,
                                                                               false));
 
         EXPECT_EQ(date_pred00->evaluate_and(bf.get()), false);
         test_negative({"2024-11-08", "2024-11-20"});
         std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>> date_pred10(
-                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>(0, hybrid_set,
+                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>(0, "", hybrid_set,
                                                                               false));
 
         EXPECT_EQ(date_pred10->evaluate_and(bf.get()), true);
         test_negative({"2024-11-20", "2024-11-21"});
         std::unique_ptr<InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>> date_pred20(
-                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>(0, hybrid_set,
+                new InListPredicateBase<TYPE_DATE, PredicateType::IN_LIST, 2>(0, "", hybrid_set,
                                                                               false));
 
         EXPECT_EQ(date_pred20->evaluate_and(bf.get()), false);
@@ -342,17 +342,17 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
         test_positive({"2024-11-08 09:00:00", "2024-11-09 09:00:00"});
         std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 2>>
                 datetime_pred0(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 2>(
-                        0, hybrid_set, false));
+                        0, "", hybrid_set, false));
         EXPECT_EQ(datetime_pred0->evaluate_and(bf.get()), true);
         test_positive({"2024-11-08 09:00:00"});
         std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 1>>
                 datetime_pred1(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 1>(
-                        0, hybrid_set, false));
+                        0, "", hybrid_set, false));
         EXPECT_EQ(datetime_pred1->evaluate_and(bf.get()), true);
         test_positive({"2024-11-09 09:00:00"});
         std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 1>>
                 datetime_pred2(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 1>(
-                        0, hybrid_set, false));
+                        0, "", hybrid_set, false));
         EXPECT_EQ(datetime_pred2->evaluate_and(bf.get()), true);
 
         // Test negative cases
@@ -368,17 +368,17 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
         test_negative({"2024-11-20 09:00:00"});
         std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 1>>
                 datetime_pred33(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 1>(
-                        0, hybrid_set, false));
+                        0, "", hybrid_set, false));
         EXPECT_EQ(datetime_pred33->evaluate_and(bf.get()), false);
         test_negative({"2024-11-08 09:00:00", "2024-11-20 09:00:00"});
         std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 2>>
                 datetime_pred34(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 2>(
-                        0, hybrid_set, false));
+                        0, "", hybrid_set, false));
         EXPECT_EQ(datetime_pred34->evaluate_and(bf.get()), true);
         test_negative({"2024-11-20 09:00:00", "2024-11-21 09:00:00"});
         std::unique_ptr<InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 2>>
                 datetime_pred45(new InListPredicateBase<TYPE_DATETIME, PredicateType::IN_LIST, 2>(
-                        0, hybrid_set, false));
+                        0, "", hybrid_set, false));
         EXPECT_EQ(datetime_pred45->evaluate_and(bf.get()), false);
     }
 }

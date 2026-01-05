@@ -77,32 +77,10 @@ public:
                     std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
                     HybridSet<Type, DynamicContainer<T>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>>;
-    template <typename ConditionType, typename ConvertFunc>
-    InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
-                        const ConvertFunc& convert, bool is_opposite,
-                        const vectorized::DataTypePtr& data_type, vectorized::Arena& arena)
-            : ColumnPredicate(column_id, Type, is_opposite),
-              _min_value(type_limit<T>::max()),
-              _max_value(type_limit<T>::min()) {
-        _values = std::make_shared<HybridSetType>(false);
-        for (const auto& condition : conditions) {
-            T tmp;
-            if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
-                tmp = convert(data_type, condition, arena);
-            } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                                 Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
-                tmp = convert(data_type, condition);
-            } else {
-                tmp = convert(condition);
-            }
-            _values->insert(&tmp);
-            _update_min_max(tmp);
-        }
-    }
-
-    InListPredicateBase(uint32_t column_id, const std::shared_ptr<HybridSetBase>& hybrid_set,
-                        bool is_opposite, size_t char_length = 0)
-            : ColumnPredicate(column_id, Type, is_opposite),
+    InListPredicateBase(uint32_t column_id, std::string col_name,
+                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
+                        size_t char_length = 0)
+            : ColumnPredicate(column_id, col_name, Type, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
         CHECK(hybrid_set != nullptr);

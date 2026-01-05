@@ -247,7 +247,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
         auto& conjunct = *it;
         if (conjunct->root()) {
             vectorized::VExprSPtr new_root;
-            RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), new_root));
+            RETURN_IF_ERROR(
+                    _normalize_predicate(conjunct.get(), conjunct->root(), new_root, nullptr));
             if (new_root) {
                 conjunct->set_root(new_root);
                 if (_should_push_down_common_expr() &&
@@ -281,131 +282,170 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* context,
-                                                     vectorized::VExprSPtr& output_expr) {
-    const auto expr_root = context->root();
-    static constexpr auto is_leaf = [](auto&& expr) { return !expr->is_and_expr(); };
-    if (expr_root != nullptr) {
-        if (is_leaf(expr_root)) {
-            if (dynamic_cast<vectorized::VirtualSlotRef*>(expr_root.get())) {
-                // If the expr has virtual slot ref, we need to keep it in the tree.
-                output_expr = expr_root;
-                return Status::OK();
+                                                     const vectorized::VExprSPtr& root,
+                                                     vectorized::VExprSPtr& output_expr,
+                                                     MutilColumnBlockPredicate* parent) {
+    auto expr_root = root->is_rf_wrapper() ? root->get_impl() : root;
+    if (expr_root->node_type() == TExprNodeType::COMPOUND_PRED &&
+        expr_root->op() == TExprOpcode::COMPOUND_OR) {
+        if (_should_push_down_or_predicate(context) != PushDownType::UNACCEPTABLE) {
+            std::unique_ptr<MutilColumnBlockPredicate> new_root =
+                    OrBlockColumnPredicate::create_unique();
+            DCHECK_GE(expr_root->get_num_children(), 1);
+            for (auto& child : expr_root->children()) {
+                vectorized::VExprSPtr tmp = nullptr;
+                RETURN_IF_ERROR(_normalize_predicate(context, child, tmp, new_root.get()));
+                DCHECK_NE(tmp, nullptr);
             }
-
-            SlotDescriptor* slot = nullptr;
-            ColumnValueRangeType* range = nullptr;
-            PushDownType pdt = PushDownType::UNACCEPTABLE;
-            RETURN_IF_ERROR(_eval_const_conjuncts(context, &pdt));
-            if (pdt == PushDownType::ACCEPTABLE) {
-                output_expr = nullptr;
-                return Status::OK();
-            }
-            std::shared_ptr<vectorized::VSlotRef> slotref;
-            for (const auto& child : expr_root->children()) {
-                if (vectorized::VExpr::expr_without_cast(child)->node_type() !=
-                    TExprNodeType::SLOT_REF) {
-                    // not a slot ref(column)
-                    continue;
-                }
-                slotref = std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(child));
-            }
-            if (_is_predicate_acting_on_slot(expr_root->children(), &slot, &range)) {
-                Status status = Status::OK();
-                std::visit(
-                        [&](auto& value_range) {
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_in_and_eq_predicate(
-                                            context, slot, _slot_id_to_predicates[slot->id()],
-                                            value_range, &pdt),
-                                    status);
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_not_in_and_not_eq_predicate(
-                                            context, slot, _slot_id_to_predicates[slot->id()],
-                                            value_range, &pdt),
-                                    status);
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_is_null_predicate(context, slot,
-                                                                 _slot_id_to_predicates[slot->id()],
-                                                                 value_range, &pdt),
-                                    status);
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_noneq_binary_predicate(
-                                            context, slot, _slot_id_to_predicates[slot->id()],
-                                            value_range, &pdt),
-                                    status);
-                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                                        context, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
-                                                        context, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
-                                                        context, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
-                                                        context, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                            if (state()->enable_function_pushdown()) {
-                                RETURN_IF_PUSH_DOWN(
-                                        _normalize_function_filters(context, slot, &pdt), status);
-                            }
-                        },
-                        *range);
-                RETURN_IF_ERROR(status);
-            }
-            if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
-                slotref->data_type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-                // remaining it in the expr tree, in order to filter by function if the pushdown
-                // predicate is not applied
-                output_expr = expr_root; // remaining in conjunct tree
-                return Status::OK();
-            }
-
-            if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
-                output_expr = nullptr;
-                return Status::OK();
+            if (parent) {
+                parent->add_column_predicate(std::move(new_root));
             } else {
-                // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
-                output_expr = expr_root;
-                return Status::OK();
+                _or_predicates.emplace_back(std::move(new_root));
             }
+        }
+    } else if (expr_root->node_type() == TExprNodeType::COMPOUND_PRED &&
+               expr_root->op() == TExprOpcode::COMPOUND_AND) {
+        if (!parent) {
+            // AndPredicate is illegal on scan operator unless it is a child of OrPredicate
+            return Status::InternalError(
+                    "And expr must have parent MutilColumnBlockPredicate, but now {}",
+                    expr_root->debug_string());
+        }
+        std::unique_ptr<MutilColumnBlockPredicate> new_root =
+                AndBlockColumnPredicate::create_unique();
+        DCHECK_GE(expr_root->get_num_children(), 1);
+        for (const auto& child : expr_root->children()) {
+            vectorized::VExprSPtr tmp = nullptr;
+            RETURN_IF_ERROR(_normalize_predicate(context, child, tmp, new_root.get()));
+        }
+        DCHECK_GE(new_root->num_of_column_predicate(), 1);
+        parent->add_column_predicate(std::move(new_root));
+    } else {
+        PushDownType pdt = PushDownType::UNACCEPTABLE;
+        if (dynamic_cast<vectorized::VirtualSlotRef*>(expr_root.get())) {
+            // If the expr has virtual slot ref, we need to keep it in the tree.
+            output_expr = expr_root;
+            return Status::OK();
+        }
+
+        SlotDescriptor* slot = nullptr;
+        ColumnValueRangeType* range = nullptr;
+        RETURN_IF_ERROR(_eval_const_conjuncts(context, &pdt));
+        if (pdt == PushDownType::ACCEPTABLE) {
+            output_expr = nullptr;
+            return Status::OK();
+        }
+        std::shared_ptr<vectorized::VSlotRef> slotref;
+        for (const auto& child : expr_root->children()) {
+            if (vectorized::VExpr::expr_without_cast(child)->node_type() !=
+                TExprNodeType::SLOT_REF) {
+                // not a slot ref(column)
+                continue;
+            }
+            slotref = std::dynamic_pointer_cast<vectorized::VSlotRef>(
+                    vectorized::VExpr::expr_without_cast(child));
+        }
+        if (_is_predicate_acting_on_slot(expr_root->children(), &slot, &range)) {
+            Status status = Status::OK();
+            std::visit(
+                    [&](auto& value_range) {
+                        auto r = root;
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_in_and_eq_predicate(context, r, slot,
+                                                               _slot_id_to_predicates[slot->id()],
+                                                               value_range, &pdt, parent),
+                                status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_not_in_and_not_eq_predicate(
+                                        context, r, slot, _slot_id_to_predicates[slot->id()],
+                                        value_range, &pdt, parent),
+                                status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_is_null_predicate(context, r, slot,
+                                                             _slot_id_to_predicates[slot->id()],
+                                                             value_range, &pdt, parent),
+                                status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_noneq_binary_predicate(
+                                        context, r, slot, _slot_id_to_predicates[slot->id()],
+                                        value_range, &pdt, parent),
+                                status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_bitmap_filter(context, r, slot,
+                                                         _slot_id_to_predicates[slot->id()], &pdt,
+                                                         parent),
+                                status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_bloom_filter(context, r, slot,
+                                                        _slot_id_to_predicates[slot->id()], &pdt,
+                                                        parent),
+                                status);
+                        RETURN_IF_PUSH_DOWN(
+                                _normalize_topn_filter(context, r, slot,
+                                                       _slot_id_to_predicates[slot->id()], &pdt,
+                                                       parent),
+                                status);
+                        if (state()->enable_function_pushdown()) {
+                            RETURN_IF_PUSH_DOWN(_normalize_function_filters(context, slot, &pdt),
+                                                status);
+                        }
+                    },
+                    *range);
+            RETURN_IF_ERROR(status);
+        }
+        if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
+            slotref->data_type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+            // remaining it in the expr tree, in order to filter by function if the pushdown
+            // predicate is not applied
+            output_expr = expr_root; // remaining in conjunct tree
+            return Status::OK();
+        }
+
+        if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
+            output_expr = nullptr;
+            return Status::OK();
         } else {
-            return Status::InternalError("conjunct root should not and expr, but now {}",
-                                         expr_root->debug_string());
+            // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
+            output_expr = root;
+            return Status::OK();
         }
     }
-    output_expr = expr_root;
+    output_expr = root;
     return Status::OK();
 }
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_normalize_bloom_filter(
-        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
-    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+        vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt,
+        MutilColumnBlockPredicate* parent) {
+    std::shared_ptr<ColumnPredicate> pred = nullptr;
+    Defer defer = [&]() {
+        if (parent && pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            parent->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+        } else if (pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            predicates.emplace_back(pred);
+        }
+    };
+    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 1);
-        DCHECK(expr_ctx->root()->is_rf_wrapper());
-        PushDownType temp_pdt = _should_push_down_bloom_filter();
-        auto* rf_wrapper = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
-        if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
-            predicates.emplace_back(
-                    create_bloom_filter_predicate(slot->id(),
-                                                  slot->type()->get_primitive_type() == TYPE_VARIANT
-                                                          ? expr->get_child(0)->data_type()
-                                                          : slot->type(),
-                                                  expr->get_bloom_filter_func()));
-            predicates.back()->attach_profile_counter(
-                    rf_wrapper->filter_id(), rf_wrapper->predicate_filtered_rows_counter(),
-                    rf_wrapper->predicate_input_rows_counter(),
-                    rf_expr->predicate_always_true_rows_counter());
-            *pdt = temp_pdt;
+        DCHECK(root->is_rf_wrapper());
+        *pdt = _should_push_down_bloom_filter();
+        if (*pdt != PushDownType::UNACCEPTABLE) {
+            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
+            pred = create_bloom_filter_predicate(
+                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
+                    slot->type()->get_primitive_type() == TYPE_VARIANT
+                            ? expr->get_child(0)->data_type()
+                            : slot->type(),
+                    expr->get_bloom_filter_func());
+            pred->attach_profile_counter(rf_expr->filter_id(),
+                                         rf_expr->predicate_filtered_rows_counter(),
+                                         rf_expr->predicate_input_rows_counter(),
+                                         rf_expr->predicate_always_true_rows_counter());
         }
     }
     return Status::OK();
@@ -413,18 +453,28 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_normalize_topn_filter(
-        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
-    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+        vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt,
+        MutilColumnBlockPredicate* parent) {
+    std::shared_ptr<ColumnPredicate> pred = nullptr;
+    Defer defer = [&]() {
+        if (parent && pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            parent->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+        } else if (pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            predicates.emplace_back(pred);
+        }
+    };
+    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
     if (expr->is_topn_filter()) {
-        PushDownType temp_pdt = _should_push_down_topn_filter();
-        if (temp_pdt != PushDownType::UNACCEPTABLE) {
+        *pdt = _should_push_down_topn_filter();
+        if (*pdt != PushDownType::UNACCEPTABLE) {
             auto& p = _parent->cast<typename Derived::Parent>();
-            auto& pred = _state->get_query_ctx()->get_runtime_predicate(
+            auto& tmp = _state->get_query_ctx()->get_runtime_predicate(
                     assert_cast<vectorized::VTopNPred*>(expr.get())->source_node_id());
-            if (_push_down_topn(pred)) {
-                predicates.emplace_back(pred.get_predicate(p.node_id()));
-                *pdt = temp_pdt;
+            if (_push_down_topn(tmp)) {
+                pred = tmp.get_predicate(p.node_id());
             }
         }
     }
@@ -433,27 +483,36 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_normalize_bitmap_filter(
-        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
-    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+        vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
+        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt,
+        MutilColumnBlockPredicate* parent) {
+    std::shared_ptr<ColumnPredicate> pred = nullptr;
+    Defer defer = [&]() {
+        if (parent && pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            parent->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+        } else if (pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            predicates.emplace_back(pred);
+        }
+    };
+    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
     if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
-        DCHECK(expr->get_num_children() == 1);
-        DCHECK(expr_ctx->root()->is_rf_wrapper());
-        PushDownType temp_pdt = _should_push_down_bitmap_filter();
-        auto* rf_wrapper = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
-        if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
-            predicates.emplace_back(create_bitmap_filter_predicate(
-                    slot->id(),
+        *pdt = _should_push_down_bitmap_filter();
+        if (*pdt != PushDownType::UNACCEPTABLE) {
+            DCHECK(expr->get_num_children() == 1);
+            DCHECK(root->is_rf_wrapper());
+            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
+            pred = create_bitmap_filter_predicate(
+                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? expr->get_child(0)->data_type()
                             : slot->type(),
-                    expr->get_bitmap_filter_func()));
-            predicates.back()->attach_profile_counter(
-                    rf_wrapper->filter_id(), rf_wrapper->predicate_filtered_rows_counter(),
-                    rf_wrapper->predicate_input_rows_counter(),
-                    rf_expr->predicate_always_true_rows_counter());
-            *pdt = temp_pdt;
+                    expr->get_bitmap_filter_func());
+            pred->attach_profile_counter(rf_expr->filter_id(),
+                                         rf_expr->predicate_filtered_rows_counter(),
+                                         rf_expr->predicate_input_rows_counter(),
+                                         rf_expr->predicate_always_true_rows_counter());
         }
     }
     return Status::OK();
@@ -477,7 +536,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
         StringRef val;
         PushDownType temp_pdt;
         RETURN_IF_ERROR(_should_push_down_function_filter(
-                reinterpret_cast<vectorized::VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx,
+                assert_cast<vectorized::VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx,
                 temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             std::string col = slot->col_name();
@@ -582,9 +641,19 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExprContext* 
 template <typename Derived>
 template <PrimitiveType T>
 Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
-        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+        vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-        PushDownType* pdt) {
+        PushDownType* pdt, MutilColumnBlockPredicate* parent) {
+    std::shared_ptr<ColumnPredicate> pred = nullptr;
+    Defer defer = [&]() {
+        if (parent && pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            parent->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+        } else if (pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            predicates.emplace_back(pred);
+        }
+    };
     auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
             slot->is_nullable(), range.precision(), range.scale());
 
@@ -593,9 +662,13 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
         return Status::OK();
     }
 
-    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
+        *pdt = _should_push_down_in_predicate();
+        if (*pdt == PushDownType::UNACCEPTABLE) {
+            return Status::OK();
+        }
         HybridSetBase::IteratorBase* iter = nullptr;
         auto hybrid_set = expr->get_set_func();
 
@@ -604,34 +677,18 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
             if (hybrid_set->size() <=
                 _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
                 iter = hybrid_set->begin();
-            } else {
-                predicates.emplace_back(create_in_list_predicate<PredicateType::IN_LIST>(
-                        slot->id(),
-                        slot->type()->get_primitive_type() == TYPE_VARIANT
-                                ? expr->get_child(0)->data_type()
-                                : slot->type(),
-                        expr->get_set_func(), false));
-                if (expr_ctx->root()->is_rf_wrapper()) {
-                    auto* rf_wrapper =
-                            assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
-                    predicates.back()->attach_profile_counter(
-                            rf_wrapper->filter_id(), rf_wrapper->predicate_filtered_rows_counter(),
-                            rf_wrapper->predicate_input_rows_counter(),
-                            rf_wrapper->predicate_always_true_rows_counter());
-                }
-                *pdt = PushDownType::ACCEPTABLE;
-                return Status::OK();
             }
         } else {
             // normal in predicate
-            auto* pred = assert_cast<vectorized::VInPredicate*>(expr.get());
-            if (_should_push_down_in_predicate(pred, false) == PushDownType::UNACCEPTABLE) {
+            auto* tmp = assert_cast<vectorized::VInPredicate*>(expr.get());
+            if (tmp->is_not_in()) {
+                *pdt = PushDownType::UNACCEPTABLE;
                 return Status::OK();
             }
 
             // begin to push InPredicate value into ColumnValueRange
             auto* state = reinterpret_cast<vectorized::InState*>(
-                    expr_ctx->fn_context(pred->fn_context_index())
+                    expr_ctx->fn_context(tmp->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
             // xx in (col, xx, xx) should not be push down
@@ -643,37 +700,31 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
             iter = state->hybrid_set->begin();
         }
 
-        while (iter->has_next()) {
-            // column in (nullptr) is always false so continue to
-            // dispose next item
-            DCHECK(iter->get_value() != nullptr);
-            const auto* value = iter->get_value();
-            RETURN_IF_ERROR(_change_value_range<true>(
-                    temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
-            iter->next();
+        if (iter && !parent) {
+            while (iter->has_next()) {
+                // column in (nullptr) is always false so continue to
+                // dispose next item
+                DCHECK(iter->get_value() != nullptr);
+                const auto* value = iter->get_value();
+                RETURN_IF_ERROR(_change_value_range<true>(
+                        temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
+                iter->next();
+            }
+            range.intersection(temp_range);
         }
-        range.intersection(temp_range);
-        predicates.emplace_back(create_in_list_predicate<PredicateType::IN_LIST>(
-                slot->id(),
+        pred = create_in_list_predicate<PredicateType::IN_LIST>(
+                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
-                hybrid_set, false));
-        *pdt = PushDownType::ACCEPTABLE;
+                hybrid_set, false);
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 2);
-        auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
-
         StringRef value;
-        int slot_ref_child = -1;
-
-        PushDownType temp_pdt;
-        RETURN_IF_ERROR(_should_push_down_binary_predicate(
-                assert_cast<vectorized::VectorizedFnCall*>(expr.get()), expr_ctx, &value,
-                &slot_ref_child, eq_checker, temp_pdt));
-        if (temp_pdt == PushDownType::UNACCEPTABLE) {
+        *pdt = _should_push_down_binary_predicate(
+                assert_cast<vectorized::VectorizedFnCall*>(expr.get()), expr_ctx, &value, {"eq"});
+        if (*pdt == PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
-        DCHECK(slot_ref_child >= 0);
         // where A = nullptr should return empty result set
         auto fn_name = std::string("");
         if (value.data != nullptr) {
@@ -683,99 +734,66 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
                         "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
                         value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
             }
-            predicates.emplace_back(create_comparison_predicate0<PredicateType::EQ>(
-                    slot->id(),
+            pred = create_comparison_predicate0<PredicateType::EQ>(
+                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? expr->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena));
+                    value, false, _arena);
 
-            if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
-                          T == TYPE_HLL) {
-                auto val = StringRef(value.data, value.size);
-                RETURN_IF_ERROR(_change_value_range<true>(
-                        temp_range, reinterpret_cast<void*>(&val),
-                        ColumnValueRange<T>::add_fixed_value_range, fn_name));
-            } else {
-                if (sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
-                    return Status::InternalError(
-                            "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
-                            value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
+            if (!parent) {
+                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                              T == TYPE_HLL) {
+                    auto val = StringRef(value.data, value.size);
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            temp_range, reinterpret_cast<void*>(&val),
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                } else {
+                    if (sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
+                        return Status::InternalError(
+                                "PrimitiveType {} meet invalid input value size {}, expect size {}",
+                                T, value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
+                    }
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            temp_range, reinterpret_cast<const void*>(value.data),
+                            ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
-                RETURN_IF_ERROR(_change_value_range<true>(
-                        temp_range, reinterpret_cast<const void*>(value.data),
-                        ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                range.intersection(temp_range);
             }
-            range.intersection(temp_range);
         } else {
+            *pdt = PushDownType::UNACCEPTABLE;
             _eos = true;
             _scan_dependency->set_ready();
         }
-        *pdt = temp_pdt;
     }
 
     return Status::OK();
-}
-
-template <typename Derived>
-Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
-        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-        StringRef* constant_val, int* slot_ref_child,
-        const std::function<bool(const std::string&)>& fn_checker, PushDownType& pdt) {
-    if (!fn_checker(fn_call->fn().name.function_name)) {
-        pdt = PushDownType::UNACCEPTABLE;
-        return Status::OK();
-    }
-    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
-    const auto& children = fn_call->children();
-    DCHECK(children.size() == 2);
-    for (int i = 0; i < 2; i++) {
-        if (vectorized::VExpr::expr_without_cast(children[i])->node_type() !=
-            TExprNodeType::SLOT_REF) {
-            // not a slot ref(column)
-            continue;
-        }
-        if (!children[1 - i]->is_constant()) {
-            // only handle constant value
-            pdt = PushDownType::UNACCEPTABLE;
-            return Status::OK();
-        } else {
-            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-            RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
-                        const_col_wrapper->column_ptr.get())) {
-                *slot_ref_child = i;
-                *constant_val = const_column->get_data_at(0);
-            } else {
-                pdt = PushDownType::UNACCEPTABLE;
-                return Status::OK();
-            }
-        }
-    }
-    pdt = PushDownType::ACCEPTABLE;
-    return Status::OK();
-}
-
-template <typename Derived>
-PushDownType ScanLocalState<Derived>::_should_push_down_in_predicate(vectorized::VInPredicate* pred,
-                                                                     bool is_not_in) {
-    if (pred->is_not_in() != is_not_in) {
-        return PushDownType::UNACCEPTABLE;
-    }
-    return PushDownType::ACCEPTABLE;
 }
 
 template <typename Derived>
 template <PrimitiveType T>
 Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
-        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+        vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-        PushDownType* pdt) {
+        PushDownType* pdt, MutilColumnBlockPredicate* parent) {
+    std::shared_ptr<ColumnPredicate> pred = nullptr;
+    Defer defer = [&]() {
+        if (parent && pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            parent->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+        } else if (pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            predicates.emplace_back(pred);
+        }
+    };
     bool is_fixed_range = range.is_fixed_value_range();
-    PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
-    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
+        *pdt = _should_push_down_in_predicate();
+        if (*pdt == PushDownType::UNACCEPTABLE) {
+            return Status::OK();
+        }
         /// `VDirectInPredicate` here should not be pushed down.
         /// here means the `VDirectInPredicate` is too big to be converted into `ColumnValueRange`.
         /// For non-key columns and `_storage_no_merge()` is false, this predicate should not be pushed down.
@@ -784,15 +802,15 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             return Status::OK();
         }
 
-        auto* pred = assert_cast<vectorized::VInPredicate*>(expr.get());
-        if ((_should_push_down_in_predicate(pred, true)) == PushDownType::UNACCEPTABLE) {
+        auto* tmp = assert_cast<vectorized::VInPredicate*>(expr.get());
+        if (!tmp->is_not_in()) {
             *pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         }
 
         // begin to push InPredicate value into ColumnValueRange
         auto* state = reinterpret_cast<vectorized::InState*>(
-                expr_ctx->fn_context(pred->fn_context_index())
+                expr_ctx->fn_context(tmp->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
         // xx in (col, xx, xx) should not be push down
@@ -807,35 +825,33 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             _eos = true;
             _scan_dependency->set_ready();
         }
-        predicates.emplace_back(create_in_list_predicate<PredicateType::NOT_IN_LIST>(
-                slot->id(),
+        pred = create_in_list_predicate<PredicateType::NOT_IN_LIST>(
+                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
-                state->hybrid_set, false));
-        while (iter->has_next()) {
-            // column not in (nullptr) is always true
-            DCHECK(iter->get_value() != nullptr);
-            const auto value = iter->get_value();
-            if (is_fixed_range) {
-                RETURN_IF_ERROR(_change_value_range<true>(
-                        range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                state->hybrid_set, false);
+        if (!parent) {
+            while (iter->has_next()) {
+                // column not in (nullptr) is always true
+                DCHECK(iter->get_value() != nullptr);
+                const auto value = iter->get_value();
+                if (is_fixed_range) {
+                    RETURN_IF_ERROR(_change_value_range<true>(
+                            range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                }
+                iter->next();
             }
-            iter->next();
         }
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 2);
 
-        auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         StringRef value;
-        int slot_ref_child = -1;
-        RETURN_IF_ERROR(_should_push_down_binary_predicate(
-                assert_cast<vectorized::VectorizedFnCall*>(expr.get()), expr_ctx, &value,
-                &slot_ref_child, ne_checker, temp_pdt));
-        if (temp_pdt == PushDownType::UNACCEPTABLE) {
+        *pdt = _should_push_down_binary_predicate(
+                assert_cast<vectorized::VectorizedFnCall*>(expr.get()), expr_ctx, &value, {"ne"});
+        if (*pdt == PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
 
-        DCHECK(slot_ref_child >= 0);
         // where A = nullptr should return empty result set
         if (value.data != nullptr) {
             if (!is_string_type(T) &&
@@ -844,37 +860,38 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
                         "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
                         value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
             }
-            predicates.emplace_back(create_comparison_predicate0<PredicateType::NE>(
-                    slot->id(),
+            pred = create_comparison_predicate0<PredicateType::NE>(
+                    _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                     slot->type()->get_primitive_type() == TYPE_VARIANT
                             ? expr->get_child(0)->data_type()
                             : slot->type(),
-                    value, false, _arena));
-            auto fn_name = std::string("");
-            if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
-                          T == TYPE_HLL) {
-                auto val = StringRef(value.data, value.size);
-                if (is_fixed_range) {
-                    RETURN_IF_ERROR(_change_value_range<true>(
-                            range, reinterpret_cast<void*>(&val),
-                            ColumnValueRange<T>::remove_fixed_value_range, fn_name));
-                }
-            } else {
-                if (is_fixed_range) {
-                    RETURN_IF_ERROR(_change_value_range<true>(
-                            range, reinterpret_cast<const void*>(value.data),
-                            ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                    value, false, _arena);
+            if (!parent) {
+                auto fn_name = std::string("");
+                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
+                              T == TYPE_HLL) {
+                    auto val = StringRef(value.data, value.size);
+                    if (is_fixed_range) {
+                        RETURN_IF_ERROR(_change_value_range<true>(
+                                range, reinterpret_cast<void*>(&val),
+                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                    }
+                } else {
+                    if (is_fixed_range) {
+                        RETURN_IF_ERROR(_change_value_range<true>(
+                                range, reinterpret_cast<const void*>(value.data),
+                                ColumnValueRange<T>::remove_fixed_value_range, fn_name));
+                    }
                 }
             }
         } else {
+            *pdt = PushDownType::UNACCEPTABLE;
             _eos = true;
             _scan_dependency->set_ready();
         }
     } else {
         *pdt = PushDownType::UNACCEPTABLE;
-        return Status::OK();
     }
-    *pdt = PushDownType::ACCEPTABLE;
     return Status::OK();
 }
 
@@ -883,8 +900,7 @@ template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRa
 Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveType>& temp_range,
                                                     const void* value,
                                                     const ChangeFixedValueRangeFunc& func,
-                                                    const std::string& fn_name,
-                                                    int slot_ref_child) {
+                                                    const std::string& fn_name) {
     if constexpr (PrimitiveType == TYPE_DATE) {
         VecDateTimeValue tmp_value;
         memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
@@ -900,7 +916,7 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                     ++tmp_value;
                 }
             }
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+            func(temp_range, to_olap_filter_type(fn_name),
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          &tmp_value));
         }
@@ -910,7 +926,7 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                  reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          value));
         } else {
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+            func(temp_range, to_olap_filter_type(fn_name),
                  reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          reinterpret_cast<const char*>(value)));
         }
@@ -918,7 +934,7 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
         if constexpr (IsFixed) {
             func(temp_range, reinterpret_cast<const StringRef*>(value));
         } else {
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+            func(temp_range, to_olap_filter_type(fn_name),
                  reinterpret_cast<const StringRef*>(value));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
@@ -937,7 +953,7 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                  reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          value));
         } else {
-            func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
+            func(temp_range, to_olap_filter_type(fn_name),
                  reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
                          value));
         }
@@ -951,30 +967,50 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
 template <typename Derived>
 template <PrimitiveType T>
 Status ScanLocalState<Derived>::_normalize_is_null_predicate(
-        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+        vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-        PushDownType* pdt) {
-    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
-    PushDownType temp_pdt = _should_push_down_is_null_predicate();
-    if (temp_pdt == PushDownType::UNACCEPTABLE) {
+        PushDownType* pdt, MutilColumnBlockPredicate* parent) {
+    std::shared_ptr<ColumnPredicate> pred = nullptr;
+    Defer defer = [&]() {
+        if (parent && pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            parent->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+        } else if (pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            predicates.emplace_back(pred);
+        }
+    };
+    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
+    if (auto fn_call = dynamic_cast<vectorized::VectorizedFnCall*>(expr.get())) {
+        *pdt = _should_push_down_is_null_predicate(fn_call);
+    } else {
+        *pdt = PushDownType::UNACCEPTABLE;
+    }
+
+    if (*pdt == PushDownType::UNACCEPTABLE) {
         return Status::OK();
     }
 
-    if (auto fn_call = dynamic_cast<vectorized::VectorizedFnCall*>(expr.get())) {
-        if (fn_call->fn().name.function_name == "is_null_pred") {
-            predicates.emplace_back(NullPredicate::create_shared(slot->id(), true, T));
+    auto fn_call = assert_cast<vectorized::VectorizedFnCall*>(expr.get());
+    if (fn_call->fn().name.function_name == "is_null_pred") {
+        pred = NullPredicate::create_shared(
+                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(), true,
+                T);
+        if (!parent) {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->is_nullable(), range.precision(), range.scale());
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
-            *pdt = temp_pdt;
-        } else if (fn_call->fn().name.function_name == "is_not_null_pred") {
-            predicates.emplace_back(NullPredicate::create_shared(slot->id(), false, T));
+        }
+    } else if (fn_call->fn().name.function_name == "is_not_null_pred") {
+        pred = NullPredicate::create_shared(
+                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(), false,
+                T);
+        if (!parent) {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
                     slot->is_nullable(), range.precision(), range.scale());
             temp_range.set_contain_null(false);
             range.intersection(temp_range);
-            *pdt = temp_pdt;
         }
     }
     return Status::OK();
@@ -983,77 +1019,88 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
 template <typename Derived>
 template <PrimitiveType T>
 Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
-        vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+        vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-        PushDownType* pdt) {
-    auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+        PushDownType* pdt, MutilColumnBlockPredicate* parent) {
+    std::shared_ptr<ColumnPredicate> pred = nullptr;
+    Defer defer = [&]() {
+        if (parent && pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            parent->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+        } else if (pred) {
+            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
+            predicates.emplace_back(pred);
+        }
+    };
+    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
     if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 2);
 
-        auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
-        };
         StringRef value;
-        int slot_ref_child = -1;
-        PushDownType temp_pdt;
-        RETURN_IF_ERROR(_should_push_down_binary_predicate(
+        *pdt = _should_push_down_binary_predicate(
                 assert_cast<vectorized::VectorizedFnCall*>(expr.get()), expr_ctx, &value,
-                &slot_ref_child, noneq_checker, temp_pdt));
-        if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            DCHECK(slot_ref_child >= 0);
-            const std::string& function_name =
-                    assert_cast<vectorized::VectorizedFnCall*>(expr.get())->fn().name.function_name;
+                {"lt", "gt", "le", "ge"});
+        if (*pdt == PushDownType::UNACCEPTABLE) {
+            return Status::OK();
+        }
+        const std::string& function_name =
+                assert_cast<vectorized::VectorizedFnCall*>(expr.get())->fn().name.function_name;
 
-            // where A = nullptr should return empty result set
-            if (value.data != nullptr) {
-                if (function_name == "lt") {
-                    predicates.emplace_back(create_comparison_predicate0<PredicateType::LT>(
-                            slot->id(),
-                            slot->type()->get_primitive_type() == TYPE_VARIANT
-                                    ? expr->get_child(0)->data_type()
-                                    : slot->type(),
-                            value, false, _arena));
-                } else if (function_name == "gt") {
-                    predicates.emplace_back(create_comparison_predicate0<PredicateType::GT>(
-                            slot->id(),
-                            slot->type()->get_primitive_type() == TYPE_VARIANT
-                                    ? expr->get_child(0)->data_type()
-                                    : slot->type(),
-                            value, false, _arena));
-                } else if (function_name == "le") {
-                    predicates.emplace_back(create_comparison_predicate0<PredicateType::LE>(
-                            slot->id(),
-                            slot->type()->get_primitive_type() == TYPE_VARIANT
-                                    ? expr->get_child(0)->data_type()
-                                    : slot->type(),
-                            value, false, _arena));
-                } else if (function_name == "ge") {
-                    predicates.emplace_back(create_comparison_predicate0<PredicateType::GE>(
-                            slot->id(),
-                            slot->type()->get_primitive_type() == TYPE_VARIANT
-                                    ? expr->get_child(0)->data_type()
-                                    : slot->type(),
-                            value, false, _arena));
-                } else {
-                    throw Exception(
-                            Status::InternalError("Unsupported function name: {}", function_name));
-                }
+        // where A = nullptr should return empty result set
+        if (value.data != nullptr) {
+            if (function_name == "lt") {
+                pred = create_comparison_predicate0<PredicateType::LT>(
+                        _parent->intermediate_row_desc().get_column_id(slot->id()),
+                        slot->col_name(),
+                        slot->type()->get_primitive_type() == TYPE_VARIANT
+                                ? expr->get_child(0)->data_type()
+                                : slot->type(),
+                        value, false, _arena);
+            } else if (function_name == "gt") {
+                pred = create_comparison_predicate0<PredicateType::GT>(
+                        _parent->intermediate_row_desc().get_column_id(slot->id()),
+                        slot->col_name(),
+                        slot->type()->get_primitive_type() == TYPE_VARIANT
+                                ? expr->get_child(0)->data_type()
+                                : slot->type(),
+                        value, false, _arena);
+            } else if (function_name == "le") {
+                pred = create_comparison_predicate0<PredicateType::LE>(
+                        _parent->intermediate_row_desc().get_column_id(slot->id()),
+                        slot->col_name(),
+                        slot->type()->get_primitive_type() == TYPE_VARIANT
+                                ? expr->get_child(0)->data_type()
+                                : slot->type(),
+                        value, false, _arena);
+            } else if (function_name == "ge") {
+                pred = create_comparison_predicate0<PredicateType::GE>(
+                        _parent->intermediate_row_desc().get_column_id(slot->id()),
+                        slot->col_name(),
+                        slot->type()->get_primitive_type() == TYPE_VARIANT
+                                ? expr->get_child(0)->data_type()
+                                : slot->type(),
+                        value, false, _arena);
+            } else {
+                throw Exception(
+                        Status::InternalError("Unsupported function name: {}", function_name));
+            }
+            if (!parent) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
                     auto val = StringRef(value.data, value.size);
                     RETURN_IF_ERROR(_change_value_range<false>(range, reinterpret_cast<void*>(&val),
                                                                ColumnValueRange<T>::add_value_range,
-                                                               function_name, slot_ref_child));
+                                                               function_name));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<false>(
                             range, reinterpret_cast<const void*>(value.data),
-                            ColumnValueRange<T>::add_value_range, function_name, slot_ref_child));
+                            ColumnValueRange<T>::add_value_range, function_name));
                 }
-                *pdt = temp_pdt;
-            } else {
-                _eos = true;
-                _scan_dependency->set_ready();
             }
+        } else {
+            *pdt = PushDownType::UNACCEPTABLE;
+            _eos = true;
+            _scan_dependency->set_ready();
         }
     }
     return Status::OK();
