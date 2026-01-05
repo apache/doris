@@ -73,7 +73,7 @@ struct TopNSorterTest : public testing::Test {
 
 TEST_F(TopNSorterTest, test_topn_sorter1) {
     sorter = TopNSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
@@ -94,7 +94,7 @@ TEST_F(TopNSorterTest, test_topn_sorter1) {
 
 TEST_F(TopNSorterTest, test_topn_sorter2) {
     sorter = TopNSorter::create_unique(sort_exec_exprs, -1, 3, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});

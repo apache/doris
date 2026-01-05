@@ -49,48 +49,36 @@ UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_
 
 Status UDFTableFunction::open() {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
     _jni_ctx = std::make_shared<JniContext>();
-    // Add a scoped cleanup jni reference object. This cleans up local refs made below.
-    JniLocalFrame jni_frame;
-    {
-        std::string local_location;
-        auto* function_cache = UserFunctionCache::instance();
-        TJavaUdfExecutorCtorParams ctor_params;
-        ctor_params.__set_fn(_t_fn);
-        if (!_t_fn.hdfs_location.empty() && !_t_fn.checksum.empty()) {
-            // get jar path if both file path location and checksum are null
-            RETURN_IF_ERROR(function_cache->get_jarpath(_t_fn.id, _t_fn.hdfs_location,
-                                                        _t_fn.checksum, &local_location));
-            ctor_params.__set_location(local_location);
-        }
-        jbyteArray ctor_params_bytes;
-        // Pushed frame will be popped when jni_frame goes out-of-scope.
-        RETURN_IF_ERROR(jni_frame.push(env));
-        RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-        RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &_jni_ctx->executor_cl));
-
-        JNI_CALL_METHOD_CHECK_EXCEPTION(
-                , _jni_ctx->executor_ctor_id, env,
-                GetMethodID(_jni_ctx->executor_cl, "<init>", EXECUTOR_CTOR_SIGNATURE));
-
-        JNI_CALL_METHOD_CHECK_EXCEPTION(
-                , _jni_ctx->executor_evaluate_id, env,
-                GetMethodID(_jni_ctx->executor_cl, "evaluate", EXECUTOR_EVALUATE_SIGNATURE));
-
-        JNI_CALL_METHOD_CHECK_EXCEPTION(
-                , _jni_ctx->executor_close_id, env,
-                GetMethodID(_jni_ctx->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE));
-
-        JNI_CALL_METHOD_CHECK_EXCEPTION(
-                , _jni_ctx->executor, env,
-                NewObject(_jni_ctx->executor_cl, _jni_ctx->executor_ctor_id, ctor_params_bytes));
-        jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
-        env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
-        env->DeleteLocalRef(ctor_params_bytes);
+    std::string local_location;
+    auto* function_cache = UserFunctionCache::instance();
+    TJavaUdfExecutorCtorParams ctor_params;
+    ctor_params.__set_fn(_t_fn);
+    if (!_t_fn.hdfs_location.empty() && !_t_fn.checksum.empty()) {
+        // get jar path if both file path location and checksum are null
+        RETURN_IF_ERROR(function_cache->get_jarpath(_t_fn.id, _t_fn.hdfs_location, _t_fn.checksum,
+                                                    &local_location));
+        ctor_params.__set_location(local_location);
     }
-    RETURN_ERROR_IF_EXC(env);
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _jni_ctx->executor, &_jni_ctx->executor));
+    RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &_jni_ctx->executor_cl));
+
+    Jni::LocalArray ctor_params_bytes;
+    RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
+
+    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "<init>", EXECUTOR_CTOR_SIGNATURE,
+                                                     &_jni_ctx->executor_ctor_id));
+
+    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE,
+                                                     &_jni_ctx->executor_evaluate_id));
+
+    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
+                                                     &_jni_ctx->executor_close_id));
+
+    RETURN_IF_ERROR(_jni_ctx->executor_cl.new_object(env, _jni_ctx->executor_ctor_id)
+                            .with_arg(ctor_params_bytes)
+                            .call(&_jni_ctx->executor));
+
     _jni_ctx->open_successes = true;
     return Status::OK();
 }
@@ -107,7 +95,7 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
         child_column_idxs[i] = result_id;
     }
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
     std::unique_ptr<long[]> input_table;
     RETURN_IF_ERROR(
             JniConnector::to_java_table(block, block->rows(), child_column_idxs, input_table));
@@ -117,8 +105,8 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
             {"required_fields", input_table_schema.first},
             {"columns_types", input_table_schema.second}};
 
-    jobject input_map = nullptr;
-    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
+    Jni::LocalObject input_map;
+    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, input_params, &input_map));
     _array_result_column = _return_type->create_column();
     _result_column_idx = block->columns();
     block->insert({_array_result_column, _return_type, "res"});
@@ -128,17 +116,13 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                                               {"required_fields", output_table_schema.first},
                                               {"columns_types", output_table_schema.second}};
 
-    jobject output_map = nullptr;
-    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
-    DCHECK(_jni_ctx != nullptr);
-    DCHECK(_jni_ctx->executor != nullptr);
-    long output_address = env->CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id,
-                                              input_map, output_map);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(input_map);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteGlobalRef(output_map);
-    RETURN_ERROR_IF_EXC(env);
+    Jni::LocalObject output_map;
+    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, output_params, &output_map));
+    long output_address;
+    RETURN_IF_ERROR(_jni_ctx->executor.call_long_method(env, _jni_ctx->executor_evaluate_id)
+                            .with_arg(input_map)
+                            .with_arg(output_map)
+                            .call(&output_address));
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {

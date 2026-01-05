@@ -39,6 +39,7 @@ class ClusterOptions {
     int feNum = 1
     int beNum = 3
     int msNum = 1
+    int recyclerNum = 1
 
     Boolean sqlModeNodeMgr = false
     Boolean beMetaServiceEndpoint = true
@@ -342,6 +343,9 @@ class SuiteCluster {
         }
         if (options.msNum > 0) {
             cmd += ['--add-ms-num', String.valueOf(options.msNum)]
+        }
+        if (options.recyclerNum > 0) {
+            cmd += ['--add-recycle-num', String.valueOf(options.recyclerNum)]
         }
         // TODO: need escape white space in config
         if (!options.feConfigs.isEmpty()) {
