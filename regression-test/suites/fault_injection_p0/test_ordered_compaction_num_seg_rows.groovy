@@ -23,9 +23,23 @@ suite("test_ordered_compaction_num_seg_rows","nonConcurrent") {
     }
 
     def custoBeConfig = [
-        ordered_data_compaction_min_segment_size : 1
+        ordered_data_compaction_min_segment_size : 1,
+        enable_ordered_data_compaction: true
     ]
     setBeConfigTemporary(custoBeConfig) {
+
+        String backend_id;
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        backend_id = backendId_to_backendIP.keySet()[0]
+        def (code1, out1, err1) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+
+        logger.info("Show config: code=" + code1 + ", out=" + out1 + ", err=" + err1)
+        assert code1 == 0
+
+
         def tableName = "test_ordered_compaction_num_seg_rows"
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
