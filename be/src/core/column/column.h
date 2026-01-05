@@ -37,6 +37,7 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "storage/olap_common.h"
+#include "vec/core/hybrid_sorter.h"
 
 namespace doris {
 class SipHash;
@@ -484,10 +485,18 @@ public:
       * nan_direction_hint - see above.
       */
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const {
+                                 HybridSorter& sorter, Permutation& res) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "get_permutation for " + get_name());
     }
+
+#ifdef BE_TEST
+    void get_permutation_default(bool reverse, size_t limit, int nan_direction_hint,
+                                 Permutation& res) const {
+        HybridSorter sorter;
+        get_permutation(reverse, limit, nan_direction_hint, sorter, res);
+    }
+#endif
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.

@@ -36,6 +36,7 @@
 #include "exec/sort/vsorted_run_merger.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "vec/core/hybrid_sorter.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -101,15 +102,16 @@ private:
 
 class Sorter {
 public:
-    Sorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
-           std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first)
+    Sorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit, int64_t offset,
+           ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first)
             : _vsort_exec_exprs(vsort_exec_exprs),
               _limit(limit),
               _offset(offset),
               _pool(pool),
               _is_asc_order(is_asc_order),
               _nulls_first(nulls_first),
-              _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()) {}
+              _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()),
+              _hybrid_sorter(state->enable_use_hybrid_sort()) {}
 #ifdef BE_TEST
     VSortExecExprs mock_vsort_exec_exprs;
     std::vector<bool> mock_is_asc_order;
@@ -155,6 +157,7 @@ public:
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block, bool reversed = false);
+    Status _prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed = false);
 
     bool _enable_spill = false;
     SortDescription _sort_description;
@@ -171,6 +174,7 @@ protected:
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
+    HybridSorter _hybrid_sorter;
 };
 
 class FullSorter final : public Sorter {

@@ -680,6 +680,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FUZZY_BLOCKABLE_TASK = "enable_fuzzy_blockable_task";
 
+    public static final String ENABLE_USE_HYBRID_SORT = "enable_use_hybrid_sort";
+
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
@@ -3208,6 +3210,15 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_FUZZY_BLOCKABLE_TASK, fuzzy = true)
     public boolean enableFuzzyBlockableTask = false;
 
+    @VariableMgr.VarAttr(
+            name = ENABLE_USE_HYBRID_SORT,
+            description = {"是否启用混合排序，动态选择 PdqSort 和 TimSort 以适应数据模式。默认为 true。",
+                    "Enable hybrid sorting: dynamically selects between PdqSort and TimSort "
+                            + "based on runtime profiling to choose the most efficient algorithm "
+                            + "for the data pattern. The default value is true."},
+            needForward = true, fuzzy = true)
+    public boolean enableUseHybridSort = true;
+
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在 CTAS 中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即 65533。默认为 true。",
             "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
@@ -3664,6 +3675,9 @@ public class SessionVariable implements Serializable, Writable {
             this.enableSpill = randomInt % 4 != 0;
             this.enableForceSpill = randomInt % 3 == 0;
             this.enableReserveMemory = randomInt % 5 != 0;
+
+            randomInt = random.nextInt(99);
+            this.enableUseHybridSort = randomInt % 3 != 0;
         }
 
         setFuzzyForCatalog(random);
@@ -5378,6 +5392,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSpillSortMergeMemLimitBytes(spillSortMergeMemLimitBytes);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setEnableUseHybridSort(enableUseHybridSort);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
