@@ -569,7 +569,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         if (local_state._build_side_mutable_block.empty()) {
             auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
                     _child->row_desc());
-            tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
+            tmp_build_block = *(tmp_build_block.create_same_struct_block_with_type(1));
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,
                                                      *local_state._build_expr_call_timer,

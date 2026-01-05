@@ -53,14 +53,9 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 /** Stuff for comparing numbers.
   * Integer values are compared as usual.
@@ -240,6 +235,8 @@ public:
     }
 
     void insert_default() override { data.push_back(T()); }
+
+    void insert_default_with_type(DataTypePtr type) override;
 
     void insert_many_defaults(size_t length) override {
         size_t old_size = data.size();

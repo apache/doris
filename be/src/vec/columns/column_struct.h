@@ -115,6 +115,7 @@ public:
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
+    void insert_default_with_type(DataTypePtr type) override;
     void pop_back(size_t n) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;

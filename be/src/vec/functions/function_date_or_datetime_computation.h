@@ -374,12 +374,16 @@ struct DateTimeOp {
     }
     static void vector_vector(const PaddedPODArray<FromType1>& vec_from0,
                               const PaddedPODArray<FromType2>& vec_from1,
-                              PaddedPODArray<ToType>& vec_to) {
+                              PaddedPODArray<ToType>& vec_to, const NullMap* nullmap0,
+                              const NullMap* nullmap1) {
         size_t size = vec_from0.size();
         vec_to.resize(size);
 
         bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
+            if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
+                continue;
+            }
             // here reinterpret_cast is used to convert uint8& to bool&,
             // otherwise it will be implicitly converted to bool, causing the rvalue to fail to match the lvalue.
             // the same goes for the following.
@@ -400,18 +404,23 @@ struct DateTimeOp {
         vec_to.resize(size);
         null_map.resize_fill(size, false);
 
-        for (size_t i = 0; i < size; ++i)
+        for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i],
                                            reinterpret_cast<bool&>(null_map[i]));
+        }
     }
     static void vector_vector(const PaddedPODArray<FromType1>& vec_from0,
                               const PaddedPODArray<Int32>& vec_from1,
-                              PaddedPODArray<ToType>& vec_to) {
+                              PaddedPODArray<ToType>& vec_to, const NullMap* nullmap0,
+                              const NullMap* nullmap1) {
         size_t size = vec_from0.size();
         vec_to.resize(size);
 
         bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
+            if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
+                continue;
+            }
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
 
             if (UNLIKELY(invalid)) {
@@ -434,12 +443,19 @@ struct DateTimeOp {
         }
     }
     static void vector_constant(const PaddedPODArray<FromType1>& vec_from,
-                                PaddedPODArray<ToType>& vec_to, Int128& delta) {
+                                PaddedPODArray<ToType>& vec_to, Int128& delta,
+                                const NullMap* nullmap0, const NullMap* nullmap1) {
+        if (nullmap1 && (*nullmap1)[0]) [[unlikely]] {
+            return;
+        }
         size_t size = vec_from.size();
         vec_to.resize(size);
 
         bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
+            if (nullmap0 && (*nullmap0)[i]) [[unlikely]] {
+                continue;
+            }
             vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
 
             if (UNLIKELY(invalid)) {
@@ -462,12 +478,19 @@ struct DateTimeOp {
         }
     }
     static void vector_constant(const PaddedPODArray<FromType1>& vec_from,
-                                PaddedPODArray<ToType>& vec_to, Int64 delta) {
+                                PaddedPODArray<ToType>& vec_to, Int64 delta,
+                                const NullMap* nullmap0, const NullMap* nullmap1) {
+        if (nullmap1 && (*nullmap1)[0]) [[unlikely]] {
+            return;
+        }
         size_t size = vec_from.size();
         vec_to.resize(size);
         bool invalid = true;
 
         for (size_t i = 0; i < size; ++i) {
+            if (nullmap0 && (*nullmap0)[i]) [[unlikely]] {
+                continue;
+            }
             vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
 
             if (UNLIKELY(invalid)) {
@@ -490,12 +513,19 @@ struct DateTimeOp {
         }
     }
     static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
-                                const IColumn& delta) {
+                                const IColumn& delta, const NullMap* nullmap0,
+                                const NullMap* nullmap1) {
+        if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
+            return;
+        }
         size_t size = delta.size();
         vec_to.resize(size);
         bool invalid = true;
 
         for (size_t i = 0; i < size; ++i) {
+            if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
+                continue;
+            }
             vec_to[i] = Transform::execute(from, delta.get_int(i), invalid);
 
             if (UNLIKELY(invalid)) {
@@ -517,12 +547,19 @@ struct DateTimeOp {
     }
 
     static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
-                                const PaddedPODArray<FromType2>& delta) {
+                                const PaddedPODArray<FromType2>& delta, const NullMap* nullmap0,
+                                const NullMap* nullmap1) {
+        if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
+            return;
+        }
         size_t size = delta.size();
         vec_to.resize(size);
         bool invalid = true;
 
         for (size_t i = 0; i < size; ++i) {
+            if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
+                continue;
+            }
             vec_to[i] = Transform::execute(from, delta[i], invalid);
 
             if (UNLIKELY(invalid)) {
@@ -540,11 +577,19 @@ struct DateTimeAddIntervalImpl {
         using ToType = typename Transform::ReturnType::FieldType;
         using Op = DateTimeOp<FromType1, FromType2, ToType, Transform>;
 
-        const ColumnPtr source_col = remove_nullable(block.get_by_position(arguments[0]).column);
+        //ATTN: those null maps may be nullmap of ColumnConst(only 1 row)
+        // src column is always datelike type.
+        ColumnPtr& col0 = block.get_by_position(arguments[0]).column;
+        const NullMap* nullmap0 = VectorizedUtils::get_null_map(col0);
+        // the second column may be delta column(xx_add/sub) or datelike column(xxx_diff)
+        ColumnPtr& col1 = block.get_by_position(arguments[1]).column;
+        const NullMap* nullmap1 = VectorizedUtils::get_null_map(col1);
+
+        const ColumnPtr source_col = remove_nullable(col0);
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
         if (const auto* sources = check_and_get_column<ColumnVector<FromType1>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
-            auto delta_column_ptr = remove_nullable(block.get_by_position(arguments[1]).column);
+            auto delta_column_ptr = remove_nullable(col1);
             const IColumn& delta_column = *delta_column_ptr;
 
             if (is_nullable) {
@@ -581,8 +626,7 @@ struct DateTimeAddIntervalImpl {
                                           col_to->get_data(), null_map->get_data());
                     }
                 }
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[0]).column.get())) {
+                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col0.get())) {
                     NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
                     const NullMap& src_null_map =
                             assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
@@ -590,8 +634,7 @@ struct DateTimeAddIntervalImpl {
 
                     VectorizedUtils::update_null_map(result_null_map, src_null_map);
                 }
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[1]).column.get())) {
+                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col1.get())) {
                     NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
                     const NullMap& src_null_map =
                             assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
@@ -606,28 +649,32 @@ struct DateTimeAddIntervalImpl {
                             typeid_cast<const ColumnConst*>(&delta_column)) {
                     if (delta_const_column->get_field().get_type() == Field::Types::Int128) {
                         Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                            delta_const_column->get_field().get<Int128>());
+                                            delta_const_column->get_field().get<Int128>(), nullmap0,
+                                            nullmap1);
                     } else if (delta_const_column->get_field().get_type() == Field::Types::Int64) {
                         Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                            delta_const_column->get_field().get<Int64>());
+                                            delta_const_column->get_field().get<Int64>(), nullmap0,
+                                            nullmap1);
                     } else if (delta_const_column->get_field().get_type() == Field::Types::UInt64) {
                         Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                            delta_const_column->get_field().get<UInt64>());
+                                            delta_const_column->get_field().get<UInt64>(), nullmap0,
+                                            nullmap1);
                     } else {
                         Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                            delta_const_column->get_field().get<Int32>());
+                                            delta_const_column->get_field().get<Int32>(), nullmap0,
+                                            nullmap1);
                     }
                 } else {
                     if (const auto* delta_vec_column0 =
                                 check_and_get_column<ColumnVector<FromType2>>(delta_column)) {
                         Op::vector_vector(sources->get_data(), delta_vec_column0->get_data(),
-                                          col_to->get_data());
+                                          col_to->get_data(), nullmap0, nullmap1);
                     } else {
                         const auto* delta_vec_column1 =
                                 check_and_get_column<ColumnVector<Int32>>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
                         Op::vector_vector(sources->get_data(), delta_vec_column1->get_data(),
-                                          col_to->get_data());
+                                          col_to->get_data(), nullmap0, nullmap1);
                     }
                 }
                 block.replace_by_position(result, std::move(col_to));
@@ -637,8 +684,7 @@ struct DateTimeAddIntervalImpl {
             auto col_to = ColumnVector<ToType>::create();
             if (is_nullable) {
                 auto null_map = ColumnUInt8::create(input_rows_count, 0);
-                auto not_nullable_column_ptr_arg1 =
-                        remove_nullable(block.get_by_position(arguments[1]).column);
+                auto not_nullable_column_ptr_arg1 = remove_nullable(col1);
                 if (const auto* delta_vec_column = check_and_get_column<ColumnVector<FromType2>>(
                             *not_nullable_column_ptr_arg1)) {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
@@ -649,8 +695,7 @@ struct DateTimeAddIntervalImpl {
                                         col_to->get_data(), null_map->get_data(),
                                         *not_nullable_column_ptr_arg1);
                 }
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[0]).column.get())) {
+                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col0.get())) {
                     NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
                     const NullMap& src_null_map =
                             assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
@@ -658,8 +703,7 @@ struct DateTimeAddIntervalImpl {
 
                     VectorizedUtils::update_null_map(result_null_map, src_null_map);
                 }
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[1]).column.get())) {
+                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col1.get())) {
                     NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
                     const NullMap& src_null_map =
                             assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
@@ -670,21 +714,20 @@ struct DateTimeAddIntervalImpl {
                 block.get_by_position(result).column =
                         ColumnNullable::create(std::move(col_to), std::move(null_map));
             } else {
-                if (const auto* delta_vec_column = check_and_get_column<ColumnVector<FromType2>>(
-                            *block.get_by_position(arguments[1]).column)) {
+                if (const auto* delta_vec_column =
+                            check_and_get_column<ColumnVector<FromType2>>(*col1)) {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
-                                        col_to->get_data(), delta_vec_column->get_data());
+                                        col_to->get_data(), delta_vec_column->get_data(), nullmap0,
+                                        nullmap1);
                 } else {
                     Op::constant_vector(sources_const->template get_value<FromType2>(),
-                                        col_to->get_data(),
-                                        *block.get_by_position(arguments[1]).column);
+                                        col_to->get_data(), *col1, nullmap0, nullmap1);
                 }
                 block.replace_by_position(result, std::move(col_to));
             }
         } else {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        Transform::name);
+                                        col0->get_name(), Transform::name);
         }
         return Status::OK();
     }
@@ -705,7 +748,9 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Transform::get_variadic_argument_types();
+        }
         return {};
     }
     bool use_default_implementation_for_nulls() const override { return false; }

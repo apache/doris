@@ -27,6 +27,7 @@
 #include <ostream>
 #include <string>
 
+#include "util/binary_cast.hpp"
 #include "util/hash_util.hpp"
 #include "util/simd/bits.h"
 #include "vec/columns/column_impl.h"
@@ -40,6 +41,7 @@
 #include "vec/core/sort_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -502,6 +504,19 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
     }
     for (size_t i = 0; i < s; ++i) {
         data[i] = null_map[i] ? T() : data[i];
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::insert_default_with_type(DataTypePtr type) {
+    if (WhichDataType(type).is_date_or_datetime()) {
+        data.push_back(binary_cast<VecDateTimeValue, Int64>(VecDateTimeValue::DEFAULT_VALUE));
+    } else if (WhichDataType(type).is_date_v2()) {
+        data.push_back(DateV2Value<DateV2ValueType>::DEFAULT_VALUE.to_date_int_val());
+    } else if (WhichDataType(type).is_date_time_v2()) {
+        data.push_back(DateV2Value<DateTimeV2ValueType>::DEFAULT_VALUE.to_date_int_val());
+    } else {
+        insert_default();
     }
 }
 
