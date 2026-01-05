@@ -1431,7 +1431,6 @@ using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
         FunctionBinaryStringOperateToNullType<StringAppendTrailingCharIfAbsent>;
-
 using FunctionHammingDistance = FunctionBinaryStringOperateToNullType<HammingDistanceImpl>;
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
@@ -1536,6 +1535,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCrc32Internal>();
     factory.register_function<FunctionMakeSet>();
     factory.register_function<FunctionExportSet>();
+    factory.register_function<FunctionUnicodeNormalize>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
