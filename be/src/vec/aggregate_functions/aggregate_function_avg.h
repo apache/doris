@@ -147,6 +147,8 @@ public:
         }
     }
 
+    bool is_trivial() const override { return true; }
+
     template <bool is_add>
     NO_SANITIZE_UNDEFINED void update_value(AggregateDataPtr __restrict place,
                                             const IColumn** columns, ssize_t row_num) const {
@@ -271,7 +273,6 @@ public:
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec(places, offset, rhs, arena, num_rows);
     }
 
@@ -279,7 +280,6 @@ public:
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 

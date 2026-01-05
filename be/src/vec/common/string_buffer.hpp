@@ -256,7 +256,8 @@ public:
     template <typename Type>
     void read_binary(Type& x) {
         static_assert(std::is_standard_layout_v<Type>);
-        read(reinterpret_cast<char*>(&x), sizeof(x));
+        memcpy_fixed<Type>(reinterpret_cast<char*>(&x), _data);
+        _data += sizeof(x);
     }
 
     template <typename Type>
