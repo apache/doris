@@ -150,8 +150,21 @@ public abstract class SdkDefaultClientBuilder<B extends SdkClientBuilder<B, C>, 
     private final SdkHttpClient.Builder defaultHttpClientBuilder;
     private final SdkAsyncHttpClient.Builder defaultAsyncHttpClientBuilder;
     private final List<SdkPlugin> plugins = new ArrayList<>();
-    private static final ScheduledExecutorService awsSdkScheduler=Executors.newScheduledThreadPool(20, new ThreadFactoryBuilder().threadNamePrefix("aws-sdk-scheduler-%d").build());
+    private static final ScheduledExecutorService awsSdkScheduler;
 
+    static {
+        ScheduledExecutorService realScheduler =
+                Executors.newScheduledThreadPool(
+                        20,
+                        r -> {
+                            Thread t = new Thread(r, "aws-sdk-scheduler");
+                            t.setDaemon(true);
+                            return t;
+                        }
+                );
+
+        awsSdkScheduler = new UncloseableScheduledExecutorService(realScheduler);
+    }
 
 
     protected SdkDefaultClientBuilder() {
