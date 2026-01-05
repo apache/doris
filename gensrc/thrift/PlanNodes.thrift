@@ -403,8 +403,12 @@ struct TFlussFileDesc {
     1: optional string database_name
     2: optional string table_name
     3: optional i64 table_id
-    4: optional string file_format
-    5: optional map<string, string> fluss_options
+    4: optional i32 bucket_id
+    5: optional string partition_name
+    6: optional i64 snapshot_id
+    7: optional string file_path
+    8: optional string file_format
+    9: optional string bootstrap_servers
 }
 
 struct TTableFormatFileDesc {

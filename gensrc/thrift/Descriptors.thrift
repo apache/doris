@@ -472,43 +472,5 @@ struct TRemoteDorisTable {
 struct TFlussTable {
   1: optional string db_name
   2: optional string table_name
-  3: optional map<string, string> properties
-}
-
-// "Union" of all table types.
-struct TTableDescriptor {
-  1: required Types.TTableId id
-  2: required Types.TTableType tableType
-  3: required i32 numCols
-  4: required i32 numClusteringCols
-
-  // Unqualified name of table
-  7: required string tableName;
-
-  // Name of the database that the table belongs to
-  8: required string dbName;
-  10: optional TMySQLTable mysqlTable
-  11: optional TOlapTable olapTable
-  12: optional TSchemaTable schemaTable
-  14: optional TBrokerTable BrokerTable
-  15: optional TEsTable esTable
-  16: optional TOdbcTable odbcTable
-  17: optional THiveTable hiveTable
-  18: optional TIcebergTable icebergTable
-  19: optional THudiTable hudiTable
-  20: optional TJdbcTable jdbcTable
-  21: optional TMCTable mcTable
-  22: optional TTrinoConnectorTable trinoConnectorTable
-  23: optional TLakeSoulTable lakesoulTable
-  24: optional TDictionaryTable dictionaryTable
-  25: optional TRemoteDorisTable remoteDorisTable
-  26: optional TFlussTable flussTable
-}
-
-struct TDescriptorTable {
-  1: optional list<TSlotDescriptor> slotDescriptors;
-  2: required list<TTupleDescriptor> tupleDescriptors;
-
-  // all table descriptors referenced by tupleDescriptors
-  3: optional list<TTableDescriptor> tableDescriptors;
-}
+  3: optional string bootstrap_servers
+  4: optional map<string, string> properties
