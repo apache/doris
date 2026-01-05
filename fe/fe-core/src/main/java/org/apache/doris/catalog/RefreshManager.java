@@ -195,7 +195,7 @@ public class RefreshManager {
                         .getMetaStoreCache((HMSExternalCatalog) catalog);
                 cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
                 if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                    ((HMSExternalTable) table.get()).setEventUpdateTime(log.getLastUpdateTime());
+                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
                 }
                 LOG.info("replay refresh partitions for table {}, "
                                 + "modified partitions count: {}, "
@@ -232,8 +232,8 @@ public class RefreshManager {
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
         table.unsetObjectCreated();
-        if (table instanceof HMSExternalTable && updateTime > 0) {
-            ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+        if (updateTime > 0) {
+            table.setUpdateTime(updateTime);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
@@ -271,7 +271,7 @@ public class RefreshManager {
         }
 
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache((ExternalTable) table, partitionNames);
-        ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+        ((HMSExternalTable) table).setUpdateTime(updateTime);
     }
 
     public void addToRefreshMap(long catalogId, Integer[] sec) {

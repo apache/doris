@@ -99,6 +99,7 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
 
         // Write edit log to notify other FEs
         long updateTime = System.currentTimeMillis();
+        hmsTable.setUpdateTime(updateTime);
         ExternalObjectLog log;
         if (!modifiedPartNames.isEmpty() || !newPartNames.isEmpty()) {
             // Partition-level refresh for other FEs

@@ -88,11 +88,11 @@ public class RefreshTableTest extends TestWithFeService {
         CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
         TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertFalse(table.isObjectCreated());
-        long l1 = table.getSchemaUpdateTime();
+        long l1 = table.getUpdateTime();
         Assertions.assertTrue(l1 == 0);
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
-        long l2 = table.getSchemaUpdateTime();
+        long l2 = table.getUpdateTime();
         Assertions.assertTrue(l2 == l1);
         TableNameInfo tableNameInfo = new TableNameInfo("test1", "db1", "tbl11");
         try {
@@ -102,11 +102,11 @@ public class RefreshTableTest extends TestWithFeService {
             // Do nothing
         }
         Assertions.assertFalse(table.isObjectCreated());
-        long l3 = table.getSchemaUpdateTime();
+        long l3 = table.getUpdateTime();
         Assertions.assertTrue(l3 == l2);
         table.getFullSchema();
         // only table.getFullSchema() can change table.lastUpdateTime
-        long l4 = table.getSchemaUpdateTime();
+        long l4 = table.getUpdateTime();
         Assertions.assertTrue(l4 > l3);
         // updateTime is equal to schema update time as default
         long l5 = table.getUpdateTime();
