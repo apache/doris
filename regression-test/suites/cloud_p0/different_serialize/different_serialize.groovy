@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("diffrent_serialize_cloud") {
+suite ("different_serialize_cloud") {
 
     sql """ DROP TABLE IF EXISTS d_table; """
 

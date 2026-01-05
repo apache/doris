@@ -1582,7 +1582,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            addPartition(db, tableName, clause, false, 0, true);
+            addPartition(db, tableName, clause, false, 0, true, null);
 
         } catch (UserException e) {
             throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeClause.getPartitionName()
@@ -1602,7 +1602,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
                                              boolean isCreateTable, long generatedPartitionId,
-                                             boolean writeEditLog) throws DdlException {
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
+            throws DdlException {
         // in cloud mode, isCreateTable == true, create dynamic partition use, so partitionId must have been generated.
         // isCreateTable == false, other case, partitionId generate in below, must be set 0
         if (!FeConstants.runningUnitTest && Config.isCloudMode()
@@ -1631,7 +1633,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (singlePartitionDesc.isSetIfNotExists()) {
                     LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
                     if (!DebugPointUtil.isEnable("InternalCatalog.addPartition.noCheckExists")) {
-                        return null;
+                        return;
                     }
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
@@ -1838,7 +1840,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     LOG.info("table[{}] add partition[{}] which already exists", olapTable.getName(), partitionName);
                     if (singlePartitionDesc.isSetIfNotExists()) {
                         failedCleanCallback.run();
-                        return null;
+                        return;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                     }
@@ -1896,12 +1898,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // update partition info
                 partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
 
-                if (isTempPartition) {
-                    olapTable.addTempPartition(partition);
-                } else {
-                    olapTable.addPartition(partition);
-                }
-
                 // log
                 PartitionPersistInfo info = null;
                 if (partitionInfo.getType() == PartitionType.RANGE) {
@@ -1926,11 +1922,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 if (writeEditLog) {
                     Env.getCurrentEnv().getEditLog().logAddPartition(info);
+                    if (isTempPartition) {
+                        olapTable.addTempPartition(partition);
+                    } else {
+                        olapTable.addPartition(partition);
+                    }
                     LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
                 } else {
+                    batchPartitions.add(Pair.of(info, partition));
                     LOG.info("postpone creating partition[{}], temp: {}", partitionId, isTempPartition);
                 }
-                return info;
             } finally {
                 olapTable.writeUnlock();
             }
@@ -1954,7 +1955,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (SinglePartitionDesc singlePartitionDesc : singlePartitionDescs) {
             AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc, null,
                     multiPartitionClause.getProperties(), false);
-            addPartition(db, tableName, addPartitionClause, false, 0, true);
+            addPartition(db, tableName, addPartitionClause, false, 0, true, null);
         }
     }
 
