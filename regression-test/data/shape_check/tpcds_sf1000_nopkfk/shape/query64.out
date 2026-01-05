@@ -35,15 +35,16 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF6 s_store_sk->[ss_store_sk]
 --------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[ss_sold_date_sk]
+----------------------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF4 sr_item_sk->[cr_item_sk,cs_item_sk,ss_item_sk];RF5 sr_ticket_number->[ss_ticket_number]
 ------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF4 cs_item_sk->[sr_item_sk,ss_item_sk]
+--------------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF3 cs_item_sk->[ss_item_sk]
 ----------------------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF2 sr_item_sk->[ss_item_sk];RF3 sr_ticket_number->[ss_ticket_number]
+------------------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 --------------------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4 RF5 RF6 RF7 RF10 RF12 RF13 RF15 RF19
 --------------------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF4 RF19
+----------------------------------------------------------------------------------filter(d_year IN (1999, 2000))
+------------------------------------------------------------------------------------PhysicalOlapScan[date_dim(d1)]
 ----------------------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------------------filter((sale > (2 * refund)))
 --------------------------------------------------------------------------------hashAgg[GLOBAL]
@@ -52,12 +53,11 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF0 cr_item_sk->[cs_item_sk];RF1 cr_order_number->[cs_order_number]
 ------------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF19
+--------------------------------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF4 RF19
 ------------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF19
+--------------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF4 RF19
 ------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------filter(d_year IN (1999, 2000))
-----------------------------------------------------------------------------PhysicalOlapScan[date_dim(d1)]
+--------------------------------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF19
 --------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------PhysicalOlapScan[store]
 ----------------------------------------------------------------PhysicalProject
