@@ -25,7 +25,7 @@ suite("test_streaming_mysql_job_exclude", "p0,external,mysql,external_docker,ext
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_exclude1"
     def table2 = "user_info_exclude2"
-    def mysqlDb = "test_cdc_db"
+    def mysqlDb = "test_cdc_exclude_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
@@ -61,7 +61,7 @@ suite("test_streaming_mysql_job_exclude", "p0,external,mysql,external_docker,ext
             sql """INSERT INTO ${mysqlDb}.${table2} (name, age) VALUES ('B2', 2);"""
         }
 
-        // exclude_table
+        //case1: When both include_tables and exclude_table are specified, use include_tables.
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM MYSQL (
@@ -105,12 +105,108 @@ suite("test_streaming_mysql_job_exclude", "p0,external,mysql,external_docker,ext
         }
 
         // check snapshot data
-        qt_select """ SELECT * FROM ${table1} order by name asc """
+        qt_select_table1 """ SELECT * FROM ${table1} order by name asc """
+
+
+        //case2: Specify exclude_table, but do not specify include_tables
+        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+        sql """drop table if exists ${currentDb}.${table1} force"""
+        sql """drop table if exists ${currentDb}.${table2} force"""
+        sql """CREATE JOB ${jobName}
+                ON STREAMING
+                FROM MYSQL (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "exclude_tables" = "${table1}", 
+                    "offset" = "initial"
+                )
+                TO DATABASE ${currentDb} (
+                  "table.create.properties.replication_num" = "1"
+                )
+            """
+        // check table created
+        def showTablesCase2 = sql """ show tables from ${currentDb} like '${table1}'; """
+        assert showTablesCase2.size() == 0
+        def showTables2Case2 = sql """ show tables from ${currentDb} like '${table2}'; """
+        assert showTables2Case2.size() == 1
+
+        // check job running
+        try {
+            Awaitility.await().atMost(300, SECONDS)
+                    .pollInterval(1, SECONDS).until(
+                    {
+                        def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        log.info("jobSuccendCount: " + jobSuccendCount)
+                        // check job status and succeed task count larger than 1
+                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                    }
+            )
+        } catch (Exception ex){
+            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+            log.info("show job: " + showjob)
+            log.info("show task: " + showtask)
+            throw ex;
+        }
+
+        // check snapshot data
+        qt_select_table2 """ SELECT * FROM ${table2} order by name asc """
+
+        //case3: Do not specify either exclude_table or include_tables
+        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+        sql """drop table if exists ${currentDb}.${table1} force"""
+        sql """drop table if exists ${currentDb}.${table2} force"""
+        sql """CREATE JOB ${jobName}
+                ON STREAMING
+                FROM MYSQL (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "offset" = "initial"
+                )
+                TO DATABASE ${currentDb} (
+                  "table.create.properties.replication_num" = "1"
+                )
+            """
+        // check table created
+        def showTablesCase3 = sql """ show tables from ${currentDb} like '${table1}'; """
+        assert showTablesCase3.size() == 1
+        def showTables2Case3 = sql """ show tables from ${currentDb} like '${table2}'; """
+        assert showTables2Case3.size() == 1
+
+        // check job running
+        try {
+            Awaitility.await().atMost(300, SECONDS)
+                    .pollInterval(1, SECONDS).until(
+                    {
+                        def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        log.info("jobSuccendCount: " + jobSuccendCount)
+                        // check job status and succeed task count larger than 1
+                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
+                    }
+            )
+        } catch (Exception ex){
+            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+            log.info("show job: " + showjob)
+            log.info("show task: " + showtask)
+            throw ex;
+        }
+
+        // check snapshot data
+        qt_select_table1 """ SELECT * FROM ${table1} order by name asc """
+        qt_select_table2 """ SELECT * FROM ${table2} order by name asc """
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
         """
-
         def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
         assert jobCountRsp.get(0).get(0) == 0
     }
