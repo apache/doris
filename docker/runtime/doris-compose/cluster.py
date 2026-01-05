@@ -759,6 +759,7 @@ class MS(CLOUD):
         envs = super().docker_env()
         for key, value in self.cluster.cloud_store_config.items():
             envs[key] = value
+        envs['DORIS_CLOUD_PREFIX'] = 'doris_docker_env_' + self.cluster.name
         return envs
 
 
