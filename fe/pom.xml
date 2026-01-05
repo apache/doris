@@ -128,6 +128,10 @@ under the License.
                         <goals>
                             <goal>report</goal>
                         </goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                            <outputDirectory>${project.build.directory}/site/jacoco</outputDirectory>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -215,6 +219,10 @@ under the License.
                             <goals>
                                 <goal>report</goal>
                             </goals>
+                            <configuration>
+                                <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                                <outputDirectory>${project.build.directory}/site/jacoco</outputDirectory>
+                            </configuration>
                         </execution>
                     </executions>
                 </plugin>
