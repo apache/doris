@@ -160,6 +160,12 @@ void ColumnStruct::insert_default() {
     }
 }
 
+void ColumnStruct::insert_default_with_type(DataTypePtr type) {
+    for (auto& column : columns) {
+        column->insert_default_with_type(type);
+    }
+}
+
 void ColumnStruct::pop_back(size_t n) {
     for (auto& column : columns) {
         column->pop_back(n);

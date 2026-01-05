@@ -259,6 +259,13 @@ public:
         _need_update_has_null = false;
     }
 
+    void insert_default_with_type(DataTypePtr type) override {
+        get_nested_column().insert_default_with_type(type);
+        get_null_map_data().push_back(1);
+        _has_null = true;
+        _need_update_has_null = false;
+    }
+
     void insert_many_defaults(size_t length) override {
         get_nested_column().insert_many_defaults(length);
         get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);

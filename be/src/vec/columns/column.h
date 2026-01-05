@@ -61,9 +61,11 @@ namespace doris::vectorized {
 
 class Arena;
 class ColumnSorter;
+class IDataType;
 
 using EqualFlags = std::vector<uint8_t>;
 using EqualRange = std::pair<int, int>;
+using DataTypePtr = std::shared_ptr<const IDataType>;
 
 /// Declares interface to store columns in memory.
 class IColumn : public COW<IColumn> {
@@ -305,6 +307,15 @@ public:
     virtual void insert_many_defaults(size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_default();
+        }
+    }
+
+    /// for ColumnVector with type date/datetime, the default value depend on data type.
+    virtual void insert_default_with_type(DataTypePtr type) { insert_default(); }
+
+    void insert_many_defaults_with_type(size_t length, DataTypePtr type) {
+        for (size_t i = 0; i < length; ++i) {
+            insert_default_with_type(type);
         }
     }
 

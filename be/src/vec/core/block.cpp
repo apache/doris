@@ -1193,6 +1193,16 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_rese
     return temp_block;
 }
 
+std::unique_ptr<Block> Block::create_same_struct_block_with_type(size_t size) const {
+    auto temp_block = Block::create_unique();
+    for (const auto& d : data) {
+        auto column = d.type->create_column();
+        column->insert_many_defaults_with_type(size, d.type);
+        temp_block->insert({std::move(column), d.type, d.name});
+    }
+    return temp_block;
+}
+
 void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
     for (auto idx : char_type_idx) {
         if (idx < data.size()) {

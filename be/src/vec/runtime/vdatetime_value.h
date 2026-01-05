@@ -264,6 +264,9 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
+    const static VecDateTimeValue FIRST_DAY;
+    const static VecDateTimeValue DEFAULT_VALUE;
+
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scanned from storage engine and convert to typed data.
@@ -764,6 +767,10 @@ private:
               _year(year) {}
 };
 
+inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
+                                                              1, 1);
+
 template <typename T>
 class DateV2Value {
 public:
@@ -778,6 +785,9 @@ public:
     DateV2Value(DateV2Value<T>& other) = default;
 
     DateV2Value(const DateV2Value<T>& other) = default;
+
+    const static DateV2Value<T> FIRST_DAY;
+    const static DateV2Value<T> DEFAULT_VALUE;
 
     static DateV2Value create_from_olap_date(uint64_t value) {
         DateV2Value<T> date;
@@ -1366,6 +1376,11 @@ private:
                 uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
+
+template <typename T>
+inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
+template <typename T>
+inline const DateV2Value<T> DateV2Value<T>::DEFAULT_VALUE = DateV2Value<T>(1970, 1, 1, 0, 0, 0, 0);
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
 std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2);

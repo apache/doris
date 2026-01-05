@@ -312,6 +312,8 @@ public:
     Status deserialize(const PBlock& pblock);
 
     std::unique_ptr<Block> create_same_struct_block(size_t size, bool is_reserve = false) const;
+    // only used for hashjoin build side to mock a row into block.
+    std::unique_ptr<Block> create_same_struct_block_with_type(size_t size) const;
 
     /** Compares (*this) n-th row and rhs m-th row.
       * Returns negative number, 0, or positive number  (*this) n-th row is less, equal, greater than rhs m-th row respectively.
