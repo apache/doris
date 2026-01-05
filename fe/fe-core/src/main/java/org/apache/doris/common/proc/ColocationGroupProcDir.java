@@ -20,10 +20,12 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.common.Config;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -59,8 +61,38 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         }
 
         GroupId groupId = new GroupId(dbId, grpId);
+        
+        // Check if running in Cloud Mode
+        if (Config.isCloudMode()) {
+            return lookupForCloud(groupId);
+        } else {
+            return lookupForLocal(groupId);
+        }
+    }
+
+    private ProcNodeInterface lookupForCloud(GroupId groupId) {
+        // Logic for Cloud Mode: Get BE distribution from CloudSystemInfoService
+        CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        
+        // Get the colocate index from cloud
+        ColocateTableIndex index = infoService.getColocateIndex();
+        
+        // 获取这个 group 的每个 bucket 对应的 backend 序列
+        // 注意：这里应该和 Local Mode 用相同的数据结构
+        Map<org.apache.doris.resource.Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        
+        // 如果没有找到数据，返回空的结果
+        if (beSeqs == null || beSeqs.isEmpty()) {
+            return new ColocationGroupBackendSeqsProcNode(Maps.newHashMap());
+        }
+        
+        return new ColocationGroupBackendSeqsProcNode(beSeqs);
+    }
+
+    private ProcNodeInterface lookupForLocal(GroupId groupId) {
+        // Original Logic for Local Mode
         ColocateTableIndex index = Env.getCurrentColocateIndex();
-        Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        Map<org.apache.doris.resource.Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
         return new ColocationGroupBackendSeqsProcNode(beSeqs);
     }
 
