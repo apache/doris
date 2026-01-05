@@ -42,6 +42,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -49,10 +51,12 @@ import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
 import java.util.List;
@@ -96,7 +100,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             .put(LogicalProject.class, Utils.fastArray(
                     TableGeneratingFunction.class))
             .put(LogicalSort.class, Utils.fastArray(
-                    GroupingScalarFunction.class,
                     TableGeneratingFunction.class))
             .put(LogicalWindow.class, Utils.fastArray(
                     GroupingScalarFunction.class,
@@ -107,9 +110,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     private static final Map<Class<? extends LogicalPlan>, Class<? extends Expression>[]>
             UNEXPECTED_EXPRESSION_TYPE_MAP_AFTER_FILL_MISSING_SLOT = ImmutableMap.<Class<? extends LogicalPlan>,
                     Class<? extends Expression>[]>builder()
-            .put(LogicalSort.class, Utils.fastArray(
-                    AggregateFunction.class,
-                    WindowExpression.class))
             // OneRowRelationToProject will extract window expression
             .put(LogicalOneRowRelation.class, Utils.fastArray(
                     WindowExpression.class))
@@ -129,13 +129,9 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkDistinctSetOperation(plan);
+                    checkAggregateFunction(plan);
+                    checkGroupingScalarFunction(plan);
                     return null;
-                })
-            ),
-            RuleType.CHECK_AGGREGATE_ANALYSIS.build(
-                aggregate().then(agg -> {
-                    checkAggregate(agg);
-                    return agg;
                 })
             ),
             RuleType.CHECK_OBJECT_TYPE_ANALYSIS.build(
@@ -187,20 +183,81 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         }
     }
 
-    private void checkAggregate(Aggregate<? extends Plan> aggregate) {
-        for (Expression expr : aggregate.getGroupByExpressions()) {
-            if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
-                throw new AnalysisException(
-                        "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
+    private void checkGroupingScalarFunction(Plan plan) {
+        Set<GroupingScalarFunction> groupingScalarFunctions
+                = ExpressionUtils.collect(plan.getExpressions(), GroupingScalarFunction.class::isInstance);
+        if (groupingScalarFunctions.isEmpty()) {
+            return;
+        }
+        if (hadFillMissingSlots && !(plan instanceof LogicalRepeat)) {
+            throw new AnalysisException("after fill up missing slots, " + plan.getType()
+                    + " should not contains grouping function: "
+                    + groupingScalarFunctions.iterator().next().toSql());
+        }
+        Plan bottomPlan = plan;
+        if (bottomPlan instanceof LogicalSort) {
+            bottomPlan = bottomPlan.child(0);
+        }
+        if (bottomPlan instanceof LogicalQualify) {
+            bottomPlan = bottomPlan.child(0);
+        }
+        if (bottomPlan instanceof LogicalHaving) {
+            bottomPlan = bottomPlan.child(0);
+        }
+        if (!(bottomPlan instanceof LogicalRepeat)) {
+            throw new AnalysisException(plan.getType() + " should not contain grouping expression '"
+                    + groupingScalarFunctions.iterator().next().toSql()
+                    + "', only when GROUP BY GROUPING SET/ROLLUP/CUBE can contain grouping expression.");
+        }
+        Set<Expression> groupByExpressions
+                = ImmutableSet.copyOf(((LogicalRepeat<?>) bottomPlan).getGroupByExpressions());
+        for (GroupingScalarFunction groupingScalarFunction : groupingScalarFunctions) {
+            for (Expression child : groupingScalarFunction.children()) {
+                if (!groupByExpressions.contains(child)) {
+                    throw new AnalysisException(plan.getType()
+                            + " 's GROUPING function '" + groupingScalarFunction.toSql()
+                            + "', its argument '" + child.toSql()
+                            + "' must appear in GROUP BY clause.");
+                }
             }
-            if (expr.getDataType().isObjectType()
-                    || isLegacyVariant(expr.getDataType())
-                    || expr.getDataType().isVarBinaryType()) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
+    }
+
+    private void checkAggregateFunction(Plan plan) {
+        if (plan instanceof Aggregate) {
+            Aggregate<?> aggregate = (Aggregate<?>) plan;
+            for (Expression expr : aggregate.getGroupByExpressions()) {
+                if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
+                    throw new AnalysisException(
+                            "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
+                }
+                if (expr.getDataType().isObjectType()
+                        || isLegacyVariant(expr.getDataType())
+                        || expr.getDataType().isVarBinaryType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
+                if (expr.containsType(WindowExpression.class)) {
+                    throw new AnalysisException(
+                            "GROUP BY expression must not contain window functions: " + expr.toSql());
+                }
+                if (expr.containsType(GroupingScalarFunction.class)) {
+                    throw new AnalysisException(
+                            "GROUP BY expression must not contain grouping functions: " + expr.toSql());
+                }
             }
-            if (expr.containsType(WindowExpression.class)) {
-                throw new AnalysisException(
-                        "GROUP BY expression must not contain window functions: " + expr.toSql());
+        } else {
+            if (hadFillMissingSlots) {
+                // after fill missing slots, expect only agg can contain non-window aggregate function
+                for (Expression expr : plan.getExpressions()) {
+                    List<AggregateFunction> aggregateFunctions
+                            = PlanUtils.CollectNonWindowedAggFuncs.collect(expr);
+                    if (!aggregateFunctions.isEmpty()) {
+                        throw new AnalysisException("after fill up missing slots, " + plan.getType()
+                                + " 's expression " + expr.toSql()
+                                + " should not contains aggregate function: "
+                                + aggregateFunctions.get(0).toSql());
+                    }
+                }
             }
         }
     }
