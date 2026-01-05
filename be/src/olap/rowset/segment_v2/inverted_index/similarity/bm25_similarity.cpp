@@ -83,6 +83,10 @@ float BM25Similarity::score(float freq, int64_t encoded_norm) {
     return _weight - _weight / (1.0F + freq * norm_inverse);
 }
 
+float BM25Similarity::max_score() {
+    return score(255, 2013265944);
+}
+
 int32_t BM25Similarity::number_of_leading_zeros(uint64_t value) {
     if (value == 0) {
         return 64;

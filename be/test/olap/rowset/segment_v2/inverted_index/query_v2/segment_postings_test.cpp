@@ -252,33 +252,30 @@ TEST_F(SegmentPostingsTest, test_segment_postings_termdocs) {
 TEST_F(SegmentPostingsTest, test_segment_postings_termpositions) {
     TermPositionsPtr ptr(
             new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
-    SegmentPostings postings(std::move(ptr), true);
-
-    EXPECT_EQ(postings.doc(), 1);
+    SegmentPostings postings(std::move(ptr), true, nullptr);
     EXPECT_EQ(postings.freq(), 2);
-}
 
-TEST_F(SegmentPostingsTest, test_segment_postings_termpositions_append_positions) {
-    TermPositionsPtr ptr(
-            new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
-    SegmentPostings postings(std::move(ptr), true);
+    TEST_F(SegmentPostingsTest, test_segment_postings_termpositions_append_positions) {
+        TermPositionsPtr ptr(
+                new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
+        SegmentPostings postings(std::move(ptr), true, nullptr);
 
-    std::vector<uint32_t> output = {999};
-    postings.append_positions_with_offset(100, output);
+        std::vector<uint32_t> output = {999};
+        postings.append_positions_with_offset(100, output);
 
-    EXPECT_EQ(output.size(), 3);
-    EXPECT_EQ(output[0], 999);
-    EXPECT_EQ(output[1], 110);
-    EXPECT_EQ(output[2], 120);
-}
+        EXPECT_EQ(output.size(), 3);
+        EXPECT_EQ(output[0], 999);
+        EXPECT_EQ(output[1], 110);
+        EXPECT_EQ(output[2], 120);
+    }
 
-TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
-    TermDocsPtr ptr(new MockTermDocs({1, 3}, {5, 7}, {10, 20}, 2));
-    SegmentPostings posting(std::move(ptr));
+    TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
+        TermDocsPtr ptr(new MockTermDocs({1, 3}, {5, 7}, {10, 20}, 2));
+        SegmentPostings posting(std::move(ptr));
 
-    EXPECT_EQ(posting.doc(), 1);
-    EXPECT_EQ(posting.freq(), 1);
-    EXPECT_EQ(posting.norm(), 1);
-}
+        EXPECT_EQ(posting.doc(), 1);
+        EXPECT_EQ(posting.freq(), 1);
+        EXPECT_EQ(posting.norm(), 1);
+    }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

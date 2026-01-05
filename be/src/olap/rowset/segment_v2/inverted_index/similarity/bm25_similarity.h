@@ -42,6 +42,7 @@ public:
                    const std::vector<std::wstring>& terms) override;
 
     float score(float freq, int64_t encoded_norm) override;
+    float max_score() override;
 
     static uint8_t int_to_byte4(int32_t i);
     static int32_t byte4_to_int(uint8_t b);

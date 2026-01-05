@@ -38,19 +38,16 @@ public:
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto reader = lookup_reader(_field, ctx, binding_key);
         auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
-
         if (!reader) {
             return std::make_shared<EmptyScorer>();
         }
 
-        auto t = make_term_ptr(_field.c_str(), _term.c_str());
-        auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
-        if (iter) {
-            return std::make_shared<TermScorer>(
-                    make_segment_postings(std::move(iter), _enable_scoring), _similarity,
-                    logical_field);
+        SegmentPostingsPtr segment_postings;
+        segment_postings = create_term_posting(reader.get(), _field, _term, _enable_scoring,
+                                               _similarity, _context->io_ctx);
+        if (segment_postings) {
+            return std::make_shared<TermScorer>(segment_postings, _similarity, logical_field);
         }
-
         return std::make_shared<EmptyScorer>();
     }
 

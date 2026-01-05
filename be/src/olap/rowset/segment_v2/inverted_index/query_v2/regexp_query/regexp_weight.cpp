@@ -89,13 +89,11 @@ ScorerPtr RegexpWeight::regexp_scorer(const QueryExecutionContext& context,
         return std::make_shared<EmptyScorer>();
     }
 
+    auto reader = lookup_reader(_field, context, binding_key);
     auto doc_bitset = std::make_shared<roaring::Roaring>();
     for (const auto& term : matching_terms) {
-        auto t = make_term_ptr(_field.c_str(), term.c_str());
-        auto reader = lookup_reader(_field, context, binding_key);
-        auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
-        auto segment_postings = make_segment_postings(std::move(iter), _enable_scoring);
-
+        auto segment_postings =
+                create_term_posting(reader.get(), _field, term, false, nullptr, _context->io_ctx);
         uint32_t doc = segment_postings->doc();
         while (doc != TERMINATED) {
             doc_bitset->add(doc);
