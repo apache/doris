@@ -41,14 +41,14 @@ suite("test_hamming_distance") {
 
     order_qt_empty_not_nullable "select hamming_distance(a, a) from arg1_hamming_distance"
 
-    sql """ insert into arg1_hamming_distance values
-        (1, 'abc', 'abc'),
-        (2, 'abc', 'axc'),
-        (3, 'abc', 'xyz'),
-        (4, 'hello', 'hallo'),
-        (5, 'test', 'text'),
-        (6, '', ''),
-        (7, 'a', 'a'),
+    sql """ insert into arg1_hamming_distance values 
+        (1, 'abc', 'abc'), 
+        (2, 'abc', 'axc'), 
+        (3, 'abc', 'xyz'), 
+        (4, 'hello', 'hallo'), 
+        (5, 'test', 'text'), 
+        (6, '', ''), 
+        (7, 'a', 'a'), 
         (8, 'abcd', 'abce'),
         (9, 'ab', 'ac'),
         (10, 'hi', 'ho');
@@ -79,7 +79,7 @@ suite("test_hamming_distance") {
     order_qt_const_same_length "select hamming_distance('abc', 'abc') from arg1_hamming_distance"
     order_qt_const_same_length_diff "select hamming_distance('abc', 'axc') from arg1_hamming_distance"
     order_qt_const_same_length_all_diff "select hamming_distance('abc', 'xyz') from arg1_hamming_distance"
-
+    
     /// Test exception cases - NULL inputs and unequal lengths
     test {
         sql "select hamming_distance(NULL, 'abc')"
