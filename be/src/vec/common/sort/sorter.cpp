@@ -144,7 +144,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
         SCOPED_TIMER(_partial_sort_timer);
         uint64_t limit = reversed ? 0 : (_offset + _limit);
         sort_block(_materialize_sort_exprs ? dest_block : src_block, dest_block, _sort_description,
-                   limit);
+                   _hybrid_sorter, limit);
     }
 
     src_block.clear_column_data(num_cols);
@@ -183,7 +183,7 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
-        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
 // check whether the unsorted block can hold more data from input block and no need to alloc new memory

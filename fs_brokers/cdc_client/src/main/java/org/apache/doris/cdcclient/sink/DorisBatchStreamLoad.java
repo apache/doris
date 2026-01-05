@@ -504,6 +504,9 @@ public class DorisBatchStreamLoad implements Serializable {
                         LOG.info("commit result {}", responseBody);
                         if (statusCode == 200) {
                             LOG.info("commit offset for jobId {} taskId {}", jobId, currentTaskId);
+                            // A 200 response indicates that the request was successful, and
+                            // information such as offset and statistics may have already been
+                            // updated. Retrying may result in repeated updates.
                             return;
                         }
                         LOG.error(

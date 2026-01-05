@@ -128,7 +128,7 @@ public:
 private:
     // clang-format off
     size_t max_jvm_heap_size() const {
-        return JniUtil::get_max_jni_heap_memory_size();
+        return Jni::Util::get_max_jni_heap_memory_size();
     }
     // clang-format on
     [[maybe_unused]] std::size_t cur_memory_comsuption {0};

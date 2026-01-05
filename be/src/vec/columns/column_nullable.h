@@ -213,7 +213,7 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8_t>& cmp_res,
                           uint8_t* __restrict filter) const override;
-    void get_permutation(bool reverse, size_t limit, int null_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int null_direction_hint, HybridSorter& sorter,
                          Permutation& res) const override;
     void reserve(size_t n) override;
     void resize(size_t n) override;
