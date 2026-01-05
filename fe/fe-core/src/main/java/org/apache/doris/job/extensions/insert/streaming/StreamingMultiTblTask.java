@@ -125,9 +125,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
+                log.error("Failed to send write records request, {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException(
-                        "Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
+                        "Failed to send write records request," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
             String response = result.getResponse();
@@ -142,7 +142,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     return;
                 }
             } catch (JsonProcessingException e) {
-                log.error("Failed to parse write records response: {}", response, e);
+                log.warn("Failed to parse write records response: {}", response);
                 throw new JobException("Failed to parse write records response: " + response);
             }
             throw new JobException("Failed to send write records request , error message: " + response);
@@ -257,7 +257,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     public boolean isTimeout() {
-        return (System.currentTimeMillis() - createTimeMs) > timeoutMs;
+        if (startTimeMs == null) {
+            // It's still pending, waiting for scheduling.
+            return false;
+        }
+        return (System.currentTimeMillis() - startTimeMs) > timeoutMs;
     }
 
     @Override

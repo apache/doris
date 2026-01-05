@@ -513,6 +513,12 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
+
+    public static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
+
+    public static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
+
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
@@ -648,6 +654,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
 
     public static final String ENABLE_FUZZY_BLOCKABLE_TASK = "enable_fuzzy_blockable_task";
+
+    public static final String ENABLE_USE_HYBRID_SORT = "enable_use_hybrid_sort";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
@@ -2180,6 +2188,36 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
+    @VariableMgr.VarAttr(
+            name = MAX_INITIAL_FILE_SPLIT_SIZE,
+            description = {"对于每个 table scan，最大文件分片初始大小。"
+                    + "初始化使用 MAX_INITIAL_FILE_SPLIT_SIZE，一旦超过了 MAX_INITIAL_FILE_SPLIT_NUM，则使用 MAX_FILE_SPLIT_SIZE。",
+                    "For each table scan, The maximum initial file split size. "
+                            + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                            + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead."},
+            needForward = true)
+    public long maxInitialSplitSize = 32L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(
+            name = MAX_FILE_SPLIT_SIZE,
+            description = {"对于每个 table scan，最大文件分片大小。"
+                    + "初始化使用 MAX_INITIAL_FILE_SPLIT_SIZE，一旦超过了 MAX_INITIAL_FILE_SPLIT_NUM，则使用 MAX_FILE_SPLIT_SIZE。",
+                    "For each table scan, the maximum initial file split size. "
+                            + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                            + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead."},
+            needForward = true)
+    public long maxSplitSize = 64L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(
+            name = MAX_INITIAL_FILE_SPLIT_NUM,
+            description = {"对于每个 table scan，最大文件分片初始数目。"
+                    + "初始化使用 MAX_INITIAL_FILE_SPLIT_SIZE，一旦超过了 MAX_INITIAL_FILE_SPLIT_NUM，则使用 MAX_FILE_SPLIT_SIZE。",
+                    "For each table scan, the maximum initial file split number. "
+                            + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                            + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead."},
+            needForward = true)
+    public int maxInitialSplitNum = 200;
+
     // Target file size for Iceberg write operations
     // Default 0 means use config::iceberg_sink_max_file_size
     @VariableMgr.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
@@ -2943,6 +2981,15 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_FUZZY_BLOCKABLE_TASK, fuzzy = true)
     public boolean enableFuzzyBlockableTask = false;
 
+    @VariableMgr.VarAttr(
+            name = ENABLE_USE_HYBRID_SORT,
+            description = {"是否启用混合排序，动态选择 PdqSort 和 TimSort 以适应数据模式。默认为 true。",
+                    "Enable hybrid sorting: dynamically selects between PdqSort and TimSort "
+                            + "based on runtime profiling to choose the most efficient algorithm "
+                            + "for the data pattern. The default value is true."},
+            needForward = true, fuzzy = true)
+    public boolean enableUseHybridSort = true;
+
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在 CTAS 中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即 65533。默认为 true。",
             "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
@@ -3337,6 +3384,9 @@ public class SessionVariable implements Serializable, Writable {
             this.enableSpill = randomInt % 4 != 0;
             this.enableForceSpill = randomInt % 3 == 0;
             this.enableReserveMemory = randomInt % 5 != 0;
+
+            randomInt = random.nextInt(99);
+            this.enableUseHybridSort = randomInt % 3 != 0;
         }
 
         setFuzzyForCatalog(random);
@@ -4222,6 +4272,30 @@ public class SessionVariable implements Serializable, Writable {
         this.fileSplitSize = fileSplitSize;
     }
 
+    public long getMaxInitialSplitSize() {
+        return maxInitialSplitSize;
+    }
+
+    public void setMaxInitialSplitSize(long maxInitialSplitSize) {
+        this.maxInitialSplitSize = maxInitialSplitSize;
+    }
+
+    public long getMaxSplitSize() {
+        return maxSplitSize;
+    }
+
+    public void setMaxSplitSize(long maxSplitSize) {
+        this.maxSplitSize = maxSplitSize;
+    }
+
+    public int getMaxInitialSplitNum() {
+        return maxInitialSplitNum;
+    }
+
+    public void setMaxInitialSplitNum(int maxInitialSplitNum) {
+        this.maxInitialSplitNum = maxInitialSplitNum;
+    }
+
     public long getIcebergWriteTargetFileSizeBytes() {
         return icebergWriteTargetFileSizeBytes;
     }
@@ -4918,6 +4992,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setEnableUseHybridSort(enableUseHybridSort);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
