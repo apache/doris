@@ -19,32 +19,29 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.LinkedHashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * PushDownAggContext
  */
 public class PushDownAggContext {
     public static final int BIG_JOIN_BUILD_SIZE = 400_000;
+    public final boolean aggregateOnCaseWhen;
     private final List<AggregateFunction> aggFunctions;
-    private final List<NamedExpression> groupKeys;
-    private final Map<AggregateFunction, Alias> aliasMap;
+    private final List<SlotReference> groupKeys;
+    private final HashMap<AggregateFunction, Alias> aliasMap;
     private final Set<Slot> aggFunctionsInputSlots;
-
-    // the group keys that eventually used to generate aggregation node
-    private final LinkedHashSet<SlotReference> finalGroupKeys = new LinkedHashSet<>();
 
     // cascadesContext is used for normalizeAgg
     private final CascadesContext cascadesContext;
@@ -55,44 +52,51 @@ public class PushDownAggContext {
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<NamedExpression> groupKeys,
-            CascadesContext cascadesContext) {
-        this(aggFunctions, groupKeys, null, cascadesContext, false);
-    }
-
-    /**
-     * constructor
-     */
-    public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<NamedExpression> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
-            boolean passThroughBigJoin) {
-        this.groupKeys = groupKeys;
+            List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
+            boolean passThroughBigJoin, boolean hasSumIf) {
+        this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
 
+        HashMap<AggregateFunction, Alias> builtAliasMap = new HashMap<>();
         if (aliasMap == null) {
-            ImmutableMap.Builder<AggregateFunction, Alias> aliasMapBuilder = ImmutableMap.builder();
             for (AggregateFunction aggFunction : this.aggFunctions) {
-                Alias alias = new Alias(aggFunction, aggFunction.getName());
-                aliasMapBuilder.put(aggFunction, alias);
+                builtAliasMap.put(aggFunction, new Alias(aggFunction, aggFunction.getName()));
             }
-            this.aliasMap = aliasMapBuilder.build();
         } else {
-            this.aliasMap = aliasMap;
+            for (AggregateFunction aggFunction : this.aggFunctions) {
+                Alias alias = aliasMap.get(aggFunction);
+                if (alias == null) {
+                    alias = new Alias(aggFunction, aggFunction.getName());
+                }
+                builtAliasMap.put(aggFunction, alias);
+            }
         }
+        this.aliasMap = builtAliasMap;
 
         this.aggFunctionsInputSlots = aggFunctions.stream()
                 .flatMap(aggFunction -> aggFunction.getInputSlots().stream())
                 .filter(Slot.class::isInstance)
                 .collect(ImmutableSet.toImmutableSet());
         this.passThroughBigJoin = passThroughBigJoin;
+        this.aggregateOnCaseWhen = hasSumIf;
+    }
+
+    /**
+     * check validation
+     * @return true, if groupKeys is not empty and no group by key is in aggFunctionsInputSlots
+     */
+    public boolean isValid() {
+        return !groupKeys.isEmpty()
+                && !groupKeys.stream().anyMatch(s -> aggFunctionsInputSlots.contains(s));
     }
 
     public PushDownAggContext passThroughBigJoin() {
-        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, true);
+        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext,
+                true, aggregateOnCaseWhen);
     }
 
-    public Map<AggregateFunction, Alias> getAliasMap() {
+    public HashMap<AggregateFunction, Alias> getAliasMap() {
         return aliasMap;
     }
 
@@ -100,24 +104,17 @@ public class PushDownAggContext {
         return aggFunctions;
     }
 
-    public List<NamedExpression> getGroupKeys() {
+    public List<SlotReference> getGroupKeys() {
         return groupKeys;
     }
 
-    public PushDownAggContext withGroupKeys(List<NamedExpression> groupKeys) {
-        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, passThroughBigJoin);
+    public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
+        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
+                cascadesContext, passThroughBigJoin, aggregateOnCaseWhen);
     }
 
     public Set<Slot> getAggFunctionsInputSlots() {
         return aggFunctionsInputSlots;
-    }
-
-    public LinkedHashSet<SlotReference> getFinalGroupKeys() {
-        return finalGroupKeys;
-    }
-
-    public void addFinalGroupKey(SlotReference key) {
-        this.finalGroupKeys.add(key);
     }
 
     public CascadesContext getCascadesContext() {
@@ -126,5 +123,15 @@ public class PushDownAggContext {
 
     public boolean isPassThroughBigJoin() {
         return passThroughBigJoin;
+    }
+
+    @Override
+    public String toString() {
+        return "PushDownAggContext{"
+                + "aggFunctions=" + aggFunctions
+                + ", groupKeys=" + groupKeys
+                + ", aliasMap=" + aliasMap
+                + ", passThroughBigJoin=" + passThroughBigJoin
+                + '}';
     }
 }

@@ -173,7 +173,6 @@ import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
-import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushdownSumIfAggregation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -684,7 +683,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )),
 
                         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
-                        custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushdownSumIfAggregation::new),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
@@ -922,42 +920,41 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
                                     () -> DistinctAggStrategySelector.INSTANCE))));
 
-                    // Rewrite search function before VariantSubPathPruning
-                    // so that ElementAt expressions from search can be processed
-                    rewriteJobs.addAll(jobs(
-                            bottomUp(new RewriteSearchToSlots())
-                    ));
+                // Rewrite search function before VariantSubPathPruning
+                // so that ElementAt expressions from search can be processed
+                rewriteJobs.addAll(jobs(
+                        bottomUp(new RewriteSearchToSlots())
+                ));
 
-                    if (needSubPathPushDown) {
-                        rewriteJobs.addAll(jobs(
-                                topic("variant element_at push down",
-                                        custom(RuleType.VARIANT_SUB_PATH_PRUNING, VariantSubPathPruning::new)
-                                )
-                        ));
-                    }
-                    rewriteJobs.add(
-                            topic("nested column prune",
-                                custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
-                            )
-                    );
+                if (needSubPathPushDown) {
                     rewriteJobs.addAll(jobs(
-                            topic("rewrite cte sub-tree after sub path push down",
-                                    custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
-                                    custom(RuleType.REWRITE_CTE_CHILDREN,
-                                            () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
-                                    )
-                            ),
-                            topic("whole plan check",
-                                    custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
-                            ),
-                            // NullableDependentExpressionRewrite need to be done after nullable fixed
-                            topic("condition function", bottomUp(ImmutableList.of(
-                                    new NullableDependentExpressionRewrite())))
+                            topic("variant element_at push down",
+                                    custom(RuleType.VARIANT_SUB_PATH_PRUNING, VariantSubPathPruning::new)
+                            )
                     ));
-                    return rewriteJobs;
                 }
-        ));
-        return builder.build();
+                rewriteJobs.add(
+                        topic("nested column prune",
+                            custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
+                        )
+                );
+                rewriteJobs.addAll(jobs(
+                        topic("rewrite cte sub-tree after sub path push down",
+                                custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
+                                custom(RuleType.REWRITE_CTE_CHILDREN,
+                                        () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
+                                )
+                        ),
+                        topic("whole plan check",
+                                custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
+                        ),
+                        // NullableDependentExpressionRewrite need to be done after nullable fixed
+                        topic("condition function", bottomUp(ImmutableList.of(
+                                new NullableDependentExpressionRewrite())))
+                ));
+                return rewriteJobs;
+            }
+        );
     }
 
     @Override
