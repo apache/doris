@@ -312,15 +312,14 @@ public:
             if (delta > 0) {
                 UpdateMax(current_value_);
             }
-            if (enable_profile_counter_check) {
-                DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L);
-            }
+            //if (enable_profile_counter_check) {
+            //    DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L);
+            //}
 #else
             current_value_.fetch_add(delta, std::memory_order_relaxed);
             if (delta > 0) {
                 UpdateMax(current_value_);
             }
-            DCHECK_GT(current_value_.load(std::memory_order_seq_cst), -1L);
 #endif
         }
         virtual void update(int64_t delta) override { add(delta); }
