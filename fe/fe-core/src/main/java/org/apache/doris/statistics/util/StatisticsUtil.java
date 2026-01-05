@@ -1136,7 +1136,7 @@ public class StatisticsUtil {
             }
             if (table instanceof HMSExternalTable) {
                 HMSExternalTable hmsTable = (HMSExternalTable) table;
-                if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
+                if (!hmsTable.getDlaType().equals(DLAType.HIVE) && !hmsTable.getDlaType().equals(DLAType.ICEBERG)) {
                     return false;
                 }
             }
