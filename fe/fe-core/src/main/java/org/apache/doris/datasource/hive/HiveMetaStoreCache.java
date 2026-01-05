@@ -290,7 +290,8 @@ public class HiveMetaStoreCache {
         }
         // TODO: more info?
         return new HivePartition(nameMapping, false, sd.getInputFormat(), sd.getLocation(), key.values,
-                partition.getParameters());
+                partition.getParameters(), sd.getOutputFormat(), sd.getSerdeInfo().getSerializationLib(),
+                sd.getCols());
     }
 
     private Map<PartitionCacheKey, HivePartition> loadPartitions(Iterable<? extends PartitionCacheKey> keys) {
@@ -328,7 +329,8 @@ public class HiveMetaStoreCache {
             StorageDescriptor sd = partition.getSd();
             ret.put(new PartitionCacheKey(nameMapping, partition.getValues()),
                     new HivePartition(nameMapping, false,
-                            sd.getInputFormat(), sd.getLocation(), partition.getValues(), partition.getParameters()));
+                            sd.getInputFormat(), sd.getLocation(), partition.getValues(), partition.getParameters(),
+                            sd.getOutputFormat(), sd.getSerdeInfo().getSerializationLib(), sd.getCols()));
         }
         return ret;
     }
@@ -400,6 +402,9 @@ public class HiveMetaStoreCache {
                     }
                 }
 
+                result.setInputFormat(key.inputFormat);
+                result.setSerde(key.serde);
+
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("load #{} splits for {} in catalog {}", result.getFiles().size(), key, catalog.getName());
                 }
@@ -436,9 +441,9 @@ public class HiveMetaStoreCache {
                 firstPartition.getNameMapping().getLocalTblName());
         List<FileCacheKey> keys = partitions.stream().map(p -> p.isDummyPartition()
                         ? FileCacheKey.createDummyCacheKey(
-                        fileId, p.getPath(), p.getInputFormat())
+                        fileId, p.getPath(), p.getInputFormat(), p.getSerde())
                         : new FileCacheKey(fileId, p.getPath(),
-                        p.getInputFormat(), p.getPartitionValues()))
+                        p.getInputFormat(), p.getSerde(), p.getPartitionValues()))
                 .collect(Collectors.toList());
 
         List<FileCacheValue> fileLists;
@@ -540,7 +545,7 @@ public class HiveMetaStoreCache {
             HivePartition partition = partitionCache.getIfPresent(partKey);
             if (partition != null) {
                 fileCacheRef.get().invalidate(new FileCacheKey(id, partition.getPath(),
-                        null, partition.getPartitionValues()));
+                        null, null, partition.getPartitionValues()));
                 partitionCache.invalidate(partKey);
             }
         }
@@ -840,23 +845,25 @@ public class HiveMetaStoreCache {
         private String location;
         // not in key
         private String inputFormat;
+        private String serde;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
         // partitionValues would be ["part1", "part2"]
         protected List<String> partitionValues;
         private long id;
 
-        public FileCacheKey(long id, String location, String inputFormat,
+        public FileCacheKey(long id, String location, String inputFormat, String serde,
                             List<String> partitionValues) {
             this.location = location;
             this.inputFormat = inputFormat;
+            this.serde = serde;
             this.partitionValues = partitionValues == null ? Lists.newArrayList() : partitionValues;
             this.id = id;
         }
 
         public static FileCacheKey createDummyCacheKey(long id, String location,
-                                                       String inputFormat) {
-            FileCacheKey fileCacheKey = new FileCacheKey(id, location, inputFormat, null);
+                                                       String inputFormat, String serde) {
+            FileCacheKey fileCacheKey = new FileCacheKey(id, location, inputFormat, serde, null);
             fileCacheKey.dummyKey = id;
             return fileCacheKey;
         }
@@ -905,6 +912,8 @@ public class HiveMetaStoreCache {
         protected List<String> partitionValues;
 
         private AcidInfo acidInfo;
+        private String inputFormat;
+        private String serde;
 
         public void addFile(RemoteFile file, LocationPath locationPath) {
             if (isFileVisible(file.getPath())) {
@@ -966,6 +975,8 @@ public class HiveMetaStoreCache {
         boolean splittable;
         List<String> partitionValues;
         AcidInfo acidInfo;
+        String inputFormat;
+        String serde;
     }
 
     @Data

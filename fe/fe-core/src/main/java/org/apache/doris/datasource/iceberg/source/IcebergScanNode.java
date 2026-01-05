@@ -266,6 +266,17 @@ public class IcebergScanNode extends FileQueryScanNode {
             rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+
+        String icebergFormat = icebergSplit.getFileFormat();
+        if (icebergFormat.equalsIgnoreCase("parquet")) {
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        } else if (icebergFormat.equalsIgnoreCase("orc")) {
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
+        } else if (icebergFormat.equalsIgnoreCase("avro")) {
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_AVRO);
+        } else {
+            throw new RuntimeException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
+        }
     }
 
     @Override
@@ -600,7 +611,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 formatVersion,
                 storagePropertiesMap,
                 new ArrayList<>(),
-                originalPath);
+                originalPath,
+                fileScanTask.file().format().name());
         if (!fileScanTask.deletes().isEmpty()) {
             split.setDeleteFileFilters(getDeleteFileFilters(fileScanTask));
         }
