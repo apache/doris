@@ -27,8 +27,8 @@ public enum TableFormatType {
     LAKESOUL("lakesoul"),
     TRINO_CONNECTOR("trino_connector"),
     TVF("tvf"),
-    REMOTE_DORIS("remote_doris"),
-    FLUSS("fluss");
+    FLUSS("fluss"),
+    REMOTE_DORIS("remote_doris");
 
     private final String tableFormatType;
 
