@@ -924,10 +924,9 @@ public class StmtExecutor {
                 LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
 
-                boolean isNeedRetry = false;
+                boolean isNeedRetry = e instanceof RpcException;
                 if (Config.isCloudMode()) {
                     // cloud mode retry
-                    isNeedRetry = false;
                     // errCode = 2, detailMessage = No backend available as scan node,
                     // please check the status of your backends. [10003: not alive]
                     List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
@@ -957,8 +956,6 @@ public class StmtExecutor {
                             }
                         }
                     }
-                } else {
-                    isNeedRetry = e instanceof RpcException;
                 }
                 if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
