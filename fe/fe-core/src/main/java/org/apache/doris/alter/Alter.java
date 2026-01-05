@@ -678,7 +678,7 @@ public class Alter {
                     DynamicPartitionUtil.checkAlterAllowed(
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
-                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionOp) alterOp, false, 0, true);
+                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionOp) alterOp, false, 0, true, null);
             } else if (alterOp instanceof AddPartitionLikeOp) {
                 if (!((AddPartitionLikeOp) alterOp).getTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed(
