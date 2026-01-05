@@ -877,9 +877,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
 
     // If the difference is more than threshold, load from filesystem as well
     if (estimated_file_count > 100) {
-        double absolute_difference = std::abs(
-            static_cast<double>(estimated_file_count) - static_cast<double>(db_block_count)
-        );
+        double absolute_difference = std::abs(static_cast<double>(estimated_file_count) -
+                                              static_cast<double>(db_block_count));
         double difference_ratio = absolute_difference / static_cast<double>(estimated_file_count);
 
         if (difference_ratio > config::file_cache_meta_store_vs_file_system_diff_num_threshold) {
