@@ -865,7 +865,8 @@ public class Env {
     }
 
     private void refreshSession(String sessionId) {
-        sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
+        // TODO: do nothing now until we fix memory link on Env#sessionReportTimeMap and Env#aliveSessionSet
+        // sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
     }
 
     public void checkAndRefreshSession(String sessionId) {
@@ -7359,7 +7360,8 @@ public class Env {
     }
 
     public void registerSessionInfo(String sessionId) {
-        this.aliveSessionSet.add(sessionId);
+        // TODO: do nothing now until we fix memory link on Env#sessionReportTimeMap and Env#aliveSessionSet
+        // this.aliveSessionSet.add(sessionId);
     }
 
     public void unregisterSessionInfo(String sessionId) {
