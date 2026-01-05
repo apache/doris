@@ -95,7 +95,7 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     private String jdbcStrictMode;
 
     @ConnectorProperty(
-            names = {"iceberg.driver_url"},
+            names = {"iceberg.jdbc.driver_url"},
             required = false,
             description = "JDBC driver JAR file path or URL. "
                     + "Can be a local file name (will look in $DORIS_HOME/plugins/jdbc_drivers/) "
@@ -104,7 +104,7 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     private String driverUrl;
 
     @ConnectorProperty(
-            names = {"iceberg.driver_class"},
+            names = {"iceberg.jdbc.driver_class"},
             required = false,
             description = "JDBC driver class name. If not specified, will be auto-detected from the JDBC URI."
     )
