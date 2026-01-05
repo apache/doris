@@ -31,9 +31,12 @@ import org.apache.logging.log4j.Logger;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 
 public class FlussMetadataOps implements Closeable {
@@ -46,8 +49,9 @@ public class FlussMetadataOps implements Closeable {
     private final FlussExternalCatalog catalog;
     private final String bootstrapServers;
 
-    private final ConcurrentHashMap<String, FlussTableMetadata> tableMetadataCache;
-    private final ConcurrentHashMap<String, List<String>> databaseTablesCache;
+    private final Map<String, FlussTableMetadata> tableMetadataCache;
+    private final Map<String, List<String>> databaseTablesCache;
+    private final ReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
     private volatile Connection connection;
     private volatile Admin admin;
@@ -58,8 +62,8 @@ public class FlussMetadataOps implements Closeable {
     public FlussMetadataOps(FlussExternalCatalog catalog) {
         this.catalog = catalog;
         this.bootstrapServers = catalog.getBootstrapServers();
-        this.tableMetadataCache = new ConcurrentHashMap<>();
-        this.databaseTablesCache = new ConcurrentHashMap<>();
+        this.tableMetadataCache = new HashMap<>();
+        this.databaseTablesCache = new HashMap<>();
     }
 
     private void ensureConnection() {
@@ -182,9 +186,15 @@ public class FlussMetadataOps implements Closeable {
 
     public List<String> listTableNames(String dbName) {
         LOG.debug("Listing tables from database: {}", dbName);
-        List<String> cachedTables = databaseTablesCache.get(dbName);
-        if (cachedTables != null) {
-            return cachedTables;
+
+        cacheLock.readLock().lock();
+        try {
+            List<String> cachedTables = databaseTablesCache.get(dbName);
+            if (cachedTables != null) {
+                return new ArrayList<>(cachedTables);
+            }
+        } finally {
+            cacheLock.readLock().unlock();
         }
 
         ensureConnection();
@@ -197,7 +207,13 @@ public class FlussMetadataOps implements Closeable {
             }
         }, "list tables");
 
-        databaseTablesCache.put(dbName, tables);
+        cacheLock.writeLock().lock();
+        try {
+            databaseTablesCache.put(dbName, new ArrayList<>(tables));
+        } finally {
+            cacheLock.writeLock().unlock();
+        }
+
         return tables;
     }
 
@@ -208,9 +224,15 @@ public class FlussMetadataOps implements Closeable {
 
     public FlussTableMetadata getTableMetadata(String dbName, String tableName) {
         String cacheKey = dbName + "." + tableName;
-        FlussTableMetadata cached = tableMetadataCache.get(cacheKey);
-        if (cached != null) {
-            return cached;
+
+        cacheLock.readLock().lock();
+        try {
+            FlussTableMetadata cached = tableMetadataCache.get(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+        } finally {
+            cacheLock.readLock().unlock();
         }
 
         LOG.debug("Fetching metadata for table: {}.{}", dbName, tableName);
@@ -220,7 +242,14 @@ public class FlussMetadataOps implements Closeable {
         metadata.setPrimaryKeys(Collections.emptyList());
         metadata.setPartitionKeys(Collections.emptyList());
         metadata.setNumBuckets(1);
-        tableMetadataCache.put(cacheKey, metadata);
+
+        cacheLock.writeLock().lock();
+        try {
+            tableMetadataCache.put(cacheKey, metadata);
+        } finally {
+            cacheLock.writeLock().unlock();
+        }
+
         return metadata;
     }
 
@@ -285,19 +314,35 @@ public class FlussMetadataOps implements Closeable {
 
     public void invalidateTableCache(String dbName, String tableName) {
         String cacheKey = dbName + "." + tableName;
-        tableMetadataCache.remove(cacheKey);
+        cacheLock.writeLock().lock();
+        try {
+            tableMetadataCache.remove(cacheKey);
+        } finally {
+            cacheLock.writeLock().unlock();
+        }
         LOG.debug("Invalidated cache for table: {}", cacheKey);
     }
 
     public void invalidateDatabaseCache(String dbName) {
-        databaseTablesCache.remove(dbName);
-        tableMetadataCache.keySet().removeIf(key -> key.startsWith(dbName + "."));
+        cacheLock.writeLock().lock();
+        try {
+            databaseTablesCache.remove(dbName);
+            String prefix = dbName + ".";
+            tableMetadataCache.entrySet().removeIf(entry -> entry.getKey().startsWith(prefix));
+        } finally {
+            cacheLock.writeLock().unlock();
+        }
         LOG.debug("Invalidated cache for database: {}", dbName);
     }
 
     public void clearCache() {
-        tableMetadataCache.clear();
-        databaseTablesCache.clear();
+        cacheLock.writeLock().lock();
+        try {
+            tableMetadataCache.clear();
+            databaseTablesCache.clear();
+        } finally {
+            cacheLock.writeLock().unlock();
+        }
         LOG.debug("Cleared all metadata cache");
     }
 
