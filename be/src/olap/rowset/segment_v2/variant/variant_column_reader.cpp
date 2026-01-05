@@ -157,6 +157,11 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
     // Build substream reader tree for merging subcolumns into sparse column
     SubstreamReaderTree src_subcolumns_for_sparse;
     for (const auto& subcolumn_reader : *_subcolumns_meta_info) {
+        // NOTE: Skip the root node (empty parts). Do NOT skip "empty key" subcolumns where
+        // path.get_path() may also be "" but parts are not empty. Otherwise v[''] data will be lost.
+        if (subcolumn_reader->path.empty()) {
+            continue;
+        }
         const auto& path = subcolumn_reader->path.get_path();
         if (path_set_info.sparse_path_set.find(StringRef(path)) ==
             path_set_info.sparse_path_set.end()) {
