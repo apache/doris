@@ -44,6 +44,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.TestHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -71,6 +72,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         + "    pk TINYINT,\n"
                         + "    b1 TINYINT,\n"
                         + "    b2 TINYINT\n"
+                        + ")\n"
+                        + "DUPLICATE KEY (pk)\n"
+                        + "DISTRIBUTED BY HASH (pk)\n"
+                        + "PROPERTIES(\n"
+                        + "    'replication_num' = '1'\n"
+                        + ");",
+                "CREATE TABLE t3 (\n"
+                        + "    pk BIGINT,\n"
+                        + "    c1 BIGINT,\n"
+                        + "    c2 BIGINT\n"
                         + ")\n"
                         + "DUPLICATE KEY (pk)\n"
                         + "DISTRIBUTED BY HASH (pk)\n"
@@ -325,23 +336,23 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
     void testInvalidHaving() {
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
-                "a2 should be grouped by.",
+                "HAVING expression 'a2' must appear in the GROUP BY clause"
+                    + " or be used in an aggregate function.",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING a2 > 0"
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
-                "Aggregate functions in having clause can't be nested:"
-                        + " sum((cast(a1 as DOUBLE) + avg(a2))).",
+                "HAVING aggregate functions can't be nested: sum((cast(a1 as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a1 + AVG(a2)) > 0"
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
-                "Aggregate functions in having clause can't be nested:"
-                        + " sum((cast((cast(a1 as SMALLINT) + cast(a2 as SMALLINT)) as DOUBLE) + avg(a2))).",
+                "HAVING aggregate functions can't be nested: sum((cast((cast(a1 as SMALLINT) + "
+                    + "cast(a2 as SMALLINT)) as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a1 + a2 + AVG(a2)) > 0"
                 ));
@@ -612,6 +623,56 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT (pk + 1) as c FROM t1 HAVING c  > 1 ORDER BY a1 + pk";
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new CheckAfterRewrite());
+    }
+
+    @Test
+    void testSortHavingProject() {
+        // no agg
+        String sql = "select c1 from t3 order by c1, c2, c1 + c2";
+        PlanChecker.from(connectContext).analyze(sql).matches(
+                logicalSort(
+                        logicalProject().when(
+                                project -> TestHelper.toStringList(project.getProjects()).equals(ImmutableList.of("c1#1", "c2#2")))
+                ).when(
+                        sort -> TestHelper.toStringList(sort.getExpressions()).equals(ImmutableList.of("c1#1", "c2#2", "(c1#1 + c2#2)"))
+                )
+        );
+
+        // no agg
+        sql = "select c1 from t3 order by sum(c1) over(partition by c2)";
+        PlanChecker.from(connectContext).analyze(sql).matches(
+                logicalSort(
+                        logicalProject().when(
+                                project -> TestHelper.toStringList(project.getProjects()).equals(ImmutableList.of("c1#1", "c2#2")))
+                ).when(
+                        sort -> TestHelper.toStringList(sort.getExpressions()).equals(ImmutableList.of("WindowExpression(sum(c1#1) spec(PARTITION BY c2#2 ))"))
+                )
+        );
+
+        sql = "select 1 as b from t3 order by sum(c1)";
+        PlanChecker.from(connectContext).analyze(sql).matches(
+                logicalSort(
+                        logicalProject(
+                                logicalProject(
+                                        logicalAggregate(
+                                        ).when(agg -> agg.getGroupByExpressions().isEmpty() && TestHelper.toStringList(agg.getOutputExpressions()).equals(ImmutableList.of("sum(c1#2) AS `sum(c1)`#4")))
+                                ).when(project -> TestHelper.toStringList(project.getProjects()).equals(ImmutableList.of("sum(c1)#4")))
+                        ).when(project -> TestHelper.toStringList(project.getProjects()).equals(ImmutableList.of("1 AS `b`#0", "sum(c1)#4")))
+                ).when(sort -> TestHelper.toStringList(sort.getExpressions()).equals(ImmutableList.of("sum(c1)#4")))
+        );
+
+        sql = "select /*+ SET_VAR(sql_mode='') */ c1, c1 + c2 from t3 order by c1, sum(c1) + c2";
+        PlanChecker.from(connectContext).analyze(sql).matches(
+                logicalSort(
+                        logicalProject(
+                                logicalAggregate(
+                                        logicalProject(
+                                        ).when(project -> TestHelper.toStringList(project.getProjects()).equals(ImmutableList.of("c1#1", "c2#2")))
+                                ).when(agg -> agg.getGroupByExpressions().isEmpty() && TestHelper.toStringList(agg.getOutputExpressions()).equals(
+                                        ImmutableList.of("any_value(c1#1) AS `c1`#4", "sum(c1#1) AS `sum(c1)`#5", "any_value(c2#2) AS `c2`#6")))
+                        ).when(project -> TestHelper.toStringList(project.getProjects()).equals(ImmutableList.of("c1#4", "(c1#4 + c2#6) AS `c1 + c2`#3", "sum(c1)#5", "c2#6")))
+                ).when(sort -> TestHelper.toStringList(sort.getExpressions()).equals(ImmutableList.of("c1#4", "(sum(c1)#5 + c2#6)")))
+        );
     }
 
     @Test

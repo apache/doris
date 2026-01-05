@@ -861,7 +861,8 @@ public class Env {
     }
 
     private void refreshSession(String sessionId) {
-        sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
+        // TODO: do nothing now until we fix memory link on Env#sessionReportTimeMap and Env#aliveSessionSet
+        // sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
     }
 
     public void checkAndRefreshSession(String sessionId) {
@@ -3760,6 +3761,16 @@ public class Env {
             }
         }
 
+        // column group
+        Map<String, List<String>> seqMap = olapTable.getColumnSeqMapping();
+        if (seqMap != null && seqMap.size() != 0) {
+            for (Map.Entry<String, List<String>> columnGroup : seqMap.entrySet()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING).append(".")
+                    .append(columnGroup.getKey()).append("\" = \"");
+                sb.append(String.join(",", columnGroup.getValue())).append("\"");
+            }
+        }
+
         // store row column
         if (olapTable.storeRowColumn()) {
             List<String> rsColumnNames = olapTable.getTableProperty().getCopiedRowStoreColumns();
@@ -5721,6 +5732,10 @@ public class Env {
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
         }
+        // TODO support rename in future version
+        if (table.hasColumnSeqMapping()) {
+            throw new DdlException("table use sequence mapping do not support rename yet");
+        }
 
         // @NOTE: Rename partition columns should also rename column names in partition expressions
         // but this is not implemented currently. Therefore, forbid renaming partition columns temporarily.
@@ -7351,7 +7366,8 @@ public class Env {
     }
 
     public void registerSessionInfo(String sessionId) {
-        this.aliveSessionSet.add(sessionId);
+        // TODO: do nothing now until we fix memory link on Env#sessionReportTimeMap and Env#aliveSessionSet
+        // this.aliveSessionSet.add(sessionId);
     }
 
     public void unregisterSessionInfo(String sessionId) {

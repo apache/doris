@@ -26,7 +26,16 @@ namespace doris::pipeline {
 
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     auto* parent = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent);
-    return fmt::format(operator_name_suffix, parent->operator_id());
+    auto& dest_ids = parent->dests_id();
+    std::string result = "(";
+    for (size_t i = 0; i < dest_ids.size(); ++i) {
+        if (i > 0) {
+            result += ", ";
+        }
+        result += fmt::format("dest_id={}", dest_ids[i]);
+    }
+    result += ")";
+    return fmt::format(result + operator_name_suffix, parent->operator_id());
 }
 
 std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_shared_state() const {

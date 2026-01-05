@@ -22,12 +22,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
-import org.apache.doris.datasource.jdbc.client.JdbcMySQLClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
@@ -48,9 +49,11 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.io.IOException;
@@ -199,8 +202,7 @@ public class StreamingJobUtils {
         return ctx;
     }
 
-    private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties)
-            throws JobException {
+    private static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
         JdbcClientConfig config = new JdbcClientConfig();
         config.setCatalog(sourceType.name());
         config.setUser(properties.get(DataSourceConfigKeys.USER));
@@ -208,13 +210,7 @@ public class StreamingJobUtils {
         config.setDriverClass(properties.get(DataSourceConfigKeys.DRIVER_CLASS));
         config.setDriverUrl(properties.get(DataSourceConfigKeys.DRIVER_URL));
         config.setJdbcUrl(properties.get(DataSourceConfigKeys.JDBC_URL));
-        switch (sourceType) {
-            case MYSQL:
-                JdbcClient client = JdbcMySQLClient.createJdbcClient(config);
-                return client;
-            default:
-                throw new JobException("Unsupported source type " + sourceType);
-        }
+        return JdbcClient.createJdbcClient(config);
     }
 
     public static Backend selectBackend(Long jobId) throws JobException {
@@ -248,14 +244,19 @@ public class StreamingJobUtils {
         if (includeTables != null) {
             includeTablesList = Arrays.asList(includeTables.split(","));
         }
+        List<String> excludeTablesList = new ArrayList<>();
+        if (excludeTables != null) {
+            excludeTablesList = Arrays.asList(excludeTables.split(","));
+        }
 
-        String database = properties.get(DataSourceConfigKeys.DATABASE);
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
+        String database = getRemoteDbName(sourceType, properties);
         List<String> tablesNameList = jdbcClient.getTablesNameList(database);
         if (tablesNameList.isEmpty()) {
             throw new JobException("No tables found in database " + database);
         }
         Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
+
         List<String> noPrimaryKeyTables = new ArrayList<>();
         for (String table : tablesNameList) {
             if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
@@ -264,14 +265,16 @@ public class StreamingJobUtils {
                 continue;
             }
 
-            if (excludeTables != null && excludeTables.contains(table)) {
+            // if set include_tables, exclude_tables is ignored
+            if (includeTablesList.isEmpty()
+                    && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
                 log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
                         excludeTables);
                 continue;
             }
 
-            List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
             List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
+            List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
             if (primaryKeys.isEmpty()) {
                 noPrimaryKeyTables.add(table);
             }
@@ -322,6 +325,43 @@ public class StreamingJobUtils {
                     + String.join(", ", noPrimaryKeyTables));
         }
         return createtblCmds;
+    }
+
+    private static List<Column> getColumns(JdbcClient jdbcClient,
+            String database,
+            String table,
+            List<String> primaryKeys) {
+        List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
+        columns.forEach(col -> {
+            // string can not to be key
+            if (primaryKeys.contains(col.getName())
+                    && col.getDataType() == PrimitiveType.STRING) {
+                col.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+            }
+        });
+        return columns;
+    }
+
+    /**
+     * The remoteDB implementation differs for each data source;
+     * refer to the hierarchical mapping in the JDBC catalog.
+     */
+    private static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties)
+            throws JobException {
+        String remoteDb = null;
+        switch (sourceType) {
+            case MYSQL:
+                remoteDb = properties.get(DataSourceConfigKeys.DATABASE);
+                Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "database is required");
+                break;
+            case POSTGRES:
+                remoteDb = properties.get(DataSourceConfigKeys.SCHEMA);
+                Preconditions.checkArgument(StringUtils.isNotEmpty(remoteDb), "schema is required");
+                break;
+            default:
+                throw new JobException("Unsupported source type " + sourceType);
+        }
+        return remoteDb;
     }
 
     private static Map<String, String> getTableCreateProperties(Map<String, String> properties) {

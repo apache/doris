@@ -551,7 +551,7 @@ namespace fdb {
 
 class Network {
 public:
-    Network(FDBNetworkOption opt) : opt_(opt) {}
+    Network() {}
 
     /**
      * @return 0 for success otherwise non-zero
@@ -570,7 +570,6 @@ public:
 
 private:
     std::shared_ptr<std::thread> network_thread_;
-    FDBNetworkOption opt_;
 
     // Global state, only one instance of Network is allowed
     static std::atomic<bool> working;

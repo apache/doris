@@ -146,7 +146,7 @@ struct TQueryOptions {
   // if set, this will overwrite the BE config.
   30: optional i32 max_pushdown_conditions_per_column
   // whether enable spilling to disk
-  31: optional bool enable_spilling = false;
+  // 31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
   32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
@@ -421,6 +421,10 @@ struct TQueryOptions {
 
 
   182: optional i32 ivf_nprobe = 1;
+
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  183: optional bool enable_use_hybrid_sort = false;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
