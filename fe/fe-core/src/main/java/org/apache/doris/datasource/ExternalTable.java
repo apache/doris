@@ -277,7 +277,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    // get the max value of `schemaUpdateTime` and `eventUpdateTime` as `updateTime`
+    // Returns the table update time, tracking when the table was last modified
+    // (for example, by insert, alter, or refresh operations).
     public long getUpdateTime() {
         return updateTime;
     }

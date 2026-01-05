@@ -53,7 +53,7 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
 
     sql """ alter table test_branch_tag_operate create branch b1 """
     sql """ alter table test_branch_tag_operate create branch if not exists b1 """
-    def result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="test_db" and TABLE_NAME="test_branch_tag_operate"""" 
+    def result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="test_db" and TABLE_NAME='test_branch_tag_operate'""" 
     def update_time1 = result[0][0];
     sleep(1000)
 
@@ -75,7 +75,7 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
     sql """ insert into test_branch_tag_operate values (3) """
     sql """ insert into test_branch_tag_operate values (4) """
     sql """ insert into test_branch_tag_operate values (5) """
-    result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="test_db" and TABLE_NAME="test_branch_tag_operate"""" 
+    result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="test_db" and TABLE_NAME='test_branch_tag_operate'""" 
     def update_time2 = result[0][0];
     logger.info("get update times " + update_time1 + " vs. " + update_time2)
     assertTrue(update_time2 > update_time1);
@@ -144,7 +144,7 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
         exception "Cannot set b8 to unknown snapshot: 11223344"
     }
 
-    result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="test_db" and TABLE_NAME="test_branch_tag_operate"""" 
+    result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="test_db" and TABLE_NAME='test_branch_tag_operate'""" 
     def update_time3 = result[0][0];
     logger.info("get update times " + update_time2 + " vs. " + update_time3)
     assertTrue(update_time3 > update_time2);
