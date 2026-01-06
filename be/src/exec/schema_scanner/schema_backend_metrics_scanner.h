@@ -46,4 +46,4 @@ private:
     int _total_rows = 0;
     std::unique_ptr<vectorized::Block> _backend_metrics_block = nullptr;
 };
-}; // namespace doris
+} // namespace doris
