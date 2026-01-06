@@ -85,6 +85,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.MysqlDBTable;
@@ -528,10 +529,11 @@ public class GsonUtils {
     static {
         tabletTypeAdapterFactory = RuntimeTypeAdapterFactory
                 .of(Tablet.class, "clazz")
-                .registerSubtype(Tablet.class, Tablet.class.getSimpleName())
+                .registerSubtype(LocalTablet.class, LocalTablet.class.getSimpleName())
                 .registerSubtype(CloudTablet.class, CloudTablet.class.getSimpleName());
         if (Config.isNotCloudMode()) {
-            tabletTypeAdapterFactory.registerDefaultSubtype(Tablet.class);
+            tabletTypeAdapterFactory.registerDefaultSubtype(LocalTablet.class);
+            tabletTypeAdapterFactory.registerCompatibleSubtype(LocalTablet.class, Tablet.class.getSimpleName());
         } else {
             // compatible with old cloud code.
             tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);

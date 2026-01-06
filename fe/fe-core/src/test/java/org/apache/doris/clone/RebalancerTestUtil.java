@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
@@ -85,7 +86,7 @@ public class RebalancerTestUtil {
 
         TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(),
                 partition.getId(), baseIndex.getId(), schemaHash, medium);
-        Tablet tablet = new Tablet(tabletId);
+        Tablet tablet = new LocalTablet(tabletId);
 
         // add tablet to olapTable
         olapTable.getPartition("p0").getBaseIndex().addTablet(tablet, tabletMeta);
