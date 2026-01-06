@@ -4439,13 +4439,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                               +--LogicalCheckPolicy
                                  +--UnboundRelation ( id=RelationId#0, nameParts=student_unnest_t )
                      */
+                    LogicalGenerate oldRight = (LogicalGenerate<?>) right;
+                    Unnest oldGenerator = (Unnest) oldRight.getGenerators().get(0);
                     if (joinType.isLeftJoin() || joinType.isInnerJoin() || joinType.isCrossJoin()) {
-                        LogicalGenerate oldRight = (LogicalGenerate<?>) right;
-                        Unnest oldGenerator = (Unnest) oldRight.getGenerators().get(0);
                         Unnest newGenerator = joinType.isLeftJoin() ? oldGenerator.withOuter(true) : oldGenerator;
                         last = new LogicalGenerate<>(ImmutableList.of(newGenerator), oldRight.getGeneratorOutput(),
                                 oldRight.getExpandColumnAlias(), condition.map(ExpressionUtils::extractConjunction)
                                 .orElse(ExpressionUtils.EMPTY_CONDITION), last);
+                    } else if (oldGenerator.child(0) instanceof Literal) {
+                        last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
+                                condition.map(ExpressionUtils::extractConjunction)
+                                        .orElse(ExpressionUtils.EMPTY_CONDITION),
+                                distributeHint,
+                                Optional.empty(),
+                                last,
+                                right, null);
                     } else {
                         throw new ParseException("The combining JOIN type must be INNER, LEFT or CROSS for UNNEST",
                                 join);
