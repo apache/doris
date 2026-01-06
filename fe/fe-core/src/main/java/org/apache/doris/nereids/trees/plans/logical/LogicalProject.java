@@ -63,6 +63,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     private final Supplier<Set<NamedExpression>> projectsSet;
     private final boolean isDistinct;
 
+    private final HashMap projectMap;
+
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
         this(projects, false, ImmutableList.of(child));
     }
@@ -90,6 +92,13 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 : projects;
         this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
         this.isDistinct = isDistinct;
+        this.projectMap = new HashMap<>();
+        for (NamedExpression namedExpression : projects) {
+            if (namedExpression instanceof Alias) {
+                Alias alias = (Alias) namedExpression;
+                projectMap.put(alias.toSlot(), alias.child());
+            }
+        }
     }
 
     /**
@@ -315,13 +324,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
      *
      */
     public Expression pushDownExpressionPastProject(Expression expression) {
-        HashMap projectMap = new HashMap();
-        for (NamedExpression namedExpression : projects) {
-            if (namedExpression instanceof Alias) {
-                Alias alias = (Alias) namedExpression;
-                projectMap.put(alias.toSlot(), alias.child());
-            }
-        }
         return ExpressionUtils.replace(expression, projectMap);
     }
 }
