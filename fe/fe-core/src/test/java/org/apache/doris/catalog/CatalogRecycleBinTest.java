@@ -42,8 +42,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import static java.lang.Thread.sleep;
-
 public class CatalogRecycleBinTest {
 
     private static String runningDir;
@@ -73,13 +71,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Set<String> tableNames = Sets.newHashSet(CatalogTestUtil.testTable1);
         Set<Long> tableIds = Sets.newHashSet(CatalogTestUtil.testTableId1);
@@ -122,7 +120,7 @@ public class CatalogRecycleBinTest {
 
         // sleep 0.1 second to make sure the recycle time is different
         try {
-            sleep(100);
+            Thread.sleep(100);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -165,13 +163,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -190,13 +188,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -222,13 +220,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -238,32 +236,32 @@ public class CatalogRecycleBinTest {
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
 
         boolean result = recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false
+            );
         Assert.assertTrue(result);
         Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
 
         result = recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false
+            );
         // test recycling same partition again should fail
         Assert.assertFalse(result);
     }
@@ -281,6 +279,31 @@ public class CatalogRecycleBinTest {
             RandomDistributionInfo distributionInfo = new RandomDistributionInfo(1);
             Partition partition = new Partition(recyclePartitionNum, "same name", index, distributionInfo);
             boolean result = recycleBin.recyclePartition(
+                    CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTableId1,
+                    CatalogTestUtil.testTable1,
+                    partition,
+                    null,
+                    null,
+                    new DataProperty(TStorageMedium.HDD),
+                    new ReplicaAllocation((short) 3),
+                    false,
+                    false
+            );
+            Assert.assertTrue(result);
+            Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
+        } while (recyclePartitionNum++ < 100);
+
+        // sleep 0.1 second to make sure the recycle time is different
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        MaterializedIndex index = new MaterializedIndex(1005, IndexState.NORMAL);
+        RandomDistributionInfo distributionInfo = new RandomDistributionInfo(1);
+        Partition partition = new Partition(recyclePartitionNum, "same name", index, distributionInfo);
+        boolean result = recycleBin.recyclePartition(
                 CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTableId1,
                 CatalogTestUtil.testTable1,
@@ -292,31 +315,6 @@ public class CatalogRecycleBinTest {
                 false,
                 false
             );
-            Assert.assertTrue(result);
-            Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
-        } while (recyclePartitionNum++ < 100);
-
-        // sleep 0.1 second to make sure the recycle time is different
-        try {
-            sleep(100);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-        MaterializedIndex index = new MaterializedIndex(1005, IndexState.NORMAL);
-        RandomDistributionInfo distributionInfo = new RandomDistributionInfo(1);
-        Partition partition = new Partition(recyclePartitionNum, "same name", index, distributionInfo);
-        boolean result = recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
-        );
         Assert.assertTrue(result);
         Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
 
@@ -356,13 +354,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Set<String> tableNames = db.getTableNames();
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -386,16 +384,16 @@ public class CatalogRecycleBinTest {
 
     @Test
     public void testRecoverTable() throws Exception {
-        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();;
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -410,16 +408,16 @@ public class CatalogRecycleBinTest {
 
     @Test
     public void testRecoverPartition() throws Exception {
-        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();;
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -429,16 +427,16 @@ public class CatalogRecycleBinTest {
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartition1);
 
         recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false
         );
 
         recycleBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, CatalogTestUtil.testPartition1, -1, null);
@@ -448,16 +446,16 @@ public class CatalogRecycleBinTest {
 
     @Test
     public void testGetRecycleIds() {
-        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();;
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -469,16 +467,16 @@ public class CatalogRecycleBinTest {
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0);
 
         recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false
         );
 
         Set<Long> dbIds = Sets.newHashSet();
@@ -497,13 +495,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -546,13 +544,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -571,13 +569,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -587,16 +585,16 @@ public class CatalogRecycleBinTest {
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
 
         recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false
         );
 
         recycleBin.erasePartitionInstantly(CatalogTestUtil.testPartitionId1);
@@ -610,13 +608,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Set<String> tableNames = Sets.newHashSet(db.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -628,16 +626,16 @@ public class CatalogRecycleBinTest {
 
         Partition partition = olapTable1.getPartition(CatalogTestUtil.testPartitionId1);
         recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false
         );
 
         recycleAllTables(db, recycleBin);
@@ -662,13 +660,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Set<String> tableNames = Sets.newHashSet(db.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -680,16 +678,16 @@ public class CatalogRecycleBinTest {
 
         Partition partition = olapTable1.getPartition(CatalogTestUtil.testPartitionId1);
         recycleBin.recyclePartition(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testTable1,
-            partition,
-            null,
-            null,
-            new DataProperty(TStorageMedium.HDD),
-            new ReplicaAllocation((short) 3),
-            false,
-            false
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false
         );
 
         recycleAllTables(db, recycleBin);
@@ -711,13 +709,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Set<String> tableNames = Sets.newHashSet(db.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -747,12 +745,12 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
         );
         // try to recover a non-existent table
         recycleBin.recoverTable(db, "non_existent_table", -1, null);
@@ -763,13 +761,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -785,13 +783,13 @@ public class CatalogRecycleBinTest {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
         Database db = CatalogTestUtil.createSimpleDb(
-            CatalogTestUtil.testDbId1,
-            CatalogTestUtil.testTableId1,
-            CatalogTestUtil.testPartitionId1,
-            CatalogTestUtil.testIndexId1,
-            CatalogTestUtil.testTabletId1,
-            CatalogTestUtil.testStartVersion
-        );
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
