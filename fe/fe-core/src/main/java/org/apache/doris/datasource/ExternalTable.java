@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -323,6 +324,9 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public boolean autoAnalyzeEnabled() {
         makeSureInitialized();
+        if (Config.force_analyze_for_external) {
+            return true;
+        }
         String policy = catalog.getTableAutoAnalyzePolicy().get(Pair.of(dbName, name));
         if (policy == null) {
             return catalog.enableAutoAnalyze();
