@@ -51,6 +51,7 @@ suite("test_json_type_cast", "p0") {
     qt_sql25 "SELECT CAST(CAST(CAST('[1, 2, 3]' AS TEXT) AS JSON) as TEXT)"
     qt_sql26 """SELECT CAST(CAST(CAST('["2020-01-01"]' AS TEXT) AS JSON) as TEXT)"""
     qt_sql26 """select SUM(JSON_EXTRACT('{"name": "Alice", "age": 30}', '\$.age')); """
+    qt_sql26 """select AVG(JSON_EXTRACT('{"name": "Alice", "age": 30}', '\$.age')); """
 
     testFoldConst("select cast('18446744073709551616' as json)")
     testFoldConst("select cast('[1323132,3.13,18446744073709551616]' as json)")
