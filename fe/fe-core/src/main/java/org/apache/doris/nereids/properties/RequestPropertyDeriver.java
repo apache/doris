@@ -74,6 +74,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -114,7 +115,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
-        groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
+        groupExpression.getPlan().accept(this,
+                new PlanContext(connectContext, groupExpression, Collections.emptyList()));
         return requestPropertyToChildren;
     }
 

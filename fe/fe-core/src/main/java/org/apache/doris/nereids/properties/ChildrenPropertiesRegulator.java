@@ -867,6 +867,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             currentCost = newChildAndCost.first;
         }
 
+        if (child.getOwnerGroup().getEnforcerSpecs().containsKey(target)) {
+            return;
+        }
         PhysicalProperties newOutputProperty = new PhysicalProperties(target);
         GroupExpression enforcer = target.addEnforcer(child.getOwnerGroup());
         child.getOwnerGroup().addEnforcer(enforcer);
