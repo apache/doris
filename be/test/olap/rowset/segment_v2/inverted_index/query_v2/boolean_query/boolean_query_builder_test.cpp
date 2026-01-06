@@ -38,7 +38,7 @@ public:
     MockQuery(int id = 0) : _id(id) {}
     ~MockQuery() override = default;
 
-    WeightPtr weight(bool enable_scoring) override { return nullptr; }
+    WeightPtr weight() override { return nullptr; }
 
     int id() const { return _id; }
 

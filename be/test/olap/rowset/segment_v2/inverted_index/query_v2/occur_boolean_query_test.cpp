@@ -36,8 +36,7 @@ namespace {
 
 class MockScorer : public Scorer {
 public:
-    MockScorer(std::vector<uint32_t> docs, float score_val = 1.0F)
-            : _docs(std::move(docs)), _score_val(score_val) {
+    MockScorer(std::vector<uint32_t> docs) : _docs(std::move(docs)) {
         if (_docs.empty()) {
             _current_doc = TERMINATED;
         } else {
@@ -82,41 +81,34 @@ public:
 
     uint32_t doc() const override { return _current_doc; }
     uint32_t size_hint() const override { return static_cast<uint32_t>(_docs.size()); }
-    float score() override { return _score_val; }
+    float score() override { return 1.0F; }
 
 private:
     std::vector<uint32_t> _docs;
     size_t _index = 0;
     uint32_t _current_doc = TERMINATED;
-    float _score_val = 1.0F;
 };
 
 class MockWeight : public Weight {
 public:
-    explicit MockWeight(std::vector<uint32_t> docs, float score_val = 1.0F)
-            : _docs(std::move(docs)), _score_val(score_val) {}
+    explicit MockWeight(std::vector<uint32_t> docs) : _docs(std::move(docs)) {}
 
     ScorerPtr scorer(const QueryExecutionContext& /*context*/) override {
-        return std::make_shared<MockScorer>(_docs, _score_val);
+        return std::make_shared<MockScorer>(_docs);
     }
 
 private:
     std::vector<uint32_t> _docs;
-    float _score_val;
 };
 
 class MockQuery : public Query {
 public:
-    explicit MockQuery(std::vector<uint32_t> docs, float score_val = 1.0F)
-            : _docs(std::move(docs)), _score_val(score_val) {}
+    explicit MockQuery(std::vector<uint32_t> docs) : _docs(std::move(docs)) {}
 
-    WeightPtr weight(bool /*enable_scoring*/) override {
-        return std::make_shared<MockWeight>(_docs, _score_val);
-    }
+    WeightPtr weight() override { return std::make_shared<MockWeight>(_docs); }
 
 private:
     std::vector<uint32_t> _docs;
-    float _score_val;
 };
 
 } // anonymous namespace
@@ -189,7 +181,7 @@ public:
 TEST_F(OccurBooleanQueryTest, EmptyQuery) {
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
 
     EXPECT_EQ(scorer->doc(), TERMINATED);
@@ -201,7 +193,7 @@ TEST_F(OccurBooleanQueryTest, SingleMustClause) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -214,7 +206,7 @@ TEST_F(OccurBooleanQueryTest, SingleShouldClause) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -227,7 +219,7 @@ TEST_F(OccurBooleanQueryTest, SingleMustNotClauseReturnsEmpty) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
 
     EXPECT_EQ(scorer->doc(), TERMINATED);
@@ -243,7 +235,7 @@ TEST_F(OccurBooleanQueryTest, TwoMustClausesIntersection) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -261,7 +253,7 @@ TEST_F(OccurBooleanQueryTest, TwoShouldClausesUnion) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -279,7 +271,7 @@ TEST_F(OccurBooleanQueryTest, MustWithMustNotExclusion) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -297,7 +289,7 @@ TEST_F(OccurBooleanQueryTest, ShouldWithMustNotExclusion) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -314,7 +306,7 @@ TEST_F(OccurBooleanQueryTest, MustAndShouldCombined) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -333,7 +325,7 @@ TEST_F(OccurBooleanQueryTest, MultipleMustClausesIntersection) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs3));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -353,7 +345,7 @@ TEST_F(OccurBooleanQueryTest, MultipleShouldClausesUnion) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs3));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -377,7 +369,7 @@ TEST_F(OccurBooleanQueryTest, ComplexMustShouldMustNot) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -395,7 +387,7 @@ TEST_F(OccurBooleanQueryTest, LargeScaleIntersection) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -415,7 +407,7 @@ TEST_F(OccurBooleanQueryTest, LargeScaleUnion) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs3));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -433,7 +425,7 @@ TEST_F(OccurBooleanQueryTest, LargeScaleExclusion) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -450,7 +442,7 @@ TEST_F(OccurBooleanQueryTest, DisjointMustClausesEmpty) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -466,7 +458,7 @@ TEST_F(OccurBooleanQueryTest, MustNotExcludesAllMust) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -482,7 +474,7 @@ TEST_F(OccurBooleanQueryTest, EmptyMustClause) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -498,7 +490,7 @@ TEST_F(OccurBooleanQueryTest, EmptyShouldClause) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -511,11 +503,11 @@ TEST_F(OccurBooleanQueryTest, ScoringEnabled) {
     auto overlap = set_intersection(docs1, docs2);
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
-    clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs1, 1.0F));
-    clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs2, 2.0F));
+    clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs1));
+    clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(true);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
 
     std::set<uint32_t> overlap_set(overlap.begin(), overlap.end());
@@ -556,7 +548,7 @@ TEST_F(OccurBooleanQueryTest, ManyMustClausesStress) {
     }
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -581,7 +573,7 @@ TEST_F(OccurBooleanQueryTest, ManyShouldClausesStress) {
     }
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -606,7 +598,7 @@ TEST_F(OccurBooleanQueryTest, MultipleMustNotClauses) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs3));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -624,7 +616,7 @@ TEST_F(OccurBooleanQueryTest, SeekOperations) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
 
     EXPECT_EQ(scorer->seek(100), 102);
@@ -649,7 +641,7 @@ TEST_F(OccurBooleanQueryTest, IdenticalDocSets) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -665,7 +657,7 @@ TEST_F(OccurBooleanQueryTest, OverlappingShouldClauses) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(docs));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -682,7 +674,7 @@ TEST_F(OccurBooleanQueryTest, SparseDocIds) {
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
 
@@ -698,7 +690,7 @@ TEST_F(OccurBooleanQueryTest, OnlyMustNotClausesEmpty) {
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(docs2));
 
     OccurBooleanQuery query(std::move(clauses));
-    auto weight = query.weight(false);
+    auto weight = query.weight();
     auto scorer = weight->scorer(_ctx);
 
     EXPECT_EQ(scorer->doc(), TERMINATED);

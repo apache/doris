@@ -358,66 +358,6 @@ TEST_F(SimpleUnionTest, FreqAfterSeek) {
     EXPECT_EQ(union_docset->freq(), 3);
 }
 
-TEST_F(SimpleUnionTest, NormWithSingleDocSet) {
-    std::vector<MockDocSetPtr> docsets;
-    docsets.push_back(std::make_shared<MockDocSet>(
-            std::vector<uint32_t> {1, 5, 10}, std::map<uint32_t, std::vector<uint32_t>> {}, 0, 42));
-
-    auto union_docset = SimpleUnion<MockDocSetPtr>::create(std::move(docsets));
-
-    EXPECT_EQ(union_docset->doc(), 1);
-    EXPECT_EQ(union_docset->norm(), 42);
-
-    EXPECT_EQ(union_docset->advance(), 5);
-    EXPECT_EQ(union_docset->norm(), 42);
-}
-
-TEST_F(SimpleUnionTest, NormReturnsFirstMatchingDocSet) {
-    std::vector<MockDocSetPtr> docsets;
-    docsets.push_back(std::make_shared<MockDocSet>(
-            std::vector<uint32_t> {1, 5}, std::map<uint32_t, std::vector<uint32_t>> {}, 0, 10));
-    docsets.push_back(std::make_shared<MockDocSet>(
-            std::vector<uint32_t> {5, 10}, std::map<uint32_t, std::vector<uint32_t>> {}, 0, 20));
-
-    auto union_docset = SimpleUnion<MockDocSetPtr>::create(std::move(docsets));
-
-    EXPECT_EQ(union_docset->doc(), 1);
-    EXPECT_EQ(union_docset->norm(), 10);
-
-    EXPECT_EQ(union_docset->advance(), 5);
-    EXPECT_EQ(union_docset->norm(), 10);
-
-    EXPECT_EQ(union_docset->advance(), 10);
-    EXPECT_EQ(union_docset->norm(), 20);
-}
-
-TEST_F(SimpleUnionTest, NormWithDifferentNorms) {
-    std::vector<MockDocSetPtr> docsets;
-    docsets.push_back(std::make_shared<MockDocSet>(
-            std::vector<uint32_t> {1, 3}, std::map<uint32_t, std::vector<uint32_t>> {}, 0, 5));
-    docsets.push_back(std::make_shared<MockDocSet>(
-            std::vector<uint32_t> {2, 4}, std::map<uint32_t, std::vector<uint32_t>> {}, 0, 15));
-    docsets.push_back(std::make_shared<MockDocSet>(
-            std::vector<uint32_t> {3, 5}, std::map<uint32_t, std::vector<uint32_t>> {}, 0, 25));
-
-    auto union_docset = SimpleUnion<MockDocSetPtr>::create(std::move(docsets));
-
-    EXPECT_EQ(union_docset->doc(), 1);
-    EXPECT_EQ(union_docset->norm(), 5);
-
-    EXPECT_EQ(union_docset->advance(), 2);
-    EXPECT_EQ(union_docset->norm(), 15);
-
-    EXPECT_EQ(union_docset->advance(), 3);
-    EXPECT_EQ(union_docset->norm(), 5);
-
-    EXPECT_EQ(union_docset->advance(), 4);
-    EXPECT_EQ(union_docset->norm(), 15);
-
-    EXPECT_EQ(union_docset->advance(), 5);
-    EXPECT_EQ(union_docset->norm(), 25);
-}
-
 TEST_F(SimpleUnionTest, AppendPositionsSingleDocSet) {
     std::map<uint32_t, std::vector<uint32_t>> positions = {{1, {0, 5, 10}}, {5, {2, 8, 15}}};
 

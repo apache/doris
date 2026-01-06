@@ -202,15 +202,6 @@ TEST_F(LoadedPostingsTest, SizeHint) {
     EXPECT_EQ(postings.size_hint(), 5);
 }
 
-TEST_F(LoadedPostingsTest, Norm) {
-    std::vector<uint32_t> doc_ids = {1, 5};
-    std::vector<std::vector<uint32_t>> positions(2);
-
-    LoadedPostings postings(doc_ids, positions);
-
-    EXPECT_EQ(postings.norm(), 1);
-}
-
 TEST_F(LoadedPostingsTest, SingleDocument) {
     std::vector<uint32_t> doc_ids = {42};
     std::vector<std::vector<uint32_t>> positions(1);

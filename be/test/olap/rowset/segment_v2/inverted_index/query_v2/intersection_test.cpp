@@ -212,21 +212,6 @@ TEST_F(IntersectionTest, test_size_hint) {
     EXPECT_EQ(0U, intersection->size_hint());
 }
 
-// Test norm - should return left docset's norm
-TEST_F(IntersectionTest, test_norm) {
-    std::vector<MockDocSetPtr> docsets;
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}, 0, 10));
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4}, 0, 20));
-
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
-    ASSERT_NE(nullptr, intersection);
-
-    // After creation, docsets are sorted by size_hint, and smallest becomes left
-    // Both have same size (3), so order depends on stable sort
-    uint32_t norm = intersection->norm();
-    EXPECT_TRUE(norm == 10 || norm == 20);
-}
-
 // Test docset_mut_specialized for accessing individual docsets
 TEST_F(IntersectionTest, test_docset_mut_specialized) {
     std::vector<MockDocSetPtr> docsets;

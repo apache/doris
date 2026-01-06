@@ -35,7 +35,6 @@ TEST_F(DocSetTest, test_docset_base_class_exceptions) {
     EXPECT_THROW(docset.doc(), Exception);
     EXPECT_THROW(docset.size_hint(), Exception);
     EXPECT_THROW(docset.freq(), Exception);
-    EXPECT_THROW(docset.norm(), Exception);
 }
 
 TEST_F(DocSetTest, test_mockdocset_constructor1_empty_docs) {
@@ -44,7 +43,6 @@ TEST_F(DocSetTest, test_mockdocset_constructor1_empty_docs) {
 
     EXPECT_EQ(mock_docset.doc(), TERMINATED);
     EXPECT_EQ(mock_docset.size_hint(), 0);
-    EXPECT_EQ(mock_docset.norm(), 1);
 }
 
 TEST_F(DocSetTest, test_mockdocset_constructor1_with_docs) {
@@ -53,7 +51,6 @@ TEST_F(DocSetTest, test_mockdocset_constructor1_with_docs) {
 
     EXPECT_EQ(mock_docset.doc(), 1);
     EXPECT_EQ(mock_docset.size_hint(), 5);
-    EXPECT_EQ(mock_docset.norm(), 1);
 }
 
 TEST_F(DocSetTest, test_mockdocset_constructor1_with_size_hint) {
@@ -62,25 +59,6 @@ TEST_F(DocSetTest, test_mockdocset_constructor1_with_size_hint) {
 
     EXPECT_EQ(mock_docset.doc(), 1);
     EXPECT_EQ(mock_docset.size_hint(), 10);
-    EXPECT_EQ(mock_docset.norm(), 1);
-}
-
-TEST_F(DocSetTest, test_mockdocset_constructor1_with_norm) {
-    std::vector<uint32_t> docs = {2, 5};
-    MockDocSet mock_docset(docs, 0, 5);
-
-    EXPECT_EQ(mock_docset.doc(), 2);
-    EXPECT_EQ(mock_docset.size_hint(), 2);
-    EXPECT_EQ(mock_docset.norm(), 5);
-}
-
-TEST_F(DocSetTest, test_mockdocset_constructor1_with_all_params) {
-    std::vector<uint32_t> docs = {7, 3, 9};
-    MockDocSet mock_docset(docs, 20, 3);
-
-    EXPECT_EQ(mock_docset.doc(), 3);
-    EXPECT_EQ(mock_docset.size_hint(), 20);
-    EXPECT_EQ(mock_docset.norm(), 3);
 }
 
 TEST_F(DocSetTest, test_mockdocset_constructor2_empty_docs) {
@@ -90,7 +68,6 @@ TEST_F(DocSetTest, test_mockdocset_constructor2_empty_docs) {
 
     EXPECT_EQ(mock_docset.doc(), TERMINATED);
     EXPECT_EQ(mock_docset.size_hint(), 0);
-    EXPECT_EQ(mock_docset.norm(), 1);
 }
 
 TEST_F(DocSetTest, test_mockdocset_constructor2_with_docs_and_positions) {
@@ -104,7 +81,6 @@ TEST_F(DocSetTest, test_mockdocset_constructor2_with_docs_and_positions) {
 
     EXPECT_EQ(mock_docset.doc(), 2);
     EXPECT_EQ(mock_docset.size_hint(), 3);
-    EXPECT_EQ(mock_docset.norm(), 1);
     EXPECT_EQ(mock_docset.freq(), 2);
 }
 
@@ -115,29 +91,6 @@ TEST_F(DocSetTest, test_mockdocset_constructor2_with_size_hint) {
 
     EXPECT_EQ(mock_docset.doc(), 1);
     EXPECT_EQ(mock_docset.size_hint(), 15);
-    EXPECT_EQ(mock_docset.norm(), 1);
-}
-
-TEST_F(DocSetTest, test_mockdocset_constructor2_with_norm) {
-    std::vector<uint32_t> docs = {4, 6};
-    std::map<uint32_t, std::vector<uint32_t>> doc_positions;
-    MockDocSet mock_docset(docs, doc_positions, 0, 7);
-
-    EXPECT_EQ(mock_docset.doc(), 4);
-    EXPECT_EQ(mock_docset.size_hint(), 2);
-    EXPECT_EQ(mock_docset.norm(), 7);
-}
-
-TEST_F(DocSetTest, test_mockdocset_constructor2_with_all_params) {
-    std::vector<uint32_t> docs = {2, 4, 6, 8};
-    std::map<uint32_t, std::vector<uint32_t>> doc_positions;
-    doc_positions[2] = {1, 2};
-    MockDocSet mock_docset(docs, doc_positions, 25, 4);
-
-    EXPECT_EQ(mock_docset.doc(), 2);
-    EXPECT_EQ(mock_docset.size_hint(), 25);
-    EXPECT_EQ(mock_docset.norm(), 4);
-    EXPECT_EQ(mock_docset.freq(), 2);
 }
 
 TEST_F(DocSetTest, test_next_empty_docs) {
@@ -328,13 +281,6 @@ TEST_F(DocSetTest, test_size_hint) {
     MockDocSet mock_docset(docs, 50);
 
     EXPECT_EQ(mock_docset.size_hint(), 50);
-}
-
-TEST_F(DocSetTest, test_norm) {
-    std::vector<uint32_t> docs = {1};
-    MockDocSet mock_docset(docs, 0, 99);
-
-    EXPECT_EQ(mock_docset.norm(), 99);
 }
 
 TEST_F(DocSetTest, test_freq_terminated) {
