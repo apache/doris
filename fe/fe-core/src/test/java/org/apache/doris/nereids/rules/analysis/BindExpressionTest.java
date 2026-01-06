@@ -49,7 +49,7 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 sql = String.format("select * from t1 %s t2",
                         joinType.toString().replace("_", " "));
             }
-            if (joinType.isNullAwareLeftAntiJoin()) {
+            if (joinType.isNullAwareLeftAntiJoin() || joinType.isAsofJoin()) {
                 continue;
             }
             PlanChecker.from(connectContext)
