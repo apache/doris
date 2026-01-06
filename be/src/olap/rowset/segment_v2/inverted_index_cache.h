@@ -106,16 +106,17 @@ private:
                 : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
                                  LRUCacheType::SIZE,
                                  config::inverted_index_cache_stale_sweep_time_sec, num_shards,
-                                 element_count_capacity, true) {}
+                                 element_count_capacity, /*enable_prune*/ true, /*is lru k*/ true) {
+        }
         InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
                                          uint32_t element_count_capacity,
                                          CacheValueTimeExtractor cache_value_time_extractor,
                                          bool cache_value_check_timestamp)
-                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
-                                 element_count_capacity, cache_value_time_extractor,
-                                 cache_value_check_timestamp, true) {}
+                : LRUCachePolicy(
+                          CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                          LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                          num_shards, element_count_capacity, cache_value_time_extractor,
+                          cache_value_check_timestamp, /*enable_prune*/ true, /*is lru k*/ true) {}
     };
     // Insert a cache entry by key.
     // And the cache entry will be returned in handle.
