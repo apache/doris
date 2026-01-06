@@ -3805,6 +3805,17 @@ TEST(function_string_test, function_hamming_distance_test) {
 
         check_function_all_arg_comb<DataTypeInt64, true>(func_name, input_types, data_set);
     }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {
+                {{std::string(""), std::string("abc")}, Null()},
+                {{std::string("abc"), std::string("")}, Null()},
+                {{std::string("hello"), std::string("world!")}, Null()},
+        };
+
+        check_function_all_arg_comb<DataTypeInt64, false>(func_name, input_types, data_set);
+    }
 }
 
 } // namespace doris::vectorized

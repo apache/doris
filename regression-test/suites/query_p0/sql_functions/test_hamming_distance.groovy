@@ -80,21 +80,12 @@ suite("test_hamming_distance") {
     order_qt_const_same_length_diff "select hamming_distance('abc', 'axc') from arg1_hamming_distance"
     order_qt_const_same_length_all_diff "select hamming_distance('abc', 'xyz') from arg1_hamming_distance"
     
-    /// Test exception cases - NULL inputs and unequal lengths
-    test {
-        sql "select hamming_distance(NULL, 'abc')"
-        exception "hamming_distance: input strings must have equal length"
-    }
+    /// Test NULL inputs
+    qt_nullable_null "select hamming_distance(NULL, 'abc')"
+    qt_nullable_null "select hamming_distance('abc', NULL)"
+    qt_nullable_null "select hamming_distance(NULL, NULL)"
 
-    test {
-        sql "select hamming_distance('abc', NULL)"
-        exception "hamming_distance: input strings must have equal length"
-    }
-
-    test {
-        sql "select hamming_distance(NULL, NULL)"
-        exception "hamming_distance: input strings must have equal length"
-    }
+    /// Test exception cases - unequal lengths
 
     test {
         sql "select hamming_distance('abc', 'abcd')"
