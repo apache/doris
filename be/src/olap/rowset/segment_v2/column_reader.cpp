@@ -53,11 +53,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
-<<<<<<< HEAD
-=======
 #include "olap/rowset/segment_v2/segment_prefetcher.h"
-#include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
->>>>>>> 553a3074cf6 (prefetch for complex type)
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"

@@ -49,10 +49,10 @@
 #include "cloud/cloud_backend_service.h"
 #include "cloud/config.h"
 #include "common/stack_trace.h"
-#include "util/concurrency_stats.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "util/concurrency_stats.h"
 #include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)

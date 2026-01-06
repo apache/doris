@@ -123,7 +123,6 @@ private:
 #define SCOPED_CONCURRENCY_COUNT_HELPER(counter_ptr, line) \
     SCOPED_CONCURRENCY_COUNT_IMPL(counter_ptr, line)
 
-#define SCOPED_CONCURRENCY_COUNT(counter_ptr) \
-    SCOPED_CONCURRENCY_COUNT_HELPER(counter_ptr, __LINE__)
+#define SCOPED_CONCURRENCY_COUNT(counter_ptr) SCOPED_CONCURRENCY_COUNT_HELPER(counter_ptr, __LINE__)
 
 } // namespace doris
