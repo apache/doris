@@ -129,7 +129,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             return agg;
         }
 
-        List<NamedExpression> groupKeys = new ArrayList<>();
+        List<SlotReference> groupKeys = new ArrayList<>();
         for (Expression groupKey : agg.getGroupByExpressions()) {
             if (groupKey instanceof SlotReference) {
                 groupKeys.add((SlotReference) groupKey);

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
-// import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -90,17 +89,17 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         List<SlotReference> joinConditionSlots;
-        List<NamedExpression> childGroupByKeys = new ArrayList<>();
+        List<SlotReference> childGroupByKeys = new ArrayList<>();
         if (toLeft) {
             joinConditionSlots = getJoinConditionsInputSlotsFromOneSide(join, join.left());
-            for (NamedExpression key : context.getGroupKeys()) {
+            for (SlotReference key : context.getGroupKeys()) {
                 if (join.left().getOutputSet().containsAll(key.getInputSlots())) {
                     childGroupByKeys.add(key);
                 }
             }
         } else {
             joinConditionSlots = getJoinConditionsInputSlotsFromOneSide(join, join.right());
-            for (NamedExpression key : context.getGroupKeys()) {
+            for (SlotReference key : context.getGroupKeys()) {
                 if (join.right().getOutputSet().containsAll(key.getInputSlots())) {
                     childGroupByKeys.add(key);
                 }
@@ -160,11 +159,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     private PushDownAggContext createContextFromProject(LogicalProject<? extends Plan> project,
             PushDownAggContext context) {
-        HashMap<Expression, Expression> replaceMapAliasBody = new HashMap<>();
         HashMap<Expression, Expression> replaceMapAlias = new HashMap<>();
         for (NamedExpression ne : project.getProjects()) {
             if (ne instanceof Alias) {
-                replaceMapAliasBody.put(ne.toSlot(), ((Alias) ne).child());
                 replaceMapAlias.put(ne.toSlot(), ne);
             }
         }
@@ -175,22 +172,15 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
          * newContext: sum(b+c), groupBy((u+v)+z as x, m+n as l)
          */
 
-        List<NamedExpression> groupKeys = new ArrayList<>();
-        for (NamedExpression key : context.getGroupKeys()) {
-            NamedExpression newKey;
-            if (key instanceof Alias) {
-                newKey = (Alias) ExpressionUtils.replace(key, replaceMapAliasBody);
-            } else {
-                // key is slot
-                newKey = (NamedExpression) replaceMapAlias.getOrDefault(key, key);
-            }
-            groupKeys.add(newKey);
+        List<SlotReference> groupKeys = new ArrayList<>();
+        for (SlotReference key : context.getGroupKeys()) {
+            groupKeys.add((SlotReference) project.pushDownExpressionPastProject(key));
         }
 
         List<AggregateFunction> aggFunctions = new ArrayList<>();
         Map<AggregateFunction, Alias> aliasMap = new HashMap<>();
         for (AggregateFunction aggFunc : context.getAggFunctions()) {
-            AggregateFunction newAggFunc = (AggregateFunction) ExpressionUtils.replace(aggFunc, replaceMapAliasBody);
+            AggregateFunction newAggFunc = (AggregateFunction) project.pushDownExpressionPastProject(aggFunc);
             Alias alias = context.getAliasMap().get(aggFunc);
             aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
             aggFunctions.add(newAggFunc);

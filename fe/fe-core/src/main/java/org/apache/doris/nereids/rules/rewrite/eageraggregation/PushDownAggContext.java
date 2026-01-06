@@ -39,7 +39,7 @@ import java.util.Set;
 public class PushDownAggContext {
     public static final int BIG_JOIN_BUILD_SIZE = 400_000;
     private final List<AggregateFunction> aggFunctions;
-    private final List<NamedExpression> groupKeys;
+    private final List<SlotReference> groupKeys;
     private final Map<AggregateFunction, Alias> aliasMap;
     private final Set<Slot> aggFunctionsInputSlots;
 
@@ -55,7 +55,7 @@ public class PushDownAggContext {
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<NamedExpression> groupKeys,
+            List<SlotReference> groupKeys,
             CascadesContext cascadesContext) {
         this(aggFunctions, groupKeys, null, cascadesContext, false);
     }
@@ -64,7 +64,7 @@ public class PushDownAggContext {
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<NamedExpression> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
+            List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
             boolean passThroughBigJoin) {
         this.groupKeys = groupKeys;
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
@@ -100,11 +100,11 @@ public class PushDownAggContext {
         return aggFunctions;
     }
 
-    public List<NamedExpression> getGroupKeys() {
+    public List<SlotReference> getGroupKeys() {
         return groupKeys;
     }
 
-    public PushDownAggContext withGroupKeys(List<NamedExpression> groupKeys) {
+    public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, passThroughBigJoin);
     }
 
