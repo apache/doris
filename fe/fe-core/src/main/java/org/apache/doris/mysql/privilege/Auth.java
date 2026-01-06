@@ -265,6 +265,19 @@ public class Auth implements Writable {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 
+    /**
+     * Gets matching UserIdentity without checking password.
+     * This is used for TLS certificate-based authentication and LDAP authentication
+     * where password verification may be handled differently.
+     *
+     * @param remoteUser the username
+     * @param remoteHost the remote host IP
+     * @return list of matching UserIdentity objects
+     */
+    public List<UserIdentity> getUserIdentityUncheckPasswd(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
     // ==== Global ====
     protected boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         readLock();

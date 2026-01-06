@@ -389,6 +389,14 @@ public class Config extends ConfigBase {
             "Protocols excluded from TLS, comma separated, e.g., thrift,mysql,http,brpc,arrowflight,bdbje"})
     public static String tls_excluded_protocols = "";
 
+    @ConfField(mutable = true, description = {
+            "当用户配置了 TLS 证书要求（如 REQUIRE SAN）且证书验证通过时，是否跳过密码验证直接登录。"
+                    + "为 true 时，证书验证通过即可免密登录；为 false 时，需同时验证证书和密码。",
+            "When user has TLS certificate requirements (e.g., REQUIRE SAN) and the certificate verification passes, "
+                    + "whether to skip password verification. If true, successful certificate verification allows "
+                    + "login without password; if false, both certificate and password verification are required."})
+    public static boolean tls_cert_based_auth_ignore_password = false;
+
     @ConfField(mutable = true, description = {"是否启用所有 http 接口的认证",
             "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;

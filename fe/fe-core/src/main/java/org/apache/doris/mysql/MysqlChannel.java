@@ -32,10 +32,14 @@ import org.xnio.channels.Channels;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLSession;
 
 /**
  * This class used to read/write MySQL logical packet.
@@ -603,6 +607,50 @@ public class MysqlChannel implements BytesChannel {
 
     public MysqlSerializer getSerializer() {
         return serializer;
+    }
+
+    /**
+     * Gets the client's X509 certificate from the SSL session if available.
+     * This is used for TLS certificate-based authentication.
+     *
+     * @return the client's X509 certificate, or null if not available (not in SSL mode,
+     *         no client certificate provided, or certificate is not X509)
+     */
+    public X509Certificate getClientCertificate() {
+        if (!isSslMode || sslEngine == null) {
+            return null;
+        }
+        try {
+            SSLSession session = sslEngine.getSession();
+            if (session == null) {
+                return null;
+            }
+            Certificate[] peerCerts = session.getPeerCertificates();
+            if (peerCerts == null || peerCerts.length == 0) {
+                return null;
+            }
+            // The first certificate is the peer's own certificate
+            Certificate cert = peerCerts[0];
+            if (cert instanceof X509Certificate) {
+                return (X509Certificate) cert;
+            }
+            return null;
+        } catch (SSLPeerUnverifiedException e) {
+            // Client did not provide a certificate
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Client did not provide a certificate: {}", e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Checks if the channel is in SSL mode.
+     *
+     * @return true if the channel is in SSL mode, false otherwise
+     */
+    public boolean isSslMode() {
+        return isSslMode;
     }
 
     private boolean handleWrapResult(SSLEngineResult sslEngineResult) throws SSLException {
