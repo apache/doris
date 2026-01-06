@@ -150,6 +150,8 @@ Status PackedFileManager::create_new_packed_file_context(
     // Create file writer for the packed file
     FileWriterPtr new_writer;
     FileWriterOptions opts;
+    // enable write file cache for packed file
+    opts.write_file_cache = true;
     RETURN_IF_ERROR(
             packed_file_ctx->file_system->create_file(Path(relative_path), &new_writer, &opts));
     packed_file_ctx->writer = std::move(new_writer);
