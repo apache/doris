@@ -183,12 +183,12 @@ import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DictionarySink;
+import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
@@ -338,8 +338,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (upstreamFragment.getPlanRoot() instanceof AggregationNode && upstream instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) upstream;
             if (hashAggregate.getAggPhase() == AggPhase.LOCAL
-                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER
-                    && hashAggregate.getTopnPushInfo() == null) {
+                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER) {
                 AggregationNode aggregationNode = (AggregationNode) upstreamFragment.getPlanRoot();
                 aggregationNode.setUseStreamingPreagg(hashAggregate.isMaybeUsingStream());
             }
@@ -2268,6 +2267,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 && findOlapScanNodesByPassExchangeAndJoinNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
             setOperationNode.setColocate(true);
+        }
+
+        for (Plan child : setOperation.children()) {
+            PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
+            if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
+                setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                break;
+            }
         }
 
         return setOperationFragment;

@@ -41,7 +41,8 @@ class AcceptNullPredicate : public ColumnPredicate {
 
 public:
     AcceptNullPredicate(const std::shared_ptr<ColumnPredicate>& nested)
-            : ColumnPredicate(nested->column_id(), nested->primitive_type(), nested->opposite()),
+            : ColumnPredicate(nested->column_id(), nested->col_name(), nested->primitive_type(),
+                              nested->opposite()),
               _nested {nested} {}
     AcceptNullPredicate(const AcceptNullPredicate& other, uint32_t col_id)
             : ColumnPredicate(other, col_id),

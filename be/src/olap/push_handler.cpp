@@ -523,10 +523,8 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
         vectorized::ColumnPtr column_ptr;
 
         auto& ctx = _dest_expr_ctxs[dest_index];
-        int result_column_id = -1;
         // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        column_ptr = _src_block.get_by_position(result_column_id).column;
+        RETURN_IF_ERROR(ctx->execute(&_src_block, column_ptr));
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
         DCHECK(column_ptr);
@@ -647,8 +645,8 @@ Status PushBrokerReader::_get_next_reader() {
                                                          _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(
-                _all_col_names, &_col_name_to_block_idx, _push_down_exprs, _real_tuple_desc,
-                _default_val_row_desc.get(), _col_name_to_slot_id,
+                _all_col_names, &_col_name_to_block_idx, _push_down_exprs, _slot_id_to_predicates,
+                _or_predicates, _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
                 &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
                 vectorized::TableSchemaChangeHelper::ConstNode::get_instance(), false);
         _cur_reader = std::move(parquet_reader);
