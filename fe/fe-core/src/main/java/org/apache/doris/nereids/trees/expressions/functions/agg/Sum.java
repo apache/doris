@@ -101,7 +101,7 @@ public class Sum extends NullableAggregateFunction
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
         if (!argType.isNumericType() && !argType.isBooleanType()
-                && !argType.isNullType() && !argType.isStringLikeType()) {
+                && !argType.isNullType() && !argType.isStringLikeType() && !argType.isJsonType()) {
             throw new AnalysisException("sum requires a numeric, boolean or string parameter: " + this.toSql());
         }
     }
