@@ -175,10 +175,10 @@ private:
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map) const {
-        const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
+        const auto& nested_data = assert_cast<const ColumnType&>(nested_column).get_data();
 
         auto dst_column = nested_column.clone_empty();
-        auto& dst_data = reinterpret_cast<ColumnType&>(*dst_column).get_data();
+        auto& dst_data = assert_cast<ColumnType&>(*dst_column).get_data();
         dst_data.resize(offsets.size());
 
         // process
@@ -203,7 +203,8 @@ private:
             // actual data copy
             if (null_flag) {
                 dst_null_map[row] = true;
-                dst_data[row] = typename ColumnType::value_type();
+                // scalar type -> ColumnVector/ColumnDecimal -> scalar_default_value
+                dst_data[row] = assert_cast<ColumnType&>(*dst_column).scalar_default_value();
             } else {
                 DCHECK(index >= 0 && index < nested_data.size());
                 dst_null_map[row] = false;

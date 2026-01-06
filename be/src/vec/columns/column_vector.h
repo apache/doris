@@ -178,6 +178,7 @@ public:
     }
 
     void insert_default() override { data.push_back(default_value()); }
+    value_type scalar_default_value() const { return default_value(); }
 
     void insert_many_defaults(size_t length) override {
         size_t old_size = data.size();

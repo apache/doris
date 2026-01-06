@@ -141,6 +141,7 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(value_type()); }
+    value_type scalar_default_value() const { return value_type(); }
     void insert(const Field& x) override {
         data.push_back(
                 doris::vectorized::get<typename PrimitiveTypeTraits<T>::NearestFieldType>(x));
