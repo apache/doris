@@ -88,13 +88,14 @@ bool FileScanLocalState::_should_push_down_or_predicate_recursively(
 
 PushDownType FileScanLocalState::_should_push_down_or_predicate(
         const vectorized::VExprContext* expr_ctx) const {
-    auto expr = expr_ctx->root()->get_impl() ? expr_ctx->root()->get_impl() : expr_ctx->root();
-    if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
-        expr->op() == TExprOpcode::COMPOUND_OR) {
-        if (_should_push_down_or_predicate_recursively(expr)) {
-            return PushDownType::PARTIAL_ACCEPTABLE;
-        }
-    }
+    // TODO(gabriel): Do not push down OR predicate for the time being.
+    //    auto expr = expr_ctx->root()->get_impl() ? expr_ctx->root()->get_impl() : expr_ctx->root();
+    //    if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
+    //        expr->op() == TExprOpcode::COMPOUND_OR) {
+    //        if (_should_push_down_or_predicate_recursively(expr)) {
+    //            return PushDownType::PARTIAL_ACCEPTABLE;
+    //        }
+    //    }
     return PushDownType::UNACCEPTABLE;
 }
 
