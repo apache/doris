@@ -319,7 +319,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (PartitionCompensator.needUnionRewrite(materializationContext, cascadesContext.getStatementContext())) {
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                 Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                    cascadesContext.getStatementContext(), queryStructInfo.getTableBitSet());
+                        cascadesContext.getStatementContext(), queryStructInfo.getTableBitSet());
                 Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
                 boolean canUnionRewrite = sessionVariable.isEnableMaterializedViewUnionRewrite();
                 if (canUnionRewrite) {
@@ -335,21 +335,21 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     }
                     if (relateTableUsedPartitionsAnyNull || relateTableUsedPartitionsAllEmpty) {
                         materializationContext.recordFailReason(queryStructInfo,
-                            String.format("queryUsedPartition is all null or empty but needUnionRewrite, "
+                                String.format("queryUsedPartition is all null or empty but needUnionRewrite, "
                                     + "queryUsedPartitions is %s, queryId is %s",
                                 queryUsedPartitions,
                                 cascadesContext.getConnectContext().getQueryIdentifier()),
-                            () -> String.format(
+                                () -> String.format(
                                 "queryUsedPartition is all null or empty but needUnionRewrite, "
                                     + "queryUsedPartitions is %s, queryId is %s",
                                 queryUsedPartitions,
                                 cascadesContext.getConnectContext().getQueryIdentifier()));
                         if (LOG.isDebugEnabled()) {
                             LOG.debug(String.format(
-                                "queryUsedPartition is all null or empty but needUnionRewrite, "
+                                    "queryUsedPartition is all null or empty but needUnionRewrite, "
                                     + "queryUsedPartitions is %s, queryId is %s",
-                                queryUsedPartitions,
-                                cascadesContext.getConnectContext().getQueryIdentifier()));
+                                    queryUsedPartitions,
+                                    cascadesContext.getConnectContext().getQueryIdentifier()));
                         }
                         return rewriteResults;
                     }
