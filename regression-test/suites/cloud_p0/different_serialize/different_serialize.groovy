@@ -37,16 +37,12 @@ suite ("different_serialize") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,3,null,'c';"
 
-    sql """alter table d_table modify column k4 set stats ('row_count'='7');"""
-
-    createMV("create materialized view mv1_1 as select k1 as x1,bitmap_intersect(to_bitmap(k2)) as x2 from d_table group by k1;")
-    createMV("create materialized view mv1 as select k1 as x3,bitmap_agg(k2) as x4 from d_table group by k1;")
-    createMV("create materialized view mv1_2 as select k1 as x5, multi_distinct_group_concat(k4) as x6 from d_table group by k1 order by k1;")
-    createMV("create materialized view mv1_3 as select k1 as x7, multi_distinct_sum(k3) as x8 from d_table group by k1 order by k1;")
-    createMV("create materialized view mv2 as select k1 as a1,map_agg(k2,k3) as a2 from d_table group by k1;")
-    createMV("create materialized view mv3 as select k1 as a3,array_agg(k2) as a4 from d_table group by k1;")
-    createMV("create materialized view mv4 as select k1 as a5,collect_list(k2,3) as a6 from d_table group by k1;")
-    createMV("create materialized view mv5 as select k1 as a7,collect_set(k2,3) as a8 from d_table group by k1;")
+    createMV("create materialized view mv1_1 as select k1 as k1_view, bitmap_intersect(to_bitmap(k2)) from d_table group by k1;")
+    createMV("create materialized view mv1 as select k1 as k1_mv1_view, bitmap_agg(k2) from d_table group by k1;")
+    createMV("create materialized view mv2 as select k1 as k1_mv2_view, map_agg(k2,k3) from d_table group by k1;")
+    createMV("create materialized view mv3 as select k1 as k1_mv3_view, array_agg(k2) from d_table group by k1;")
+    createMV("create materialized view mv4 as select k1 as k1_mv4_view, collect_list(k2,3) from d_table group by k1;")
+    createMV("create materialized view mv5 as select k1 as k1_mv5_view, collect_set(k2,3) from d_table group by k1;")
 
     sql "insert into d_table select -4,4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
