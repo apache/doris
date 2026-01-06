@@ -52,3 +52,30 @@ SELECT 2, named_struct('renamed', 21, 'keep', 22, 'drop_and_add', 23, 'added', 2
 -- Querying struct_element(a_struct, 'drop_and_add') or struct_element(a_struct, 'added')
 -- on the old file will trigger the bug
 
+-- ============================================================
+-- ORC format test table (for completeness, though ORC doesn't have the same bug)
+-- ============================================================
+DROP TABLE IF EXISTS test_struct_evolution_orc;
+
+-- Create ORC format table with same schema evolution scenario
+CREATE TABLE test_struct_evolution_orc (
+    id BIGINT,
+    a_struct STRUCT<removed: BIGINT, rename: BIGINT, keep: BIGINT, drop_and_add: BIGINT>
+) USING ICEBERG
+TBLPROPERTIES ('write.format.default' = 'orc', 'format-version' = 2);
+
+-- Insert initial data (creates ORC file with original schema)
+INSERT INTO test_struct_evolution_orc 
+SELECT 1, named_struct('removed', 10, 'rename', 11, 'keep', 12, 'drop_and_add', 13);
+
+-- Schema evolution - same operations as Parquet table
+ALTER TABLE test_struct_evolution_orc DROP COLUMN a_struct.removed;
+ALTER TABLE test_struct_evolution_orc RENAME COLUMN a_struct.rename TO renamed;
+ALTER TABLE test_struct_evolution_orc DROP COLUMN a_struct.drop_and_add;
+ALTER TABLE test_struct_evolution_orc ADD COLUMN a_struct.drop_and_add BIGINT;
+ALTER TABLE test_struct_evolution_orc ADD COLUMN a_struct.added BIGINT;
+
+-- Insert new data after schema evolution (creates new ORC file)
+INSERT INTO test_struct_evolution_orc 
+SELECT 2, named_struct('renamed', 21, 'keep', 22, 'drop_and_add', 23, 'added', 24);
+

@@ -95,6 +95,33 @@ suite("test_iceberg_struct_schema_evolution", "p0,external,doris,external_docker
     // Test 8: DISTINCT query on struct fields
     qt_struct_distinct """SELECT DISTINCT struct_element(a_struct, 'renamed'), struct_element(a_struct, 'added'), struct_element(a_struct, 'keep') FROM ${table_name} ORDER BY 1, 2, 3"""
 
+    // ============================================================
+    // Test with ORC format (for completeness)
+    // ============================================================
+    def orc_table_name = "test_struct_evolution_orc"
+
+    // Verify ORC table schema after evolution
+    qt_orc_desc """DESC ${orc_table_name}"""
+
+    // Test 1: Query all columns - should work
+    qt_orc_select_all """SELECT * FROM ${orc_table_name} ORDER BY id"""
+
+    // Test 2: Query struct field that exists in both old and new files
+    qt_orc_struct_keep """SELECT struct_element(a_struct, 'keep') FROM ${orc_table_name} ORDER BY id"""
+    qt_orc_struct_renamed """SELECT struct_element(a_struct, 'renamed') FROM ${orc_table_name} ORDER BY id"""
+
+    // Test 3: Query struct field that was dropped and re-added
+    qt_orc_struct_drop_and_add """SELECT struct_element(a_struct, 'drop_and_add') FROM ${orc_table_name} ORDER BY id"""
+
+    // Test 4: Query struct field that was newly added
+    qt_orc_struct_added """SELECT struct_element(a_struct, 'added') FROM ${orc_table_name} ORDER BY id"""
+
+    // Test 5: Query entire struct column
+    qt_orc_struct_full """SELECT a_struct FROM ${orc_table_name} ORDER BY id"""
+
+    // Test 6: Multiple struct fields in one query
+    qt_orc_struct_multi """SELECT struct_element(a_struct, 'renamed'), struct_element(a_struct, 'keep'), struct_element(a_struct, 'drop_and_add'), struct_element(a_struct, 'added') FROM ${orc_table_name} ORDER BY id"""
+
     // Clean up
     sql """drop catalog if exists ${catalog_name}"""
 }
