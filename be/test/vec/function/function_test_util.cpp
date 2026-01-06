@@ -25,6 +25,7 @@
 #include "runtime/runtime_state.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
+#include "util/quantile_state.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -35,6 +36,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
@@ -103,6 +105,10 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
     case TypeIndex::BitMap:
         desc.type = doris::PrimitiveType::TYPE_OBJECT;
         type = std::make_shared<DataTypeBitMap>();
+        return 1;
+    case TypeIndex::QuantileState:
+        desc.type = doris::PrimitiveType::TYPE_QUANTILE_STATE;
+        type = std::make_shared<DataTypeQuantileState>();
         return 1;
     case TypeIndex::IPv4:
         desc.type = doris::PrimitiveType::TYPE_IPV4;
@@ -329,6 +335,9 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
     } else if (type.idx == TypeIndex::BitMap) {
         auto* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
+    } else if (type.idx == TypeIndex::QuantileState) {
+        QuantileState* quantile_state = any_cast<QuantileState*>(cell);
+        column->insert_data((char*)quantile_state, sizeof(QuantileState));
     } else if (type.is_ipv4()) {
         auto value = any_cast<ut_type::IPV4>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
