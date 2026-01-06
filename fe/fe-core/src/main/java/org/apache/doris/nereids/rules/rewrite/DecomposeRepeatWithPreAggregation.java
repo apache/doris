@@ -79,8 +79,8 @@ import java.util.Set;
  *     +--LogicalProject(a,b,c,d, null as e, sum(x))
  *       +--LogicalAggregate(gby:a,b,c,d,grouping_id; aggFunc: sum(x))
  *         +--LogicalRepeat(grouping sets: (a,b,c,d),(a,b,c),(a,b),(a),())
- *           +--LogicalCTEConsumer(cteConsumer1)
- *     +--LogicalCTEConsumer(cteConsumer2)
+ *           +--LogicalCTEConsumer(aggregateConsumer)
+ *     +--LogicalCTEConsumer(directConsumer)
  */
 public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<DistinctSelectorContext>
         implements CustomRewriter {
@@ -124,14 +124,14 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         Map<Slot, Slot> preToProducerSlotMap = new HashMap<>();
         LogicalCTEProducer<LogicalAggregate<Plan>> producer = constructProducer(aggregate, maxGroupIndex, ctx,
                 preToProducerSlotMap);
-        LogicalCTEConsumer consumer1 = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
+        LogicalCTEConsumer aggregateConsumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
                 producer.getCteId(), "", producer);
-        LogicalCTEConsumer consumer2 = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
+        LogicalCTEConsumer directConsumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
                 producer.getCteId(), "", producer);
 
         // build map : origin slot to consumer slot
         Map<Slot, Slot> producerToConsumerMap = new HashMap<>();
-        for (Map.Entry<Slot, Slot> entry : consumer1.getProducerToConsumerOutputMap().entries()) {
+        for (Map.Entry<Slot, Slot> entry : aggregateConsumer.getProducerToConsumerOutputMap().entries()) {
             producerToConsumerMap.put(entry.getKey(), entry.getValue());
         }
         Map<Slot, Slot> originToConsumerMap = new HashMap<>();
@@ -147,13 +147,20 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             }
             newGroupingSets.add(repeat.getGroupingSets().get(i));
         }
-        LogicalRepeat<Plan> newRepeat = constructRepeat(repeat, consumer1, newGroupingSets, originToConsumerMap);
+        LogicalRepeat<Plan> newRepeat = constructRepeat(repeat, aggregateConsumer, newGroupingSets, originToConsumerMap);
         Set<Expression> needRemovedExprSet = getNeedAddNullExpressions(repeat, newGroupingSets, maxGroupIndex);
         LogicalProject<Plan> project = constructProjectAggregate(aggregate,
                 originToConsumerMap, repeat, newRepeat, needRemovedExprSet);
-        return constructUnion(project, consumer2, aggregate);
+        return constructUnion(project, directConsumer, aggregate);
     }
 
+    /**
+     * Build a map from aggregate function to its corresponding slot.
+     *
+     * @param outputExpressions the output expressions containing aggregate functions
+     * @param pToc the map from producer slot to consumer slot
+     * @return a map from aggregate function to its corresponding slot in consumer outputs
+     */
     private Map<AggregateFunction, Slot> getAggFuncSlotMap(List<NamedExpression> outputExpressions,
             Map<Slot, Slot> pToc) {
         // build map : aggFunc to Slot
@@ -170,6 +177,15 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return aggFuncSlotMap;
     }
 
+    /**
+     * Get the set of expressions that need to be replaced with null in the new grouping sets.
+     * These are expressions that exist in the maximum grouping set but not in other grouping sets.
+     *
+     * @param repeat the original LogicalRepeat plan
+     * @param newGroupingSets the new grouping sets after removing the maximum grouping set
+     * @param maxGroupIndex the index of the maximum grouping set
+     * @return the set of expressions that need to be replaced with null
+     */
     private Set<Expression> getNeedAddNullExpressions(LogicalRepeat<Plan> repeat,
             List<List<Expression>> newGroupingSets, int maxGroupIndex) {
         Set<Expression> otherGroupExprSet = new HashSet<>();
@@ -182,6 +198,18 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return needRemovedExprSet;
     }
 
+    /**
+     * Construct a LogicalProject and a LogicalAggregate.
+     * This method rewrites aggregate functions to use slots from the consumer and replaces
+     * removed expressions with null literals.
+     *
+     * @param aggregate the original aggregate plan
+     * @param originToConsumerMap the map from original slots to consumer slots
+     * @param repeat the original LogicalRepeat plan
+     * @param newRepeat the new LogicalRepeat plan with reduced grouping sets
+     * @param needRemovedExprSet the set of expressions that need to be replaced with null
+     * @return a LogicalProject containing the rewritten aggregate
+     */
     private LogicalProject<Plan> constructProjectAggregate(LogicalAggregate<? extends Plan> aggregate,
             Map<Slot, Slot> originToConsumerMap, LogicalRepeat<Plan> repeat,
             LogicalRepeat<Plan> newRepeat, Set<Expression> needRemovedExprSet) {
@@ -243,13 +271,22 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return new LogicalProject<>(projects, topAgg);
     }
 
-    private LogicalUnion constructUnion(LogicalPlan child1, LogicalPlan child2,
+    /**
+     * Construct a LogicalUnion that combines the results from the decomposed repeat
+     * and the CTE consumer.
+     *
+     * @param aggregateProject the first child plan (project with aggregate)
+     * @param directConsumer the second child plan (CTE consumer)
+     * @param aggregate the original aggregate plan for output reference
+     * @return a LogicalUnion combining the two children
+     */
+    private LogicalUnion constructUnion(LogicalPlan aggregateProject, LogicalPlan directConsumer,
             LogicalAggregate<? extends Plan> aggregate) {
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
         List<NamedExpression> unionOutputs = new ArrayList<>();
         List<List<SlotReference>> childrenOutputs = new ArrayList<>();
-        childrenOutputs.add((List) child1.getOutput());
-        childrenOutputs.add((List) child2.getOutput());
+        childrenOutputs.add((List) aggregateProject.getOutput());
+        childrenOutputs.add((List) directConsumer.getOutput());
         for (NamedExpression expr : aggregate.getOutputExpressions()) {
             if (expr.getExprId().equals(repeat.getGroupingId().get().getExprId())) {
                 continue;
@@ -257,9 +294,22 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             unionOutputs.add(expr.toSlot());
         }
         return new LogicalUnion(Qualifier.ALL, unionOutputs, childrenOutputs, ImmutableList.of(),
-                false, ImmutableList.of(child1, child2));
+                false, ImmutableList.of(aggregateProject, directConsumer));
     }
 
+    /**
+     * Determine if optimization is possible; if so, return the index of the largest group.
+     * The optimization requires:
+     * 1. The aggregate's child must be a LogicalRepeat
+     * 2. All aggregate functions must be Sum, Min, or Max (non-distinct)
+     * 3. No GroupingScalarFunction in repeat output
+     * 4. More than 3 grouping sets
+     * 5. There exists a grouping set that contains all other grouping sets
+     *
+     * @param aggregate the aggregate plan to check
+     * @return value -1 means can not be optimized, values other than -1
+     *      represent the index of the set that contains all other sets
+     */
     private int canOptimize(LogicalAggregate<? extends Plan> aggregate) {
         Plan aggChild = aggregate.child();
         if (!(aggChild instanceof LogicalRepeat)) {
@@ -309,6 +359,16 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return maxGroupIndex;
     }
 
+    /**
+     * Construct a LogicalCTEProducer that pre-aggregates data using the maximum grouping set.
+     * This producer will be used by consumers to avoid recomputing the same aggregation.
+     *
+     * @param aggregate the original aggregate plan
+     * @param maxGroupIndex the index of the maximum grouping set
+     * @param ctx context
+     * @param preToCloneSlotMap output parameter: map from pre-aggregate slots to cloned slots
+     * @return a LogicalCTEProducer containing the pre-aggregation
+     */
     private LogicalCTEProducer<LogicalAggregate<Plan>> constructProducer(LogicalAggregate<? extends Plan> aggregate,
             int maxGroupIndex, DistinctSelectorContext ctx, Map<Slot, Slot> preToCloneSlotMap) {
         LogicalRepeat<? extends Plan> repeat = (LogicalRepeat<? extends Plan>) aggregate.child();
@@ -341,11 +401,21 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return producer;
     }
 
+    /**
+     * Construct a new LogicalRepeat with reduced grouping sets and replaced expressions.
+     * The grouping sets and output expressions are replaced using the slot mapping from producer to consumer.
+     *
+     * @param repeat the original LogicalRepeat plan
+     * @param child the child plan (usually a CTE consumer)
+     * @param newGroupingSets the new grouping sets after removing the maximum grouping set
+     * @param producerToDirectConsumerSlotMap the map from producer slots to consumer slots
+     * @return a new LogicalRepeat with replaced expressions
+     */
     private LogicalRepeat<Plan> constructRepeat(LogicalRepeat<Plan> repeat, LogicalPlan child,
-            List<List<Expression>> newGroupingSets, Map<Slot, Slot> producerToConsumer2SlotMap) {
+            List<List<Expression>> newGroupingSets, Map<Slot, Slot> producerToDirectConsumerSlotMap) {
         List<List<Expression>> replacedNewGroupingSets = new ArrayList<>();
         for (List<Expression> groupingSet : newGroupingSets) {
-            replacedNewGroupingSets.add(ExpressionUtils.replace(groupingSet, producerToConsumer2SlotMap));
+            replacedNewGroupingSets.add(ExpressionUtils.replace(groupingSet, producerToDirectConsumerSlotMap));
         }
         List<NamedExpression> replacedRepeatOutputs = new ArrayList<>(child.getOutput());
         return repeat.withNormalizedExpr(replacedNewGroupingSets, replacedRepeatOutputs,
