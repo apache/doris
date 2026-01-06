@@ -895,13 +895,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
-                if (table.isTemporary()) {
-                    // because we return all table names to be,
-                    // so when we skip temporary table, we should add a offset here
-                    tablesOffset.add(columns.size());
-                    continue;
-                }
                 if (table != null) {
+                    if (table.isTemporary()) {
+                        // because we return all table names to be,
+                        // so when we skip temporary table, we should add a offset here
+                        tablesOffset.add(columns.size());
+                        continue;
+                    }
                     table.readLock();
                     try {
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
@@ -3631,7 +3631,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (AddPartitionOp addPartitionOp : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true, null);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(

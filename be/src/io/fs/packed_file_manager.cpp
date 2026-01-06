@@ -256,6 +256,7 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
     location.packed_file_path = active_state->packed_file_path;
     location.offset = active_state->current_offset;
     location.size = data.get_size();
+    location.create_time = std::time(nullptr);
     location.tablet_id = info.tablet_id;
     location.rowset_id = info.rowset_id;
     location.resource_id = info.resource_id;
@@ -609,6 +610,15 @@ void PackedFileManager::process_uploading_packed_files() {
             first_slice = false;
             slices_stream << small_file_path << "(txn=" << index.txn_id
                           << ", offset=" << index.offset << ", size=" << index.size << ")";
+
+            // Update packed_file_size in global index
+            {
+                std::lock_guard<std::mutex> global_lock(_global_index_mutex);
+                auto it = _global_slice_locations.find(small_file_path);
+                if (it != _global_slice_locations.end()) {
+                    it->second.packed_file_size = packed_file->total_size;
+                }
+            }
         }
         LOG(INFO) << "Packed file " << packed_file->packed_file_path
                   << " uploaded; slices=" << packed_file->slice_locations.size()
@@ -809,30 +819,12 @@ void PackedFileManager::cleanup_expired_data() {
 
     // Clean up expired global index entries
     {
-        std::unordered_set<std::string> active_packed_files;
-        {
-            std::lock_guard<std::timed_mutex> current_lock(_current_packed_file_mutex);
-            for (const auto& [resource_id, state] : _current_packed_files) {
-                if (state) {
-                    active_packed_files.insert(state->packed_file_path);
-                }
-            }
-        }
-        {
-            std::lock_guard<std::mutex> merge_lock(_packed_files_mutex);
-            for (const auto& [path, state] : _uploading_packed_files) {
-                active_packed_files.insert(path);
-            }
-            for (const auto& [path, state] : _uploaded_packed_files) {
-                active_packed_files.insert(path);
-            }
-        }
-
         std::lock_guard<std::mutex> global_lock(_global_index_mutex);
         auto it = _global_slice_locations.begin();
         while (it != _global_slice_locations.end()) {
             const auto& index = it->second;
-            if (active_packed_files.find(index.packed_file_path) == active_packed_files.end()) {
+            if (index.create_time > 0 &&
+                current_time - index.create_time > config::uploaded_file_retention_seconds) {
                 it = _global_slice_locations.erase(it);
             } else {
                 ++it;

@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
 }
 
 TEST(TxnKvTest, Network) {
-    fdb::Network network(FDBNetworkOption {});
+    fdb::Network network;
     network.init();
     network.stop();
 }

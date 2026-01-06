@@ -130,7 +130,7 @@ public class HttpUtils {
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        CloseableHttpClient client = HttpClientBuilder.create().build();
+        CloseableHttpClient client = getHttpClient();
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
     }
 

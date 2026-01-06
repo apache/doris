@@ -93,9 +93,6 @@ public class Replica {
     // the version could be queried
     @SerializedName(value = "v", alternate = {"version"})
     private volatile long version;
-    @Deprecated
-    @SerializedName(value = "vh", alternate = {"versionHash"})
-    private long versionHash = 0L;
     private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
@@ -109,17 +106,11 @@ public class Replica {
     // the last load failed version
     @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
     private long lastFailedVersion = -1L;
-    @Deprecated
-    @SerializedName(value = "lfvh", alternate = {"lastFailedVersionHash"})
-    private long lastFailedVersionHash = 0L;
     // not serialized, not very important
     private long lastFailedTimestamp = 0;
     // the last load successful version
     @SerializedName(value = "lsv", alternate = {"lastSuccessVersion"})
     private long lastSuccessVersion = -1L;
-    @Deprecated
-    @SerializedName(value = "lsvh", alternate = {"lastSuccessVersionHash"})
-    private long lastSuccessVersionHash = 0L;
 
     @Setter
     @Getter
@@ -438,7 +429,6 @@ public class Replica {
         if (this.lastFailedVersion < this.version) {
             this.lastFailedVersion = -1;
             this.lastFailedTimestamp  = -1;
-            this.lastFailedVersionHash = 0;
         }
         if (this.lastFailedVersion > 0
                 && this.lastSuccessVersion > this.lastFailedVersion) {
@@ -546,7 +536,6 @@ public class Replica {
         // Case 4:
         if (this.version >= this.lastFailedVersion) {
             this.lastFailedVersion = -1;
-            this.lastFailedVersionHash = 0;
             this.lastFailedTimestamp = -1;
             if (this.version < this.lastSuccessVersion) {
                 this.version = this.lastSuccessVersion;

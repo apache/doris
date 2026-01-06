@@ -25,7 +25,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -112,9 +111,6 @@ public class Tablet extends MetaObject {
     protected List<Replica> replicas;
     @SerializedName(value = "cv", alternate = {"checkedVersion"})
     private long checkedVersion;
-    @Deprecated
-    @SerializedName(value = "cvs", alternate = {"checkedVersionHash"})
-    private long checkedVersionHash;
     @SerializedName(value = "ic", alternate = {"isConsistent"})
     private boolean isConsistent;
 
@@ -123,7 +119,7 @@ public class Tablet extends MetaObject {
     private long cooldownReplicaId = -1;
     @SerializedName(value = "ctm", alternate = {"cooldownTerm"})
     private long cooldownTerm = -1;
-    private MonitoredReentrantReadWriteLock cooldownConfLock = new MonitoredReentrantReadWriteLock();
+    private final Object cooldownConfLock = new Object();
 
     // last time that the tablet checker checks this tablet.
     // no need to persist
@@ -159,10 +155,6 @@ public class Tablet extends MetaObject {
         isConsistent = true;
     }
 
-    public void setIdForRestore(long tabletId) {
-        this.id = tabletId;
-    }
-
     public long getId() {
         return this.id;
     }
@@ -184,10 +176,10 @@ public class Tablet extends MetaObject {
     }
 
     public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
-        cooldownConfLock.writeLock().lock();
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
-        cooldownConfLock.writeLock().unlock();
+        synchronized (cooldownConfLock) {
+            this.cooldownReplicaId = cooldownReplicaId;
+            this.cooldownTerm = cooldownTerm;
+        }
     }
 
     public long getCooldownReplicaId() {
@@ -195,11 +187,8 @@ public class Tablet extends MetaObject {
     }
 
     public Pair<Long, Long> getCooldownConf() {
-        cooldownConfLock.readLock().lock();
-        try {
+        synchronized (cooldownConfLock) {
             return Pair.of(cooldownReplicaId, cooldownTerm);
-        } finally {
-            cooldownConfLock.readLock().unlock();
         }
     }
 
@@ -451,11 +440,6 @@ public class Tablet extends MetaObject {
 
     public void setTabletId(long tabletId) {
         this.id = tabletId;
-    }
-
-    public static void sortReplicaByVersionDesc(List<Replica> replicas) {
-        // sort replicas by version. higher version in the tops
-        replicas.sort(Replica.VERSION_DESC_COMPARATOR);
     }
 
     @Override

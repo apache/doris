@@ -35,9 +35,9 @@ public:
     ENABLE_FACTORY_CREATOR(BloomFilterColumnPredicate);
     using SpecificFilter = BloomFilterFunc<T>;
 
-    BloomFilterColumnPredicate(uint32_t column_id,
+    BloomFilterColumnPredicate(uint32_t column_id, std::string col_name,
                                const std::shared_ptr<BloomFilterFuncBase>& filter)
-            : ColumnPredicate(column_id, T),
+            : ColumnPredicate(column_id, col_name, T),
               _filter(filter),
               _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BloomFilterColumnPredicate() override = default;
