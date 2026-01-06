@@ -42,7 +42,7 @@ public:
     Status start(RuntimeState* state) override;
     Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
-    static std::vector<SchemaScanner::ColumnDesc> _s_frontend_metric_columns;
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
     Status _fill_block_impl(vectorized::Block* block);
