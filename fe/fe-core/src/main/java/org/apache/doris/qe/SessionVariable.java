@@ -2202,7 +2202,16 @@ public class SessionVariable implements Serializable, Writable {
                             + "1: force eager aggregation, "
                             + "-1: Prohibit eager aggregation "}
     )
-    public int eagerAggregationMode = 0;
+    private int eagerAggregationMode = 0;
+
+    public static int getEagerAggregationMode() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationMode;
+        }
+    }
+
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,

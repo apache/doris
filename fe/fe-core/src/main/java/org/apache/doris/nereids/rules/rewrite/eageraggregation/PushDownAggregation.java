@@ -60,7 +60,6 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Sets;
@@ -97,7 +96,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        int mode = ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        int mode = SessionVariable.getEagerAggregationMode();
         if (mode < 0) {
             return plan;
         } else {
