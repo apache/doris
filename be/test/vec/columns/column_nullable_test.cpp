@@ -37,8 +37,8 @@ TEST(ColumnNullableTest, NullTest) {
     ColumnNullable::MutablePtr null_col = create_column_nullable<TYPE_BIGINT>(500, true);
     EXPECT_TRUE(null_col->has_null());
 
-    ColumnNullable::MutablePtr dst_col =
-            ColumnNullable::create(create_nested_column<TYPE_BIGINT>(10), ColumnUInt8::create(10));
+    ColumnNullable::MutablePtr dst_col = ColumnNullable::create(
+            create_nested_column<TYPE_BIGINT>(10), ColumnUInt8::create(10, 0));
     EXPECT_FALSE(dst_col->has_null());
 
     ColumnInt64::MutablePtr source_col = ColumnInt64::create();
@@ -49,7 +49,7 @@ TEST(ColumnNullableTest, NullTest) {
     dst_col->clear();
     EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_range_from(
-            *ColumnNullable::create(std::move(source_col), ColumnUInt8::create(10)), 5, 5);
+            *ColumnNullable::create(std::move(source_col), ColumnUInt8::create(10, 0)), 5, 5);
     EXPECT_FALSE(dst_col->has_null());
 
     dst_col->clear();
