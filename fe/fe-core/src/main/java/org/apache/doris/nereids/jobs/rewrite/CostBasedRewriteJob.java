@@ -29,21 +29,18 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -61,14 +58,10 @@ public class CostBasedRewriteJob implements RewriteJob {
         // need to generate real rewrite job list
     }
 
-    private void restoreCteProducerMap(StatementContext context, Map<CTEId, LogicalPlan> currentCteProducers) {
-        context.getRewrittenCteProducer().clear();
-        currentCteProducers.forEach(context.getRewrittenCteProducer()::put);
-    }
-
     @Override
     public void execute(JobContext jobContext) {
-        // checkHint.first means whether it use hint and checkHint.second means what kind of hint it used
+        // checkHint.first means whether it use hint and checkHint.second means what
+        // kind of hint it used
         Pair<Boolean, Hint> checkHint = checkRuleHint();
         // this means it no_use_cbo_rule(xxx) hint
         if (checkHint.first && checkHint.second == null) {
@@ -85,15 +78,12 @@ public class CostBasedRewriteJob implements RewriteJob {
             return;
         }
 
-        Map<CTEId, LogicalPlan> currentCteProducers = Maps.newHashMap();
-        // cost based rewrite job may contaminate StatementContext.rewrittenCteProducer
-        // clone current rewrittenCteProducer, and restore it after getCost(.).
-        currentCtx.getStatementContext().getRewrittenCteProducer().forEach(currentCteProducers::put);
+        StatementContext.CteEnvironmentSnapshot cteEnvSnapshot = currentCtx.getStatementContext().cacheCteEnvironment();
         // compare two candidates
         Optional<Pair<Cost, GroupExpression>> skipCboRuleCost = getCost(currentCtx, skipCboRuleCtx, jobContext);
-        restoreCteProducerMap(currentCtx.getStatementContext(), currentCteProducers);
+        currentCtx.getStatementContext().restoreCteEnvironment(cteEnvSnapshot);
         Optional<Pair<Cost, GroupExpression>> appliedCboRuleCost = getCost(currentCtx, applyCboRuleCtx, jobContext);
-        restoreCteProducerMap(currentCtx.getStatementContext(), currentCteProducers);
+        currentCtx.getStatementContext().restoreCteEnvironment(cteEnvSnapshot);
         // If one of them optimize failed, just return
         if (!skipCboRuleCost.isPresent() || !appliedCboRuleCost.isPresent()) {
             LOG.warn("Cbo rewrite execute failed on sql: {}, jobs are {}, plan is {}.",
@@ -109,7 +99,8 @@ public class CostBasedRewriteJob implements RewriteJob {
             }
             return;
         }
-        // If the candidate applied cbo rule is better, replace the original plan with it.
+        // If the candidate applied cbo rule is better, replace the original plan with
+        // it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
             currentCtx.setRewritePlan(applyCboPlan);
         }
@@ -117,10 +108,11 @@ public class CostBasedRewriteJob implements RewriteJob {
 
     /**
      * check if we have use rule hint or no use rule hint
-     *     return an optional object which checkHint.first means whether it use hint
-     *     and checkHint.second means what kind of hint it used
-     *     example, when we use *+ no_use_cbo_rule(xxx) * the optional would be (true, false)
-     *     which means it use hint and the hint forbid this kind of rule
+     * return an optional object which checkHint.first means whether it use hint
+     * and checkHint.second means what kind of hint it used
+     * example, when we use *+ no_use_cbo_rule(xxx) * the optional would be (true,
+     * false)
+     * which means it use hint and the hint forbid this kind of rule
      */
     private Pair<Boolean, Hint> checkRuleHint() {
         Pair<Boolean, Hint> checkResult = Pair.of(false, null);
@@ -150,7 +142,8 @@ public class CostBasedRewriteJob implements RewriteJob {
     }
 
     /**
-     * for these rules we need use_cbo_rule hint to enable it, otherwise it would be close by default
+     * for these rules we need use_cbo_rule hint to enable it, otherwise it would be
+     * close by default
      */
     private static boolean checkBlackList(RuleType ruleType) {
         List<RuleType> ruleWhiteList = new ArrayList<>(Arrays.asList(
