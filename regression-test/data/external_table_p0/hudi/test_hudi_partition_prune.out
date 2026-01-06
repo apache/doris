@@ -188,6 +188,8 @@
 2	Bob	2023-12-01
 
 -- !one_partition_timestamp --
+1	Alice	2023-12-01T08:00
+2	Bob	2023-12-01T08:00
 
 -- !one_partition_1_1 --
 1	Alice	2024
@@ -378,4 +380,6 @@
 2	Bob	2023-12-01
 
 -- !one_partition_timestamp --
+1	Alice	2023-12-01T08:00
+2	Bob	2023-12-01T08:00
 

@@ -45,10 +45,10 @@
 4
 
 -- !runtime_filter_partition_pruning_timestamp_1 --
-0
+2
 
 -- !runtime_filter_partition_pruning_timestamp_2 --
-0
+4
 
 -- !runtime_filter_partition_pruning_complex_1 --
 7
@@ -102,10 +102,10 @@
 4
 
 -- !runtime_filter_partition_pruning_timestamp_1 --
-0
+2
 
 -- !runtime_filter_partition_pruning_timestamp_2 --
-0
+4
 
 -- !runtime_filter_partition_pruning_complex_1 --
 7
