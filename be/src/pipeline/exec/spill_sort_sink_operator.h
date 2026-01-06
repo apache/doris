@@ -50,6 +50,8 @@ private:
     void _init_counters();
     void update_profile(RuntimeProfile* child_profile);
 
+    Status _execute_spill_sort(RuntimeState* state, TUniqueId query_id);
+
     friend class SpillSortSinkOperatorX;
 
     std::unique_ptr<RuntimeState> _runtime_state;
