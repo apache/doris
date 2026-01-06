@@ -45,6 +45,7 @@ struct PackedSliceLocation {
     std::string packed_file_path;
     int64_t offset;
     int64_t size;
+    int64_t create_time = 0;
     int64_t tablet_id = 0;
     std::string rowset_id;
     std::string resource_id;

@@ -47,8 +47,8 @@ template <PrimitiveType T>
 class LikeColumnPredicate final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(LikeColumnPredicate);
-    LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,
-                        doris::StringRef val);
+    LikeColumnPredicate(bool opposite, uint32_t column_id, std::string col_name,
+                        doris::FunctionContext* fn_ctx, doris::StringRef val);
     ~LikeColumnPredicate() override = default;
     LikeColumnPredicate(const LikeColumnPredicate<T>& other, uint32_t col_id)
             : ColumnPredicate(other, col_id) {
