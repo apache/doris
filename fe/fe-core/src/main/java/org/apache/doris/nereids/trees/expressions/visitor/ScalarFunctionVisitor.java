@@ -333,6 +333,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
@@ -1706,6 +1708,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitQuantileStateEmpty(QuantileStateEmpty quantileEmpty, C context) {
         return visitScalarFunction(quantileEmpty, context);
+    }
+
+    default R visitQuantileStateFromBase64(QuantileStateFromBase64 quantileStateFromBase64, C context) {
+        return visitScalarFunction(quantileStateFromBase64, context);
+    }
+
+    default R visitQuantileStateToBase64(QuantileStateToBase64 quantileStateToBase64, C context) {
+        return visitScalarFunction(quantileStateToBase64, context);
     }
 
     default R visitQuarter(Quarter quarter, C context) {
