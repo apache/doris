@@ -118,21 +118,21 @@ public class ListMetricVisitor extends MetricVisitor {
         // threads
         Threads threads = jvmStats.getThreads();
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getCount(), "\"type\"=\"count\"}"));
+                threads.getCount(), "{\"type\"=\"count\"}"));
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getPeakCount(), "\"type\"=\"peak_count\"}"));
+                threads.getPeakCount(), "{\"type\"=\"peak_count\"}"));
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getThreadsNewCount(), "\"type\"=\"new_count\"}"));
+                threads.getThreadsNewCount(), "{\"type\"=\"new_count\"}"));
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getThreadsRunnableCount(), "\"type\"=\"runnable_count\"}"));
+                threads.getThreadsRunnableCount(), "{\"type\"=\"runnable_count\"}"));
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getThreadsBlockedCount(), "\"type\"=\"blocked_count\"}"));
+                threads.getThreadsBlockedCount(), "{\"type\"=\"blocked_count\"}"));
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getThreadsWaitingCount(), "\"type\"=\"waiting_count\"}"));
+                threads.getThreadsWaitingCount(), "{\"type\"=\"waiting_count\"}"));
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getThreadsTimedWaitingCount(), "\"type\"=\"timed_waiting_count\"}"));
+                threads.getThreadsTimedWaitingCount(), "{\"type\"=\"timed_waiting_count\"}"));
         this.metricsList.add(newGaugeSubList(JVM_THREAD,
-                threads.getThreadsTerminatedCount(), "\"type\"=\"terminated_count\"}"));
+                threads.getThreadsTerminatedCount(), "{\"type\"=\"terminated_count\"}"));
     }
 
     @Override
