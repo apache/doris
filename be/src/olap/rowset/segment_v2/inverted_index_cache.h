@@ -230,7 +230,9 @@ public:
     InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
             : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE, capacity,
                              LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
-                             num_shards) {}
+                             num_shards,
+                             /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                             /*is_lru_k*/ true) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 
