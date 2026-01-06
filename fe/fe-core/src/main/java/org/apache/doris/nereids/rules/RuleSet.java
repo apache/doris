@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.IntersectReorder;
-import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociateProject;
@@ -28,8 +27,6 @@ import org.apache.doris.nereids.rules.exploration.join.JoinExchangeBothProject;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughInnerOuterJoin;
-import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateOnNoneAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateRule;
@@ -141,7 +138,7 @@ import java.util.List;
 public class RuleSet {
 
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(new MergeProjectsCBO())
+            // .add(new MergeProjectsCBO())
             .add(IntersectReorder.INSTANCE)
             .build();
 
@@ -150,8 +147,8 @@ public class RuleSet {
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
-            .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
-            .add(PushDownProjectThroughSemiJoin.INSTANCE)
+            // .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
+            // .add(PushDownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
             .addAll(new PushDownTopNThroughJoin().buildRules())
             .addAll(new PushDownLimitDistinctThroughJoin().buildRules())
