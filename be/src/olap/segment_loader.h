@@ -87,7 +87,7 @@ public:
                              LRUCacheType::SIZE, config::tablet_rowset_stale_sweep_time_sec,
                              /*num shards*/ 64,
                              /*element count capacity */ cast_set<uint32_t>(segment_num_limit),
-                             config::enable_segment_cache_prune, /*is lru-k*/ false) {}
+                             config::enable_segment_cache_prune, /*is lru-k*/ true) {}
 
     // Lookup the given segment in the cache.
     // If the segment is found, the cache entry will be written into handle.
