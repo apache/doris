@@ -1598,6 +1598,11 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.EXPERIMENTAL)
     public int topNLazyMaterializationThreshold = 1024;
 
+    @VariableMgr.VarAttr(name = "topn_lazy_materialization_using_index", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public boolean topNLazyMaterializationUsingIndex = false;
+
     @VariableMgr.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL,
@@ -1615,6 +1620,14 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
         } else {
             return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
+        }
+    }
+
+    public static boolean getTopNLazyMaterializationUsingIndex() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationUsingIndex;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationUsingIndex;
         }
     }
 
