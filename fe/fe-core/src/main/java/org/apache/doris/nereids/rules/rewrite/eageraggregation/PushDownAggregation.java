@@ -83,8 +83,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
     private final Set<Class> pushDownAggFunctionSet = Sets.newHashSet(
             Sum.class,
-            Count.class,
-            Avg.class,
             Max.class,
             Min.class);
 
@@ -118,28 +116,10 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         List<AggregateFunction> aggFunctions = new ArrayList<>();
 
-        Map<Avg, Divide> avgToSumCountMap = new HashMap<>();
         for (AggregateFunction aggFunction : agg.getAggregateFunctions()) {
             if (pushDownAggFunctionSet.contains(aggFunction.getClass())
-                    && !aggFunction.isDistinct()
-                    && (!(aggFunction instanceof Count) || (!((Count) aggFunction).isCountStar()))) {
-                if (aggFunction instanceof Avg) {
-                    DataType targetType = aggFunction.getDataType();
-                    Sum sum = new Sum(aggFunction.child(0));
-                    Count count = new Count(aggFunction.child(0));
-                    if (!aggFunctions.contains(sum)) {
-                        aggFunctions.add(sum);
-                    }
-                    if (!aggFunctions.contains(count)) {
-                        aggFunctions.add(count);
-                    }
-                    Expression castSum = targetType.equals(sum.getDataType()) ? sum : new Cast(sum, targetType);
-                    Expression castCount = targetType.equals(count.getDataType()) ? count : new Cast(count, targetType);
-                    avgToSumCountMap.put((Avg) aggFunction,
-                            new Divide(castSum, castCount));
-                } else {
-                    aggFunctions.add(aggFunction);
-                }
+                    && !aggFunction.isDistinct()) {
+                aggFunctions.add(aggFunction);
             } else {
                 return agg;
             }
@@ -183,8 +163,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     if (ne instanceof SlotReference) {
                         newOutputExpressions.add(ne);
                     } else {
-                        Expression rewriteAvgExpr = ExpressionUtils.replace(ne, avgToSumCountMap);
-                        NamedExpression replaceAliasExpr = (NamedExpression) rewriteAvgExpr
+                        NamedExpression replaceAliasExpr = (NamedExpression) ne
                                 .rewriteDownShortCircuit(e -> {
                                     Alias alias = pushDownContext.getAliasMap().get(e);
                                     if (alias != null) {
