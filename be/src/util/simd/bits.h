@@ -261,14 +261,6 @@ static size_t find_byte(const T* data, size_t start, size_t end, T byte) {
     return (T*)p - data;
 }
 
-template <typename T>
-bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
-    if (length == 0) {
-        return false;
-    }
-    return nullptr != std::memchr(reinterpret_cast<const void*>(data), byte, length);
-}
-
 inline size_t find_one(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 1);
 }
@@ -283,24 +275,55 @@ inline size_t find_zero(const std::vector<uint8_t>& vec, size_t start) {
 
 inline bool contain_one(const uint8_t* __restrict data, size_t size) {
     size_t i = 0;
-#if defined(__SSE2__)
-    {
-        const __m128i zero = _mm_setzero_si128();
-        __m128i acc = zero;
-        for (; i + 15 < size; i += 16) {
-            acc = _mm_or_si128(acc, _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i)));
+#if defined(__AVX2__)
+    for (; i + 32 <= size; i += 32) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + i));
+        if (!_mm256_testz_si256(chunk, chunk)) {
+            return true;
         }
-
-        if (_mm_movemask_epi8(_mm_cmpeq_epi8(acc, zero)) != 0xFFFF) {
+    }
+#elif defined(__SSE2__)
+    const __m128i zero = _mm_setzero_si128();
+    for (; i + 16 <= size; i += 16) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i));
+        if (_mm_movemask_epi8(_mm_cmpeq_epi8(chunk, zero)) != 0xFFFF) {
             return true;
         }
     }
 #endif
-    uint8_t tail_acc = 0;
     for (; i < size; ++i) {
-        tail_acc |= data[i];
+        if (data[i]) {
+            return true;
+        }
     }
-    return tail_acc != 0;
+    return false;
+}
+
+inline bool contain_zero(const uint8_t* __restrict data, size_t size) {
+    size_t i = 0;
+#if defined(__AVX2__)
+    const __m256i zero = _mm256_setzero_si256();
+    for (; i + 32 <= size; i += 32) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + i));
+        if (_mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, zero)) != 0) {
+            return true;
+        }
+    }
+#elif defined(__SSE2__)
+    const __m128i zero = _mm_setzero_si128();
+    for (; i + 16 <= size; i += 16) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i));
+        if (_mm_movemask_epi8(_mm_cmpeq_epi8(chunk, zero)) != 0) {
+            return true;
+        }
+    }
+#endif
+    for (; i < size; ++i) {
+        if (!data[i]) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace doris::simd

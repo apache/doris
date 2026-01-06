@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
@@ -291,10 +292,6 @@ struct MethodSerialized : public MethodBase<TData> {
     }
 };
 
-inline size_t get_bitmap_size(size_t key_number) {
-    return (key_number + BITSIZE - 1) / BITSIZE;
-}
-
 template <typename TData>
 struct MethodStringNoCache : public MethodBase<TData> {
     using Base = MethodBase<TData>;
@@ -562,7 +559,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
     template <typename T>
     void pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                      const ColumnRawPtrs& nullmap_columns, DorisVector<T>& result) {
-        size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
+        size_t bitmap_size = nullmap_columns.empty() ? 0 : 1;
         if (bitmap_size) {
             // set size to 0 at first, then use resize to call default constructor on index included from [0, row_numbers) to reset all memory
             // only need to reset the memory used to bitmap
@@ -587,16 +584,12 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 has_null_column[j] = simd::contain_one(data, row_numbers);
                 if (has_null_column[j]) {
                     nullmap_datas.emplace_back(data);
-                    bit_offsets.emplace_back(j % BITSIZE);
+                    bit_offsets.emplace_back(j);
                 }
             }
-            for (size_t j = 0, bucket = 0; j < nullmap_datas.size(); j += BITSIZE, bucket++) {
-                int column_batch = std::min(BITSIZE, (int)(nullmap_datas.size() - j));
-                constexpr_int_match<1, BITSIZE, PackNullmapsReducer>::run(
-                        column_batch, nullmap_datas.data() + j, bit_offsets.data() + j, row_numbers,
-                        sizeof(T), reinterpret_cast<uint8_t*>(result_data + bucket));
-            }
-
+            constexpr_int_match<1, BITSIZE, PackNullmapsReducer>::run(
+                    int(nullmap_datas.size()), nullmap_datas.data(), bit_offsets.data(),
+                    row_numbers, sizeof(T), reinterpret_cast<uint8_t*>(result_data));
             offset += bitmap_size;
         }
 
@@ -657,6 +650,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
     void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
+        CHECK(key_columns.size() <= BITSIZE);
         ColumnRawPtrs actual_columns;
         ColumnRawPtrs null_maps;
         actual_columns.reserve(key_columns.size());
@@ -694,14 +688,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const uint32_t num_rows) override {
-        // In any hash key value, column values to be read start just after the bitmap, if it exists.
-        size_t pos = 0;
-        for (size_t i = 0; i < key_columns.size(); ++i) {
-            if (key_columns[i]->is_nullable()) {
-                pos = get_bitmap_size(key_columns.size());
-                break;
-            }
-        }
+        size_t pos = std::ranges::any_of(key_columns,
+                                         [](const auto& col) { return col->is_nullable(); });
 
         for (size_t i = 0; i < key_columns.size(); ++i) {
             size_t size = key_sizes[i];
@@ -720,11 +708,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
 
                 // The current column is nullable. Check if the value of the
                 // corresponding key is nullable. Update the null map accordingly.
-                size_t bucket = i / BITSIZE;
-                size_t offset = i % BITSIZE;
                 for (size_t j = 0; j < num_rows; j++) {
-                    nullmap[j] =
-                            (reinterpret_cast<const UInt8*>(&input_keys[j])[bucket] >> offset) & 1;
+                    nullmap[j] = (*reinterpret_cast<const UInt8*>(&input_keys[j]) >> i) & 1;
                 }
             } else {
                 // key_columns is a mutable element. However, when accessed through get_raw_data().data,
