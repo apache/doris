@@ -41,6 +41,7 @@ Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
           _has_prepared(false) {
+    _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
@@ -78,8 +79,39 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
-        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+        if (_alreay_eos) {
+            *eos = true;
+            _padding_block.swap(_origin_block);
+        } else {
+            _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+            const auto min_batch_size = std::max(state->batch_size() / 2, 1);
+            while (_padding_block.rows() < min_batch_size && !*eos) {
+                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+                if (_origin_block.rows() >= min_batch_size) {
+                    break;
+                }
+
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size()) {
+                    RETURN_IF_ERROR(_merge_padding_block());
+                    _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                } else {
+                    if (_origin_block.rows() < _padding_block.rows()) {
+                        _padding_block.swap(_origin_block);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // first output the origin block change eos = false, next time output padding block
+        // set the eos to true
+        if (*eos && !_padding_block.empty() && !_origin_block.empty()) {
+            _alreay_eos = true;
+            *eos = false;
+        }
+        if (_origin_block.empty() && !_padding_block.empty()) {
+            _padding_block.swap(_origin_block);
+        }
         return _do_projections(&_origin_block, block);
     } else {
         return get_block(state, block, eos);

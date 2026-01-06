@@ -705,4 +705,24 @@ TEST(ColumnComplexTest, TestErase) {
     EXPECT_EQ(column_test->size(), 4);
 }
 
+TEST(ColumnComplexTest, TestUpdateHashWithValue) {
+    using ColumnTest = ColumnComplexType<TYPE_BITMAP>;
+
+    auto column_test = ColumnTest::create();
+
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+
+    SipHash hash;
+    for (size_t i = 0; i < column_test->size(); ++i) {
+        column_test->update_hash_with_value(i, hash);
+    }
+
+    std::vector<uint64_t> hash_values(column_test->size());
+    column_test->update_hashes_with_value(hash_values.data());
+}
+
 } // namespace doris::vectorized

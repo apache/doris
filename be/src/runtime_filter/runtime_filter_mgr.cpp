@@ -433,30 +433,6 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
     return st;
 }
 
-void RuntimeFilterMergeControllerEntity::release_undone_filters(QueryContext* query_ctx) {
-    std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
-    for (auto& [filter_id, ctx] : _filter_map) {
-        if (!ctx.done && !ctx.targetv2_info.empty()) {
-            {
-                std::lock_guard<std::mutex> l(ctx.mtx);
-                ctx.merger->set_wrapper_state_and_ready_to_apply(
-                        RuntimeFilterWrapper::State::DISABLED,
-                        "rf coordinator's query context released before runtime filter is ready to "
-                        "apply");
-            }
-            auto st = _send_rf_to_target(ctx, std::weak_ptr<QueryContext> {}, 0,
-                                         UniqueId(query_ctx->query_id()).to_proto(),
-                                         query_ctx->execution_timeout());
-            if (!st.ok()) {
-                LOG(WARNING)
-                        << "Failed to send runtime filter to target before query done. filter_id:"
-                        << filter_id << " " << ctx.merger->debug_string() << " reason:" << st;
-            }
-        }
-    }
-    _filter_map.clear();
-}
-
 Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     int producer_size = merger->get_expected_producer_num();
     RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));

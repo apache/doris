@@ -156,8 +156,8 @@ private:
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
     Arena _predicate_arena;
     std::function<std::shared_ptr<ColumnPredicate>(
-            const int cid, const vectorized::DataTypePtr& data_type, StringRef& value,
-            bool opposite, vectorized::Arena& arena)>
+            const int cid, const std::string& col_name, const vectorized::DataTypePtr& data_type,
+            StringRef& value, bool opposite, vectorized::Arena& arena)>
             _pred_constructor;
     bool _detected_source = false;
     bool _detected_target = false;

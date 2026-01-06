@@ -171,7 +171,10 @@ public:
 
     std::string debug_string();
 
-    void release_undone_filters(QueryContext* query_ctx);
+    bool empty() {
+        std::shared_lock<std::shared_mutex> read_lock(_filter_map_mutex);
+        return _filter_map.empty();
+    }
 
     Status reset_global_rf(QueryContext* query_ctx,
                            const google::protobuf::RepeatedField<int32_t>& filter_ids);

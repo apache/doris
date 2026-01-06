@@ -24,6 +24,7 @@ public class DataSourceConfigKeys {
     public static final String USER = "user";
     public static final String PASSWORD = "password";
     public static final String DATABASE = "database";
+    public static final String SCHEMA = "schema";
     public static final String INCLUDE_TABLES = "include_tables";
     public static final String EXCLUDE_TABLES = "exclude_tables";
     // initial,earliest,latest,{binlog,postion},\d{13}

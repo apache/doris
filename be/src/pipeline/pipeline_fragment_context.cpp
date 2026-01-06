@@ -1603,12 +1603,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(
                 pool, tnode, descs, op, cur_pipe, parent_idx, child_idx,
                 followed_by_shuffled_operator));
+        _require_bucket_distribution = tnode.intersect_node.is_colocate;
         break;
     }
     case TPlanNodeType::EXCEPT_NODE: {
         RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(
                 pool, tnode, descs, op, cur_pipe, parent_idx, child_idx,
                 followed_by_shuffled_operator));
+        _require_bucket_distribution = tnode.except_node.is_colocate;
         break;
     }
     case TPlanNodeType::REPEAT_NODE: {

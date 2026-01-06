@@ -71,7 +71,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         streamingInsertJob.setAutoResumeCount(0);
     }
 
-    private void handleRunningState() {
+    private void handleRunningState() throws JobException {
         streamingInsertJob.processTimeoutTasks();
         streamingInsertJob.fetchMeta();
     }

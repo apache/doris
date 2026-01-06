@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
@@ -73,8 +74,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -453,6 +456,54 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         if (childrenDistribution.stream().allMatch(DistributionSpecGather.class::isInstance)) {
             return PhysicalProperties.GATHER;
         }
+
+        int distributeToChildIndex
+                = setOperation.<Integer>getMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX).orElse(-1);
+        if (distributeToChildIndex >= 0
+                && childrenDistribution.get(distributeToChildIndex) instanceof DistributionSpecHash) {
+            DistributionSpecHash childDistribution
+                    = (DistributionSpecHash) childrenDistribution.get(distributeToChildIndex);
+            List<SlotReference> childToIndex = setOperation.getRegularChildrenOutputs().get(distributeToChildIndex);
+            Map<ExprId, Integer> idToOutputIndex = new LinkedHashMap<>();
+            for (int j = 0; j < childToIndex.size(); j++) {
+                idToOutputIndex.put(childToIndex.get(j).getExprId(), j);
+            }
+
+            List<ExprId> orderedShuffledColumns = childDistribution.getOrderedShuffledColumns();
+            List<ExprId> setOperationDistributeColumnIds = new ArrayList<>();
+            for (ExprId tableDistributeColumnId : orderedShuffledColumns) {
+                Integer index = idToOutputIndex.get(tableDistributeColumnId);
+                if (index == null) {
+                    break;
+                }
+                setOperationDistributeColumnIds.add(setOperation.getOutput().get(index).getExprId());
+            }
+            // check whether the set operation output all distribution columns of the child
+            if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()) {
+                boolean isUnion = setOperation instanceof Union;
+                boolean shuffleToRight = distributeToChildIndex > 0;
+                if (!isUnion && shuffleToRight) {
+                    return new PhysicalProperties(
+                            new DistributionSpecHash(
+                                    setOperationDistributeColumnIds,
+                                    ShuffleType.EXECUTION_BUCKETED
+                            )
+                    );
+                } else {
+                    // keep the distribution as the child
+                    return new PhysicalProperties(
+                            new DistributionSpecHash(
+                                    setOperationDistributeColumnIds,
+                                    childDistribution.getShuffleType(),
+                                    childDistribution.getTableId(),
+                                    childDistribution.getSelectedIndexId(),
+                                    childDistribution.getPartitionIds()
+                            )
+                    );
+                }
+            }
+        }
+
         for (int i = 0; i < childrenDistribution.size(); i++) {
             DistributionSpec childDistribution = childrenDistribution.get(i);
             if (!(childDistribution instanceof DistributionSpecHash)) {
@@ -463,6 +514,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(childDistribution);
                 }
             }
+
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
             for (int j = 0; j < setOperation.getRegularChildOutput(i).size(); j++) {
