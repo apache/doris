@@ -935,3 +935,10 @@ Shirt
 5	\N
 6	6
 
+-- !full_join_unnest_literal --
+\N	11
+\N	22
+1	\N
+2	\N
+3	\N
+

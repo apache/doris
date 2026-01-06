@@ -654,4 +654,8 @@ suite("nereids_unnest_fn") {
     select id, t.tag from big_array_unnest_t LEFT JOIN lateral unnest(tags) AS t(tag) ON tag = id order by id, tag;
     '''
 
+    qt_full_join_unnest_literal '''
+    select * from unnest([1,2,3]) t1(c1) full join unnest(['11','22']) AS t2(c2) on t1.c1 = t2.c2 order by 1, 2;
+    '''
+
 }
