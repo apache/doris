@@ -313,7 +313,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized boolean isExpireMinLatency(long id, long currentTimeMs) {
-        return (currentTimeMs - idToRecycleTime.get(id)) > minEraseLatency;
+        return (currentTimeMs - idToRecycleTime.get(id)) > minEraseLatency || FeConstants.runningUnitTest;
     }
 
     private void eraseAllTables(RecycleDatabaseInfo dbInfo) {
@@ -939,12 +939,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             iterator.remove();
             idToRecycleTime.remove(partitionId);
 
-<<<<<<< HEAD
             if (!currentEnv.invalidCacheForCloud()) {
                 long version = table.getNextVersion();
                 table.updateVisibleVersionAndTime(version, System.currentTimeMillis());
             }
-=======
+
             dbTblIdPartitionNameToIds.computeIfPresent(
                     Pair.of(recyclePartitionInfo.getDbId(), table.getId()), (pair, partitionMap) -> {
                         partitionMap.computeIfPresent(recyclePartitionInfo.getPartition().getName(), (name, idSet) -> {
@@ -953,7 +952,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         });
                         return partitionMap.isEmpty() ? null : partitionMap;
                     });
->>>>>>> c48a5adfe7 (save)
 
             LOG.info("replay recover partition[{}]", partitionId);
             break;
@@ -1607,5 +1605,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // currently only used when loading image. So no synchronized protected.
     public List<Long> getAllDbIds() {
         return Lists.newArrayList(idToDatabase.keySet());
+    }
+
+    // only for unit test
+    public synchronized void clearAll() {
+        idToDatabase.clear();
+        idToTable.clear();
+        idToPartition.clear();
+        idToRecycleTime.clear();
+        dbNameToIds.clear();
+        dbIdTableNameToIds.clear();
+        dbTblIdPartitionNameToIds.clear();
+        LOG.info("Cleared all objects in recycle bin");
     }
 }
