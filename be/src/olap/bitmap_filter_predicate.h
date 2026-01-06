@@ -33,9 +33,9 @@ public:
     using CppType = typename PrimitiveTypeTraits<T>::CppType;
     using SpecificFilter = BitmapFilterFunc<T>;
 
-    BitmapFilterColumnPredicate(uint32_t column_id,
+    BitmapFilterColumnPredicate(uint32_t column_id, std::string col_name,
                                 const std::shared_ptr<BitmapFilterFuncBase>& filter)
-            : ColumnPredicate(column_id, T),
+            : ColumnPredicate(column_id, col_name, T),
               _filter(filter),
               _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BitmapFilterColumnPredicate() override = default;

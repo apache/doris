@@ -268,11 +268,13 @@ std::shared_ptr<ColumnPredicate> create_olap_column_predicate(
         const TabletColumn* column, bool) {
     // currently only support like predicate
     if constexpr (PT == TYPE_CHAR) {
-        return LikeColumnPredicate<TYPE_CHAR>::create_shared(
-                filter->_opposite, column_id, filter->_fn_ctx, filter->_string_param);
+        return LikeColumnPredicate<TYPE_CHAR>::create_shared(filter->_opposite, column_id,
+                                                             column->name(), filter->_fn_ctx,
+                                                             filter->_string_param);
     } else if constexpr (PT == TYPE_VARCHAR || PT == TYPE_STRING) {
-        return LikeColumnPredicate<TYPE_STRING>::create_shared(
-                filter->_opposite, column_id, filter->_fn_ctx, filter->_string_param);
+        return LikeColumnPredicate<TYPE_STRING>::create_shared(filter->_opposite, column_id,
+                                                               column->name(), filter->_fn_ctx,
+                                                               filter->_string_param);
     }
     throw Exception(ErrorCode::INTERNAL_ERROR, "function filter do not support type {}", PT);
 }
