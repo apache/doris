@@ -15,6 +15,7 @@
 
 package software.amazon.awssdk.core.client.builder;
 
+import org.apache.doris.common.Config;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.annotations.SdkPreviewApi;
@@ -155,7 +156,7 @@ public abstract class SdkDefaultClientBuilder<B extends SdkClientBuilder<B, C>, 
     static {
         ScheduledExecutorService realScheduler =
                 Executors.newScheduledThreadPool(
-                        20,
+                        Config.aws_sdk_async_scheduler_thread_pool_size,
                         r -> {
                             Thread t = new Thread(r, "aws-sdk-scheduler");
                             t.setDaemon(true);
