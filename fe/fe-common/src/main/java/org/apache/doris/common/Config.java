@@ -2722,6 +2722,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean force_sample_analyze = false; // avoid full analyze for performance reason
 
+    @ConfField(mutable = true)
+    public static boolean force_analyze_for_external = false;
+
+
     @ConfField(mutable = true, description = {
             "Export任务允许的最大分区数量",
             "The maximum number of partitions allowed by Export job"})
