@@ -249,7 +249,7 @@ void CloudWarmUpManager::handle_jobs() {
                 }
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
                     // 1st. download segment files
-                    if (!config::enable_only_warm_up_idx) {
+                    if (!config::file_cache_enable_only_warm_up_idx) {
                         submit_download_tasks(
                                 storage_resource.value()->remote_segment_path(*rs, seg_id),
                                 rs->segment_file_size(cast_set<int>(seg_id)),

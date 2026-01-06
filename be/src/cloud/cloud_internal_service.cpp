@@ -455,7 +455,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         }
 
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
-            if (!config::enable_only_warm_up_idx) {
+            if (!config::file_cache_enable_only_warm_up_idx) {
                 auto segment_size = rs_meta.segment_file_size(segment_id);
                 auto download_done = [=, version = rs_meta.version()](Status st) {
                     DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {

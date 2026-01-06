@@ -1209,7 +1209,7 @@ DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
-DECLARE_mBool(enable_only_warm_up_idx);
+DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

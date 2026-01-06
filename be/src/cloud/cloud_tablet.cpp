@@ -426,7 +426,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                     }
                     // clang-format off
                     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
-                    if (!config::enable_only_warm_up_idx) {
+                    if (!config::file_cache_enable_only_warm_up_idx) {
                         _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
                                 .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
                                 .file_size = rs->rowset_meta()->segment_file_size(seg_id),
