@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -119,7 +118,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (stats == null) {
             stats = join.right().accept(derive, new StatsDerive.DeriveContext());
         }
-        if (stats.getRowCount() > PushDownAggContext.BIG_JOIN_BUILD_SIZE) {
+        if (stats.getRowCount() > PushDownAggContext.BIG_JOIN_BUILD_SIZE
+                || SessionVariable.getEagerAggregationMode() > 0) {
             childContext = childContext.passThroughBigJoin();
         }
         if (toLeft) {
@@ -308,19 +308,21 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean checkStats(Plan plan, PushDownAggContext context) {
-        if (!context.isPassThroughBigJoin()) {
-            return false;
-        }
-        if (ConnectContext.get() == null) {
-            return false;
-        }
-        int mode = ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        int mode = SessionVariable.getEagerAggregationMode();
         if (mode < 0) {
             return false;
         }
+
         if (mode > 0) {
-            return true;
+            // when mode=1, any join is regarded as big join in order to
+            // push down aggregation through at least one join
+            return context.isPassThroughBigJoin();
         }
+
+        if (!context.isPassThroughBigJoin()) {
+            return false;
+        }
+
         Statistics stats = plan.getStats();
         if (stats == null) {
             stats = plan.accept(derive, new StatsDerive.DeriveContext());
