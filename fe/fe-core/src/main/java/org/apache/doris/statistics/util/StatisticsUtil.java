@@ -55,6 +55,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
@@ -1130,15 +1131,17 @@ public class StatisticsUtil {
             // 3. Check partition
             return needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta);
         } else {
-            // Now, we only support Hive external table auto analyze.
-            if (!(table instanceof HMSExternalTable)) {
+            if (!(table instanceof HMSExternalTable || (table instanceof IcebergExternalTable))) {
                 return false;
             }
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
-                return false;
+            if (table instanceof HMSExternalTable) {
+                HMSExternalTable hmsTable = (HMSExternalTable) table;
+                if (!hmsTable.getDlaType().equals(DLAType.HIVE) && !hmsTable.getDlaType().equals(DLAType.ICEBERG)) {
+                    return false;
+                }
             }
-            // External is hard to calculate change rate, use time interval to control analyze frequency.
+            // External is hard to calculate change rate, use time interval to control
+            // analyze frequency.
             return System.currentTimeMillis()
                     - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }

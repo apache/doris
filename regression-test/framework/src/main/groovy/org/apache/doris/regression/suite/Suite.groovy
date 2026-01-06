@@ -3246,12 +3246,13 @@ class Suite implements GroovyInterceptable {
         def jsonOutput = new JsonOutput()
         def map = []
         def js = jsonOutput.toJson(map)
-        log.info("fix tablet stat req: /MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id} ".toString())
+        def cloudUniqueId = context.config.cloudUniqueId
+        log.info("fix tablet stat req: /MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${cloudUniqueId}&table_id=${table_id} ".toString())
 
         def fix_tablet_stats_api = { request_body, check_func ->
             httpTest {
                 endpoint context.config.metaServiceHttpAddress
-                uri "/MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id}"
+                uri "/MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${cloudUniqueId}&table_id=${table_id}"
                 body request_body
                 check check_func
             }
