@@ -48,7 +48,8 @@ void SegmentPrefetcher::add_rowids(const rowid_t* rowids, uint32_t num) {
             size_t page_end_block = _offset_to_block_id(page.offset + page.size - 1);
 
             // If page spans two blocks, assign it to the next block (page_end_block)
-            size_t block_id = (page_start_block != page_end_block) ? page_end_block : page_start_block;
+            size_t block_id =
+                    (page_start_block != page_end_block) ? page_end_block : page_start_block;
 
             if (block_id != last_block_id) {
                 if (last_block_id != static_cast<size_t>(-1)) {
@@ -99,7 +100,8 @@ void SegmentPrefetcher::build_all_data_blocks() {
             size_t page_end_block = _offset_to_block_id(page.offset + page.size - 1);
 
             // If page spans two blocks, assign it to the next block (page_end_block)
-            size_t block_id = (page_start_block != page_end_block) ? page_end_block : page_start_block;
+            size_t block_id =
+                    (page_start_block != page_end_block) ? page_end_block : page_start_block;
 
             if (block_id != last_block_id) {
                 if (last_block_id != static_cast<size_t>(-1)) {
