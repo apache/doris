@@ -249,8 +249,9 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
             }
         }
         [[fallthrough]];
-    case TxnErrorCode::TXN_KEY_NOT_FOUND:
     case TxnErrorCode::TXN_MAYBE_COMMITTED:
+        return MetaServiceCode::KV_TXN_MAYBE_COMMITTED;
+    case TxnErrorCode::TXN_KEY_NOT_FOUND:
     case TxnErrorCode::TXN_TIMEOUT:
     case TxnErrorCode::TXN_INVALID_ARGUMENT:
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR:
