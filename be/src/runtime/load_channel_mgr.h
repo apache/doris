@@ -93,7 +93,7 @@ private:
                 : LRUCachePolicy(CachePolicy::CacheType::LOAD_STATE_CHANNEL_CACHE, capacity,
                                  LRUCacheType::NUMBER, /*sweep time*/ -1, /*num shards*/ 32,
                                  /*element capacity*/ 0, /*enable prune */ false,
-                                 /*is lru k*/ true) {}
+                                 /*is lru k*/ false) {}
     };
 
     using CacheValue = LoadStateChannelCache::CacheValue;
