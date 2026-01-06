@@ -17,6 +17,7 @@
 suite("agg_join_pkfk") {
     multi_sql """
         SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject';
+        set runtime_filter_mode=OFF;
         set disable_join_reorder=true;
         drop table if exists customer_test;
         CREATE TABLE customer_test (
