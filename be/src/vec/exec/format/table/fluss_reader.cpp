@@ -1,0 +1,40 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "vec/exec/format/table/fluss_reader.h"
+
+#include "common/status.h"
+#include "runtime/runtime_state.h"
+
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+FlussReader::FlussReader(std::unique_ptr<GenericReader> file_format_reader,
+                         RuntimeProfile* profile, RuntimeState* state,
+                         const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                         io::IOContext* io_ctx, FileMetaCache* meta_cache)
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx,
+                            meta_cache) {}
+
+Status FlussReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
+    RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
+    return Status::OK();
+}
+
+#include "common/compile_check_end.h"
+} // namespace doris::vectorized
+
