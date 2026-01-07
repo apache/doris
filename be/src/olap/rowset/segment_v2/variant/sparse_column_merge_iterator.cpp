@@ -44,23 +44,6 @@ Status SparseColumnMergeIterator::seek_to_ordinal(ordinal_t ord) {
     return Status::OK();
 }
 
-Status SparseColumnMergeIterator::init_prefetcher(const SegmentPrefetchParams& params) {
-    RETURN_IF_ERROR(_sparse_column_reader->init_prefetcher(params));
-    for (auto& entry : _src_subcolumns_for_sparse) {
-        RETURN_IF_ERROR(entry->data.iterator->init_prefetcher(params));
-    }
-    return Status::OK();
-}
-
-void SparseColumnMergeIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
-    _sparse_column_reader->collect_prefetchers(prefetchers, init_method);
-    for (auto& entry : _src_subcolumns_for_sparse) {
-        entry->data.iterator->collect_prefetchers(prefetchers, init_method);
-    }
-}
-
 Status SparseColumnMergeIterator::init(const ColumnIteratorOptions& opts) {
     RETURN_IF_ERROR(_sparse_column_cache->init(opts));
     for (auto& entry : _src_subcolumns_for_sparse) {

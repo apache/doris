@@ -85,22 +85,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "not implement");
     }
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override {
-        if (has_sparse_column_cache()) {
-            return Status::OK();
-        }
-        return _sparse_column_reader->init_prefetcher(params);
-    }
-
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override {
-        if (has_sparse_column_cache()) {
-            return;
-        }
-        _sparse_column_reader->collect_prefetchers(prefetchers, init_method);
-    }
-
     // Template method pattern for batch processing
     template <typename ReadMethod>
     Status _process_batch(ReadMethod&& read_method, size_t nrows,

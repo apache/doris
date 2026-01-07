@@ -89,10 +89,10 @@ void SegmentPrefetcher::build_all_data_blocks() {
     const auto& pages = ordinal_index->_pages;       // pages[i] = page pointer of page i
     const int num_pages = ordinal_index->_num_pages;
 
-    size_t last_block_id = static_cast<size_t>(-1);
-    rowid_t current_block_first_rowid = 0;
+    last_block_id = static_cast<size_t>(-1);
+    current_block_first_rowid = 0;
 
-    for (int page_idx = 0; page_idx < num_pages; ++page_idx) {
+    for (page_idx = 0; page_idx < num_pages; ++page_idx) {
         const auto& page = pages[page_idx];
 
         if (_is_forward) {
@@ -108,7 +108,7 @@ void SegmentPrefetcher::build_all_data_blocks() {
                     _block_sequence.emplace_back(last_block_id, current_block_first_rowid);
                 }
                 last_block_id = block_id;
-                current_block_first_rowid = ordinals[page_idx];
+                current_block_first_rowid = static_cast<rowid_t>(ordinals[page_idx]);
             }
         } else {
             // Backward: use the last ordinal in each block as first_rowid
@@ -119,7 +119,7 @@ void SegmentPrefetcher::build_all_data_blocks() {
                 }
                 last_block_id = block_id;
             }
-            current_block_first_rowid = ordinals[page_idx];
+            current_block_first_rowid = static_cast<rowid_t>(ordinals[page_idx]);
         }
     }
 
