@@ -111,9 +111,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto calc_max_scanners = [&](int parallel_instance_num) -> int {
         int max_scanners =
                 vectorized::ScannerScheduler::get_remote_scan_thread_num() / parallel_instance_num;
-        if (should_run_serial()) {
-            max_scanners = 1;
-        }
+        max_scanners = std::min(max_scanners, max_scanners_concurrency(state));
         return max_scanners;
     };
 
