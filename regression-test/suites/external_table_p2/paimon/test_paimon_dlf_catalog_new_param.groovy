@@ -71,8 +71,6 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external,paimon,external_remote,e
 
     } finally {
         sql """set force_jni_scanner=false"""
-
-        sql """drop catalog if exists ${catalog};"""
     }
 }
 

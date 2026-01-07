@@ -69,7 +69,6 @@ suite("test_paimon_dlf_catalog_miss_dlf_param", "p2,external,paimon,external_rem
 
     } finally {
         sql """set force_jni_scanner=false"""
-        sql """drop catalog if exists ${catalog};"""
     }
 }
 

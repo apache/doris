@@ -56,9 +56,6 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
         // TODO(zgx): add branch/tag
         // system table
         sql """SELECT * FROM external_test_table\$snapshots;"""
-
-
-        sql """drop catalog if exists ${catalog};"""
     }
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

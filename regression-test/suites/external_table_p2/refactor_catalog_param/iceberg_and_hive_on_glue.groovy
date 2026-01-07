@@ -80,9 +80,6 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
-        sql """
-            DROP CATALOG IF EXISTS ${catalog_name};
-        """
     }
 
     def testQueryAndInsertIcerberg = { String catalogProperties, String prefix ->
@@ -144,9 +141,6 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
-        sql """
-            DROP CATALOG IF EXISTS ${catalog_name};
-        """
     }
 
     /*--------test insert overwrite for hive---------*/
@@ -235,9 +229,6 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
-        sql """
-            DROP CATALOG IF EXISTS ${catalog_name};
-        """
     }
 
     /*--------test insert overwrite for iceberg---------*/
@@ -322,10 +313,6 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
             show databases  like "${db_name}";
         """
         assert dropResult.size() == 0
-
-        sql """
-            DROP CATALOG IF EXISTS ${catalog_name};
-        """
     }
 
     /*--------only execute query---------*/
@@ -359,10 +346,6 @@ suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
             SELECT count(1) FROM ${table_name};
         """
         assert queryResult.get(0).get(0) == data_count
-
-        sql """
-            DROP CATALOG IF EXISTS ${catalog_name};
-        """
     }
 
     /*--------GLUE START-----------*/

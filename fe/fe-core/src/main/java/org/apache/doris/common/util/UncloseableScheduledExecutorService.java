@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package software.amazon.awssdk.core.client.builder;
+package org.apache.doris.common.util;
 
 import java.util.Collection;
 import java.util.Collections;

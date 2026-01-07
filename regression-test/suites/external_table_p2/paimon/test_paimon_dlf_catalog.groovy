@@ -64,8 +64,6 @@ suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_re
         sql """SELECT * FROM tb_simple\$snapshots;"""
     } finally {
         sql """set force_jni_scanner=false"""
-
-        sql """drop catalog if exists ${catalog};"""
     }
 }
 
