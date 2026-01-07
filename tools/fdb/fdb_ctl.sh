@@ -332,7 +332,8 @@ datadir = ${DATA_DIR_ARRAY[${DIR_INDEX}]}/${PORT}" | tee -a "${FDB_HOME}/conf/fd
 
     echo "[backup_agent]
 command = ${FDB_HOME}/backup_agent
-logdir = ${LOG_DIR}" >>"${FDB_HOME}/conf/fdb.conf"
+logdir = ${LOG_DIR}" >>"${FDB_HOME}/conf/fdb.conf
+[backup_agent.1]"
 
     echo "Deploy FDB to: ${FDB_HOME}"
 }
