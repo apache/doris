@@ -525,12 +525,9 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
-    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
-    if (0 == null_count) {
-        return;
-    }
+    auto value = default_value();
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? default_value() : data[i];
+        data[i] = null_map[i] ? value : data[i];
     }
 }
 
