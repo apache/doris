@@ -72,12 +72,12 @@ public class IcebergMetricsReporter implements MetricsReporter {
         RuntimeProfile icebergGroup = executionSummary.getChildMap().get(SummaryProfile.ICEBERG_SCAN_METRICS);
         if (icebergGroup == null) {
             icebergGroup = new RuntimeProfile(SummaryProfile.ICEBERG_SCAN_METRICS);
-            executionSummary.addChild(icebergGroup, true);
+            executionSummary.addChild(icebergGroup);
         }
 
         RuntimeProfile scanProfile = new RuntimeProfile(buildScanProfileName(scanReport));
         appendScanDetails(scanProfile, scanReport, metrics);
-        icebergGroup.addChild(scanProfile, true);
+        icebergGroup.addChild(scanProfile);
     }
 
     private String sanitize(String value) {
