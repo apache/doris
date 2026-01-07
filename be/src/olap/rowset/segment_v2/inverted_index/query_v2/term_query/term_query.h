@@ -29,7 +29,8 @@ public:
     ~TermQuery() override = default;
 
     WeightPtr weight() override {
-        return std::make_shared<TermWeight>(std::move(_context), std::move(_field), std::move(_term));
+        return std::make_shared<TermWeight>(std::move(_context), std::move(_field),
+                                            std::move(_term));
     }
 
 private:

@@ -24,7 +24,6 @@
 #include "CLucene/index/Terms.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 
-
 CL_NS_USE(index)
 
 namespace doris::io {
@@ -72,10 +71,8 @@ public:
         return create(io_ctx, reader, field_name, StringUtil::string_to_wstring(term));
     }
 
-
-    static TermIterPtr create(const io::IOContext* io_ctx,
-                              lucene::index::IndexReader* reader, const std::wstring& field_name,
-                              const std::wstring& ws_term) {
+    static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
+                              const std::wstring& field_name, const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         auto* term_pos = reader->termDocs(t, io_ctx);
         _CLDECDELETE(t);

@@ -38,7 +38,8 @@ TestInvertedIndexCtx create_inverted_index_ctx(InvertedIndexParserType parser_ty
     test_ctx.ctx->parser_type = parser_type;
     if (parser_type != InvertedIndexParserType::PARSER_NONE) {
         test_ctx.analyzer_holder =
-                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(test_ctx.ctx.get());
+                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
+                        test_ctx.ctx.get());
         test_ctx.ctx->analyzer = test_ctx.analyzer_holder.get();
     }
     return test_ctx;

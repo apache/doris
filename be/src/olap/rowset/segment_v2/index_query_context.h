@@ -19,10 +19,11 @@
 
 //#include "olap/collection_similarity.h"
 //#include "olap/collection_statistics.h"
+#include <memory>
+
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
-#include <memory>
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"

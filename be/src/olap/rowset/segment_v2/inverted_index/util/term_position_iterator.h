@@ -45,7 +45,6 @@ public:
     static TermPositionsIterPtr create(const io::IOContext* io_ctx, IndexReader* reader,
                                        const std::wstring& field_name,
                                        const std::wstring& ws_term) {
-
         auto t = make_term_ptr(field_name.c_str(), ws_term.c_str());
         auto term_pos = make_term_positions_ptr(reader, t.get(), io_ctx);
         return std::make_shared<TermPositionsIterator>(std::move(term_pos));
