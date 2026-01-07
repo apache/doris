@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.ShuffleType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -116,6 +117,16 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
         if (context != null
                 && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
             StringBuilder builder = new StringBuilder();
+
+            boolean ignoreDistribute = ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes()
+                    .contains(PhysicalDistribute.class.getSimpleName());
+
+            ShuffleType shuffleType = shuffleType();
+            if (!ignoreDistribute && shuffleType != ShuffleType.shuffle) {
+                builder.append("[").append(shuffleType).append("]");
+            }
+
             builder.append(getClass().getSimpleName());
             builder.append("(constantExprsList=");
             builder.append(constantExprsList.stream()

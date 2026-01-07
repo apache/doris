@@ -83,6 +83,29 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
+PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
+        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+        StringRef* constant_val, const std::set<std::string> fn_name) const {
+    if (!fn_name.contains(fn_call->fn().name.function_name)) {
+        return PushDownType::UNACCEPTABLE;
+    }
+    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
+    const auto& children = fn_call->children();
+    DCHECK(children.size() == 2);
+    DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
+    if (children[1]->is_constant()) {
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
+        const auto* const_column =
+                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+        *constant_val = const_column->get_data_at(0);
+        return PushDownType::ACCEPTABLE;
+    } else {
+        // only handle constant value
+        return PushDownType::UNACCEPTABLE;
+    }
+}
+
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // Rows read from storage.
@@ -198,6 +221,7 @@ Status OlapScanLocalState::_init_profile() {
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
+    _statistics_collect_timer = ADD_TIMER(_scanner_profile, "StatisticsCollectTime");
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
     _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");

@@ -41,7 +41,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -111,18 +110,8 @@ public class Tablet extends MetaObject {
     protected List<Replica> replicas;
     @SerializedName(value = "cv", alternate = {"checkedVersion"})
     private long checkedVersion;
-    @Deprecated
-    @SerializedName(value = "cvs", alternate = {"checkedVersionHash"})
-    private long checkedVersionHash;
     @SerializedName(value = "ic", alternate = {"isConsistent"})
     private boolean isConsistent;
-
-    // cooldown conf
-    @SerializedName(value = "cri", alternate = {"cooldownReplicaId"})
-    private long cooldownReplicaId = -1;
-    @SerializedName(value = "ctm", alternate = {"cooldownTerm"})
-    private long cooldownTerm = -1;
-    private final Object cooldownConfLock = new Object();
 
     // last time that the tablet checker checks this tablet.
     // no need to persist
@@ -158,10 +147,6 @@ public class Tablet extends MetaObject {
         isConsistent = true;
     }
 
-    public void setIdForRestore(long tabletId) {
-        this.id = tabletId;
-    }
-
     public long getId() {
         return this.id;
     }
@@ -183,20 +168,15 @@ public class Tablet extends MetaObject {
     }
 
     public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
-        synchronized (cooldownConfLock) {
-            this.cooldownReplicaId = cooldownReplicaId;
-            this.cooldownTerm = cooldownTerm;
-        }
+        throw new UnsupportedOperationException("not support setCooldownConf in Tablet");
     }
 
     public long getCooldownReplicaId() {
-        return cooldownReplicaId;
+        return -1;
     }
 
     public Pair<Long, Long> getCooldownConf() {
-        synchronized (cooldownConfLock) {
-            return Pair.of(cooldownReplicaId, cooldownTerm);
-        }
+        return Pair.of(-1L, -1L);
     }
 
     protected boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
@@ -449,11 +429,6 @@ public class Tablet extends MetaObject {
         this.id = tabletId;
     }
 
-    public static void sortReplicaByVersionDesc(List<Replica> replicas) {
-        // sort replicas by version. higher version in the tops
-        replicas.sort(Replica.VERSION_DESC_COMPARATOR);
-    }
-
     @Override
     public String toString() {
         return "tabletId=" + this.id;
@@ -494,17 +469,7 @@ public class Tablet extends MetaObject {
     }
 
     public long getRemoteDataSize() {
-        // if CooldownReplicaId is not init
-        if (cooldownReplicaId <= 0) {
-            return 0;
-        }
-        for (Replica r : replicas) {
-            if (r.getId() == cooldownReplicaId) {
-                return r.getRemoteDataSize();
-            }
-        }
-        // return replica with max remoteDataSize
-        return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
+        return 0;
     }
 
     public long getRowCount(boolean singleReplica) {

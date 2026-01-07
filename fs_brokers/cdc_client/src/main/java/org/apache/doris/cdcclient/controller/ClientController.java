@@ -32,7 +32,6 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -61,8 +60,7 @@ public class ClientController {
     @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
     public Object fetchRecords(@RequestBody FetchRecordRequest recordReq) {
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(recordReq);
-            return RestResponse.success(reader.read(recordReq));
+            return RestResponse.success(pipelineCoordinator.fetchRecords(recordReq));
         } catch (Exception ex) {
             LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
             return RestResponse.internalError(ex.getMessage());
@@ -84,6 +82,7 @@ public class ClientController {
     /** Fetch lastest end meta */
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
     public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
         SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
         return RestResponse.success(reader.getEndOffset(jobConfig));
     }
@@ -96,11 +95,14 @@ public class ClientController {
     }
 
     /** Close job */
-    @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)
-    public Object close(@PathVariable long jobId) {
+    @RequestMapping(path = "/api/close", method = RequestMethod.POST)
+    public Object close(@RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Closing job {}", jobConfig.getJobId());
         Env env = Env.getCurrentEnv();
-        env.close(jobId);
-        pipelineCoordinator.closeJob(jobId);
+        SourceReader reader = env.getReader(jobConfig);
+        reader.close(jobConfig);
+        env.close(jobConfig.getJobId());
+        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
         return RestResponse.success(true);
     }
 }

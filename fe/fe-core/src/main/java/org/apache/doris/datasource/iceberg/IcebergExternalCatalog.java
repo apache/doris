@@ -47,6 +47,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_HADOOP = "hadoop";
     public static final String ICEBERG_GLUE = "glue";
     public static final String ICEBERG_DLF = "dlf";
+    public static final String ICEBERG_JDBC = "jdbc";
     public static final String ICEBERG_S3_TABLES = "s3tables";
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     public static final String ICEBERG_TABLE_META_CACHE_TTL_SECOND = "iceberg.table.meta.cache.ttl-second";
@@ -221,46 +222,48 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     /**
      * Add partition field to Iceberg table for partition evolution
      */
-    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldOp op) throws UserException {
+    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldOp op, long updateTime)
+            throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new UserException("Add partition field operation is not supported for catalog: " + getName());
         }
-        ((IcebergMetadataOps) metadataOps).addPartitionField(table, op);
+        ((IcebergMetadataOps) metadataOps).addPartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
-                                table.getDbName(), table.getName()));
+                                table.getDbName(), table.getName(), updateTime));
     }
 
     /**
      * Drop partition field from Iceberg table for partition evolution
      */
-    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldOp op) throws UserException {
+    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldOp op, long updateTime)
+            throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new UserException("Drop partition field operation is not supported for catalog: " + getName());
         }
-        ((IcebergMetadataOps) metadataOps).dropPartitionField(table, op);
+        ((IcebergMetadataOps) metadataOps).dropPartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
-                                table.getDbName(), table.getName()));
+                                table.getDbName(), table.getName(), updateTime));
     }
 
     /**
      * Replace partition field in Iceberg table for partition evolution
      */
     public void replacePartitionField(IcebergExternalTable table,
-            ReplacePartitionFieldOp op) throws UserException {
+            ReplacePartitionFieldOp op, long updateTime) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new UserException("Replace partition field operation is not supported for catalog: " + getName());
         }
-        ((IcebergMetadataOps) metadataOps).replacePartitionField(table, op);
+        ((IcebergMetadataOps) metadataOps).replacePartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
-                                table.getDbName(), table.getName()));
+                                table.getDbName(), table.getName(), updateTime));
     }
 }

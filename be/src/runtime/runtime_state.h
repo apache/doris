@@ -692,6 +692,11 @@ public:
         }
     }
 
+    MOCK_FUNCTION bool enable_use_hybrid_sort() const {
+        return _query_options.__isset.enable_use_hybrid_sort &&
+               _query_options.enable_use_hybrid_sort;
+    }
+
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
 
     int max_operator_id() const { return _max_operator_id; }

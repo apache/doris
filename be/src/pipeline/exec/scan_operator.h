@@ -202,18 +202,31 @@ protected:
     virtual bool _storage_no_merge() { return false; }
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
-    virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
-    virtual PushDownType _should_push_down_topn_filter() { return PushDownType::UNACCEPTABLE; }
-    virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
-    virtual PushDownType _should_push_down_is_null_predicate() {
+    virtual PushDownType _should_push_down_bloom_filter() const {
         return PushDownType::UNACCEPTABLE;
     }
-    Status _should_push_down_binary_predicate(
+    virtual PushDownType _should_push_down_topn_filter() const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_bitmap_filter() const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_is_null_predicate(
+            vectorized::VectorizedFnCall* fn_call) const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_in_predicate() const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_or_predicate(
+            const vectorized::VExprContext* expr_ctx) const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            StringRef* constant_val, int* slot_ref_child,
-            const std::function<bool(const std::string&)>& fn_checker, PushDownType& pdt);
-
-    PushDownType _should_push_down_in_predicate(vectorized::VInPredicate* in_pred, bool is_not_in);
+            StringRef* constant_val, const std::set<std::string> fn_name) const {
+        return PushDownType::UNACCEPTABLE;
+    }
 
     virtual Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
                                                      vectorized::VExprContext* expr_ctx,
@@ -234,18 +247,23 @@ protected:
     }
 
     Status _normalize_conjuncts(RuntimeState* state);
+    // Normalize a conjunct and try to convert it to column predicate recursively.
     Status _normalize_predicate(vectorized::VExprContext* context,
+                                const vectorized::VExprSPtr& root,
                                 vectorized::VExprSPtr& output_expr);
     Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
 
-    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
+                                   SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
-    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
+                                  SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
+                                    SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                     PushDownType* pdt);
 
@@ -256,29 +274,30 @@ protected:
                                       SlotDescriptor** slot_desc, ColumnValueRangeType** range);
 
     template <PrimitiveType T>
-    Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx,
+                                          vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                           std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                           ColumnValueRange<T>& range, PushDownType* pdt);
     template <PrimitiveType T>
     Status _normalize_not_in_and_not_eq_predicate(
-            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+            vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
             std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
             PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_noneq_binary_predicate(
-            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+            vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
             std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
             PushDownType* pdt);
     template <PrimitiveType T>
-    Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx,
+                                        vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                         std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         ColumnValueRange<T>& range, PushDownType* pdt);
 
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     Status _change_value_range(ColumnValueRange<PrimitiveType>& range, const void* value,
-                               const ChangeFixedValueRangeFunc& func, const std::string& fn_name,
-                               int slot_ref_child = -1);
+                               const ChangeFixedValueRangeFunc& func, const std::string& fn_name);
 
     Status _prepare_scanners();
 
@@ -313,6 +332,7 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
+    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> _or_predicates;
 
     std::atomic<bool> _eos = false;
 

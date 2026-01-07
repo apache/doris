@@ -422,7 +422,11 @@ struct TQueryOptions {
 
   182: optional i32 ivf_nprobe = 1;
 
-  183: optional bool enable_prune_nested_column = false;
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  183: optional bool enable_use_hybrid_sort = false;
+
+  184: optional bool enable_prune_nested_column = false;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
