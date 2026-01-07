@@ -2212,6 +2212,15 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
+    public boolean eagerAggregationOnJoin = false;
+    public static boolean isEagerAggregationOnJoin() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
+        }
+    }
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
