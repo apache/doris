@@ -417,9 +417,9 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Tuple,
-                         Map, VariantMap, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
-                         Decimal256, BitmapValue, HyperLogLog, QuantileState>
+                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Tuple, Map,
+                         VariantMap, Decimal32, Decimal64, DecimalV2Value, Decimal128V3, Decimal256,
+                         BitmapValue, HyperLogLog, QuantileState>
             storage;
 
     PrimitiveType type;
