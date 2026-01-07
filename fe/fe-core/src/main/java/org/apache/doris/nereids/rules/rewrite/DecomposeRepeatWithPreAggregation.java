@@ -63,7 +63,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * RewriteRepeatByCte will rewrite grouping sets. eg:
+ * This rule will rewrite grouping sets. eg:
  *      select a, b, c, d, e sum(f) from t group by rollup(a, b, c, d, e);
  * rewrite to:
  *    with cte1 as (select a, b, c, d, e, sum(f) x from t group by rollup(a, b, c, d, e))
@@ -296,7 +296,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             Map<Slot, Slot> originToConsumerMap, Set<Expression> needRemovedExprSet,
             List<NamedExpression> groupingFunctionSlots, LogicalAggregate<Plan> topAgg,
             Map<AggregateFunction, Slot> aggFuncToSlot) {
-        LogicalRepeat<?> repeat = aggregate.getSourceRepeat().get();
+        LogicalRepeat<?> repeat = (LogicalRepeat<?>) aggregate.child(0);
         Set<ExprId> originGroupingFunctionId = new HashSet<>();
         for (NamedExpression namedExpression : repeat.getGroupingScalarFunctionAlias()) {
             originGroupingFunctionId.add(namedExpression.getExprId());
