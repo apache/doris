@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.IntersectReorder;
-import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociateProject;
@@ -141,7 +140,7 @@ import java.util.List;
 public class RuleSet {
 
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(new MergeProjectsCBO())
+            // .add(new MergeProjectsCBO())
             .add(IntersectReorder.INSTANCE)
             .build();
 
