@@ -177,8 +177,6 @@ protected:
 
     int64_t _memory_limitation_bytes_for_schema_change;
 
-    // The value depends on the number of `storage_root_path` parameters in non-cloud mode,
-    // or the number of `file_cache_path` parameters in cloud mode.
     int _disk_num {-1};
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
