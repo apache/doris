@@ -198,7 +198,7 @@ public class CatalogTestUtil {
 
 
         // tablet
-        Tablet tablet = new Tablet(tabletId);
+        Tablet tablet = new LocalTablet(tabletId);
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
@@ -268,7 +268,7 @@ public class CatalogTestUtil {
         }
 
         // tablet
-        Tablet tablet = new Tablet(testTabletId2);
+        Tablet tablet = new LocalTablet(testTabletId2);
 
         // index
         MaterializedIndex index = new MaterializedIndex(testIndexId2, IndexState.NORMAL);

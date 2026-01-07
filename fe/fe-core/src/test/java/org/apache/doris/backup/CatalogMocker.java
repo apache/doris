@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MysqlTable;
@@ -247,7 +248,7 @@ public class CatalogMocker {
                                             KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         Deencapsulation.setField(olapTable, "baseIndexId", TEST_TBL_ID);
 
-        Tablet tablet0 = new Tablet(TEST_TABLET0_ID);
+        Tablet tablet0 = new LocalTablet(TEST_TABLET0_ID);
         TabletMeta tabletMeta = new TabletMeta(TEST_DB_ID, TEST_TBL_ID, TEST_SINGLE_PARTITION_ID,
                                                TEST_TBL_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndex.addTablet(tablet0, tabletMeta);
@@ -321,7 +322,7 @@ public class CatalogMocker {
                 KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
         Deencapsulation.setField(olapTable2, "baseIndexId", TEST_TBL2_ID);
 
-        Tablet baseTabletP1 = new Tablet(TEST_BASE_TABLET_P1_ID);
+        Tablet baseTabletP1 = new LocalTablet(TEST_BASE_TABLET_P1_ID);
         TabletMeta tabletMetaBaseTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
                                                            TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndexP1.addTablet(baseTabletP1, tabletMetaBaseTabletP1);
@@ -333,7 +334,7 @@ public class CatalogMocker {
         baseTabletP1.addReplica(replica4);
         baseTabletP1.addReplica(replica5);
 
-        Tablet baseTabletP2 = new Tablet(TEST_BASE_TABLET_P2_ID);
+        Tablet baseTabletP2 = new LocalTablet(TEST_BASE_TABLET_P2_ID);
         TabletMeta tabletMetaBaseTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION2_ID,
                                                            TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndexP2.addTablet(baseTabletP2, tabletMetaBaseTabletP2);
@@ -353,7 +354,7 @@ public class CatalogMocker {
 
         // rollup index p1
         MaterializedIndex rollupIndexP1 = new MaterializedIndex(TEST_ROLLUP_ID, IndexState.NORMAL);
-        Tablet rollupTabletP1 = new Tablet(TEST_ROLLUP_TABLET_P1_ID);
+        Tablet rollupTabletP1 = new LocalTablet(TEST_ROLLUP_TABLET_P1_ID);
         TabletMeta tabletMetaRollupTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
                                                              TEST_ROLLUP_TABLET_P1_ID, ROLLUP_SCHEMA_HASH,
                                                              TStorageMedium.HDD);
@@ -370,7 +371,7 @@ public class CatalogMocker {
 
         // rollup index p2
         MaterializedIndex rollupIndexP2 = new MaterializedIndex(TEST_ROLLUP_ID, IndexState.NORMAL);
-        Tablet rollupTabletP2 = new Tablet(TEST_ROLLUP_TABLET_P2_ID);
+        Tablet rollupTabletP2 = new LocalTablet(TEST_ROLLUP_TABLET_P2_ID);
         TabletMeta tabletMetaRollupTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
                                                              TEST_ROLLUP_TABLET_P2_ID, ROLLUP_SCHEMA_HASH,
                                                              TStorageMedium.HDD);

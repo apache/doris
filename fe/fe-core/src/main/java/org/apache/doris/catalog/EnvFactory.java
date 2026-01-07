@@ -99,11 +99,11 @@ public class EnvFactory {
     }
 
     public Tablet createTablet() {
-        return new Tablet();
+        return new LocalTablet();
     }
 
     public Tablet createTablet(long tabletId) {
-        return new Tablet(tabletId);
+        return new LocalTablet(tabletId);
     }
 
     public Replica createReplica() {

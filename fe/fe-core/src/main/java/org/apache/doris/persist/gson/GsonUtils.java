@@ -85,6 +85,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.MysqlDBTable;
@@ -253,6 +254,7 @@ import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
+import org.apache.hadoop.hdfs.server.datanode.LocalReplica;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -540,14 +542,17 @@ public class GsonUtils {
     static {
         tabletTypeAdapterFactory = RuntimeTypeAdapterFactory
                 .of(Tablet.class, "clazz")
-                .registerSubtype(Tablet.class, Tablet.class.getSimpleName())
+                .registerSubtype(LocalTablet.class, LocalTablet.class.getSimpleName())
                 .registerSubtype(CloudTablet.class, CloudTablet.class.getSimpleName());
         if (Config.isNotCloudMode()) {
-            tabletTypeAdapterFactory.registerDefaultSubtype(Tablet.class);
-            tabletTypeAdapterFactory.registerCompatibleSubtype(Tablet.class, "LocalTablet");
+            tabletTypeAdapterFactory.registerDefaultSubtype(LocalTablet.class);
+            tabletTypeAdapterFactory.registerCompatibleSubtype(LocalTablet.class, Tablet.class.getSimpleName());
+            replicaTypeAdapterFactory.registerDefaultSubtype(LocalReplica.class);
+            replicaTypeAdapterFactory.registerCompatibleSubtype(LocalReplica.class, Replica.class.getSimpleName());
         } else {
             // compatible with old cloud code.
             tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);
+            replicaTypeAdapterFactory.registerDefaultSubtype(CloudReplica.class);
         }
     }
 
