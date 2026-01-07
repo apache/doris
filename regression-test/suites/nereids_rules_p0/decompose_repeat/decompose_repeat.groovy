@@ -65,4 +65,10 @@ suite("decompose_repeat") {
     """
     sql "set enable_decimal256=false;"
     order_qt_guard "select * from test_guard;"
+
+    // rollup,cube
+    order_qt_rollup "select a,b,c,d,sum(d),grouping_id(a) from t1 group by rollup(a,b,c,d)"
+    order_qt_cube "select a,b,c,d,sum(d),grouping_id(a) from t1 group by cube(a,b,c,d)"
+    order_qt_cube_add "select a,b,c,d,sum(d)+100+grouping_id(a) from t1 group by cube(a,b,c,d);"
+    order_qt_cube_sum_parm_add "select a,b,c,d,sum(a+1),grouping_id(a) from t1 group by cube(a,b,c,d);"
 }
