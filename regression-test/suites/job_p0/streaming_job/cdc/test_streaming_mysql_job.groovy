@@ -20,7 +20,7 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_mysql_job", "p1,external,mysql,external_docker,external_docker_mysql") {
     def jobName = "test_streaming_mysql_job_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_normal1"
