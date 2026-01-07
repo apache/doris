@@ -1468,8 +1468,10 @@ private:
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
 
-static_assert(std::is_trivial_v<DateV2Value<DateV2ValueType>>, "DateV2Value<DateV2ValueType> must be trivial");
-static_assert(std::is_trivial_v<DateV2Value<DateTimeV2ValueType>> , "DateV2Value<DateTimeV2ValueType> must be trivial");
+static_assert(std::is_trivial_v<DateV2Value<DateV2ValueType>>,
+              "DateV2Value<DateV2ValueType> must be trivial");
+static_assert(std::is_trivial_v<DateV2Value<DateTimeV2ValueType>>,
+              "DateV2Value<DateTimeV2ValueType> must be trivial");
 
 template <typename T>
 inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
