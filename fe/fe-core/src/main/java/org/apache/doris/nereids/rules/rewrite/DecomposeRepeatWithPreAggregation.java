@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.Distin
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
@@ -29,10 +30,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -86,7 +90,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         implements CustomRewriter {
     public static final DecomposeRepeatWithPreAggregation INSTANCE = new DecomposeRepeatWithPreAggregation();
     private static final Set<Class<? extends AggregateFunction>> SUPPORT_AGG_FUNCTIONS =
-            ImmutableSet.of(Sum.class, Min.class, Max.class);
+            ImmutableSet.of(Sum.class, Sum0.class, Min.class, Max.class, AnyValue.class, Count.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -147,11 +151,31 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             }
             newGroupingSets.add(repeat.getGroupingSets().get(i));
         }
-        LogicalRepeat<Plan> newRepeat = constructRepeat(repeat, aggregateConsumer, newGroupingSets, originToConsumerMap);
+        List<NamedExpression> groupingFunctionSlots = new ArrayList<>();
+        LogicalRepeat<Plan> newRepeat = constructRepeat(repeat, aggregateConsumer, newGroupingSets,
+                originToConsumerMap, groupingFunctionSlots);
         Set<Expression> needRemovedExprSet = getNeedAddNullExpressions(repeat, newGroupingSets, maxGroupIndex);
-        LogicalProject<Plan> project = constructProjectAggregate(aggregate,
-                originToConsumerMap, repeat, newRepeat, needRemovedExprSet);
-        return constructUnion(project, directConsumer, aggregate);
+        Map<AggregateFunction, Slot> aggFuncToSlot = new HashMap<>();
+        LogicalAggregate<Plan> topAgg = constructAgg(aggregate, originToConsumerMap, newRepeat, groupingFunctionSlots,
+                aggFuncToSlot);
+        LogicalProject<Plan> project = constructProject(aggregate, originToConsumerMap, needRemovedExprSet,
+                groupingFunctionSlots, topAgg, aggFuncToSlot);
+        LogicalPlan directChild = getDirectChild(directConsumer, groupingFunctionSlots);
+        // add project for grouping function
+        return constructUnion(project, directChild, aggregate);
+    }
+
+    private LogicalPlan getDirectChild(LogicalCTEConsumer directConsumer, List<NamedExpression> groupingFunctionSlots) {
+        LogicalPlan directChild = directConsumer;
+        if (!groupingFunctionSlots.isEmpty()) {
+            ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+            builder.addAll(directConsumer.getOutput());
+            for (int i = 0; i < groupingFunctionSlots.size(); ++i) {
+                builder.add(new Alias(new BigIntLiteral(0)));
+            }
+            directChild = new LogicalProject<Plan>(builder.build(), directConsumer);
+        }
+        return directChild;
     }
 
     /**
@@ -198,76 +222,85 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return needRemovedExprSet;
     }
 
-    /**
-     * Construct a LogicalProject and a LogicalAggregate.
-     * This method rewrites aggregate functions to use slots from the consumer and replaces
-     * removed expressions with null literals.
-     *
-     * @param aggregate the original aggregate plan
-     * @param originToConsumerMap the map from original slots to consumer slots
-     * @param repeat the original LogicalRepeat plan
-     * @param newRepeat the new LogicalRepeat plan with reduced grouping sets
-     * @param needRemovedExprSet the set of expressions that need to be replaced with null
-     * @return a LogicalProject containing the rewritten aggregate
-     */
-    private LogicalProject<Plan> constructProjectAggregate(LogicalAggregate<? extends Plan> aggregate,
-            Map<Slot, Slot> originToConsumerMap, LogicalRepeat<Plan> repeat,
-            LogicalRepeat<Plan> newRepeat, Set<Expression> needRemovedExprSet) {
+    private LogicalAggregate<Plan> constructAgg(LogicalAggregate<? extends Plan> aggregate,
+            Map<Slot, Slot> originToConsumerMap, LogicalRepeat<Plan> newRepeat,
+            List<NamedExpression> groupingFunctionSlots, Map<AggregateFunction, Slot> aggFuncToSlot) {
         Map<AggregateFunction, Slot> aggFuncSlotMap = getAggFuncSlotMap(aggregate.getOutputExpressions(),
                 originToConsumerMap);
-        List<NamedExpression> topAggOutput = new ArrayList<>();
+
+        Set<Slot> groupingSetsUsedSlot = ImmutableSet.copyOf(
+                ExpressionUtils.flatExpressions((List) newRepeat.getGroupingSets()));
+        List<Expression> topAggGby = new ArrayList<>(groupingSetsUsedSlot);
+        topAggGby.add(newRepeat.getGroupingId().get());
+        topAggGby.addAll(groupingFunctionSlots);
+        List<NamedExpression> topAggOutput = new ArrayList<>((List) topAggGby);
+        for (NamedExpression expr : aggregate.getOutputExpressions()) {
+            if (expr instanceof Alias && expr.containsType(AggregateFunction.class)) {
+                NamedExpression aggFuncAfterRewrite = (NamedExpression) expr.rewriteDownShortCircuit(e -> {
+                    if (e instanceof AggregateFunction) {
+                        if (e instanceof Count) {
+                            return new Sum(aggFuncSlotMap.get(e));
+                        } else {
+                            return e.withChildren(aggFuncSlotMap.get(e));
+                        }
+                    } else {
+                        return e;
+                    }
+                });
+                aggFuncAfterRewrite = ((Alias) aggFuncAfterRewrite)
+                        .withExprId(StatementScopeIdGenerator.newExprId());
+                NamedExpression replacedExpr = (NamedExpression) aggFuncAfterRewrite.rewriteDownShortCircuit(
+                        e -> {
+                            if (originToConsumerMap.containsKey(e)) {
+                                return originToConsumerMap.get(e);
+                            } else {
+                                return e;
+                            }
+                        }
+                );
+                topAggOutput.add(replacedExpr);
+                aggFuncToSlot.put((AggregateFunction) expr.collectFirst(e -> e instanceof AggregateFunction).get(),
+                        replacedExpr.toSlot());
+            }
+        }
+        return new LogicalAggregate<>(topAggGby, topAggOutput,
+                Optional.of(newRepeat), newRepeat);
+    }
+
+    private LogicalProject<Plan> constructProject(LogicalAggregate<? extends Plan> aggregate,
+            Map<Slot, Slot> originToConsumerMap, Set<Expression> needRemovedExprSet,
+            List<NamedExpression> groupingFunctionSlots, LogicalAggregate<Plan> topAgg,
+            Map<AggregateFunction, Slot> aggFuncToSlot) {
+        LogicalRepeat<?> repeat = aggregate.getSourceRepeat().get();
+        Set<ExprId> originGroupingFunctionId = new HashSet<>();
+        for (NamedExpression namedExpression : repeat.getGroupingScalarFunctionAlias()) {
+            originGroupingFunctionId.add(namedExpression.getExprId());
+        }
         List<NamedExpression> projects = new ArrayList<>();
         for (NamedExpression expr : aggregate.getOutputExpressions()) {
             if (needRemovedExprSet.contains(expr)) {
                 projects.add(new Alias(new NullLiteral(expr.getDataType()), expr.getName()));
+            } else if (expr instanceof Alias && expr.containsType(AggregateFunction.class)) {
+                AggregateFunction aggregateFunction = (AggregateFunction) expr.collectFirst(
+                        e -> e instanceof AggregateFunction).get();
+                projects.add(aggFuncToSlot.get(aggregateFunction));
+            } else if (expr.getExprId().equals(repeat.getGroupingId().get().getExprId())
+                    || originGroupingFunctionId.contains(expr.getExprId())) {
+                continue;
             } else {
-                if (expr instanceof Alias && expr.containsType(AggregateFunction.class)) {
-                    NamedExpression aggFuncAfterRewrite = (NamedExpression) expr.rewriteDownShortCircuit(e -> {
-                        if (e instanceof AggregateFunction) {
-                            return e.withChildren(aggFuncSlotMap.get(e));
-                        } else {
-                            return e;
+                NamedExpression replacedExpr = (NamedExpression) expr.rewriteDownShortCircuit(
+                        e -> {
+                            if (originToConsumerMap.containsKey(e)) {
+                                return originToConsumerMap.get(e);
+                            } else {
+                                return e;
+                            }
                         }
-                    });
-                    aggFuncAfterRewrite = ((Alias) aggFuncAfterRewrite)
-                            .withExprId(StatementScopeIdGenerator.newExprId());
-                    NamedExpression replacedExpr = (NamedExpression) aggFuncAfterRewrite.rewriteDownShortCircuit(
-                            e -> {
-                                if (originToConsumerMap.containsKey(e)) {
-                                    return originToConsumerMap.get(e);
-                                } else {
-                                    return e;
-                                }
-                            }
-                    );
-                    topAggOutput.add(replacedExpr);
-                    projects.add(replacedExpr.toSlot());
-                } else {
-                    if (expr.getExprId().equals(repeat.getGroupingId().get().getExprId())) {
-                        topAggOutput.add(expr);
-                        continue;
-                    }
-                    NamedExpression replacedExpr = (NamedExpression) expr.rewriteDownShortCircuit(
-                            e -> {
-                                if (originToConsumerMap.containsKey(e)) {
-                                    return originToConsumerMap.get(e);
-                                } else {
-                                    return e;
-                                }
-                            }
-                    );
-                    topAggOutput.add(replacedExpr);
-                    projects.add(replacedExpr.toSlot());
-                }
+                );
+                projects.add(replacedExpr.toSlot());
             }
         }
-        Set<Slot> groupingSetsUsedSlot = ImmutableSet.copyOf(
-                ExpressionUtils.flatExpressions((List) newRepeat.getGroupingSets()));
-        List<Expression> topAggGby2 = new ArrayList<>(groupingSetsUsedSlot);
-        topAggGby2.add(newRepeat.getGroupingId().get());
-        List<Expression> replacedAggGby = ExpressionUtils.replace(topAggGby2, originToConsumerMap);
-        LogicalAggregate<Plan> topAgg = new LogicalAggregate<>(replacedAggGby, topAggOutput,
-                Optional.of(newRepeat), newRepeat);
+        projects.addAll(groupingFunctionSlots);
         return new LogicalProject<>(projects, topAgg);
     }
 
@@ -287,12 +320,22 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         List<List<SlotReference>> childrenOutputs = new ArrayList<>();
         childrenOutputs.add((List) aggregateProject.getOutput());
         childrenOutputs.add((List) directConsumer.getOutput());
+        Set<ExprId> groupingFunctionId = new HashSet<>();
+        for (NamedExpression alias : repeat.getGroupingScalarFunctionAlias()) {
+            groupingFunctionId.add(alias.getExprId());
+        }
+        List<NamedExpression> groupingFunctionSlots = new ArrayList<>();
         for (NamedExpression expr : aggregate.getOutputExpressions()) {
             if (expr.getExprId().equals(repeat.getGroupingId().get().getExprId())) {
                 continue;
             }
+            if (groupingFunctionId.contains(expr.getExprId())) {
+                groupingFunctionSlots.add(expr.toSlot());
+                continue;
+            }
             unionOutputs.add(expr.toSlot());
         }
+        unionOutputs.addAll(groupingFunctionSlots);
         return new LogicalUnion(Qualifier.ALL, unionOutputs, childrenOutputs, ImmutableList.of(),
                 false, ImmutableList.of(aggregateProject, directConsumer));
     }
@@ -325,35 +368,47 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 return -1;
             }
         }
-        // find max group
         LogicalRepeat<Plan> repeat = (LogicalRepeat) aggChild;
-        for (NamedExpression expr : repeat.getOutputExpressions()) {
-            if (expr.containsType(GroupingScalarFunction.class)) {
-                return -1;
-            }
-        }
         List<List<Expression>> groupingSets = repeat.getGroupingSets();
+        // This is an empirical threshold: when there are too few grouping sets,
+        // the overhead of creating CTE and union may outweigh the benefits.
+        // The value 3 is chosen heuristically based on practical experience.
         if (groupingSets.size() <= 3) {
             return -1;
         }
-        ImmutableSet<Expression> maxGroup = ImmutableSet.copyOf(groupingSets.get(0));
+        return findMaxGroupingSetIndex(groupingSets);
+    }
+
+    /**
+     * Find the index of the grouping set that contains all other grouping sets.
+     * First pass: find the grouping set with the maximum size (if multiple have the same size, take the first one).
+     * Second pass: verify that this max-size grouping set contains all other grouping sets.
+     * A grouping set A contains grouping set B if A contains all expressions in B.
+     *
+     * @param groupingSets the list of grouping sets to search
+     * @return the index of the grouping set that contains all others, or -1 if no such set exists
+     */
+    private int findMaxGroupingSetIndex(List<List<Expression>> groupingSets) {
+        if (groupingSets.isEmpty()) {
+            return -1;
+        }
+        // First pass: find the grouping set with maximum size
+        int maxSize = groupingSets.get(0).size();
         int maxGroupIndex = 0;
         for (int i = 1; i < groupingSets.size(); ++i) {
-            List<Expression> groupingSet = groupingSets.get(i);
-            if (maxGroup.containsAll(groupingSet)) {
+            if (groupingSets.get(i).size() > maxSize) {
+                maxSize = groupingSets.get(i).size();
+                maxGroupIndex = i;
+            }
+        }
+        // Second pass: verify that the max-size grouping set contains all other grouping sets
+        ImmutableSet<Expression> maxGroup = ImmutableSet.copyOf(groupingSets.get(maxGroupIndex));
+        for (int i = 0; i < groupingSets.size(); ++i) {
+            if (i == maxGroupIndex) {
                 continue;
             }
-            if (groupingSet.size() <= maxGroup.size()) {
-                maxGroupIndex = -1;
-                break;
-            }
-            ImmutableSet<Expression> currentSet = ImmutableSet.copyOf(groupingSet);
-            if (currentSet.containsAll(maxGroup)) {
-                maxGroup = currentSet;
-                maxGroupIndex = i;
-            } else {
-                maxGroupIndex = -1;
-                break;
+            if (!maxGroup.containsAll(groupingSets.get(i))) {
+                return -1;
             }
         }
         return maxGroupIndex;
@@ -412,12 +467,22 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      * @return a new LogicalRepeat with replaced expressions
      */
     private LogicalRepeat<Plan> constructRepeat(LogicalRepeat<Plan> repeat, LogicalPlan child,
-            List<List<Expression>> newGroupingSets, Map<Slot, Slot> producerToDirectConsumerSlotMap) {
+            List<List<Expression>> newGroupingSets, Map<Slot, Slot> producerToDirectConsumerSlotMap,
+            List<NamedExpression> groupingFunctionSlots) {
         List<List<Expression>> replacedNewGroupingSets = new ArrayList<>();
         for (List<Expression> groupingSet : newGroupingSets) {
             replacedNewGroupingSets.add(ExpressionUtils.replace(groupingSet, producerToDirectConsumerSlotMap));
         }
         List<NamedExpression> replacedRepeatOutputs = new ArrayList<>(child.getOutput());
+        List<NamedExpression> newGroupingFunctions = new ArrayList<>();
+        for (NamedExpression groupingFunction : repeat.getGroupingScalarFunctionAlias()) {
+            newGroupingFunctions.add(new Alias(groupingFunction.child(0), groupingFunction.getName()));
+        }
+        replacedRepeatOutputs.addAll(ExpressionUtils.replace((List) newGroupingFunctions,
+                producerToDirectConsumerSlotMap));
+        for (NamedExpression groupingFunction : newGroupingFunctions) {
+            groupingFunctionSlots.add(groupingFunction.toSlot());
+        }
         return repeat.withNormalizedExpr(replacedNewGroupingSets, replacedRepeatOutputs,
                 repeat.getGroupingId().get(), child);
     }

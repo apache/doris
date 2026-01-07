@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -123,6 +125,19 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public List<NamedExpression> getOutputs() {
         return outputExpressions;
+    }
+
+    /**
+     * @return groupingScalarFunction with Alias
+     */
+    public List<NamedExpression> getGroupingScalarFunctionAlias() {
+        List<NamedExpression> functionList = new ArrayList<>();
+        for (NamedExpression outputExpression : outputExpressions) {
+            if (outputExpression.containsType(GroupingScalarFunction.class)) {
+                functionList.add(outputExpression);
+            }
+        }
+        return functionList;
     }
 
     @Override

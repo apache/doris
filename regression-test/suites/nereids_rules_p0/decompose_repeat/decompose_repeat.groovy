@@ -44,9 +44,15 @@ suite("decompose_repeat") {
     order_qt_only_output_grouping_id """
     select a from t1 group by grouping sets ((),(),(),(a)) order by a;
     """
-
-    // negative case
+    order_qt_sum0_count "select a,b,c,d,sum0(d) c1, count(d) c3 from t1 group by grouping sets((a,b,c),(d),(d,a),(a,b,c,d));"
+    order_qt_choose_max_group """
+    select a,b,c,d,sum(d) c1 from t1 group by grouping sets((a,b,c),(d),(d,a),(a,b,c,d));
+    """
+    order_qt_multi_grouping_func """
+    select a,b,c,d,count(d) c1, grouping(d),grouping_id(c) from t1 group by grouping sets((a,b,c),(d),(d,a),(a,b,c,d));
+    """
     order_qt_grouping_func "select a,b,c,d,sum(d),grouping_id(a) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c))"
+    // negative case
     order_qt_avg "select a,b,c,d,avg(d) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c));"
     order_qt_distinct "select a,b,c,d,sum(distinct d) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c));"
     order_qt_less_equal_than_3 "select a,b,c,d,sum(distinct d) from t1 group by grouping sets((a,b,c),(a,b,c,d),());"
