@@ -230,11 +230,13 @@ struct DateV2ValueType {
     uint32_t month_ : 4;
     uint32_t year_ : 23;
 
+    DateV2ValueType() = default;
     DateV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
                     uint8_t second, uint32_t microsecond)
             : day_(day), month_(month), year_(year) {}
 };
 
+static_assert(std::is_trivial_v<DateV2ValueType>, "DateV2ValueType must be trivial");
 struct DateTimeV2ValueType {
     uint64_t microsecond_ : 20;
     uint64_t second_ : 6;
@@ -253,7 +255,10 @@ struct DateTimeV2ValueType {
               day_(day),
               month_(month),
               year_(year) {}
+    DateTimeV2ValueType() = default;
 };
+
+static_assert(std::is_trivial_v<DateTimeV2ValueType>, "DateTimeV2ValueType must be trivial");
 
 template <typename T>
 class DateV2Value;
@@ -811,6 +816,7 @@ private:
               _year(year) {}
 };
 
+static_assert(std::is_trivially_copyable_v<VecDateTimeValue>, "VecDateTimeValue must be trivial");
 inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
 inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
                                                               1, 1);
@@ -822,7 +828,7 @@ public:
     using underlying_value = std::conditional_t<is_datetime, uint64_t, uint32_t>;
 
     // Constructor
-    DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
+    DateV2Value() = default;
 
     DateV2Value(underlying_value int_val) : int_val_(int_val) {}
     template <typename U>
@@ -1469,6 +1475,11 @@ private:
                 uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
+
+static_assert(std::is_trivial_v<DateV2Value<DateV2ValueType>>,
+              "DateV2Value<DateV2ValueType> must be trivial");
+static_assert(std::is_trivial_v<DateV2Value<DateTimeV2ValueType>>,
+              "DateV2Value<DateTimeV2ValueType> must be trivial");
 
 template <typename T>
 inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
