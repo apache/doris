@@ -56,4 +56,13 @@ suite("decompose_repeat") {
     order_qt_avg "select a,b,c,d,avg(d) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c));"
     order_qt_distinct "select a,b,c,d,sum(distinct d) from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c));"
     order_qt_less_equal_than_3 "select a,b,c,d,sum(distinct d) from t1 group by grouping sets((a,b,c),(a,b,c,d),());"
+
+    // test guard
+    sql "set enable_decimal256=true;"
+    multi_sql """
+    drop view if exists test_guard;
+    create view test_guard as select a,b,c,d,sum(d) as c1, grouping_id(a) as c2 from t1 group by grouping sets((a,b,c),(a,b,c,d),(a),(a,b,c,c));
+    """
+    sql "set enable_decimal256=false;"
+    order_qt_guard "select * from test_guard;"
 }
