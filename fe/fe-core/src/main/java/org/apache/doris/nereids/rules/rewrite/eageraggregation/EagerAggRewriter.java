@@ -145,13 +145,11 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (toLeft) {
             Plan newLeft = join.left().accept(this, childContext);
             if (newLeft != join.left()) {
-                context.getFinalGroupKeys().addAll(childContext.getFinalGroupKeys());
                 return join.withChildren(newLeft, join.right());
             }
         } else {
             Plan newRight = join.right().accept(this, childContext);
             if (newRight != join.right()) {
-                context.getFinalGroupKeys().addAll(childContext.getFinalGroupKeys());
                 return join.withChildren(join.left(), newRight);
             }
         }
@@ -245,7 +243,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         PushDownAggContext newContext = createContextFromProject(project, context);
         Plan newChild = project.child().accept(this, newContext);
         if (newChild != project.child()) {
-            context.getFinalGroupKeys().addAll(newContext.getFinalGroupKeys());
             /*
              * agg[sum(a), groupBy(b)]
              *    -> proj(a, b1+b2 as b)
@@ -254,29 +251,33 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
              *          -> any(d, ...)
              *  =>
              *  agg[sum(x), groupBy(b)]
-             *    -> proj(x, b)
+             *    -> proj(x, b1+b2 as b)
              *      -> join(c=d)
-             *          ->agg[sum(a) as x, groupBy(b, c)]
-             *              ->proj(a, b1+b2 as b, c, ...)
+             *          ->agg[sum(a) as x, groupBy(b1, b2, c)]
+             *              ->proj(a, b1, b2, c, ...)
              *                  -> any(a, b1, b2, c)
              *          -> any(d, ...)
              */
             Set<Slot> aggFuncInputSlots = context.getAggFunctionsInputSlots();
             List<NamedExpression> newProjections = new ArrayList<>();
             for (NamedExpression ne : project.getProjects()) {
-                if (aggFuncInputSlots.contains(ne.toSlot())) {
-                    // ne (a) is replaced by alias slot (x)
-                    continue;
-                } else if (context.getFinalGroupKeys().contains(ne.toSlot())) {
-                    newProjections.add(ne.toSlot());
-                } else {
+                if (newChild.getOutputSet().containsAll(ne.getInputSlots())) {
                     newProjections.add(ne);
+                } else {
+                    if (!(ne instanceof SlotReference && aggFuncInputSlots.contains((SlotReference) ne))) {
+                        if (SessionVariable.isFeDebug()) {
+                            throw new RuntimeException("push down Agg failed: " + ne + " is not in project \n"
+                                    + project.treeString());
+                        } else {
+                            return project;
+                        }
+                    }
                 }
             }
             for (Alias alias : context.getAliasMap().values()) {
                 newProjections.add(alias.toSlot());
             }
-            for (SlotReference key : context.getFinalGroupKeys()) {
+            for (SlotReference key : context.getGroupKeys()) {
                 if (!newProjections.contains(key)) {
                     newProjections.add(key);
                 }
@@ -308,9 +309,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             List<NamedExpression> aggOutputExpressions = new ArrayList<>();
             aggOutputExpressions.addAll(context.getAliasMap().values());
             aggOutputExpressions.addAll(context.getGroupKeys());
-            for (NamedExpression key : context.getGroupKeys()) {
-                context.addFinalGroupKey((SlotReference) key.toSlot());
-            }
             LogicalAggregate genAgg = new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
             NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
             return normalizeAggregate.normalizeAgg(genAgg, Optional.empty(),
