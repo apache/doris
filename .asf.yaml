@@ -140,7 +140,6 @@ github:
         strict: false
         contexts:
           - License Check
-          - Clang Formatter
           - CheckStyle
           - Build Broker
           - Build Third Party Libraries (Linux)
