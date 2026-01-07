@@ -184,3 +184,13 @@ enableKerberosTest = true
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
 enableNonCatalogKerberosTest = true
+
+// hudi p0 external regression test config
+// To enable hudi test, you need first start hudi container.
+// See `docker/thirdparties/run-thirdparties-docker.sh -c hudi`
+enableHudiTest=true
+// hudi catalog config
+hudiHmsPort=19083
+hudiMinioPort=19100
+hudiMinioAccessKey="minio"
+hudiMinioSecretKey="minio123"
