@@ -827,6 +827,10 @@ private:
     // It only works when the report_conflicting_ranges option is enabled.
     TxnErrorCode get_conflicting_range(
             std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode get_read_conflict_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode get_write_conflict_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
     TxnErrorCode report_conflicting_range();
 
     std::shared_ptr<Database> db_ {nullptr};
