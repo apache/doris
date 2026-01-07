@@ -298,8 +298,7 @@ Status StorageEngine::_open() {
     auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
-        _disk_num = cast_set<int>(dirs.size());
-    }
+    _disk_num = cast_set<int>(dirs.size());
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
     _memtable_flush_executor->init(_disk_num);
 
