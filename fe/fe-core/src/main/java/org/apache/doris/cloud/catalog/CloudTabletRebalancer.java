@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -135,6 +136,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private final Object warmupExecutorInitLock = new Object();
 
     private BalanceTypeEnum globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
+
+    private Set<Long> activeTabletIds = new HashSet<>();
 
     /**
      * Get the current balance type for a compute group, falling back to global balance type if not found
@@ -451,6 +454,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
         LOG.info("cloud tablet rebalance begin");
         long start = System.currentTimeMillis();
+        activeTabletIds = getActiveTabletIds();
         globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
 
         buildClusterToBackendMap();
@@ -481,7 +485,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             balanceEnd += (Config.cloud_tablet_rebalancer_interval_second + 10L) * 1000L;
         }
         if (balanceEnd - start > Config.cloud_tablet_rebalancer_interval_second * 1000L) {
-            sleepSeconds = 0L;
+            sleepSeconds = 1L;
         }
         setInterval(sleepSeconds * 1000L);
         LOG.info("finished to rebalancer. cost: {} ms, rebalancer sche interval {} s",
@@ -1476,9 +1480,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 currentBalanceType, beNum, totalTabletsNum, avgNum, transferNum);
 
         // Prefer scheduling active tablets (recently accessed)
-        final Set<Long> activeTabletIds = getActiveTabletIds();
         final Map<Long, List<Tablet>> activeTabletsByBeCache =
-                activeTabletIds.isEmpty() ? null : new HashMap<>();
+                this.activeTabletIds.isEmpty() ? null : new HashMap<>();
+        final Set<Long> pickedTabletIds = new HashSet<>();
 
         for (int i = 0; i < transferNum; i++) {
             TransferPairInfo pairInfo = new TransferPairInfo();
@@ -1492,10 +1496,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
             long destBe = pairInfo.destBe;
 
             Tablet pickedTablet = pickTabletPreferActive(srcBe, beToTablets.get(srcBe),
-                    activeTabletIds, activeTabletsByBeCache);
+                    this.activeTabletIds, activeTabletsByBeCache, pickedTabletIds);
             if (pickedTablet == null) {
                 continue; // No tablet to pick
             }
+
+            pickedTabletIds.add(pickedTablet.getId());
 
             CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
             Backend srcBackend = Env.getCurrentSystemInfo().getBackend(srcBe);
@@ -1562,13 +1568,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private Set<Long> getActiveTabletIds() {
         try {
             // get topN active tablets
-            List<CloudTabletAccessStats.AccessStatsResult> active =
-                    CloudTabletAccessStats.getInstance().getTopNActiveTablets(10000);
+            List<TabletAccessStats.AccessStatsResult> active =
+                    TabletAccessStats.getInstance().getTopNActiveTablets(10000);
             if (active == null || active.isEmpty()) {
                 return Collections.emptySet();
             }
             Set<Long> ids = new HashSet<>(active.size() * 2);
-            for (CloudTabletAccessStats.AccessStatsResult r : active) {
+            for (TabletAccessStats.AccessStatsResult r : active) {
                 ids.add(r.id);
             }
             return ids;
@@ -1582,12 +1588,22 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     // choose active tablet first to re-balance, otherwise random pick
     private Tablet pickTabletPreferActive(long srcBe, Set<Tablet> tablets, Set<Long> activeTabletIds,
-                                          Map<Long, List<Tablet>> activeTabletsByBeCache) {
+                                          Map<Long, List<Tablet>> activeTabletsByBeCache,
+                                          Set<Long> pickedTabletIds) {
         if (tablets == null || tablets.isEmpty()) {
             return null;
         }
+
+        Set<Tablet> availableTablets = tablets.stream()
+                .filter(t -> !pickedTabletIds.contains(t.getId()))
+                .collect(Collectors.toSet());
+
+        if (availableTablets.isEmpty()) {
+            return null; // No available tablets
+        }
+
         if (activeTabletIds == null || activeTabletIds.isEmpty() || activeTabletsByBeCache == null) {
-            return pickRandomTablet(tablets);
+            return pickRandomTablet(availableTablets);
         }
 
         // Compute srcBe active tablets once, cache for subsequent iterations in this balanceImpl call.
@@ -1595,11 +1611,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 .filter(t -> activeTabletIds.contains(t.getId()))
                 .collect(Collectors.toList()));
 
-        if (activeInSrc != null && !activeInSrc.isEmpty()) {
-            return activeInSrc.get(rand.nextInt(activeInSrc.size()));
+        List<Tablet> availableActiveInSrc = activeInSrc.stream()
+                .filter(t -> !pickedTabletIds.contains(t.getId()))
+                .collect(Collectors.toList());
+
+        if (availableActiveInSrc != null && !availableActiveInSrc.isEmpty()) {
+            return availableActiveInSrc.get(rand.nextInt(availableActiveInSrc.size()));
         }
 
-        return pickRandomTablet(tablets);
+        return pickRandomTablet(availableTablets);
     }
 
     private Tablet pickRandomTablet(Set<Tablet> tablets) {

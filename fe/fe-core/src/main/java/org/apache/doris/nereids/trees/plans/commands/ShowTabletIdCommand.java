@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
@@ -81,6 +82,8 @@ public class ShowTabletIdCommand extends ShowCommand {
         builder.addColumn(new Column("IsSync", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("Order", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("QueryHits", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("AccessCount1H", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("LastAccessTime", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));
         return builder.build();
     }
@@ -119,6 +122,14 @@ public class ShowTabletIdCommand extends ShowCommand {
 
         int tabletIdx = -1;
         // check real meta
+        TabletAccessStats.AccessStatsResult asr = TabletAccessStats.getInstance()
+                .getTabletAccessInfo(tabletId);
+        long accessCount1H = 0;
+        long lastAccessTime = 0;
+        if (asr != null) {
+            accessCount1H = asr.accessCount;
+            lastAccessTime = asr.lastAccessTime;
+        }
         do {
             Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -191,7 +202,9 @@ public class ShowTabletIdCommand extends ShowCommand {
         rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
                 dbId.toString(), tableId.toString(),
                 partitionId.toString(), indexId.toString(),
-                isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits), detailCmd));
+                isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits),
+                String.valueOf(accessCount1H), String.valueOf(lastAccessTime),
+                detailCmd));
         return new ShowResultSet(getMetaData(), rows);
     }
 

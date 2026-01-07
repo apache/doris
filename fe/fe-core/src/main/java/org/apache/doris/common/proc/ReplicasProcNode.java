@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.AnalysisException;
@@ -51,7 +52,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                 .add("IsUserDrop")
                 .add("VisibleVersionCount").add("VersionCount").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
-                .add("CooldownMetaId").add("QueryHits");
+                .add("CooldownMetaId").add("QueryHits").add("AccessCount1H").add("LastAccessTime");
 
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");
@@ -91,6 +92,14 @@ public class ReplicasProcNode implements ProcNodeInterface {
         }
 
         for (Replica replica : replicas) {
+            TabletAccessStats.AccessStatsResult asr = TabletAccessStats.getInstance()
+                    .getTabletAccessInfo(tabletId);
+            long accessCount1H = 0;
+            long lastAccessTime = 0;
+            if (asr != null) {
+                accessCount1H = asr.accessCount;
+                lastAccessTime = asr.lastAccessTime;
+            }
             long beId = replica.getBackendIdWithoutException();
             Backend be = backendMap.get(beId);
             String host = (be == null ? Backend.DUMMY_IP : be.getHost());
@@ -138,7 +147,10 @@ public class ReplicasProcNode implements ProcNodeInterface {
                     compactionUrl,
                     String.valueOf(tablet.getCooldownReplicaId()),
                     cooldownMetaId,
-                    String.valueOf(queryHits));
+                    String.valueOf(queryHits),
+                    String.valueOf(accessCount1H),
+                    String.valueOf(lastAccessTime)
+                );
             if (Config.isCloudMode()) {
                 replicaInfo.add(String.valueOf(((CloudReplica) replica).getPrimaryBackendId()));
             }

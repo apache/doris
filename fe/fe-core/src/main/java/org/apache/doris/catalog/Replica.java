@@ -175,6 +175,14 @@ public class Replica {
         return -1L;
     }
 
+    // just record read,write ops
+    public long getBackendIdRecordAccessInfo() throws UserException {
+        // Use async version to avoid blocking getBackendIdImpl which is called frequently
+        TabletAccessStats.getInstance().recordAccessAsync(getId());
+        return getBackendId();
+    }
+
+    // just for ut
     public void setBackendId(long backendId) {
         if (backendId != -1) {
             throw new UnsupportedOperationException("setBackendId is not supported in Replica");

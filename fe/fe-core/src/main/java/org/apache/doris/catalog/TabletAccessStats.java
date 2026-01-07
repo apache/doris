@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.catalog;
+package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
@@ -38,10 +36,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.stream.Collectors;
 
-public class CloudTabletAccessStats {
-    private static final Logger LOG = LogManager.getLogger(CloudTabletAccessStats.class);
+public class TabletAccessStats {
+    private static final Logger LOG = LogManager.getLogger(TabletAccessStats.class);
 
-    private static volatile CloudTabletAccessStats instance;
+    private static volatile TabletAccessStats instance;
+
+    // Sort active tablets by accessCount desc, then lastAccessTime desc
+    private static final Comparator<AccessStatsResult> TOPN_ACTIVE_TABLET_COMPARATOR =
+            Comparator.comparingLong((AccessStatsResult r) -> r.accessCount).reversed()
+                    .thenComparing(Comparator.comparingLong((AccessStatsResult r) -> r.lastAccessTime).reversed());
 
     // Time window in milliseconds (default: 1 hour)
     private final long timeWindowMs;
@@ -186,7 +189,7 @@ public class CloudTabletAccessStats {
     // Default cleanup interval: 5 minutes
     private static final long DEFAULT_CLEANUP_INTERVAL_SECOND = 300L;
 
-    private CloudTabletAccessStats() {
+    private TabletAccessStats() {
         this.timeWindowMs = DEFAULT_TIME_WINDOW_SECOND * 1000L;
         this.bucketSizeMs = DEFAULT_BUCKET_SIZE_SECOND * 1000L;
         this.numBuckets = (int) (DEFAULT_TIME_WINDOW_SECOND / DEFAULT_BUCKET_SIZE_SECOND); // 60 buckets
@@ -223,11 +226,11 @@ public class CloudTabletAccessStats {
         }
     }
 
-    public static CloudTabletAccessStats getInstance() {
+    public static TabletAccessStats getInstance() {
         if (instance == null) {
-            synchronized (CloudTabletAccessStats.class) {
+            synchronized (TabletAccessStats.class) {
                 if (instance == null) {
-                    instance = new CloudTabletAccessStats();
+                    instance = new TabletAccessStats();
                 }
             }
         }
@@ -246,7 +249,7 @@ public class CloudTabletAccessStats {
      * This method is non-blocking and should be used in high-frequency call paths
      * to avoid blocking the caller thread.
      */
-    public void recordAccessAsync(long replicaId, long tableId, long partitionId, long indexId) {
+    public void recordAccessAsync(long replicaId) {
         if (!Config.enable_cloud_active_tablet_priority_scheduling || asyncExecutor == null) {
             return;
         }
@@ -254,7 +257,7 @@ public class CloudTabletAccessStats {
         try {
             asyncExecutor.execute(() -> {
                 try {
-                    recordAccess(replicaId, tableId, partitionId, indexId);
+                    recordAccess(replicaId);
                 } catch (Exception e) {
                     // Log but don't propagate exception to avoid affecting caller
                     LOG.debug("Failed to record access asynchronously for replicaId={}", replicaId, e);
@@ -272,7 +275,7 @@ public class CloudTabletAccessStats {
     /**
      * Record an access to a replica
      */
-    public void recordAccess(long replicaId, long tableId, long partitionId, long indexId) {
+    public void recordAccess(long replicaId) {
         if (!Config.enable_cloud_active_tablet_priority_scheduling) {
             return;
         }
@@ -298,9 +301,9 @@ public class CloudTabletAccessStats {
     /**
      * Get access count for a tablet within the time window
      */
-    public long getTabletAccessCount(long tabletId) {
+    public AccessStatsResult getTabletAccessInfo(long tabletId) {
         if (!Config.enable_cloud_active_tablet_priority_scheduling) {
-            return 0;
+            return null;
         }
 
         int shardIndex = getShardIndex(tabletId);
@@ -308,11 +311,14 @@ public class CloudTabletAccessStats {
         SlidingWindowCounter counter = shard.tabletCounters.get(tabletId);
 
         if (counter == null) {
-            return 0;
+            return null;
         }
 
         long currentTime = System.currentTimeMillis();
-        return counter.getCount(currentTime, timeWindowMs, bucketSizeMs, numBuckets);
+        return new AccessStatsResult(
+                tabletId,
+                counter.getCount(currentTime, timeWindowMs, bucketSizeMs, numBuckets),
+                counter.getLastAccessTime());
     }
 
     /**
@@ -327,6 +333,15 @@ public class CloudTabletAccessStats {
             this.id = id;
             this.accessCount = accessCount;
             this.lastAccessTime = lastAccessTime;
+        }
+
+        @Override
+        public String toString() {
+            return "AccessStatsResult{"
+                    + "id=" + id
+                    + ", accessCount=" + accessCount
+                    + ", lastAccessTime=" + lastAccessTime
+                    + '}';
         }
     }
 
@@ -360,9 +375,7 @@ public class CloudTabletAccessStats {
         }
 
         // Sort and return top N
-        results.sort(Comparator
-                .comparingLong((AccessStatsResult r) -> r.accessCount).reversed()
-                .thenComparingLong((AccessStatsResult r) -> r.lastAccessTime).reversed());
+        results.sort(TOPN_ACTIVE_TABLET_COMPARATOR);
 
         return results.stream().limit(topN).collect(Collectors.toList());
     }
@@ -421,7 +434,7 @@ public class CloudTabletAccessStats {
         }
 
         return String.format(
-                "CloudTabletAccessStats{timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
+                "TabletAccessStats{timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
                 + "shardSize=%d, activeTablets=%d, "
                 + "totalTabletAccess=%d, totalAccessCount=%d}",
                 timeWindowMs / 1000, bucketSizeMs / 1000, numBuckets, SHARD_SIZE,
@@ -444,7 +457,10 @@ public class CloudTabletAccessStats {
 
             try {
                 cleanupExpiredRecords();
-                getStatsSummary();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("tablet stat = {}, top 10 active tablet = {}",
+                            getStatsSummary(), getTopNActiveTablets(10));
+                }
             } catch (Exception e) {
                 LOG.warn("Failed to cleanup expired access records", e);
             }

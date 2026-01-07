@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -303,7 +304,7 @@ public class CloudReplica extends Replica {
             return -1L;
         }
         // Use async version to avoid blocking getBackendIdImpl which is called frequently
-        CloudTabletAccessStats.getInstance().recordAccessAsync(getId(), getTableId(), getPartitionId(), getIndexId());
+        TabletAccessStats.getInstance().recordAccessAsync(getId());
 
         if (isColocated()) {
             return getColocatedBeId(clusterId);

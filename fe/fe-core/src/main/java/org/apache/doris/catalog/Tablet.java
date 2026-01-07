@@ -246,7 +246,7 @@ public class Tablet {
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
-        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
+        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendIdAndRecordAccessInfo());
     }
 
     // When a BE reports a missing version, lastFailedVersion is set. When a write fails on a replica,
@@ -274,7 +274,15 @@ public class Tablet {
                 continue;
             }
 
-            Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(replica.getBackendIdWithoutException());
+            long beId = -1;
+            try {
+                beId = replica.getBackendIdAndRecordAccessInfo();
+            } catch (UserException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("getBackendIdWithoutException: ", e);
+                }
+            }
+            Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(beId);
             ReplicaState state = replica.getState();
             // if thisBeAlivePaths contains pathHash = 0, it mean this be hadn't report disks state.
             // should ignore this case.
