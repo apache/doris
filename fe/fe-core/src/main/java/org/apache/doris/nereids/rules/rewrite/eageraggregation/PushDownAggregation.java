@@ -137,7 +137,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, context.getCascadesContext());
-        //try {
+        try {
             Plan child = agg.child().accept(writer, pushDownContext);
             if (child != agg.child()) {
                 // agg has been pushed down, rewrite agg output expressions
@@ -176,9 +176,12 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 AdjustNullable adjustNullable = new AdjustNullable(false, false);
                 return adjustNullable.rewriteRoot(normalized, null);
             }
-        //} catch (RuntimeException e) {
-        //    LOG.info("PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString());
-        //}
+        } catch (RuntimeException e) {
+            LOG.info("PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString());
+            if (SessionVariable.isFeDebug()) {
+                throw e;
+            }
+        }
         return agg;
     }
 
