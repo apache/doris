@@ -969,7 +969,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
-                                Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                Replica replica = new LocalReplica(newReplicaId, beId, ReplicaState.NORMAL,
                                         visibleVersion, schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
                             }

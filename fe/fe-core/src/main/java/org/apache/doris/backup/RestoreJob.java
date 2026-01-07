@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -1537,8 +1538,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();
-                            Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL, visibleVersion,
-                                    schemaHash);
+                            Replica newReplica = new LocalReplica(newReplicaId, beId, ReplicaState.NORMAL,
+                                    visibleVersion, schemaHash);
                             newTablet.addReplica(newReplica, true /* is restore */);
                         }
                     }

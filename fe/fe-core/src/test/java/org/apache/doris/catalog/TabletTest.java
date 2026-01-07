@@ -83,9 +83,9 @@ public class TabletTest {
         tablet = new LocalTablet(1);
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
         invertedIndex.addTablet(1, tabletMeta);
-        replica1 = new Replica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
-        replica2 = new Replica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
-        replica3 = new Replica(3L, 3L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
+        replica1 = new LocalReplica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
+        replica2 = new LocalReplica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
+        replica3 = new LocalReplica(3L, 3L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         tablet.addReplica(replica1);
         tablet.addReplica(replica2);
         tablet.addReplica(replica3);
@@ -147,9 +147,9 @@ public class TabletTest {
         Assert.assertEquals(rTablet1, rTablet1);
 
         Tablet tablet2 = new LocalTablet(1);
-        Replica replica1 = new Replica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
-        Replica replica2 = new Replica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
-        Replica replica3 = new Replica(3L, 3L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
+        Replica replica1 = new LocalReplica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
+        Replica replica2 = new LocalReplica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
+        Replica replica3 = new LocalReplica(3L, 3L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         tablet2.addReplica(replica1);
         tablet2.addReplica(replica2);
         Assert.assertNotEquals(tablet2, tablet);
@@ -159,7 +159,7 @@ public class TabletTest {
         Tablet tablet3 = new LocalTablet(1);
         tablet3.addReplica(replica1);
         tablet3.addReplica(replica2);
-        tablet3.addReplica(new Replica(4L, 4L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0));
+        tablet3.addReplica(new LocalReplica(4L, 4L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0));
         Assert.assertNotEquals(tablet3, tablet);
 
         dis.close();
@@ -182,7 +182,7 @@ public class TabletTest {
                 versionAndSuccessVersion = 99L;
                 lastFailVersion = 100L;
             }
-            tablet.addReplica(new Replica(replicaId++, pair.first, versionAndSuccessVersion, 0,
+            tablet.addReplica(new LocalReplica(replicaId++, pair.first, versionAndSuccessVersion, 0,
                     200000L, 0, 3000L, ReplicaState.NORMAL, lastFailVersion, versionAndSuccessVersion));
         }
         Assert.assertEquals(tablet.getColocateHealth(100L, new ReplicaAllocation((short) 3),
@@ -222,7 +222,7 @@ public class TabletTest {
         long row = t.getMinReplicaRowCount(1);
         Assert.assertEquals(0, row);
 
-        Replica r1 = new Replica(1, 1, 10, 0, 0, 0, 100, ReplicaState.NORMAL, 0, 10);
+        Replica r1 = new LocalReplica(1, 1, 10, 0, 0, 0, 100, ReplicaState.NORMAL, 0, 10);
         t.addReplica(r1);
         row = t.getMinReplicaRowCount(10);
         Assert.assertEquals(100, row);
@@ -230,8 +230,8 @@ public class TabletTest {
         row = t.getMinReplicaRowCount(11);
         Assert.assertEquals(0, row);
 
-        Replica r2 = new Replica(2, 2, 10, 0, 0, 0, 110, ReplicaState.NORMAL, 0, 10);
-        Replica r3 = new Replica(3, 3, 10, 0, 0, 0, 90, ReplicaState.NORMAL, 0, 10);
+        Replica r2 = new LocalReplica(2, 2, 10, 0, 0, 0, 110, ReplicaState.NORMAL, 0, 10);
+        Replica r3 = new LocalReplica(3, 3, 10, 0, 0, 0, 90, ReplicaState.NORMAL, 0, 10);
         t.addReplica(r2);
         t.addReplica(r3);
         row = t.getMinReplicaRowCount(11);
