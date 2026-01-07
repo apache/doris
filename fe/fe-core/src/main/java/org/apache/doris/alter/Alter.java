@@ -392,6 +392,7 @@ public class Alter {
     private void processAlterTableForExternalTable(
             ExternalTable table,
             List<AlterClause> alterClauses) throws UserException {
+        long updateTime = System.currentTimeMillis();
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof ModifyTablePropertiesClause) {
                 setExternalTableAutoAnalyzePolicy(table, alterClauses);
@@ -438,7 +439,7 @@ public class Alter {
                 AddPartitionFieldClause addPartitionField = (AddPartitionFieldClause) alterClause;
                 if (table instanceof IcebergExternalTable) {
                     ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
-                            (IcebergExternalTable) table, addPartitionField);
+                            (IcebergExternalTable) table, addPartitionField, updateTime);
                 } else {
                     throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
                 }
@@ -446,7 +447,7 @@ public class Alter {
                 DropPartitionFieldClause dropPartitionField = (DropPartitionFieldClause) alterClause;
                 if (table instanceof IcebergExternalTable) {
                     ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
-                            (IcebergExternalTable) table, dropPartitionField);
+                            (IcebergExternalTable) table, dropPartitionField, updateTime);
                 } else {
                     throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
                 }
@@ -454,7 +455,7 @@ public class Alter {
                 ReplacePartitionFieldClause replacePartitionField = (ReplacePartitionFieldClause) alterClause;
                 if (table instanceof IcebergExternalTable) {
                     ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
-                            (IcebergExternalTable) table, replacePartitionField);
+                            (IcebergExternalTable) table, replacePartitionField, updateTime);
                 } else {
                     throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
                 }
