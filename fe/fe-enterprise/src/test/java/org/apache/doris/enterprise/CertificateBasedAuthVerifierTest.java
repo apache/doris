@@ -81,7 +81,7 @@ public class CertificateBasedAuthVerifierTest {
     public void testVerifyWithSanRequirementButNoCert() {
         UserIdentity userIdentity = new UserIdentity("testuser", "%");
         userIdentity.setIsAnalyzed();
-        userIdentity.setSan("alice@example.com");
+        userIdentity.setSan("email:alice@example.com");
 
         VerificationResult result = verifier.verify(userIdentity, null);
         Assert.assertFalse(result.isSuccess());
@@ -89,12 +89,13 @@ public class CertificateBasedAuthVerifierTest {
     }
 
     @Test
-    public void testVerifyWithSanMatch(@Mocked X509Certificate mockCert) throws Exception {
+    public void testVerifyWithSanExactMatch(@Mocked X509Certificate mockCert) throws Exception {
         UserIdentity userIdentity = new UserIdentity("testuser", "%");
         userIdentity.setIsAnalyzed();
-        userIdentity.setSan("alice@example.com");
+        // Full SAN string that must match exactly
+        userIdentity.setSan("email:alice@example.com");
 
-        // Create mock SANs
+        // Create mock SANs - single email
         Collection<List<?>> sans = new ArrayList<>();
         List<Object> emailSan = new ArrayList<>();
         emailSan.add(Integer.valueOf(1)); // RFC822 Name (email)
@@ -116,12 +117,12 @@ public class CertificateBasedAuthVerifierTest {
     public void testVerifyWithSanMismatch(@Mocked X509Certificate mockCert) throws Exception {
         UserIdentity userIdentity = new UserIdentity("testuser", "%");
         userIdentity.setIsAnalyzed();
-        userIdentity.setSan("alice@example.com");
+        userIdentity.setSan("email:alice@example.com");
 
-        // Create mock SANs with different email
+        // Certificate has different email
         Collection<List<?>> sans = new ArrayList<>();
         List<Object> emailSan = new ArrayList<>();
-        emailSan.add(Integer.valueOf(1)); // RFC822 Name (email)
+        emailSan.add(Integer.valueOf(1));
         emailSan.add("bob@example.com");
         sans.add(emailSan);
 
@@ -134,14 +135,14 @@ public class CertificateBasedAuthVerifierTest {
 
         VerificationResult result = verifier.verify(userIdentity, mockCert);
         Assert.assertFalse(result.isSuccess());
-        Assert.assertTrue(result.getErrorMessage().contains("was not found in certificate SANs"));
+        Assert.assertTrue(result.getErrorMessage().contains("certificate SAN is"));
     }
 
     @Test
     public void testVerifyWithEmptySans(@Mocked X509Certificate mockCert) throws Exception {
         UserIdentity userIdentity = new UserIdentity("testuser", "%");
         userIdentity.setIsAnalyzed();
-        userIdentity.setSan("alice@example.com");
+        userIdentity.setSan("email:alice@example.com");
 
         new Expectations() {
             {
@@ -156,15 +157,82 @@ public class CertificateBasedAuthVerifierTest {
     }
 
     @Test
-    public void testVerifyWithDnsNameSan(@Mocked X509Certificate mockCert) throws Exception {
+    public void testVerifyWithMultipleSansExactMatch(@Mocked X509Certificate mockCert) throws Exception {
         UserIdentity userIdentity = new UserIdentity("testuser", "%");
         userIdentity.setIsAnalyzed();
-        userIdentity.setSan("server.example.com");
+        // Full SAN string including all SANs in certificate order
+        userIdentity.setSan("email:test@example.com, DNS:testclient.example.com, URI:spiffe://example.com/testclient");
 
-        // Create mock SANs with DNS name
+        // Certificate has SANs in same order
+        Collection<List<?>> sans = new ArrayList<>();
+
+        List<Object> emailSan = new ArrayList<>();
+        emailSan.add(Integer.valueOf(1));
+        emailSan.add("test@example.com");
+        sans.add(emailSan);
+
+        List<Object> dnsSan = new ArrayList<>();
+        dnsSan.add(Integer.valueOf(2));
+        dnsSan.add("testclient.example.com");
+        sans.add(dnsSan);
+
+        List<Object> uriSan = new ArrayList<>();
+        uriSan.add(Integer.valueOf(6));
+        uriSan.add("spiffe://example.com/testclient");
+        sans.add(uriSan);
+
+        new Expectations() {
+            {
+                mockCert.getSubjectAlternativeNames();
+                result = sans;
+            }
+        };
+
+        VerificationResult result = verifier.verify(userIdentity, mockCert);
+        Assert.assertTrue(result.isSuccess());
+    }
+
+    @Test
+    public void testVerifyWithPartialSanMismatch(@Mocked X509Certificate mockCert) throws Exception {
+        UserIdentity userIdentity = new UserIdentity("testuser", "%");
+        userIdentity.setIsAnalyzed();
+        // User requires only one SAN but certificate has multiple
+        userIdentity.setSan("email:test@example.com");
+
+        // Certificate has multiple SANs
+        Collection<List<?>> sans = new ArrayList<>();
+
+        List<Object> emailSan = new ArrayList<>();
+        emailSan.add(Integer.valueOf(1));
+        emailSan.add("test@example.com");
+        sans.add(emailSan);
+
+        List<Object> dnsSan = new ArrayList<>();
+        dnsSan.add(Integer.valueOf(2));
+        dnsSan.add("testclient.example.com");
+        sans.add(dnsSan);
+
+        new Expectations() {
+            {
+                mockCert.getSubjectAlternativeNames();
+                result = sans;
+            }
+        };
+
+        // Should fail because it's exact match - cert has more SANs than required
+        VerificationResult result = verifier.verify(userIdentity, mockCert);
+        Assert.assertFalse(result.isSuccess());
+    }
+
+    @Test
+    public void testVerifyWithDnsSan(@Mocked X509Certificate mockCert) throws Exception {
+        UserIdentity userIdentity = new UserIdentity("testuser", "%");
+        userIdentity.setIsAnalyzed();
+        userIdentity.setSan("DNS:server.example.com");
+
         Collection<List<?>> sans = new ArrayList<>();
         List<Object> dnsSan = new ArrayList<>();
-        dnsSan.add(Integer.valueOf(2)); // DNS Name
+        dnsSan.add(Integer.valueOf(2));
         dnsSan.add("server.example.com");
         sans.add(dnsSan);
 
@@ -183,12 +251,11 @@ public class CertificateBasedAuthVerifierTest {
     public void testVerifyWithUriSan(@Mocked X509Certificate mockCert) throws Exception {
         UserIdentity userIdentity = new UserIdentity("testuser", "%");
         userIdentity.setIsAnalyzed();
-        userIdentity.setSan("spiffe://example.com/workload");
+        userIdentity.setSan("URI:spiffe://example.com/workload");
 
-        // Create mock SANs with URI
         Collection<List<?>> sans = new ArrayList<>();
         List<Object> uriSan = new ArrayList<>();
-        uriSan.add(Integer.valueOf(6)); // URI
+        uriSan.add(Integer.valueOf(6));
         uriSan.add("spiffe://example.com/workload");
         sans.add(uriSan);
 
@@ -204,23 +271,16 @@ public class CertificateBasedAuthVerifierTest {
     }
 
     @Test
-    public void testVerifyWithMultipleSans(@Mocked X509Certificate mockCert) throws Exception {
+    public void testVerifyWithIpAddressSan(@Mocked X509Certificate mockCert) throws Exception {
         UserIdentity userIdentity = new UserIdentity("testuser", "%");
         userIdentity.setIsAnalyzed();
-        userIdentity.setSan("alice@example.com");
+        userIdentity.setSan("IP Address:192.168.1.100");
 
-        // Create mock SANs with multiple entries
         Collection<List<?>> sans = new ArrayList<>();
-
-        List<Object> dnsSan = new ArrayList<>();
-        dnsSan.add(Integer.valueOf(2)); // DNS Name
-        dnsSan.add("server.example.com");
-        sans.add(dnsSan);
-
-        List<Object> emailSan = new ArrayList<>();
-        emailSan.add(Integer.valueOf(1)); // RFC822 Name (email)
-        emailSan.add("alice@example.com");
-        sans.add(emailSan);
+        List<Object> ipSan = new ArrayList<>();
+        ipSan.add(Integer.valueOf(7));
+        ipSan.add(new byte[] {(byte) 192, (byte) 168, (byte) 1, (byte) 100});
+        sans.add(ipSan);
 
         new Expectations() {
             {
@@ -231,5 +291,30 @@ public class CertificateBasedAuthVerifierTest {
 
         VerificationResult result = verifier.verify(userIdentity, mockCert);
         Assert.assertTrue(result.isSuccess());
+    }
+
+    @Test
+    public void testVerifyCaseSensitive(@Mocked X509Certificate mockCert) throws Exception {
+        UserIdentity userIdentity = new UserIdentity("testuser", "%");
+        userIdentity.setIsAnalyzed();
+        // Note: lowercase 'dns' instead of 'DNS'
+        userIdentity.setSan("dns:server.example.com");
+
+        Collection<List<?>> sans = new ArrayList<>();
+        List<Object> dnsSan = new ArrayList<>();
+        dnsSan.add(Integer.valueOf(2));
+        dnsSan.add("server.example.com");
+        sans.add(dnsSan);
+
+        new Expectations() {
+            {
+                mockCert.getSubjectAlternativeNames();
+                result = sans;
+            }
+        };
+
+        // Should fail because 'dns:' != 'DNS:'
+        VerificationResult result = verifier.verify(userIdentity, mockCert);
+        Assert.assertFalse(result.isSuccess());
     }
 }

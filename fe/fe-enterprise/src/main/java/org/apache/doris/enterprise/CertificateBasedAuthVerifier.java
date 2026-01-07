@@ -25,7 +25,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.security.cert.X509Certificate;
-import java.util.Set;
 
 /**
  * Enterprise implementation of CertificateAuthVerifier.
@@ -91,12 +90,13 @@ public class CertificateBasedAuthVerifier implements CertificateAuthVerifier {
     }
 
     /**
-     * Verifies that the required SAN value exists in the certificate's SANs.
+     * Verifies that the certificate's SAN string exactly matches the required SAN.
+     * This is a full string comparison - the entire SAN extension content must match.
      */
     private VerificationResult verifySan(UserIdentity userIdentity, X509Certificate clientCert, String requiredSan) {
-        Set<String> certSans = TlsCertificateUtils.extractSubjectAlternativeNames(clientCert);
+        String certSanString = TlsCertificateUtils.extractSubjectAlternativeNames(clientCert);
 
-        if (certSans.isEmpty()) {
+        if (certSanString == null || certSanString.isEmpty()) {
             String errorMsg = String.format(
                     "User %s requires SAN '%s' but the client certificate has no Subject Alternative Names",
                     userIdentity, requiredSan);
@@ -104,17 +104,18 @@ public class CertificateBasedAuthVerifier implements CertificateAuthVerifier {
             return VerificationResult.failure(errorMsg);
         }
 
-        if (!certSans.contains(requiredSan)) {
+        // Exact string match
+        if (!certSanString.equals(requiredSan)) {
             String errorMsg = String.format(
-                    "User %s requires SAN '%s' but it was not found in certificate SANs: %s",
-                    userIdentity, requiredSan, certSans);
+                    "User %s requires SAN '%s' but certificate SAN is '%s'",
+                    userIdentity, requiredSan, certSanString);
             LOG.warn(errorMsg);
             return VerificationResult.failure(errorMsg);
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("SAN verification succeeded for user {}: required='{}', found in {}",
-                    userIdentity, requiredSan, certSans);
+            LOG.debug("SAN verification succeeded for user {}: required='{}', cert SAN='{}'",
+                    userIdentity, requiredSan, certSanString);
         }
         return VerificationResult.success();
     }

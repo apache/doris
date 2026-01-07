@@ -26,15 +26,19 @@ suite("test_tls_cert_san_auth") {
     //   - Email: test@example.com
     //   - DNS: testclient.example.com
     //   - URI: spiffe://example.com/testclient
+    //
+    // SAN matching is EXACT STRING MATCH - the full SAN string from the certificate
+    // must exactly match the REQUIRE SAN value (including order, prefixes, and separators).
+    // Format: "email:xxx, DNS:xxx, URI:xxx, IP Address:xxx" (comma + space separated)
 
     // Only run when TLS is enabled (opposite of test_mysql_connection.groovy)
     if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
         
         // === Configuration ===
-        def sanEmail = "test@example.com"
-        def sanDns = "testclient.example.com"
-        def sanUri = "spiffe://example.com/testclient"
-        def sanMismatch = "wrong@example.com"
+        // Full SAN string from the test certificate (exact match required)
+        def sanFull = "email:test@example.com, DNS:testclient.example.com, URI:spiffe://example.com/testclient"
+        // A SAN string that won't match the certificate
+        def sanMismatch = "email:wrong@example.com"
         
         def testUserBase = "test_san_auth_user"
         def testPassword = "Test_123456"
@@ -117,15 +121,14 @@ suite("test_tls_cert_san_auth") {
         // === Cleanup function ===
         def cleanup = {
             logger.info("Cleaning up test users and restoring config...")
-            // MySQL protocol test users
+            // MySQL protocol test users (Tests 1-6)
             try_sql("DROP USER IF EXISTS '${testUserBase}_1'@'%'")
             try_sql("DROP USER IF EXISTS '${testUserBase}_2'@'%'")
             try_sql("DROP USER IF EXISTS '${testUserBase}_3'@'%'")
             try_sql("DROP USER IF EXISTS '${testUserBase}_4'@'%'")
             try_sql("DROP USER IF EXISTS '${testUserBase}_5'@'%'")
             try_sql("DROP USER IF EXISTS '${testUserBase}_6'@'%'")
-            try_sql("DROP USER IF EXISTS '${testUserBase}_7'@'%'")
-            // HTTPS test users
+            // HTTPS test users (HTTP Tests 1-7)
             try_sql("DROP USER IF EXISTS '${testUserBase}_http1'@'%'")
             try_sql("DROP USER IF EXISTS '${testUserBase}_http2'@'%'")
             try_sql("DROP USER IF EXISTS '${testUserBase}_http3'@'%'")
@@ -148,7 +151,7 @@ suite("test_tls_cert_san_auth") {
 
             // === Test 1: REQUIRE SAN + no certificate -> failure ===
             logger.info("=== Test 1: REQUIRE SAN + no certificate ===")
-            sql "CREATE USER '${testUserBase}_1'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_1'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
 
             def cmd1 = buildMySQLCmdNoCert("${testUserBase}_1", testPassword, "SELECT 1")
             def result1 = executeMySQLCommand(cmd1, false)
@@ -157,7 +160,7 @@ suite("test_tls_cert_san_auth") {
 
             // === Test 2: REQUIRE SAN + matching cert + correct password -> success ===
             logger.info("=== Test 2: REQUIRE SAN + matching cert + correct password ===")
-            sql "CREATE USER '${testUserBase}_2'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_2'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
 
             def cmd2 = buildMySQLCmdWithCert("${testUserBase}_2", testPassword, "SELECT 1")
             def result2 = executeMySQLCommand(cmd2, true)
@@ -166,7 +169,7 @@ suite("test_tls_cert_san_auth") {
             
             // === Test 3: REQUIRE SAN + matching cert + wrong password -> failure ===
             logger.info("=== Test 3: REQUIRE SAN + matching cert + wrong password ===")
-            sql "CREATE USER '${testUserBase}_3'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_3'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             
             def cmd3 = buildMySQLCmdWithCert("${testUserBase}_3", "wrong_password", "SELECT 1")
             def result3 = executeMySQLCommand(cmd3, false)
@@ -185,7 +188,7 @@ suite("test_tls_cert_san_auth") {
             // === Test 5: REQUIRE SAN + matching cert + ignore_password=true -> success ===
             logger.info("=== Test 5: REQUIRE SAN + ignore_password=true ===")
             sql "ADMIN SET FRONTEND CONFIG ('tls_cert_based_auth_ignore_password' = 'true')"
-            sql "CREATE USER '${testUserBase}_5'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_5'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             
             // Use wrong password - should still succeed because ignore_password=true
             def cmd5 = buildMySQLCmdWithCert("${testUserBase}_5", "any_wrong_password", "SELECT 1")
@@ -198,7 +201,7 @@ suite("test_tls_cert_san_auth") {
             
             // === Test 6: ALTER USER add/remove REQUIRE SAN ===
             logger.info("=== Test 6: ALTER USER add/remove REQUIRE SAN ===")
-            sql "CREATE USER '${testUserBase}_6'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_6'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             
             // First verify it works with cert
             def cmd6a = buildMySQLCmdWithCert("${testUserBase}_6", testPassword, "SELECT 1")
@@ -216,37 +219,13 @@ suite("test_tls_cert_san_auth") {
             logger.info("Test 6b PASSED: REQUIRE NONE works with no-SAN certificate")
             
             // Add back REQUIRE SAN
-            sql "ALTER USER '${testUserBase}_6'@'%' REQUIRE SAN '${sanEmail}'"
+            sql "ALTER USER '${testUserBase}_6'@'%' REQUIRE SAN '${sanFull}'"
             
             // Now should fail without certificate
             def cmd6c = buildMySQLCmdNoCert("${testUserBase}_6", testPassword, "SELECT 1")
             def result6c = executeMySQLCommand(cmd6c, false)
             assertTrue(result6c, "Test 6c should fail: REQUIRE SAN re-added, no cert provided")
             logger.info("Test 6c PASSED: REQUIRE SAN re-added works")
-            
-            // === Test 7: Multiple SAN types (DNS, URI, Email) ===
-            logger.info("=== Test 7: Multiple SAN types ===")
-            sql "CREATE USER '${testUserBase}_7'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
-            
-            // Test with Email SAN (already covered, but explicit)
-            def cmd7a = buildMySQLCmdWithCert("${testUserBase}_7", testPassword, "SELECT 1")
-            def result7a = executeMySQLCommand(cmd7a, true)
-            assertTrue(result7a, "Test 7a should succeed: Email SAN match")
-            logger.info("Test 7a PASSED: Email SAN match works")
-            
-            // Test with DNS SAN
-            sql "ALTER USER '${testUserBase}_7'@'%' REQUIRE SAN '${sanDns}'"
-            def cmd7b = buildMySQLCmdWithCert("${testUserBase}_7", testPassword, "SELECT 1")
-            def result7b = executeMySQLCommand(cmd7b, true)
-            assertTrue(result7b, "Test 7b should succeed: DNS SAN match")
-            logger.info("Test 7b PASSED: DNS SAN match works")
-            
-            // Test with URI SAN
-            sql "ALTER USER '${testUserBase}_7'@'%' REQUIRE SAN '${sanUri}'"
-            def cmd7c = buildMySQLCmdWithCert("${testUserBase}_7", testPassword, "SELECT 1")
-            def result7c = executeMySQLCommand(cmd7c, true)
-            assertTrue(result7c, "Test 7c should succeed: URI SAN match")
-            logger.info("Test 7c PASSED: URI SAN match works")
             
             logger.info("=== All MySQL protocol TLS SAN authentication tests PASSED ===")
             
@@ -353,7 +332,7 @@ suite("test_tls_cert_san_auth") {
             
             // === HTTP Test 1: REQUIRE SAN + matching cert + correct password -> success ===
             logger.info("=== HTTP Test 1: REQUIRE SAN + matching cert + correct password ===")
-            sql "CREATE USER '${testUserBase}_http1'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_http1'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http1'@'%'"
             
             def httpCmd1 = buildCurlWithCert("${testUserBase}_http1", testPassword, httpEndpoint)
@@ -363,7 +342,7 @@ suite("test_tls_cert_san_auth") {
             
             // === HTTP Test 2: REQUIRE SAN + matching cert + wrong password -> failure ===
             logger.info("=== HTTP Test 2: REQUIRE SAN + matching cert + wrong password ===")
-            sql "CREATE USER '${testUserBase}_http2'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_http2'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http2'@'%'"
             
             def httpCmd2 = buildCurlWithCert("${testUserBase}_http2", "wrong_password", httpEndpoint)
@@ -385,7 +364,7 @@ suite("test_tls_cert_san_auth") {
             // Note: This test depends on tls_verify_mode=verify_fail_if_no_peer_cert
             // If the server requires client cert, curl without --cert will fail at TLS handshake
             logger.info("=== HTTP Test 4: REQUIRE SAN + no certificate ===")
-            sql "CREATE USER '${testUserBase}_http4'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_http4'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http4'@'%'"
             
             def httpCmd4 = buildCurlNoCert("${testUserBase}_http4", testPassword, httpEndpoint)
@@ -396,7 +375,7 @@ suite("test_tls_cert_san_auth") {
             // === HTTP Test 5: REQUIRE SAN + matching cert + ignore_password=true -> success ===
             logger.info("=== HTTP Test 5: REQUIRE SAN + ignore_password=true ===")
             sql "ADMIN SET FRONTEND CONFIG ('tls_cert_based_auth_ignore_password' = 'true')"
-            sql "CREATE USER '${testUserBase}_http5'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_http5'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http5'@'%'"
             
             // Use wrong password - should still succeed because ignore_password=true
@@ -420,7 +399,7 @@ suite("test_tls_cert_san_auth") {
             
             // === HTTP Test 7: ALTER USER add/remove REQUIRE SAN for HTTP ===
             logger.info("=== HTTP Test 7: ALTER USER add/remove REQUIRE SAN for HTTP ===")
-            sql "CREATE USER '${testUserBase}_http7'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanEmail}'"
+            sql "CREATE USER '${testUserBase}_http7'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
             sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http7'@'%'"
             
             // First verify it works with matching cert
@@ -438,14 +417,14 @@ suite("test_tls_cert_san_auth") {
             assertTrue(httpResult7b, "HTTP Test 7b should succeed: REQUIRE NONE allows any cert")
             logger.info("HTTP Test 7b PASSED: REQUIRE NONE works with no-SAN certificate via HTTPS")
             
-            // Add back REQUIRE SAN with different SAN type (DNS)
-            sql "ALTER USER '${testUserBase}_http7'@'%' REQUIRE SAN '${sanDns}'"
+            // Add back REQUIRE SAN with full SAN string
+            sql "ALTER USER '${testUserBase}_http7'@'%' REQUIRE SAN '${sanFull}'"
             
-            // Now should work with DNS SAN from the same cert
+            // Now should work with matching cert
             def httpCmd7c = buildCurlWithCert("${testUserBase}_http7", testPassword, httpEndpoint)
             def httpResult7c = executeCurlCommand(httpCmd7c, true)
-            assertTrue(httpResult7c, "HTTP Test 7c should succeed: DNS SAN match")
-            logger.info("HTTP Test 7c PASSED: REQUIRE SAN (DNS) works via HTTPS")
+            assertTrue(httpResult7c, "HTTP Test 7c should succeed: full SAN match")
+            logger.info("HTTP Test 7c PASSED: REQUIRE SAN works via HTTPS after ALTER USER")
             
             logger.info("=== All HTTPS certificate-based auth tests PASSED ===")
             
