@@ -128,7 +128,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     /**
-     * @return groupingScalarFunction with Alias
+     * get groupingScalarFunction with Alias
      */
     public List<NamedExpression> getGroupingScalarFunctionAlias() {
         List<NamedExpression> functionList = new ArrayList<>();

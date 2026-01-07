@@ -145,7 +145,6 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 .matches(logicalCTEAnchor());
     }
 
-
     @Test
     public void testFindMaxGroupingSetIndex() throws Exception {
         Method method = rule.getClass().getDeclaredMethod("findMaxGroupingSetIndex", List.class);

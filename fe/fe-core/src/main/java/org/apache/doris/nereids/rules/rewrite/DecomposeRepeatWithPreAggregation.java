@@ -51,7 +51,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -161,10 +160,18 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         LogicalProject<Plan> project = constructProject(aggregate, originToConsumerMap, needRemovedExprSet,
                 groupingFunctionSlots, topAgg, aggFuncToSlot);
         LogicalPlan directChild = getDirectChild(directConsumer, groupingFunctionSlots);
-        // add project for grouping function
         return constructUnion(project, directChild, aggregate);
     }
 
+    /**
+     * Get the direct child plan for the union operation.
+     * If there are grouping function slots, wrap the consumer with a project that adds
+     * zero literals for each grouping function slot to match the output schema.
+     *
+     * @param directConsumer the CTE consumer for the direct path
+     * @param groupingFunctionSlots the list of grouping function slots to handle
+     * @return the direct child plan, possibly wrapped with a project
+     */
     private LogicalPlan getDirectChild(LogicalCTEConsumer directConsumer, List<NamedExpression> groupingFunctionSlots) {
         LogicalPlan directChild = directConsumer;
         if (!groupingFunctionSlots.isEmpty()) {
@@ -222,12 +229,21 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         return needRemovedExprSet;
     }
 
+    /**
+     * Construct a LogicalAggregate for the decomposed repeat.
+     *
+     * @param aggregate the original aggregate plan
+     * @param originToConsumerMap the map from original slots to consumer slots
+     * @param newRepeat the new LogicalRepeat plan with reduced grouping sets
+     * @param groupingFunctionSlots the list of new grouping function slots
+     * @param aggFuncToSlot output parameter: map from original aggregate functions to their slots in the new aggregate
+     * @return a LogicalAggregate for the decomposed repeat
+     */
     private LogicalAggregate<Plan> constructAgg(LogicalAggregate<? extends Plan> aggregate,
             Map<Slot, Slot> originToConsumerMap, LogicalRepeat<Plan> newRepeat,
             List<NamedExpression> groupingFunctionSlots, Map<AggregateFunction, Slot> aggFuncToSlot) {
         Map<AggregateFunction, Slot> aggFuncSlotMap = getAggFuncSlotMap(aggregate.getOutputExpressions(),
                 originToConsumerMap);
-
         Set<Slot> groupingSetsUsedSlot = ImmutableSet.copyOf(
                 ExpressionUtils.flatExpressions((List) newRepeat.getGroupingSets()));
         List<Expression> topAggGby = new ArrayList<>(groupingSetsUsedSlot);
@@ -263,10 +279,22 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                         replacedExpr.toSlot());
             }
         }
-        return new LogicalAggregate<>(topAggGby, topAggOutput,
-                Optional.of(newRepeat), newRepeat);
+        return new LogicalAggregate<>(topAggGby, topAggOutput, Optional.of(newRepeat), newRepeat);
     }
 
+    /**
+     * Construct a LogicalProject that wraps the aggregate and handles output expressions.
+     * This method replaces removed expressions with null literals, and output the grouping scalar functions
+     * at the end of the projections.
+     *
+     * @param aggregate the original aggregate plan
+     * @param originToConsumerMap the map from original slots to consumer slots
+     * @param needRemovedExprSet the set of expressions that need to be replaced with null
+     * @param groupingFunctionSlots the list of grouping function slots to add to the project
+     * @param topAgg the aggregate plan to wrap
+     * @param aggFuncToSlot the map from aggregate functions to their slots
+     * @return a LogicalProject wrapping the aggregate with proper output expressions
+     */
     private LogicalProject<Plan> constructProject(LogicalAggregate<? extends Plan> aggregate,
             Map<Slot, Slot> originToConsumerMap, Set<Expression> needRemovedExprSet,
             List<NamedExpression> groupingFunctionSlots, LogicalAggregate<Plan> topAgg,
@@ -276,7 +304,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         for (NamedExpression namedExpression : repeat.getGroupingScalarFunctionAlias()) {
             originGroupingFunctionId.add(namedExpression.getExprId());
         }
-        List<NamedExpression> projects = new ArrayList<>();
+        ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
         for (NamedExpression expr : aggregate.getOutputExpressions()) {
             if (needRemovedExprSet.contains(expr)) {
                 projects.add(new Alias(new NullLiteral(expr.getDataType()), expr.getName()));
@@ -301,7 +329,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             }
         }
         projects.addAll(groupingFunctionSlots);
-        return new LogicalProject<>(projects, topAgg);
+        return new LogicalProject<>(projects.build(), topAgg);
     }
 
     /**
@@ -443,8 +471,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             }
         }
 
-        LogicalAggregate<Plan> preAgg = new LogicalAggregate<>(Utils.fastToImmutableList(maxGroupByList),
-                orderedAggOutputs, repeat.child());
+        LogicalAggregate<Plan> preAgg = new LogicalAggregate<>(maxGroupByList, orderedAggOutputs, repeat.child());
         LogicalAggregate<Plan> preAggClone = (LogicalAggregate<Plan>) LogicalPlanDeepCopier.INSTANCE
                 .deepCopy(preAgg, new DeepCopierContext());
         for (int i = 0; i < preAgg.getOutputExpressions().size(); ++i) {
