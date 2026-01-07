@@ -45,12 +45,4 @@ public class SumAggContext {
         this.ifThenSlots = ImmutableList.copyOf(distinct);
         this.groupKeys = ImmutableList.copyOf(groupKeys);
     }
-
-    public SumAggContext withIfThenSlots(List<SlotReference> ifThenSlots) {
-        return new SumAggContext(this.aliasToBePushDown,
-                this.ifConditions,
-                ifThenSlots,
-                this.groupKeys);
-    }
-
 }
