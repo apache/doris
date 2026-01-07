@@ -42,9 +42,6 @@ public class PushDownAggContext {
     private final Map<AggregateFunction, Alias> aliasMap;
     private final Set<Slot> aggFunctionsInputSlots;
 
-    // the group keys that eventually used to generate aggregation node
-    private final LinkedHashSet<SlotReference> finalGroupKeys = new LinkedHashSet<>();
-
     // cascadesContext is used for normalizeAgg
     private final CascadesContext cascadesContext;
 
@@ -109,14 +106,6 @@ public class PushDownAggContext {
 
     public Set<Slot> getAggFunctionsInputSlots() {
         return aggFunctionsInputSlots;
-    }
-
-    public LinkedHashSet<SlotReference> getFinalGroupKeys() {
-        return finalGroupKeys;
-    }
-
-    public void addFinalGroupKey(SlotReference key) {
-        this.finalGroupKeys.add(key);
     }
 
     public CascadesContext getCascadesContext() {
