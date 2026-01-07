@@ -41,6 +41,7 @@ import java.util.List;
 
 /**
  * sum(if t1.a then t2.b)
+ * tpcds 2 and 59 query can be rewritten
  */
 public class PushdownSumIfAggregation extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
 
