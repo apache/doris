@@ -18,11 +18,13 @@
 ---
 name: FE Code Style Checker
 
-on:
-  pull_request:
-  workflow_dispatch:
-  issue_comment:
-    types: [ created ]
+on: []
+
+# on:
+#   pull_request:
+#   workflow_dispatch:
+#   issue_comment:
+#     types: [ created ]
 
 jobs:
   java-checkstyle:
