@@ -212,15 +212,18 @@ public:
 
     int scale() const { return _scale; }
 
-    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range,
+    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                       const CppType* value) {
         static_cast<void>(range.add_fixed_value(*value));
     }
 
-    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range,
+    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                          const CppType* value) {
         range.remove_fixed_value(*value);
     }
+
+    static void empty_function(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                               const CppType* value) {}
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                 const CppType* value) {
