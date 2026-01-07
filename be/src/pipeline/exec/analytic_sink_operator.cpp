@@ -168,8 +168,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                 _range_between_expr_ctxs[i]->root()->data_type()->create_column();
     }
 
-    _fn_place_ptr = _agg_arena_pool.aligned_alloc(p._total_size_of_aggregate_states,
-                                                  p._align_aggregate_states);
+    _fn_place_ptr = _shared_state->agg_arena_pool.aligned_alloc(p._total_size_of_aggregate_states,
+                                                                p._align_aggregate_states);
     _create_agg_status();
     return Status::OK();
 }
@@ -388,13 +388,14 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
             _agg_functions[i]->function()->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                    _agg_arena_pool, false, false, false, &_use_null_result[i],
+                    _shared_state->agg_arena_pool, false, false, false, &_use_null_result[i],
                     &_could_use_previous_result[i]);
         } else {
             _agg_functions[i]->function()->add_range_single_place(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                    _agg_arena_pool, &(_use_null_result[i]), &_could_use_previous_result[i]);
+                    _shared_state->agg_arena_pool, &(_use_null_result[i]),
+                    &_could_use_previous_result[i]);
         }
     }
 }
