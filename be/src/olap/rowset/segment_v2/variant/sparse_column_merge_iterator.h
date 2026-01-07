@@ -92,11 +92,6 @@ public:
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
-
 private:
     template <typename ReadFunction>
     Status _read_subcolumns(ReadFunction&& read_func) {
