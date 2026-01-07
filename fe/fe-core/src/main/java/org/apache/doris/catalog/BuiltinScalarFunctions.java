@@ -248,6 +248,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Interval;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
@@ -790,6 +791,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(InnerProductApproximate.class, "inner_product_approximate"),
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
+            scalar(Interval.class, "interval"),
             scalar(InttoUuid.class, "int_to_uuid"),
             scalar(Ipv4NumToString.class, "ipv4_num_to_string", "inet_ntoa"),
             scalar(Ipv4StringToNum.class, "ipv4_string_to_num"),
