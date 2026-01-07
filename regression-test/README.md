@@ -94,6 +94,8 @@ under the License.
 
    Also read the [doris-compose](https://github.com/apache/doris/tree/master/docker/runtime/doris-compose) readme.
 
+10. The cases that take 3 minutes to execute in the CI pipeline maybe move to P1 group.
+
 ## Compatibility case
 
 Refers to the resources or rules created on the initial cluster during FE testing or upgrade testing, which can still be used normally after the cluster restart or upgrade, such as permissions, UDF, etc.
