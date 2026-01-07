@@ -471,7 +471,8 @@ suite('test_manager_interface_1',"p0") {
         futures.add( thread {
             
             try{
-                sql """ select sleep(4.7676); """
+                sql """ set parallel_pipeline_task_num= 1; """
+                sql """ select count(*) from numbers("number" = "598318892") as a join numbers("number" = "598318892) as b on a.number = b.number ; """
             }catch(Exception e){
             }
         })
@@ -491,7 +492,7 @@ suite('test_manager_interface_1',"p0") {
             for( int i =0 ;i < result.size();i++ ){
                 assertTrue(result[i]["QUERY_ID"] != null ) // QueryId
 
-                if ( result[i]["SQL"].contains("sleep(4.7676)")  ){
+                if ( result[i]["SQL"].contains("598318892")  ){
                     x = 1 
                     queryId = result[i]["QUERY_ID"]
                     logger.info("result = ${queryId}}")
