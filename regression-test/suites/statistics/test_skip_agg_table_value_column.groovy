@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_skip_agg_table_value_column") {
+suite("test_skip_agg_table_value_column", "p1") {
 
     def wait_row_count_reported = { db, table, row, column, expected ->
         def result = sql """show frontends;"""

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_multi_partition_key", "p0") {
+suite("test_multi_partition_key", "p1") {
     def random = new Random()
     sql "set enable_insert_strict=true"
     def createTable = { String tableName, String partitionInfo /* param */  ->

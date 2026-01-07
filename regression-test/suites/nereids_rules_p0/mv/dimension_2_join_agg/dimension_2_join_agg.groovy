@@ -18,7 +18,7 @@
 /*
 This file is used specifically to test the presence of AGGs under joins.
  */
-suite("dimension_2_join_agg_replenish") {
+suite("dimension_2_join_agg_replenish", "p1") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
 

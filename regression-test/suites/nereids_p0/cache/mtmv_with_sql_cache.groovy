@@ -47,7 +47,7 @@ class CanRetryException extends IllegalStateException {
     }
 }
 
-suite("mtmv_with_sql_cache") {
+suite("mtmv_with_sql_cache", "p1") {
     withGlobalLock("cache_last_version_interval_second") {
 
         sql """ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0');"""

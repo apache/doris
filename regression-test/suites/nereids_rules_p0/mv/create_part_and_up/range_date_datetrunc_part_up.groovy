@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("mtmv_range_date_datetrunc_date_part_up") {
+suite("mtmv_range_date_datetrunc_date_part_up", "p1") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"

@@ -21,7 +21,7 @@ import java.sql.Statement
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 
-suite("txn_insert_concurrent_insert_mow") {
+suite("txn_insert_concurrent_insert_mow", "p1") {
     def tableName = "txn_insert_concurrent_insert_mow"
     List<String> errors = new ArrayList<>()
 

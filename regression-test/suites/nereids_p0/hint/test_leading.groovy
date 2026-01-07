@@ -17,7 +17,7 @@
  * under the License.
  */
 
-suite("test_leading") {
+suite("test_leading", "p1") {
     // create database and tables
     sql 'DROP DATABASE IF EXISTS test_leading'
     sql 'CREATE DATABASE IF NOT EXISTS test_leading'

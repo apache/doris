@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("no_await") {
+suite ("no_await", "p1") {
 
     String db = context.config.getDbNameByFile(context.file)
 

@@ -21,7 +21,7 @@ import java.sql.Statement
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 
-suite("txn_insert_concurrent_insert") {
+suite("txn_insert_concurrent_insert", "p1") {
     def tableName = "txn_insert_concurrent_insert"
 
     for (int i = 0; i < 3; i++) {

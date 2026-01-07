@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-suite("check_hash_bucket_table") {
+suite("check_hash_bucket_table", "p1") {
 
     AtomicInteger dbNum = new AtomicInteger(0)
     AtomicInteger tableNum = new AtomicInteger(0)

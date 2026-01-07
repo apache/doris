@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("agg_sync_mv") {
+suite("agg_sync_mv", "p1") {
 	sql """ use regression_test_nereids_syntax_p0_mv """
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """

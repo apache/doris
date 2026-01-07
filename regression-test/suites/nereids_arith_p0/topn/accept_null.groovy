@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("accept_null") {
+suite ("accept_null", "p1") {
    sql """ drop table IF EXISTS detail_tmp;"""
 
     sql """
