@@ -713,6 +713,7 @@ public class SchemaTable extends Table {
             .put("file_cache_info",
                     new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_info", TableType.SCHEMA,
                             builder().column("HASH", ScalarType.createStringType())
+                                    .column("OFFSET", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TYPE", ScalarType.createStringType())
