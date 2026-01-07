@@ -18,13 +18,19 @@
 package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.rules.exploration.mv.AsyncMaterializationContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -32,18 +38,18 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
- * Test that point query should not rewrite to materialized view.
+ * Relevant test case about mtmv cache.
  */
-public class PointQueryShouldNotMvRewriteTest extends SqlTestBase {
+public class MTMVCacheTest extends SqlTestBase {
 
     @Test
-    void testShouldNotMvRewriteWhenPointQuery() throws Exception {
+    void testMTMVCacheIsCorrect() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
         new MockUp<SessionVariable>() {
@@ -59,6 +65,7 @@ public class PointQueryShouldNotMvRewriteTest extends SqlTestBase {
                 return true;
             }
         };
+
         new MockUp<MTMV>() {
             @Mock
             public boolean canBeCandidate() {
@@ -66,28 +73,60 @@ public class PointQueryShouldNotMvRewriteTest extends SqlTestBase {
             }
         };
         connectContext.getState().setIsQuery(true);
+
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
-                + "        as select T1.id from T1;");
+                + "        as select T1.id, sum(score) from T1 group by T1.id;");
         CascadesContext c1 = createCascadesContext(
-                "select T1.id from T1;",
-                connectContext);
-        // set ShortCircuitQuery to true, consider is point query
-        c1.getStatementContext().setShortCircuitQuery(true);
-
+                "select T1.id, sum(score) from T1 group by T1.id;",
+                connectContext
+        );
         PlanChecker.from(c1)
                 .analyze()
                 .rewrite()
                 .optimize()
                 .printlnBestPlanTree();
-        Group root = c1.getMemo().getRoot();
-        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(), false);
-        Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
-        Assertions.assertEquals(1, tableMaps.size());
+        List<MaterializationContext> normalMaterializationContexts = c1.getMaterializationContexts();
+        Assertions.assertEquals(1, normalMaterializationContexts.size());
+
+        MTMV mtmv = ((AsyncMaterializationContext) normalMaterializationContexts.get(0)).getMtmv();
+        MTMVCache cacheWithoutGuard = mtmv.getOrGenerateCache(connectContext);
+
+        Optional<LogicalAggregate<? extends Plan>> aggregate = cacheWithoutGuard.getAllRulesRewrittenPlanAndStructInfo().key()
+                .collectFirst(LogicalAggregate.class::isInstance);
+        Assertions.assertTrue(aggregate.isPresent());
+        // should not contain SessionVarGuardExpr
+        Assertions.assertTrue(aggregate.get().getOutputExpressions().stream()
+                .noneMatch(expr -> expr.containsType(SessionVarGuardExpr.class)));
+
+        // set guard check session var
+        connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_UNSIGNED_SUBTRACTION);
+        CascadesContext c2 = createCascadesContext(
+                "select T1.id, sum(score) from T1 group by T1.id;",
+                connectContext
+        );
+        connectContext.getState().setIsQuery(true);
+        PlanChecker.from(c2)
+                .analyze()
+                .rewrite()
+                .optimize()
+                .printlnBestPlanTree();
+
+        List<MaterializationContext> sessionChangedMaterializationContexts = c2.getMaterializationContexts();
+        Assertions.assertEquals(1, sessionChangedMaterializationContexts.size());
+
+        MTMV mvWithGuard = ((AsyncMaterializationContext) sessionChangedMaterializationContexts.get(0)).getMtmv();
+        MTMVCache cacheWithGuard = mvWithGuard.getOrGenerateCache(connectContext);
+
+        aggregate = cacheWithGuard.getAllRulesRewrittenPlanAndStructInfo().key()
+                .collectFirst(LogicalAggregate.class::isInstance);
+        Assertions.assertTrue(aggregate.isPresent());
+        // should contain SessionVarGuardExpr
+        Assertions.assertTrue(aggregate.get().getOutputExpressions().stream()
+                .anyMatch(expr -> expr.containsType(SessionVarGuardExpr.class)));
         dropMvByNereids("drop materialized view mv1");
     }
 }
