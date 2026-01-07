@@ -145,6 +145,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergJdbcExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergS3TablesExternalCatalog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
@@ -411,6 +412,7 @@ public class GsonUtils {
                 .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergHadoopExternalCatalog.class, IcebergHadoopExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergJdbcExternalCatalog.class, IcebergJdbcExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergS3TablesExternalCatalog.class,
                         IcebergS3TablesExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
