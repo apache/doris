@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -71,19 +70,41 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
-        List<AggregateFunction> pushToLeft = new ArrayList<>();
-        List<AggregateFunction> pushToRight = new ArrayList<>();
-        boolean toLeft = true;
-        boolean toRight = true;
-        for (AggregateFunction aggFunc : context.getAggFunctions()) {
-            if (join.left().getOutputSet().containsAll(aggFunc.getInputSlots())) {
-                pushToLeft.add(aggFunc);
-                toRight = false;
-            } else if (join.right().getOutputSet().containsAll(aggFunc.getInputSlots())) {
-                pushToRight.add(aggFunc);
-                toLeft = false;
+        boolean toLeft = false;
+        boolean toRight = false;
+        boolean pushHere = false;
+        if (context.getAggFunctions().isEmpty()) {
+            // example: select x from T group by x
+            // if no agg function, try to push to large child
+            Statistics leftStats = join.left().getStats();
+            if (leftStats == null) {
+                leftStats = join.left().accept(derive, new StatsDerive.DeriveContext());
             }
-            if (toLeft == toRight) {
+            Statistics rightStats = join.right().getStats();
+            if (rightStats == null) {
+                rightStats = join.right().accept(derive, new StatsDerive.DeriveContext());
+            }
+            if (leftStats.getRowCount() > rightStats.getRowCount()) {
+                toLeft = true;
+            } else {
+                toRight = true;
+            }
+        } else {
+            for (AggregateFunction aggFunc : context.getAggFunctions()) {
+                if (join.left().getOutputSet().containsAll(aggFunc.getInputSlots())) {
+                    toLeft = true;
+                } else if (join.right().getOutputSet().containsAll(aggFunc.getInputSlots())) {
+                    toRight = true;
+                } else {
+                    pushHere = true;
+                }
+            }
+        }
+
+        if (pushHere || (toLeft && toRight)) {
+            if (SessionVariable.isEagerAggregationOnJoin()) {
+                return genAggregate(join, context);
+            } else {
                 return join;
             }
         }
@@ -174,7 +195,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         List<SlotReference> groupKeys = new ArrayList<>();
         for (SlotReference key : context.getGroupKeys()) {
-            groupKeys.add((SlotReference) project.pushDownExpressionPastProject(key));
+            groupKeys.addAll(
+                    project.pushDownExpressionPastProject(key).getInputSlots()
+                            .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
         }
 
         List<AggregateFunction> aggFunctions = new ArrayList<>();

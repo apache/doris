@@ -38,14 +38,10 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -58,8 +54,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Sets;
@@ -67,9 +61,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -145,7 +137,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, context.getCascadesContext());
-        try {
+        //try {
             Plan child = agg.child().accept(writer, pushDownContext);
             if (child != agg.child()) {
                 // agg has been pushed down, rewrite agg output expressions
@@ -184,9 +176,9 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 AdjustNullable adjustNullable = new AdjustNullable(false, false);
                 return adjustNullable.rewriteRoot(normalized, null);
             }
-        } catch (RuntimeException e) {
-            LOG.info("PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString());
-        }
+        //} catch (RuntimeException e) {
+        //    LOG.info("PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString());
+        //}
         return agg;
     }
 
