@@ -1240,7 +1240,7 @@ querySpecification
     ;
 
 cte
-    : WITH aliasQuery (COMMA aliasQuery)*
+    : WITH RECURSIVE? aliasQuery (COMMA aliasQuery)*
     ;
 
 aliasQuery
@@ -2160,6 +2160,7 @@ nonReserved
     | RANDOM
     | RECENT
     | RECOVER
+    | RECURSIVE
     | RECYCLE
     | REFRESH
     | REPEATABLE
