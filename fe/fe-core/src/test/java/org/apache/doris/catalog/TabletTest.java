@@ -80,7 +80,7 @@ public class TabletTest {
             }
         };
 
-        tablet = new Tablet(1);
+        tablet = new LocalTablet(1);
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1, TStorageMedium.HDD);
         invertedIndex.addTablet(1, tabletMeta);
         replica1 = new Replica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
@@ -146,7 +146,7 @@ public class TabletTest {
         Assert.assertEquals(rTablet1, tablet);
         Assert.assertEquals(rTablet1, rTablet1);
 
-        Tablet tablet2 = new Tablet(1);
+        Tablet tablet2 = new LocalTablet(1);
         Replica replica1 = new Replica(1L, 1L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         Replica replica2 = new Replica(2L, 2L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
         Replica replica3 = new Replica(3L, 3L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0);
@@ -156,7 +156,7 @@ public class TabletTest {
         tablet2.addReplica(replica3);
         Assert.assertEquals(tablet2, tablet);
 
-        Tablet tablet3 = new Tablet(1);
+        Tablet tablet3 = new LocalTablet(1);
         tablet3.addReplica(replica1);
         tablet3.addReplica(replica2);
         tablet3.addReplica(new Replica(4L, 4L, 100L, 0, 200000L, 0, 3000L, ReplicaState.NORMAL, 0, 0));
@@ -173,7 +173,7 @@ public class TabletTest {
     @SafeVarargs
     private final void testTabletColocateHealthStatus0(Tablet.TabletStatus exceptedTabletStatus,
             Pair<Long, Boolean>... backendId2ReplicaIsBad) {
-        Tablet tablet = new Tablet(1);
+        Tablet tablet = new LocalTablet(1);
         int replicaId = 1;
         for (Pair<Long, Boolean> pair : backendId2ReplicaIsBad) {
             long versionAndSuccessVersion = 100L;
@@ -218,7 +218,7 @@ public class TabletTest {
 
     @Test
     public void testGetMinReplicaRowCount() {
-        Tablet t = new Tablet(1);
+        Tablet t = new LocalTablet(1);
         long row = t.getMinReplicaRowCount(1);
         Assert.assertEquals(0, row);
 

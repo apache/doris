@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -152,7 +153,7 @@ public abstract class DorisHttpTestCase {
                 Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
-        Tablet tablet = new Tablet(tabletId);
+        Tablet tablet = new LocalTablet(tabletId);
 
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);

@@ -107,7 +107,6 @@ public:
             const VExprContextSPtrs& conjuncts,
             phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
                     slot_id_to_predicates,
-            std::vector<std::shared_ptr<MutilColumnBlockPredicate>>& or_predicates,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -122,10 +121,10 @@ public:
                 _params, _range.table_format_params.paimon_params.schema_id, tuple_descriptor,
                 *field_desc));
 
-        return parquet_reader->init_reader(
-                read_table_col_names, col_name_to_block_idx, conjuncts, slot_id_to_predicates,
-                or_predicates, tuple_descriptor, row_descriptor, colname_to_slot_id,
-                not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts, table_info_node_ptr);
+        return parquet_reader->init_reader(read_table_col_names, col_name_to_block_idx, conjuncts,
+                                           slot_id_to_predicates, tuple_descriptor, row_descriptor,
+                                           colname_to_slot_id, not_single_slot_filter_conjuncts,
+                                           slot_id_to_filter_conjuncts, table_info_node_ptr);
     }
 };
 #include "common/compile_check_end.h"

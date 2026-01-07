@@ -54,7 +54,6 @@ public:
             const VExprContextSPtrs& conjuncts,
             phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
                     slot_id_to_predicates,
-            std::vector<std::shared_ptr<MutilColumnBlockPredicate>>& or_predicates,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,

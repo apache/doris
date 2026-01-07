@@ -1219,9 +1219,6 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
             _local_state
                     ? _local_state->cast<pipeline::FileScanLocalState>()._slot_id_to_predicates
                     : phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> {};
-    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> or_predicates =
-            _local_state ? _local_state->cast<pipeline::FileScanLocalState>()._or_predicates
-                         : std::vector<std::shared_ptr<MutilColumnBlockPredicate>> {};
     if (range.__isset.table_format_params &&
         range.table_format_params.table_format_type == "iceberg") {
         std::unique_ptr<IcebergParquetReader> iceberg_reader = IcebergParquetReader::create_unique(
@@ -1229,7 +1226,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                 _io_ctx.get(), file_meta_cache_ptr);
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
-                slot_id_to_predicates, or_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
                 _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(iceberg_reader);
@@ -1240,7 +1237,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                 file_meta_cache_ptr);
         init_status = paimon_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
-                slot_id_to_predicates, or_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
                 _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         RETURN_IF_ERROR(paimon_reader->init_row_filters());
@@ -1262,7 +1259,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                 file_meta_cache_ptr);
         init_status = hudi_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
-                slot_id_to_predicates, or_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
                 _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(hudi_reader);
@@ -1272,7 +1269,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                                                             &_is_file_slot, file_meta_cache_ptr);
         init_status = hive_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
-                slot_id_to_predicates, or_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
                 _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(hive_reader);
@@ -1289,7 +1286,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                 _real_tuple_desc, *parquet_meta, tvf_info_node));
         init_status = parquet_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
-                slot_id_to_predicates, or_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
                 _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts, tvf_info_node);
         _cur_reader = std::move(parquet_reader);
@@ -1320,7 +1317,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
 
         init_status = parquet_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
-                slot_id_to_predicates, or_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
                 _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts, load_info_node);
         _cur_reader = std::move(parquet_reader);
