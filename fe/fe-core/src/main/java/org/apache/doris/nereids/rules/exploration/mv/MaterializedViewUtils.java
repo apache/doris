@@ -85,8 +85,9 @@ public class MaterializedViewUtils {
      * Get related base table info which materialized view plan column reference,
      * input param plan should be rewritten plan that sub query should be eliminated
      *
-     * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
-     * @param column ref column name.
+     * @param materializedViewPlan this should be rewritten or analyzed plan, should
+     *                             not be physical plan.
+     * @param column               ref column name.
      */
     @Deprecated
     public static RelatedTableInfo getRelatedTableInfo(String column, String timeUnit,
@@ -117,9 +118,10 @@ public class MaterializedViewUtils {
         checkContext.getPartitionAndRefExpressionMap().put(columnExpr,
                 RelatedTableColumnInfo.of(columnExpr, null, true, false));
         materializedViewPlan.accept(PartitionIncrementChecker.INSTANCE, checkContext);
-        List<RelatedTableColumnInfo> checkedTableColumnInfos =
-                PartitionIncrementMaintainer.getRelatedTableColumnInfosWithCheck(checkContext, tableColumnInfo ->
-                        tableColumnInfo.isOriginalPartition() && tableColumnInfo.isFromTablePartitionColumn());
+        List<RelatedTableColumnInfo> checkedTableColumnInfos = PartitionIncrementMaintainer
+                .getRelatedTableColumnInfosWithCheck(checkContext,
+                        tableColumnInfo -> tableColumnInfo.isOriginalPartition()
+                                && tableColumnInfo.isFromTablePartitionColumn());
         if (checkedTableColumnInfos == null) {
             return RelatedTableInfo.failWith("multi partition column data types are different");
         }
@@ -138,8 +140,9 @@ public class MaterializedViewUtils {
      * Get related base table info which materialized view plan column reference,
      * input param plan should be rewritten plan that sub query should be eliminated
      *
-     * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
-     * @param column ref column name.
+     * @param materializedViewPlan this should be rewritten or analyzed plan, should
+     *                             not be physical plan.
+     * @param column               ref column name.
      */
     public static RelatedTableInfo getRelatedTableInfos(String column, String timeUnit,
             Plan materializedViewPlan, CascadesContext cascadesContext) {
@@ -174,8 +177,8 @@ public class MaterializedViewUtils {
                     "partition ref expressions is not consistent, partition ref expressions map is %s",
                     checkContext.getPartitionAndRefExpressionMap()));
         }
-        List<RelatedTableColumnInfo> checkedTableColumnInfos =
-                PartitionIncrementMaintainer.getRelatedTableColumnInfosWithCheck(checkContext,
+        List<RelatedTableColumnInfo> checkedTableColumnInfos = PartitionIncrementMaintainer
+                .getRelatedTableColumnInfosWithCheck(checkContext,
                         RelatedTableColumnInfo::isFromTablePartitionColumn);
         if (checkedTableColumnInfos == null) {
             return RelatedTableInfo.failWith("multi partition column data types are different");
@@ -211,8 +214,8 @@ public class MaterializedViewUtils {
         for (RelatedTableColumnInfo tableColumnInfo : refExpressions) {
             if (tableColumnInfo.getPartitionExpression().isPresent()) {
                 // If partition ref up expression is empty, return false directly
-                List<DateTrunc> dateTruncs =
-                        tableColumnInfo.getPartitionExpression().get().collectToList(DateTrunc.class::isInstance);
+                List<DateTrunc> dateTruncs = tableColumnInfo.getPartitionExpression().get()
+                        .collectToList(DateTrunc.class::isInstance);
                 if (dateTruncs.size() > 1) {
                     return false;
                 }
@@ -222,11 +225,13 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * This method check the select query plan is contain the stmt as following or not
+     * This method check the select query plan is contain the stmt as following or
+     * not
      * <p>
      * SELECT
      * [hint_statement, ...]
-     * [ALL | DISTINCT | DISTINCTROW | ALL EXCEPT ( col_name1 [, col_name2, col_name3, ...] )]
+     * [ALL | DISTINCT | DISTINCTROW | ALL EXCEPT ( col_name1 [, col_name2,
+     * col_name3, ...] )]
      * select_expr [, select_expr ...]
      * [FROM table_references
      * [PARTITION partition_list]
@@ -245,7 +250,7 @@ public class MaterializedViewUtils {
      * [PARTITION partition_list]
      * [TABLET tabletid_list] or
      * [TABLESAMPLE sample_value [ROWS | PERCENT]
-     * *         [REPEATABLE pos_seek]]
+     * * [REPEATABLE pos_seek]]
      * this method will return true.
      */
     public static boolean containTableQueryOperator(Plan analyzedPlan) {
@@ -253,8 +258,10 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Transform to common table id, this is used by get query struct info, maybe little err when same table occur
-     * more than once, this is not a problem because the process of query rewrite by mv would consider more
+     * Transform to common table id, this is used by get query struct info, maybe
+     * little err when same table occur
+     * more than once, this is not a problem because the process of query rewrite by
+     * mv would consider more
      */
     public static BitSet transformToCommonTableId(BitSet relationIdSet, Map<Integer, Integer> relationIdToTableIdMap) {
         BitSet transformedBitset = new BitSet();
@@ -268,8 +275,11 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
-     * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
+     * Extract struct info from plan, support to get struct info from logical plan
+     * or plan in group.
+     * 
+     * @param plan         maybe remove unnecessary plan node, and the logical
+     *                     output maybe wrong
      * @param originalPlan original plan, the output is right
      */
     public static List<StructInfo> extractStructInfo(Plan plan, Plan originalPlan, CascadesContext cascadesContext,
@@ -309,8 +319,10 @@ public class MaterializedViewUtils {
 
     /**
      * Generate scan plan for materialized view
-     * if MaterializationContext is already rewritten by materialized view, then should generate in real time
-     * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * if MaterializationContext is already rewritten by materialized view, then
+     * should generate in real time
+     * when query rewrite, because one plan may hit the materialized view repeatedly
+     * and the mv scan output
      * should be different
      */
     public static Plan generateMvScanPlan(OlapTable table, long indexId,
@@ -335,7 +347,8 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
+     * Optimize by rules, this support optimize by custom rules by define different
+     * rewriter according to different
      * rules, this method is only for materialized view rewrite
      */
     public static Plan rewriteByRules(
@@ -348,10 +361,11 @@ public class MaterializedViewUtils {
             return rewrittenPlan;
         }
         Plan tmpRewrittenPlan = rewrittenPlan;
-        // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
+        // After RBO, slot order may change, so need originSlotToRewrittenExprId which
+        // record
         // origin plan slot order
-        List<ExprId> rewrittenPlanOutputsBeforeOptimize =
-                rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
+        List<ExprId> rewrittenPlanOutputsBeforeOptimize = rewrittenPlan.getOutput().stream().map(Slot::getExprId)
+                .collect(Collectors.toList());
         // run rbo job on mv rewritten plan
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
@@ -373,10 +387,10 @@ public class MaterializedViewUtils {
             }
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);
             AtomicReference<Plan> rewriteResult = new AtomicReference<>();
-            rewrittenPlanContext.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
-                rewriteResult.set(planRewriter.apply(rewrittenPlanContext));
-            });
-            cascadesContext.addPlanProcesses(rewrittenPlanContext.getPlanProcesses());
+            rewrittenPlanContext.getStatementContext().withPlanProcess(
+                    cascadesContext.getStatementContext().showPlanProcess(), () -> {
+                        rewriteResult.set(planRewriter.apply(rewrittenPlanContext));
+                    });
             rewrittenPlan = rewriteResult.get();
         } finally {
             rewrittenPlanContext.getConnectContext().setSkipAuth(false);
@@ -403,12 +417,14 @@ public class MaterializedViewUtils {
         if (rewrittenPlanOutputsBeforeOptimize.equals(rewrittenPlanOutputsAfterOptimized)) {
             return rewrittenPlan;
         }
-        // the expr id would change for some rule, once happened, not check result column order
+        // the expr id would change for some rule, once happened, not check result
+        // column order
         List<NamedExpression> adjustedOrderProjects = new ArrayList<>();
         for (ExprId exprId : rewrittenPlanOutputsBeforeOptimize) {
             Slot output = rewrittenPlanAfterOptimizedExprIdToOutputMap.get(exprId);
             if (output == null) {
-                // some rule change the output slot id, would cause error, so not optimize and return tmpRewrittenPlan
+                // some rule change the output slot id, would cause error, so not optimize and
+                // return tmpRewrittenPlan
                 return tmpRewrittenPlan;
             }
             adjustedOrderProjects.add(output);
@@ -418,7 +434,8 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Normalize expression such as nullable property and output slot id when plan in the plan tree
+     * Normalize expression such as nullable property and output slot id when plan
+     * in the plan tree
      */
     public static Plan normalizeExpressions(Plan rewrittenPlan, Plan originPlan) {
         if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
@@ -434,7 +451,8 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Normalize expression such as nullable property and output slot id when plan is on the top of tree
+     * Normalize expression such as nullable property and output slot id when plan
+     * is on the top of tree
      */
     public static Plan normalizeSinkExpressions(Plan rewrittenPlan, Plan originPlan) {
         return rewrittenPlan.accept(new DefaultPlanRewriter<Void>() {
@@ -467,7 +485,8 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Normalize expression with query, keep the consistency of exprId and nullable props with
+     * Normalize expression with query, keep the consistency of exprId and nullable
+     * props with
      * query
      * Keep the replacedExpression slot property is the same as the sourceExpression
      */
@@ -480,15 +499,18 @@ public class MaterializedViewUtils {
             return replacedExpression;
         }
         if (isExprEquals && isSink && replacedExpression instanceof SlotReference) {
-            // for sink, if expr id is the same, but nullable is different, should keep the same expr id
+            // for sink, if expr id is the same, but nullable is different, should keep the
+            // same expr id
             return ((SlotReference) replacedExpression).withNullable(sourceExpression.nullable());
         }
         if (!isNullableEquals) {
             // if enable join eliminate, query maybe inner join and mv maybe outer join.
-            // If the slot is at null generate side, the nullable maybe different between query and view
+            // If the slot is at null generate side, the nullable maybe different between
+            // query and view
             // So need to force to consistent.
             innerExpression = sourceExpression.nullable()
-                    ? new Nullable(replacedExpression) : new NonNullable(replacedExpression);
+                    ? new Nullable(replacedExpression)
+                    : new NonNullable(replacedExpression);
         }
         return new Alias(sourceExpression.getExprId(), innerExpression, sourceExpression.getName());
     }
@@ -513,8 +535,10 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Extract nondeterministic function form plan, if the function is in whiteExpressionSet,
-     * the function would be considered as deterministic function and will not return
+     * Extract nondeterministic function form plan, if the function is in
+     * whiteExpressionSet,
+     * the function would be considered as deterministic function and will not
+     * return
      * in the result expression result
      */
     public static List<Expression> extractNondeterministicFunction(Plan plan) {
@@ -546,7 +570,8 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Calc the chosen materialization context and all table used by final physical plan
+     * Calc the chosen materialization context and all table used by final physical
+     * plan
      */
     public static Pair<Map<List<String>, MaterializationContext>, BitSet> getChosenMaterializationAndUsedTable(
             Plan physicalPlan, Map<List<String>, MaterializationContext> materializationContexts) {
@@ -562,10 +587,11 @@ public class MaterializedViewUtils {
                 }
                 PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) catalogRelation;
                 OlapTable table = physicalOlapScan.getTable();
-                List<String> materializationIdentifier
-                        = MaterializationContext.generateMaterializationIdentifierByIndexId(table,
-                        physicalOlapScan.getSelectedIndexId() == table.getBaseIndexId()
-                                ? null : physicalOlapScan.getSelectedIndexId());
+                List<String> materializationIdentifier = MaterializationContext
+                        .generateMaterializationIdentifierByIndexId(table,
+                                physicalOlapScan.getSelectedIndexId() == table.getBaseIndexId()
+                                        ? null
+                                        : physicalOlapScan.getSelectedIndexId());
                 MaterializationContext materializationContext = materializationContexts.get(materializationIdentifier);
                 if (materializationContext == null) {
                     return null;
@@ -591,13 +617,15 @@ public class MaterializedViewUtils {
      *
      * @param superset The BitSet expected to contain the bits.
      * @param subset   The BitSet whose set bits are to be checked.
-     * @return true if all bits set in the subset are also set in the superset, false otherwise.
+     * @return true if all bits set in the subset are also set in the superset,
+     *         false otherwise.
      */
     public static boolean containsAll(BitSet superset, BitSet subset) {
         // Clone the subset to avoid modifying the original instance.
         BitSet temp = (BitSet) subset.clone();
         // Remove all bits from temp that are also present in the superset.
-        // temp.andNot(superset) is equivalent to the operation: temp = temp AND (NOT superset)
+        // temp.andNot(superset) is equivalent to the operation: temp = temp AND (NOT
+        // superset)
         temp.andNot(superset);
         return temp.isEmpty();
     }
@@ -609,7 +637,7 @@ public class MaterializedViewUtils {
      * select * from orders_partition PARTITION (day_2) because PARTITION (day_2)
      * select * from orders index query_index_test because index query_index_test
      * select * from orders TABLESAMPLE(20 percent) because TABLESAMPLE(20 percent)
-     * */
+     */
     public static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
         public static final TableQueryOperatorChecker INSTANCE = new TableQueryOperatorChecker();
 
@@ -629,7 +657,8 @@ public class MaterializedViewUtils {
                     return true;
                 }
                 if (!logicalOlapScan.getManuallySpecifiedPartitions().isEmpty()) {
-                    // Contain specified partitions, select * from orders_partition PARTITION (day_2)
+                    // Contain specified partitions, select * from orders_partition PARTITION
+                    // (day_2)
                     return true;
                 }
                 if (logicalOlapScan.getSelectedIndexId() != logicalOlapScan.getTable().getBaseIndexId()) {
@@ -657,7 +686,7 @@ public class MaterializedViewUtils {
      * Check the prefix of two order key list is same from start
      */
     public static boolean isPrefixSameFromStart(List<OrderKey> queryShuttledOrderKeys,
-                                                 List<OrderKey> viewShuttledOrderKeys) {
+            List<OrderKey> viewShuttledOrderKeys) {
         if (queryShuttledOrderKeys == null || viewShuttledOrderKeys == null) {
             return false;
         }

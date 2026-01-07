@@ -43,9 +43,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Register CTE, includes checking columnAliases, checking CTE name, analyzing each CTE and store the
+ * Register CTE, includes checking columnAliases, checking CTE name, analyzing
+ * each CTE and store the
  * analyzed logicalPlan of CTE's query in CTEContext;
- * A LogicalProject node will be added to the root of the initial logicalPlan if there exist columnAliases.
+ * A LogicalProject node will be added to the root of the initial logicalPlan if
+ * there exist columnAliases.
  * Node LogicalCTE will be eliminated after registering.
  */
 public class AnalyzeCTE extends OneAnalysisRuleFactory {
@@ -71,13 +73,14 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             Pair<CTEContext, List<LogicalCTEProducer<Plan>>> result = analyzeCte(logicalCTE, ctx.cascadesContext);
             CascadesContext outerCascadesCtx = CascadesContext.newContextWithCteContext(
                     ctx.cascadesContext, logicalCTE.child(), result.first);
-            outerCascadesCtx.withPlanProcess(ctx.cascadesContext.showPlanProcess(), () -> {
-                outerCascadesCtx.newAnalyzer().analyze();
-            });
+            outerCascadesCtx.getStatementContext().withPlanProcess(
+                    ctx.cascadesContext.getStatementContext().showPlanProcess(), () -> {
+                        outerCascadesCtx.newAnalyzer().analyze();
+                    });
             ctx.cascadesContext.setLeadingDisableJoinReorder(outerCascadesCtx.isLeadingDisableJoinReorder());
             Plan root = outerCascadesCtx.getRewritePlan();
-            ctx.cascadesContext.addPlanProcesses(outerCascadesCtx.getPlanProcesses());
-            // should construct anchor from back to front, because the cte behind depends on the front
+            // should construct anchor from back to front, because the cte behind depends on
+            // the front
             for (int i = result.second.size() - 1; i >= 0; i--) {
                 root = new LogicalCTEAnchor<>(result.second.get(i).getCteId(), result.second.get(i), root);
             }
@@ -98,15 +101,15 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
             CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
                     cascadesContext, parsedCtePlan, outerCteCtx);
-            innerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
-                innerCascadesCtx.newAnalyzer().analyze();
-            });
-            cascadesContext.addPlanProcesses(innerCascadesCtx.getPlanProcesses());
+            innerCascadesCtx.getStatementContext().withPlanProcess(
+                    cascadesContext.getStatementContext().showPlanProcess(), () -> {
+                        innerCascadesCtx.newAnalyzer().analyze();
+                    });
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             checkColumnAlias(aliasQuery, analyzedCtePlan.getOutput());
             CTEId cteId = StatementScopeIdGenerator.newCTEId();
-            LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
-                    aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
+            LogicalSubQueryAlias<Plan> logicalSubQueryAlias = aliasQuery
+                    .withChildren(ImmutableList.of(analyzedCtePlan));
             outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
             outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
             cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias));
@@ -120,7 +123,8 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
     private void checkColumnAlias(LogicalSubQueryAlias<Plan> aliasQuery, List<Slot> outputSlots) {
         if (aliasQuery.getColumnAliases().isPresent()) {
             List<String> columnAlias = aliasQuery.getColumnAliases().get();
-            // if the size of columnAlias is smaller than outputSlots' size, we will replace the corresponding number
+            // if the size of columnAlias is smaller than outputSlots' size, we will replace
+            // the corresponding number
             // of front slots with columnAlias.
             if (columnAlias.size() > outputSlots.size()) {
                 throw new AnalysisException("CTE [" + aliasQuery.getAlias() + "] returns "

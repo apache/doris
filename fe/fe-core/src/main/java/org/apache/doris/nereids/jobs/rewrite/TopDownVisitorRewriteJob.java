@@ -47,6 +47,7 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
+        jobContext.getCascadesContext().getStatementContext().incrementCurrentRewriteId();
         Plan originPlan = jobContext.getCascadesContext().getRewritePlan();
         Optional<Rules> relateRules = getRelatedRules(originPlan, rules, jobContext.getCascadesContext());
         if (!relateRules.isPresent()) {
@@ -54,8 +55,7 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         }
 
         Plan root = rewrite(
-                null, -1, originPlan, jobContext, rules, false, new ProcessState(originPlan)
-        );
+                null, -1, originPlan, jobContext, rules, false, new ProcessState(originPlan));
         jobContext.getCascadesContext().setRewritePlan(root);
     }
 
@@ -113,13 +113,14 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                 if (!transform.isEmpty() && !transform.get(0).deepEquals(originPlan)) {
                     Plan newPlan = transform.get(0);
                     currentRule.acceptPlan(originPlan);
-                    if (cascadesContext.showPlanProcess()) {
+                    if (cascadesContext.getStatementContext().showPlanProcess()) {
                         String beforeShape = processState.getNewestPlan().treeString(true, originPlan);
                         String afterShape = processState.updateChildAndGetNewest(originParent, childIndex, newPlan)
                                 .treeString(true, newPlan);
-                        cascadesContext.addPlanProcess(
-                                new PlanProcess(currentRule.getRuleType().name(), beforeShape, afterShape)
-                        );
+                        cascadesContext.getStatementContext().addPlanProcess(
+                                new PlanProcess(
+                                        cascadesContext.getStatementContext().getCurrentRewriteId().asInt(),
+                                        currentRule.getRuleType().name(), beforeShape, afterShape));
                     }
                     // if rewrite success, record the rule type
                     cascadesContext.getStatementContext().ruleSetApplied(currentRule.getRuleType());

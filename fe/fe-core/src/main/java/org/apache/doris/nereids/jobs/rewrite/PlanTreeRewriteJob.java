@@ -48,7 +48,7 @@ public abstract class PlanTreeRewriteJob extends Job {
         CascadesContext cascadesContext = context.getCascadesContext();
         cascadesContext.setIsRewriteRoot(rewriteJobContext.isRewriteRoot());
 
-        boolean showPlanProcess = cascadesContext.showPlanProcess();
+        boolean showPlanProcess = cascadesContext.getStatementContext().showPlanProcess();
         for (Rule rule : rules.getCurrentRules(plan)) {
             if (disableRules.get(rule.getRuleType().type())) {
                 continue;
@@ -71,8 +71,10 @@ public abstract class PlanTreeRewriteJob extends Job {
                     rule.acceptPlan(newPlan);
                     if (showPlanProcess) {
                         String traceAfter = getCurrentPlanTreeString(rewriteJobContext, newPlan);
-                        PlanProcess planProcess = new PlanProcess(rule.getRuleType().name(), traceBefore, traceAfter);
-                        cascadesContext.addPlanProcess(planProcess);
+                        PlanProcess planProcess = new PlanProcess(
+                                cascadesContext.getStatementContext().getCurrentRewriteId().asInt(),
+                                rule.getRuleType().name(), traceBefore, traceAfter);
+                        cascadesContext.getStatementContext().addPlanProcess(planProcess);
                     }
                     // if rewrite success, record the rule type
                     context.getCascadesContext().getStatementContext().ruleSetApplied(rule.getRuleType());
@@ -94,7 +96,8 @@ public abstract class PlanTreeRewriteJob extends Job {
                 RewriteJobContext child = childrenContext[0];
                 Plan firstResult = child == null ? plan.child(0) : child.result;
                 return firstResult == null || firstResult == children.get(0)
-                        ? plan : plan.withChildren(ImmutableList.of(firstResult));
+                        ? plan
+                        : plan.withChildren(ImmutableList.of(firstResult));
             }
             case 2: {
                 RewriteJobContext left = childrenContext[0];

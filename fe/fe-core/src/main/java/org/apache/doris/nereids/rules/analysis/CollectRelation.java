@@ -77,7 +77,8 @@ public class CollectRelation implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                // should collect table from cte first to fill collect all cte name to avoid collect wrong table.
+                // should collect table from cte first to fill collect all cte name to avoid
+                // collect wrong table.
                 logicalCTE()
                         .thenApply(ctx -> {
                             ctx.cascadesContext.setCteContext(collectFromCte(ctx.root, ctx.cascadesContext));
@@ -93,8 +94,7 @@ public class CollectRelation implements AnalysisRuleFactory {
                 any().whenNot(UnboundRelation.class::isInstance)
                         .whenNot(UnboundTableSink.class::isInstance)
                         .thenApply(this::collectFromAny)
-                        .toRule(RuleType.COLLECT_TABLE_FROM_OTHER)
-        );
+                        .toRule(RuleType.COLLECT_TABLE_FROM_OTHER));
     }
 
     /**
@@ -113,8 +113,8 @@ public class CollectRelation implements AnalysisRuleFactory {
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             // cteId is not used in CollectTable stage
             CTEId cteId = new CTEId(0);
-            LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
-                    aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
+            LogicalSubQueryAlias<Plan> logicalSubQueryAlias = aliasQuery
+                    .withChildren(ImmutableList.of(analyzedCtePlan));
             outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
             outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
         }
@@ -128,9 +128,9 @@ public class CollectRelation implements AnalysisRuleFactory {
                     SubqueryExpr subqueryExpr = (SubqueryExpr) e;
                     CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
                             ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
-                    subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
+                    subqueryContext.getStatementContext().keepOrShowPlanProcess(
+                            ctx.cascadesContext.getStatementContext().showPlanProcess(),
                             () -> subqueryContext.newTableCollector(true).collect());
-                    ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
                 }
             });
         }
@@ -286,8 +286,8 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(),
+        viewContext.getStatementContext().keepOrShowPlanProcess(
+                parentContext.getStatementContext().showPlanProcess(),
                 () -> viewContext.newTableCollector(false).collect());
-        parentContext.addPlanProcesses(viewContext.getPlanProcesses());
     }
 }

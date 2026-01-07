@@ -58,7 +58,9 @@ public class CostBasedRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
-        // checkHint.first means whether it use hint and checkHint.second means what kind of hint it used
+        jobContext.getCascadesContext().getStatementContext().incrementCurrentRewriteId();
+        // checkHint.first means whether it use hint and checkHint.second means what
+        // kind of hint it used
         Pair<Boolean, Hint> checkHint = checkRuleHint();
         // this means it no_use_cbo_rule(xxx) hint
         if (checkHint.first && checkHint.second == null) {
@@ -87,24 +89,24 @@ public class CostBasedRewriteJob implements RewriteJob {
         if (checkHint.first) {
             checkHint.second.setStatus(Hint.HintStatus.SUCCESS);
             if (!((UseCboRuleHint) checkHint.second).isNotUseCboRule()) {
-                currentCtx.addPlanProcesses(applyCboRuleCtx.getPlanProcesses());
                 currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
             }
             return;
         }
-        // If the candidate applied cbo rule is better, replace the original plan with it.
+        // If the candidate applied cbo rule is better, replace the original plan with
+        // it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
-            currentCtx.addPlanProcesses(applyCboRuleCtx.getPlanProcesses());
             currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
         }
     }
 
     /**
      * check if we have use rule hint or no use rule hint
-     *     return an optional object which checkHint.first means whether it use hint
-     *     and checkHint.second means what kind of hint it used
-     *     example, when we use *+ no_use_cbo_rule(xxx) * the optional would be (true, false)
-     *     which means it use hint and the hint forbid this kind of rule
+     * return an optional object which checkHint.first means whether it use hint
+     * and checkHint.second means what kind of hint it used
+     * example, when we use *+ no_use_cbo_rule(xxx) * the optional would be (true,
+     * false)
+     * which means it use hint and the hint forbid this kind of rule
      */
     private Pair<Boolean, Hint> checkRuleHint() {
         Pair<Boolean, Hint> checkResult = Pair.of(false, null);
@@ -134,7 +136,8 @@ public class CostBasedRewriteJob implements RewriteJob {
     }
 
     /**
-     * for these rules we need use_cbo_rule hint to enable it, otherwise it would be close by default
+     * for these rules we need use_cbo_rule hint to enable it, otherwise it would be
+     * close by default
      */
     private static boolean checkBlackList(RuleType ruleType) {
         List<RuleType> ruleWhiteList = new ArrayList<>(Arrays.asList(
@@ -181,9 +184,10 @@ public class CostBasedRewriteJob implements RewriteJob {
                     .put(currentCtx.getCurrentTree().orElse(null), (LogicalPlan) cboCtx.getRewritePlan());
             // Do post tree rewrite
             CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
-            rootCtxCopy.withPlanProcess(currentCtx.showPlanProcess(), () -> {
-                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
-            });
+            rootCtxCopy.getStatementContext().withPlanProcess(currentCtx.getStatementContext().showPlanProcess(),
+                    () -> {
+                        Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
+                    });
             // Do optimize
             new Optimizer(rootCtxCopy).execute();
             return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(

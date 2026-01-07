@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
@@ -88,7 +89,13 @@ public class Analyzer extends AbstractBatchJobExecutor {
      * nereids analyze sql.
      */
     public void analyze() {
+        cascadesContext.getStatementContext().addPlanProcess(
+                new PlanProcess(0, "ANALYZE BEGIN", "", "")
+        );
         execute();
+        cascadesContext.getStatementContext().addPlanProcess(
+                new PlanProcess(0, "ANALYZE END", "", "")
+        );
     }
 
     @Override

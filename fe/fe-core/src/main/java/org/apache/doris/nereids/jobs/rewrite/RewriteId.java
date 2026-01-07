@@ -15,24 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids;
+package org.apache.doris.nereids.jobs.rewrite;
 
-/** PlanProcess */
-public class PlanProcess {
-    public final int rewriteId;
-    public final String ruleName;
-    public final String beforeShape;
-    public final String afterShape;
+import org.apache.doris.common.Id;
+import org.apache.doris.common.IdGenerator;
 
-    public PlanProcess(int rewriteId, String ruleName, String beforeShape, String afterShape) {
-        this.rewriteId = rewriteId;
-        this.ruleName = ruleName;
-        this.beforeShape = beforeShape;
-        this.afterShape = afterShape;
+/**
+ * Identifier for a rewrite/optimization job in Nereids.
+ */
+public class RewriteId extends Id<RewriteId> {
+
+    public RewriteId(int id) {
+        super(id);
+    }
+
+    /**
+     * Should be only called by StatementContext via StatementScopeIdGenerator.
+     */
+    public static IdGenerator<RewriteId> createGenerator() {
+        return new IdGenerator<RewriteId>() {
+            @Override
+            public RewriteId getNextId() {
+                return new RewriteId(nextId++);
+            }
+        };
     }
 
     @Override
     public String toString() {
-        return "PlanProcess{ruleName='" + ruleName + '\'' + '}';
+        return "JobId#" + id;
     }
 }

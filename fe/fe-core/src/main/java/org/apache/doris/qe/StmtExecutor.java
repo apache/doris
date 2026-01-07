@@ -1772,6 +1772,7 @@ public class StmtExecutor {
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("rewriteId", ScalarType.createVarchar(-1)))
                 .addColumn(new Column("Rule", ScalarType.createVarchar(-1)))
                 .addColumn(new Column("Before", ScalarType.createVarchar(-1)))
                 .addColumn(new Column("After", ScalarType.createVarchar(-1)))
@@ -1781,6 +1782,7 @@ public class StmtExecutor {
 
             for (PlanProcess row : result) {
                 serializer.reset();
+                serializer.writeLenEncodedString(String.valueOf(row.rewriteId));
                 serializer.writeLenEncodedString(row.ruleName);
                 serializer.writeLenEncodedString(row.beforeShape);
                 serializer.writeLenEncodedString(row.afterShape);
