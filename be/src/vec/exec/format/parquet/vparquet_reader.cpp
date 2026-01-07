@@ -985,9 +985,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (chunk.offset_index_length == 0) {
             continue;
         }
-        tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
-        _col_offsets[parquet_col_id] = offset_index;
 
         if (!_push_down_simple_predicates.contains(slot_id) ||
             _push_down_simple_predicates[slot_id].empty()) {
