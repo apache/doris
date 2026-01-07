@@ -227,10 +227,8 @@ under the License.
         <parquet.version>1.16.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
-        <gcs.version>3.1.9</gcs.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
-        <gcs.dependency.scope>provided</gcs.dependency.scope>
         <qcloud-java-sdk.version>2.0.1</qcloud-java-sdk.version>
         <tencentcos.version>8.2.7</tencentcos.version>
         <cos-api.version>5.6.211</cos-api.version>

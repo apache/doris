@@ -43,6 +43,7 @@ header:
     - "**/*.parquet"
     - "docs/.markdownlintignore"
     - "fe/fe-core/src/test/resources/data/net_snmp_normal"
+    - "fe/fe-core/src/main/java/software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaLexer.g4"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaParser.g4"
     - "be/dict/ik/*"
