@@ -1121,8 +1121,10 @@ TEST_F(FunctionSearchTest, TestPerformanceWithLargeQueries) {
 }
 
 // Tests for FieldReaderResolver::resolve function coverage (lines 74+)
-TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) {
-    // Exercise the branch where the iterator exists but is not an InvertedIndexIterator
+TEST_F(FunctionSearchTest, TestFieldReaderResolverWithEmptyReaders) {
+    // Exercise the branch where the iterator exists but has no readers
+    // DummyIndexIterator inherits from InvertedIndexIterator but has empty _readers,
+    // so select_best_reader() will fail with RuntimeError
     TSearchParam search_param;
     search_param.original_dsl = "title:hello";
 
@@ -1148,9 +1150,9 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) 
             search_param, data_types, iterators, num_rows, bitmap_result);
     std::cout << status.to_string() << std::endl;
     EXPECT_FALSE(status.ok());
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
-    EXPECT_NE(status.to_string().find("iterator for field 'title' is not InvertedIndexIterator"),
-              std::string::npos);
+    // DummyIndexIterator has no readers, so select_best_reader() returns RuntimeError
+    EXPECT_EQ(status.code(), ErrorCode::RUNTIME_ERROR);
+    EXPECT_NE(status.to_string().find("No available inverted index readers"), std::string::npos);
 }
 
 TEST_F(FunctionSearchTest, TestFieldReaderResolverWithValidIterator) {

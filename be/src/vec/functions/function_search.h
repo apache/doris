@@ -35,6 +35,11 @@
 #include "vec/functions/function.h"
 
 CL_NS_USE(index)
+
+namespace doris::segment_v2 {
+class DorisCompoundReader;
+} // namespace doris::segment_v2
+
 namespace doris::vectorized {
 
 using namespace doris::segment_v2;
@@ -46,6 +51,11 @@ struct FieldReaderBinding {
     vectorized::DataTypePtr column_type;
     InvertedIndexQueryType query_type;
     InvertedIndexReaderPtr inverted_reader;
+    // IMPORTANT: directory must be declared before lucene_reader!
+    // C++ destroys members in reverse declaration order, and the
+    // IndexReader internally holds a reference to the directory.
+    // The directory must outlive the reader.
+    std::shared_ptr<DorisCompoundReader> directory;
     std::shared_ptr<lucene::index::IndexReader> lucene_reader;
     std::map<std::string, std::string> index_properties;
     std::string binding_key;

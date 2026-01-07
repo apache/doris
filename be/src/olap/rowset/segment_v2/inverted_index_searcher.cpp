@@ -29,6 +29,8 @@
 namespace doris::segment_v2 {
 Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
                                            OptionalIndexSearcherPtr& output_searcher) {
+    // When closeDirectory=true, IndexReader takes ownership of the directory
+    // and will close/delete it when the reader is destroyed
     auto close_directory = true;
     std::unique_ptr<lucene::index::IndexReader> reader;
     try {
@@ -113,6 +115,9 @@ Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "InvertedIndexSearcherCache build error."));
     }
+    // Release ownership - the IndexReader/IndexSearcher now owns the directory
+    // (build() passes close_directory=true to IndexReader::open)
+    directory_ptr.release();
     return *result;
 }
 } // namespace doris::segment_v2

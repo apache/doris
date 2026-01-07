@@ -43,6 +43,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/wildcard_query/wildcard_query.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column_const.h"
@@ -130,8 +131,10 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     RETURN_IF_ERROR(
             index_file_reader->init(config::inverted_index_read_buffer_size, _context->io_ctx));
 
-    auto directory = DORIS_TRY(
+    auto directory_unique = DORIS_TRY(
             index_file_reader->open(&inverted_reader->get_index_meta(), _context->io_ctx));
+    // Convert to shared_ptr to keep directory alive alongside the IndexReader
+    auto directory = std::shared_ptr<DorisCompoundReader>(std::move(directory_unique));
 
     lucene::index::IndexReader* raw_reader = nullptr;
     try {
@@ -163,6 +166,7 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     resolved.query_type = query_type;
     resolved.inverted_reader = inverted_reader;
     resolved.lucene_reader = reader_holder;
+    resolved.directory = directory;
     resolved.index_properties = inverted_reader->get_index_properties();
     resolved.binding_key = binding_key;
 

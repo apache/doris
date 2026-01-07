@@ -44,7 +44,7 @@ ScorerPtr PhraseScorer<TPostings>::create_with_offset(
     std::vector<uint32_t> right_positions(100);
     auto scorer = std::make_shared<PhraseScorer<TPostings>>(
             std::move(intersection_docset), num_docsets, std::move(left_positions),
-            std::move(right_positions), slop, num_docs);
+            std::move(right_positions), 0 /* phrase_count */, slop);
     if (scorer->doc() != TERMINATED && !scorer->phrase_match()) {
         scorer->advance();
     }
