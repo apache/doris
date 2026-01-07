@@ -63,8 +63,15 @@ public class RestBaseController extends BaseController {
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
                                                         HttpServletResponse response) throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-        // check password
-        UserIdentity currentUser = checkPassword(authInfo);
+
+        // Try certificate-based authentication first
+        UserIdentity currentUser = tryCertificateAuth(authInfo, request);
+
+        if (currentUser == null) {
+            // Certificate auth not applicable or password verification still required
+            currentUser = checkPassword(authInfo);
+        }
+
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(authInfo.fullUserName);

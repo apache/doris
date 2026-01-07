@@ -30,6 +30,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.mysql.authenticate.CertificateAuthVerifier;
+import org.apache.doris.mysql.authenticate.CertificateAuthVerifierFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -48,6 +50,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
+import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.UUID;
 
@@ -70,7 +73,14 @@ public class BaseController {
         if (encodedAuthString != null) {
             // If has Authorization header, check auth info
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            UserIdentity currentUser = checkPassword(authInfo);
+
+            // Try certificate-based authentication first
+            UserIdentity currentUser = tryCertificateAuth(authInfo, request);
+
+            if (currentUser == null) {
+                // Certificate auth not applicable or password verification still required
+                currentUser = checkPassword(authInfo);
+            }
 
             if (Config.isCloudMode() && checkAuth) {
                 checkInstanceOverdue(currentUser);
@@ -264,6 +274,88 @@ public class BaseController {
         }
         Preconditions.checkState(currentUser.size() == 1);
         return currentUser.get(0);
+    }
+
+    /**
+     * Extracts client X509 certificate from the HTTPS request.
+     * The certificate is available via Jetty's SecureRequestCustomizer when client auth is enabled.
+     *
+     * @param request the HTTP request
+     * @return the client's X509 certificate, or null if not available
+     */
+    private X509Certificate getClientCertificate(HttpServletRequest request) {
+        // Jetty's SecureRequestCustomizer populates this attribute with client certificates
+        X509Certificate[] certs = (X509Certificate[]) request.getAttribute(
+                "jakarta.servlet.request.X509Certificate");
+        if (certs != null && certs.length > 0) {
+            return certs[0];
+        }
+        return null;
+    }
+
+    /**
+     * Attempts certificate-based authentication for the user.
+     * This method checks if the user has TLS requirements (e.g., REQUIRE SAN) and verifies
+     * the client certificate against those requirements.
+     *
+     * @param authInfo the authorization info containing username and remote IP
+     * @param request the HTTP request containing the client certificate
+     * @return the authenticated UserIdentity if cert auth succeeds and password can be skipped,
+     *         or null if cert auth is not applicable or password verification is still required
+     * @throws UnauthorizedException if cert verification fails for a user with TLS requirements
+     */
+    protected UserIdentity tryCertificateAuth(ActionAuthorizationInfo authInfo, HttpServletRequest request)
+            throws UnauthorizedException {
+        CertificateAuthVerifier certVerifier = CertificateAuthVerifierFactory.getInstance();
+        if (!certVerifier.isEnabled()) {
+            return null;
+        }
+
+        X509Certificate clientCert = getClientCertificate(request);
+
+        // Get matching users without checking password
+        List<UserIdentity> matchingUsers = Env.getCurrentEnv().getAuth()
+                .getUserIdentityUncheckPasswd(authInfo.fullUserName, authInfo.remoteIp);
+
+        if (matchingUsers.isEmpty()) {
+            // No matching users found, let password auth handle the error
+            return null;
+        }
+
+        for (UserIdentity userIdentity : matchingUsers) {
+            if (!userIdentity.hasTlsRequirements()) {
+                // No TLS requirements for this user, skip cert verification
+                continue;
+            }
+
+            // User has TLS requirements - must verify certificate
+            CertificateAuthVerifier.VerificationResult result =
+                    certVerifier.verify(userIdentity, clientCert);
+
+            if (!result.isSuccess()) {
+                LOG.warn("TLS certificate verification failed for user {}: {}",
+                        userIdentity, result.getErrorMessage());
+                throw new UnauthorizedException(
+                        "TLS certificate verification failed: " + result.getErrorMessage());
+            }
+
+            // Certificate verification passed
+            if (certVerifier.shouldSkipPasswordVerification()) {
+                LOG.info("Certificate-based authentication succeeded for user {}, skipping password verification",
+                        userIdentity);
+                return userIdentity;
+            }
+
+            // Certificate verified but password verification still required
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Certificate verified for user {}, proceeding with password verification",
+                        userIdentity);
+            }
+            return null;
+        }
+
+        // No user with TLS requirements matched, proceed with normal password auth
+        return null;
     }
 
     public ActionAuthorizationInfo getAuthorizationInfo(HttpServletRequest request)
