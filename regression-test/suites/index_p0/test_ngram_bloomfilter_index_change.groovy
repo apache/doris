@@ -16,7 +16,7 @@
 // under the License.
 import groovy.json.JsonSlurper
 
-suite("test_ngram_bloomfilter_index_change") {
+suite("test_ngram_bloomfilter_index_change", "p1") {
     def tableName = 'test_ngram_bloomfilter_index_change'
     def timeout = 60000
     def delta_time = 1000

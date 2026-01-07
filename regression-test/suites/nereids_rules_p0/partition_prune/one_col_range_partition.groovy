@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("one_col_range_partition") {
+suite("one_col_range_partition", "p1") {
     sql "set ENABLE_FOLD_CONSTANT_BY_BE=false"
     sql "drop table if exists one_col_range_partition_date"
     sql """
