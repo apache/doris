@@ -947,7 +947,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     RETURN_IF_ERROR(parse_offset_index());
 
     // Check if page index is needed for min-max filter.
-    if (!_enable_filter_by_min_max || _push_down_simple_expr.empty()) {
+    if (!_enable_filter_by_min_max) {
         read_whole_row_group();
         return Status::OK();
     }
