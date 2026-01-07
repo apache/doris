@@ -122,6 +122,73 @@ suite("test_iceberg_struct_schema_evolution", "p0,external,doris,external_docker
     // Test 6: Multiple struct fields in one query
     qt_orc_struct_multi """SELECT struct_element(a_struct, 'renamed'), struct_element(a_struct, 'keep'), struct_element(a_struct, 'drop_and_add'), struct_element(a_struct, 'added') FROM ${orc_table_name} ORDER BY id"""
 
+    // ============================================================
+    // Test with mixed case field names (case sensitivity test)
+    // ============================================================
+    def case_table_name = "test_struct_evolution_case"
+
+    // Verify case-sensitive table schema after evolution
+    qt_case_desc """DESC ${case_table_name}"""
+
+    // Test 1: Query all columns - should work
+    qt_case_select_all """SELECT * FROM ${case_table_name} ORDER BY id"""
+
+    // Test 2: Query struct field that exists in both old and new files
+    qt_case_struct_keep """SELECT struct_element(a_struct, 'keep') FROM ${case_table_name} ORDER BY id"""
+    qt_case_struct_renamed """SELECT struct_element(a_struct, 'renamed') FROM ${case_table_name} ORDER BY id"""
+
+    // Test 3: Query struct field that was dropped and re-added with case change
+    // Note: Even though we use DROP_AND_ADD (uppercase) in SQL, the system normalizes
+    // field names to lowercase, so we query with 'drop_and_add' (lowercase)
+    qt_case_struct_drop_and_add """SELECT struct_element(a_struct, 'drop_and_add') FROM ${case_table_name} ORDER BY id"""
+
+    // Test 4: Query struct field that was newly added
+    qt_case_struct_added """SELECT struct_element(a_struct, 'added') FROM ${case_table_name} ORDER BY id"""
+
+    // Test 5: Query entire struct column
+    qt_case_struct_full """SELECT a_struct FROM ${case_table_name} ORDER BY id"""
+
+    // Test 6: Query with predicate on struct field
+    qt_case_struct_predicate_1 """SELECT id FROM ${case_table_name} WHERE struct_element(a_struct, 'renamed') = 11 ORDER BY id"""
+    qt_case_struct_predicate_2 """SELECT id FROM ${case_table_name} WHERE struct_element(a_struct, 'drop_and_add') IS NULL ORDER BY id"""
+    qt_case_struct_predicate_3 """SELECT id FROM ${case_table_name} WHERE struct_element(a_struct, 'added') IS NULL ORDER BY id"""
+    qt_case_struct_predicate_4 """SELECT id FROM ${case_table_name} WHERE struct_element(a_struct, 'added') IS NOT NULL ORDER BY id"""
+
+    // Test 7: Multiple struct fields in one query
+    qt_case_struct_multi """SELECT struct_element(a_struct, 'renamed'), struct_element(a_struct, 'keep'), struct_element(a_struct, 'drop_and_add'), struct_element(a_struct, 'added') FROM ${case_table_name} ORDER BY id"""
+
+    // Test 8: DISTINCT query on struct fields
+    qt_case_struct_distinct """SELECT DISTINCT struct_element(a_struct, 'renamed'), struct_element(a_struct, 'added'), struct_element(a_struct, 'keep') FROM ${case_table_name} ORDER BY 1, 2, 3"""
+
+    // ============================================================
+    // Test with ORC format and mixed case field names
+    // ============================================================
+    def case_orc_table_name = "test_struct_evolution_case_orc"
+
+    // Verify ORC case-sensitive table schema after evolution
+    qt_case_orc_desc """DESC ${case_orc_table_name}"""
+
+    // Test 1: Query all columns - should work
+    qt_case_orc_select_all """SELECT * FROM ${case_orc_table_name} ORDER BY id"""
+
+    // Test 2: Query struct field that exists in both old and new files
+    qt_case_orc_struct_keep """SELECT struct_element(a_struct, 'keep') FROM ${case_orc_table_name} ORDER BY id"""
+    qt_case_orc_struct_renamed """SELECT struct_element(a_struct, 'renamed') FROM ${case_orc_table_name} ORDER BY id"""
+
+    // Test 3: Query struct field that was dropped and re-added with case change
+    // Note: Even though we use DROP_AND_ADD (uppercase) in SQL, the system normalizes
+    // field names to lowercase, so we query with 'drop_and_add' (lowercase)
+    qt_case_orc_struct_drop_and_add """SELECT struct_element(a_struct, 'drop_and_add') FROM ${case_orc_table_name} ORDER BY id"""
+
+    // Test 4: Query struct field that was newly added
+    qt_case_orc_struct_added """SELECT struct_element(a_struct, 'added') FROM ${case_orc_table_name} ORDER BY id"""
+
+    // Test 5: Query entire struct column
+    qt_case_orc_struct_full """SELECT a_struct FROM ${case_orc_table_name} ORDER BY id"""
+
+    // Test 6: Multiple struct fields in one query
+    qt_case_orc_struct_multi """SELECT struct_element(a_struct, 'renamed'), struct_element(a_struct, 'keep'), struct_element(a_struct, 'drop_and_add'), struct_element(a_struct, 'added') FROM ${case_orc_table_name} ORDER BY id"""
+
     // Clean up
     sql """drop catalog if exists ${catalog_name}"""
 }
