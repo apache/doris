@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -198,8 +199,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
         boolean convertIsNullToEmptyValue = isAnd && hasNullExpression && hasIsNullExpression;
         boolean convertNotIsNullToRangeAll = !isAnd && hasNullExpression && hasNotIsNullExpression;
-        List<ValueDesc> valuePerRefs = Lists.newArrayList();
-        Map<Expression, ValueDescCollector> groupByReference = Maps.newLinkedHashMap();
+        Map<Pair<Expression, Integer>, ValueDescCollector> groupByReference = Maps.newLinkedHashMap();
+        int nextUniqueNum = 1;
         for (Expression predicate : predicates) {
             // given an expression A, no matter A is nullable or not,
             // 'A is null and null' can represent as EmptyValue(A),
@@ -215,17 +216,24 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 valueDesc = predicate.accept(this, context);
             }
 
-            // valueDesc is like 'a > 1 and b > 1', don't merge them
+            int uniqueNum = 0;
+
+            // for compound value with diff source value reference like 'a > 1 and b > 1',
+            // don't merge it with other values, so give them a unique num > 0.
+            // for other value desc, their unique num is always 0.
             if (valueDesc instanceof CompoundValue && !((CompoundValue) valueDesc).isSameReference) {
-                valuePerRefs.add(valueDesc);
-            } else {
-                Expression reference = valueDesc.reference;
-                groupByReference.computeIfAbsent(reference, key -> new ValueDescCollector()).add(valueDesc);
+                nextUniqueNum++;
+                uniqueNum = nextUniqueNum;
             }
+
+            Expression reference = valueDesc.reference;
+            groupByReference.computeIfAbsent(Pair.of(reference, uniqueNum),
+                    key -> new ValueDescCollector()).add(valueDesc);
         }
 
-        for (Entry<Expression, ValueDescCollector> referenceValues : groupByReference.entrySet()) {
-            Expression reference = referenceValues.getKey();
+        List<ValueDesc> valuePerRefs = Lists.newArrayList();
+        for (Entry<Pair<Expression, Integer>, ValueDescCollector> referenceValues : groupByReference.entrySet()) {
+            Expression reference = referenceValues.getKey().first;
             ValueDescCollector collector = referenceValues.getValue();
             ValueDesc mergedValue;
             if (isAnd) {
