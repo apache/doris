@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -94,6 +95,8 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         THiveTableSink tSink = new THiveTableSink();
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
+        tSink.setEnableInt96Timestamps(
+                Config.parquet_default_timestamps_physical_type.equalsIgnoreCase("int96"));
         Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
         List<Column> allColumns = targetTable.getColumns();
         Set<String> colNames = allColumns.stream().map(Column::getName).collect(Collectors.toSet());

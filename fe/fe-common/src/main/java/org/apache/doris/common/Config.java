@@ -852,6 +852,16 @@ public class Config extends ConfigBase {
                     + "`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`"})
     public static int query_colocate_join_memory_limit_penalty_factor = 1;
 
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "export 和 hive 写入 timestamp 类型到 parquet 文件时的默认物理类型。"
+            + "默认为int64。 可以通过设置为 int96 来保持新老版本的一致性。",
+            "The default physical type used when export and when Hive sinks timestamp types to Parquet files."
+            + "Default is 'int64'."
+            + "It can be configured to 'int96' to maintain compatibility between old and old versions."
+    })
+    public static String parquet_default_timestamps_physical_type = "int64";
+
     /**
      * This configs can set to true to disable the automatic colocate tables's relocate and balance.
      * If 'disable_colocate_balance' is set to true,
