@@ -363,11 +363,18 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                                 status);
                         break;
                     case TExprNodeType::FUNCTION_CALL:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_is_null_predicate(context, expr, slot,
-                                                             _slot_id_to_predicates[slot->id()],
-                                                             value_range, &pdt),
-                                status);
+                        if (expr->is_topn_filter()) {
+                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
+                                                        context, expr, slot,
+                                                        _slot_id_to_predicates[slot->id()], &pdt),
+                                                status);
+                        } else {
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_is_null_predicate(context, expr, slot,
+                                                                 _slot_id_to_predicates[slot->id()],
+                                                                 value_range, &pdt),
+                                    status);
+                        }
                         break;
                     case TExprNodeType::BITMAP_PRED:
                         RETURN_IF_PUSH_DOWN(
@@ -382,15 +389,12 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                                 status);
                         break;
                     default:
-                        if (expr->is_topn_filter()) {
-                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
-                                                        context, expr, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                        } else if (state()->enable_function_pushdown()) {
-                            RETURN_IF_PUSH_DOWN(_normalize_function_filters(context, slot, &pdt),
-                                                status);
-                        }
+                        break;
+                    }
+                    // `node_type` of function filter is FUNCTION_CALL or COMPOUND_PRED
+                    if (state()->enable_function_pushdown()) {
+                        RETURN_IF_PUSH_DOWN(_normalize_function_filters(context, slot, &pdt),
+                                            status);
                     }
                 },
                 *range);
@@ -459,15 +463,13 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
         }
     };
     DCHECK(root->is_topn_filter());
-    if (root->is_topn_filter()) {
-        *pdt = _should_push_down_topn_filter();
-        if (*pdt != PushDownType::UNACCEPTABLE) {
-            auto& p = _parent->cast<typename Derived::Parent>();
-            auto& tmp = _state->get_query_ctx()->get_runtime_predicate(
-                    assert_cast<vectorized::VTopNPred*>(root.get())->source_node_id());
-            if (_push_down_topn(tmp)) {
-                pred = tmp.get_predicate(p.node_id());
-            }
+    *pdt = _should_push_down_topn_filter();
+    if (*pdt != PushDownType::UNACCEPTABLE) {
+        auto& p = _parent->cast<typename Derived::Parent>();
+        auto& tmp = _state->get_query_ctx()->get_runtime_predicate(
+                assert_cast<vectorized::VTopNPred*>(root.get())->source_node_id());
+        if (_push_down_topn(tmp)) {
+            pred = tmp.get_predicate(p.node_id());
         }
     }
     return Status::OK();
