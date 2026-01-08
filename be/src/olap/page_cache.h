@@ -128,7 +128,7 @@ public:
                 : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
                                  num_shards, /*element_count_capacity*/ 0, /*enable_prune*/ true,
-                                 /*is lru-k*/ true) {}
+                                 /*is lru-k*/ false) {}
     };
 
     class PKIndexPageCache : public LRUCachePolicy {
@@ -138,7 +138,7 @@ public:
                                  LRUCacheType::SIZE,
                                  config::pk_index_page_cache_stale_sweep_time_sec, num_shards,
                                  /*element_count_capacity*/ 0, /*enable_prune*/ true,
-                                 /*is lru-k*/ true) {}
+                                 /*is lru-k*/ false) {}
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;
