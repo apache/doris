@@ -265,6 +265,14 @@ public class SummaryProfile {
             .put(MAX_QUEUE_SIZE, 1)
             .put(QUEUE_TIMEOUT, 1)
             .put(MAX_CONCURRENCY, 1)
+            .put(MAX_REMOTE_SCAN_THREAD_NUM, 1)
+            .put(SCAN_THREAD_NUM, 1)
+            .put(MIN_REMOTE_SCAN_THREAD_NUM, 1)
+            .put(MEMORY_LOW_WATERMARK, 1)
+            .put(MEMORY_HIGH_WATERMARK, 1)
+            .put(REMOTE_READ_BYTES_PER_SECOND, 1)
+            .put(READ_BYTES_PER_SECOND, 1)
+            .put(TAG, 1)
             .build();
     public boolean parsedByConnectionProcess = false;
     @SerializedName(value = "summaryProfile")
