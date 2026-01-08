@@ -66,13 +66,6 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
-    DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (requires { Impl::get_variadic_argument_types(); }) {
-            return Impl::get_variadic_argument_types();
-        }
-        return {};
-    }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto res_col = ResultColumnType::create();

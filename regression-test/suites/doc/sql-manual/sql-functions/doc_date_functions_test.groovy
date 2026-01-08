@@ -1428,7 +1428,7 @@ suite("doc_date_functions_test") {
     
     test {
         sql """SELECT TIMESTAMP('9999-12-31', '65:43:21');"""
-        exception "out of range";
+        exception "is invalid";
     }
     
 
