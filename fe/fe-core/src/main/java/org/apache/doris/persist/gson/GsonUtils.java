@@ -85,6 +85,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
@@ -254,7 +255,6 @@ import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
-import org.apache.hadoop.hdfs.server.datanode.LocalReplica;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -532,10 +532,8 @@ public class GsonUtils {
     // runtime adapter for class "CloudReplica".
     private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Replica.class, "clazz")
-            .registerDefaultSubtype(Replica.class)
-            .registerSubtype(Replica.class, Replica.class.getSimpleName())
-            .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName())
-            .registerCompatibleSubtype(Replica.class, "LocalReplica");
+            .registerSubtype(LocalReplica.class, LocalReplica.class.getSimpleName())
+            .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<Tablet> tabletTypeAdapterFactory;
 

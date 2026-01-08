@@ -107,11 +107,11 @@ public class EnvFactory {
     }
 
     public Replica createReplica() {
-        return new Replica();
+        return new LocalReplica();
     }
 
     public Replica createReplica(Replica.ReplicaContext context) {
-        return new Replica(context);
+        return new LocalReplica(context);
     }
 
     public ReplicaAllocation createDefReplicaAllocation() {
