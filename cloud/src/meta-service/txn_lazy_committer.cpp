@@ -233,8 +233,7 @@ void convert_tmp_rowsets(
 
     OperationLogPB op_log;
     if (is_versioned_write) {
-        std::string log_key =
-                encode_versioned_key(versioned::log_key({instance_id, txn_id}), versionstamp);
+        std::string log_key = encode_versioned_key(versioned::log_key({instance_id}), versionstamp);
         ValueBuf log_value;
         err = blob_get(txn.get(), log_key, &log_value);
         if (err != TxnErrorCode::TXN_OK) {
@@ -462,7 +461,7 @@ void convert_tmp_rowsets(
         if (min_timestamp < op_log.min_timestamp()) {
             op_log.set_min_timestamp(min_timestamp);
 
-            std::string log_key_prefix = versioned::log_key({instance_id, txn_id});
+            std::string log_key_prefix = versioned::log_key({instance_id});
             versioned::blob_put(txn.get(), log_key_prefix, versionstamp, op_log);
             LOG(INFO) << "update operation log min_timestamp from " << old_min_timestamp << " to "
                       << min_timestamp << " txn_id=" << txn_id
