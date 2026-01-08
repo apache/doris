@@ -115,9 +115,11 @@ Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "InvertedIndexSearcherCache build error."));
     }
-    // Release ownership - the IndexReader/IndexSearcher now owns the directory
-    // (build() passes close_directory=true to IndexReader::open)
-    directory_ptr.release();
+    // IndexReader::init() increments the directory's ref count via _CL_POINTER.
+    // When directory_ptr goes out of scope, DirectoryDeleter calls _CLDECDELETE
+    // which decrements the ref count (from 2 to 1). The IndexReader still holds
+    // a reference and will decrement it when destroyed (from 1 to 0), deleting
+    // the directory. This ensures no memory leak.
     return *result;
 }
 } // namespace doris::segment_v2
