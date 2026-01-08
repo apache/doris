@@ -133,21 +133,20 @@ public:
     bool isPayloadAvailable() const override { return false; }
     int32_t docFreq() override { return _doc_freq; }
 
-    //    void addLazySkipProxCount(int32_t count) override { _prox_idx += count; }
-    //    int32_t nextDeltaPosition() override {
-    //        if (_prox_idx < _deltas.size()) {
-    //            return _deltas[_prox_idx++];
-    //        }
-    //        return 0;
-    //    }
+    void addLazySkipProxCount(int32_t count) override { _prox_idx += count; }
+    int32_t nextDeltaPosition() override {
+        if (_prox_idx < _deltas.size()) {
+            return static_cast<int32_t>(_deltas[_prox_idx++]);
+        }
+        return 0;
+    }
 
 private:
     std::vector<uint32_t> _docs;
     std::vector<uint32_t> _freqs;
-    //    std::vector<uint32_t> _norms;
     std::vector<uint32_t> _deltas;
     int32_t _doc_freq;
-    //    size_t _prox_idx = 0;
+    size_t _prox_idx = 0;
     bool _read_done = false;
 };
 
