@@ -483,6 +483,14 @@ public:
     static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                       FieldInfo& info);
 
+    /// Similar to `deserialize_binary_to_column`, but `column` is guaranteed to be NOT nullable.
+    /// This avoids `ColumnNullable` unwrap and nullmap operations in hot paths.
+    ///
+    /// NOTE: If the encoded type is `OLAP_FIELD_TYPE_NONE`, this function will insert default
+    /// value into `column` (since it cannot represent NULL) and return.
+    static const uint8_t* deserialize_binary_to_non_nullable_column(const uint8_t* data,
+                                                                    IColumn& column);
+
 protected:
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types

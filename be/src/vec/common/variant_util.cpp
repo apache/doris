@@ -84,6 +84,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/convert_field_to_type.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -1732,7 +1733,6 @@ void materialize_docs_to_subcolumns(ColumnVariant& column_variant) {
     auto subcolumns = materialize_docs_to_subcolumns_map(column_variant);
 
     for (auto& entry : subcolumns) {
-        entry.second.finalize();
         if (!column_variant.add_sub_column(PathInData(entry.first),
                                            IColumn::mutate(entry.second.get_finalized_column_ptr()),
                                            entry.second.get_least_common_type())) {
@@ -1747,45 +1747,331 @@ void materialize_docs_to_subcolumns(ColumnVariant& column_variant) {
 
 // ============ Implementation from variant_util.cpp ============
 
-std::unordered_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
-        const ColumnVariant& variant) {
-    std::unordered_map<std::string_view, ColumnVariant::Subcolumn> subcolumns;
+/// FastSubcolumn: An optimized subcolumn builder for materialize_docs_to_subcolumns_map.
+///
+/// Key optimizations over ColumnVariant::Subcolumn:
+/// 1. Maintains nullmap separately from data columns, allowing efficient batch operations
+/// 2. Uses memset for null map instead of per-element insertion via ColumnNullable
+/// 3. Supports reserve() to pre-allocate capacity and reduce reallocations
+/// 4. Data columns store non-nullable values directly (like original Subcolumn, supports multiple parts)
+///
+/// This class mirrors ColumnVariant::Subcolumn structure but with separated nullmap for performance.
+class FastSubcolumn {
+private:
+    // Lightweight version of ColumnVariant::Subcolumn::LeastCommonType.
+    //
+    // NOTE: ColumnVariant::Subcolumn::LeastCommonType is a private nested type, so we cannot reuse it
+    // here. This helper only implements the minimal API FastSubcolumn needs.
+    class LeastCommonType {
+    public:
+        LeastCommonType() = default;
+        explicit LeastCommonType(DataTypePtr type_) { reset(std::move(type_)); }
 
+        void reset(DataTypePtr type_) {
+            type = std::move(type_);
+            if (!type) {
+                type = std::make_shared<DataTypeNothing>();
+            }
+
+            // FastSubcolumn maintains non-nullable outermost type.
+            type_id = type->get_primitive_type();
+            num_dimensions = get_number_of_dimensions(*type);
+
+            // Base type is the innermost element type (for arrays), with nullable removed.
+            base_type = get_base_type_of_array(type);
+            base_type = doris::vectorized::remove_nullable(base_type);
+            base_type_id = base_type->get_primitive_type();
+        }
+
+        const DataTypePtr& get() const { return type; }
+        const PrimitiveType& get_type_id() const { return type_id; }
+        const PrimitiveType& get_base_type_id() const { return base_type_id; }
+        size_t get_dimensions() const { return num_dimensions; }
+
+    private:
+        DataTypePtr type;
+        DataTypePtr base_type;
+        PrimitiveType type_id = PrimitiveType::INVALID_TYPE;
+        PrimitiveType base_type_id = PrimitiveType::INVALID_TYPE;
+        size_t num_dimensions = 0;
+    };
+
+public:
+    FastSubcolumn() = default;
+
+    /// @param total_rows Unused (kept for API compatibility)
+    /// @param current_rows Number of prefix default rows
+    explicit FastSubcolumn(size_t /*total_rows*/, size_t current_rows) : _num_rows(current_rows) {
+        // No allocation in constructor - prefix defaults handled in add_new_column_part
+    }
+
+    size_t size() const { return _num_rows; }
+
+    /// Insert multiple null/default values.
+    /// Called only when _data is non-empty (after first real value inserted).
+    void insert_many_defaults(size_t length) {
+        if (length == 0) return;
+        CHECK(!_data.empty());
+
+        // Extend nullmap with 1s (NULL)
+        size_t old_size = _null_map.size();
+        _null_map.resize(old_size + length);
+        memset(_null_map.data() + old_size, 1, length);
+        _data.back()->insert_many_defaults(length);
+        _num_rows += length;
+    }
+
+    /// Deserialize a value from binary column and insert it
+    void deserialize_from_binary_column(const ColumnString* value, size_t row) {
+        const auto& data_ref = value->get_data_at(row);
+        const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
+
+        const PrimitiveType type =
+                TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
+        auto check_end = [&](const uint8_t* end_ptr) {
+            DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+        };
+
+        // Check if the type differs from least common type
+        // If different, we need to deserialize to field first, then insert to subcolumn
+        // If same, we can directly deserialize to the column
+        bool type_differs = (type != _least_common_type.get_type_id());
+
+        // For array, also check nested type matches least common type's nested type
+        if (!type_differs && type == PrimitiveType::TYPE_ARRAY) {
+            // |PrimitiveType::TYPE_ARRAY| + |size_t| + |nested_type|
+            // skip the first 1 byte for PrimitiveType::TYPE_ARRAY and the next sizeof(size_t) bytes for the size of the array
+            const auto* nested_start_data = start_data + 1 + sizeof(size_t);
+            const PrimitiveType nested_type = TabletColumn::get_primitive_type_by_field_type(
+                    static_cast<FieldType>(*nested_start_data));
+            type_differs = (nested_type != _least_common_type.get_base_type_id());
+        }
+
+        if (type_differs) {
+            // Type differs, deserialize to field first then insert
+            Field res;
+            FieldInfo info;
+            const uint8_t* end_data =
+                    DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+            check_end(end_data);
+            insert_field(std::move(res), std::move(info));
+        } else {
+            // Type matches, directly deserialize to column
+            CHECK(_data.size() > 0);
+            const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_non_nullable_column(
+                    start_data, *_data.back());
+            check_end(end_data);
+            // Append 0 (not null) to nullmap
+            _null_map.push_back(0);
+            ++_num_rows;
+        }
+    }
+
+    /// Convert to ColumnVariant::Subcolumn for final use
+    ColumnVariant::Subcolumn to_subcolumn() {
+        CHECK(!_data.empty());
+        CHECK(_num_rows == _null_map.size());
+
+        DataTypePtr least_common_type = _least_common_type.get();
+
+        if (_data.size() == 1) {
+            CHECK(_data[0]->size() == _num_rows);
+            // Create nullable column from data + null_map
+            auto null_map_column = ColumnUInt8::create();
+            null_map_column->get_data().swap(_null_map);
+
+            auto nullable_column =
+                    ColumnNullable::create(std::move(_data[0]), std::move(null_map_column));
+
+            // Return with nullable type for Subcolumn
+            return ColumnVariant::Subcolumn(std::move(nullable_column),
+                                            make_nullable(least_common_type), true, false);
+        }
+
+        // Finalize: merge all parts into one nullable column
+        // _least_common_type.get() is non-nullable
+        auto result_column = least_common_type->create_column();
+        result_column->reserve(_num_rows);
+
+        // Merge all data parts (all types are non-nullable)
+        for (size_t i = 0; i < _data.size(); ++i) {
+            auto& part = _data[i];
+            auto from_type = _data_types[i];
+            size_t part_size = part->size();
+
+            if (!from_type->equals(*least_common_type)) {
+                // Need type conversion
+                ColumnPtr ptr;
+                Status st = cast_column({part->get_ptr(), from_type, ""}, least_common_type, &ptr);
+                if (st.ok()) {
+                    result_column->insert_range_from(*ptr, 0, part_size);
+                } else {
+                    CHECK(false);
+                }
+            } else {
+                result_column->insert_range_from(*part, 0, part_size);
+            }
+        }
+
+        // Create nullable column from data + null_map
+        auto null_map_column = ColumnUInt8::create();
+        null_map_column->get_data().swap(_null_map);
+
+        auto nullable_column =
+                ColumnNullable::create(std::move(result_column), std::move(null_map_column));
+
+        // Return with nullable type for Subcolumn
+        return ColumnVariant::Subcolumn(std::move(nullable_column),
+                                        make_nullable(least_common_type), true, false);
+    }
+
+private:
+    /// Create type with non-nullable outermost layer
+    /// For arrays (num_dimensions > 0), inner elements are nullable but outermost array is not
+    static DataTypePtr create_type_non_nullable(PrimitiveType type, size_t num_dimensions,
+                                                int precision = -1, int scale = -1) {
+        // Base type is nullable if we have dimensions (array elements are nullable)
+        bool base_nullable = num_dimensions > 0;
+        DataTypePtr result =
+                type == PrimitiveType::INVALID_TYPE
+                        ? (base_nullable ? make_nullable(std::make_shared<DataTypeNothing>())
+                                         : std::make_shared<DataTypeNothing>())
+                        : DataTypeFactory::instance().create_data_type(type, base_nullable,
+                                                                       precision, scale);
+        for (size_t i = 0; i < num_dimensions; ++i) {
+            result = std::make_shared<DataTypeArray>(result);
+            // Inner arrays are nullable, but outermost is not
+            if (i < num_dimensions - 1) {
+                result = make_nullable(result);
+            }
+        }
+        return result;
+    }
+
+    void add_new_column_part(DataTypePtr type) {
+        bool is_first_part = _data.empty();
+        // type is already non-nullable
+        auto new_col = type->create_column();
+
+        // If this is the first data part and we have prefix defaults (_num_rows > 0),
+        // need to fill both nullmap and data column with prefix defaults
+        if (is_first_part && _num_rows > 0) {
+            // Fill nullmap prefix with 1s (NULL)
+            _null_map.resize(_num_rows);
+            memset(_null_map.data(), 1, _num_rows);
+            // Fill data column with defaults
+            new_col->insert_many_defaults(_num_rows);
+        }
+
+        _data.push_back(std::move(new_col));
+        _data_types.push_back(type);
+        _least_common_type = LeastCommonType(type);
+    }
+
+    void insert_field(Field field, FieldInfo info) {
+        if (field.is_null()) {
+            CHECK(false);
+            return;
+        }
+
+        auto from_type_id = info.scalar_type_id;
+        auto from_dim = info.num_dimensions;
+        bool type_changed = info.need_convert;
+
+        if (_data.empty()) {
+            // First non-null value - create initial column part
+            if (from_dim > 1) {
+                add_new_column_part(create_type_non_nullable(PrimitiveType::TYPE_JSONB, 0));
+                type_changed = true;
+            } else {
+                add_new_column_part(create_type_non_nullable(from_type_id, from_dim, info.precision,
+                                                             info.scale));
+            }
+        } else {
+            // Check if type change is needed (all types are non-nullable)
+            auto least_common_type_id = _least_common_type.get_base_type_id();
+            auto least_common_type_dim = _least_common_type.get_dimensions();
+
+            if (least_common_type_dim != from_dim) {
+                add_new_column_part(create_type_non_nullable(PrimitiveType::TYPE_JSONB, 0));
+                if (from_type_id != PrimitiveType::TYPE_JSONB || from_dim != 0) {
+                    type_changed = true;
+                }
+            } else if (least_common_type_id != from_type_id &&
+                       is_conversion_required_between_integers(from_type_id,
+                                                               least_common_type_id)) {
+                type_changed = true;
+                DataTypePtr new_least_common_base_type;
+                get_least_supertype_jsonb(PrimitiveTypeSet {from_type_id, least_common_type_id},
+                                          &new_least_common_base_type);
+                if (new_least_common_base_type->get_primitive_type() != least_common_type_id) {
+                    add_new_column_part(create_type_non_nullable(
+                            new_least_common_base_type->get_primitive_type(),
+                            least_common_type_dim));
+                }
+            }
+        }
+
+        if (type_changed) {
+            Field new_field;
+            // _least_common_type.get() is non-nullable
+            convert_field_to_type(field, *_least_common_type.get(), &new_field);
+            field = new_field;
+        }
+
+        // Append 0 (not null) to nullmap
+        _null_map.push_back(0);
+        _data.back()->insert(field);
+        _num_rows++;
+    }
+
+    NullMap _null_map;
+    std::vector<MutableColumnPtr> _data;
+    std::vector<DataTypePtr> _data_types;
+    LeastCommonType _least_common_type;
+    size_t _num_rows = 0;
+};
+
+phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
+        const ColumnVariant& variant) {
     const auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
     const auto& column_offsets = variant.serialized_doc_value_column_offsets();
     const size_t num_rows = column_offsets.size();
 
     DCHECK_EQ(num_rows, variant.size()) << "doc snapshot offsets size mismatch with variant rows";
 
-    // Best-effort reserve: at most number of kv pairs.
-    subcolumns.reserve(column_key->size());
+    // Use FastSubcolumn for better insert_many_defaults performance
+    phmap::flat_hash_map<std::string_view, FastSubcolumn> subcolumns;
+    subcolumns.reserve(std::min(column_key->size(), size_t(4096)));
 
-    for (int row = 0; row < num_rows; ++row) {
-        const size_t start = column_offsets[row - 1];
+    for (size_t row = 0; row < num_rows; ++row) {
+        const size_t start = column_offsets[static_cast<ssize_t>(row) - 1];
         const size_t end = column_offsets[row];
         for (size_t i = start; i < end; ++i) {
             const auto& key = column_key->get_data_at(i);
             const std::string_view path_sv(key.data, key.size);
 
-            auto [it, inserted] =
-                    subcolumns.try_emplace(path_sv, ColumnVariant::Subcolumn {0, true, false});
+            auto [it, inserted] = subcolumns.try_emplace(path_sv, FastSubcolumn(num_rows, row));
             auto& subcolumn = it->second;
-            if (inserted) {
-                subcolumn.insert_many_defaults(row);
-            } else if (subcolumn.size() != row) {
+            if (!inserted && subcolumn.size() != row) {
                 subcolumn.insert_many_defaults(row - subcolumn.size());
             }
             subcolumn.deserialize_from_binary_column(column_value, i);
         }
     }
 
+    // Convert to ColumnVariant::Subcolumn and fill remaining defaults
+    phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> result;
+    result.reserve(subcolumns.size());
+
     for (auto& [path, subcolumn] : subcolumns) {
         if (subcolumn.size() != num_rows) {
             subcolumn.insert_many_defaults(num_rows - subcolumn.size());
         }
+        result.emplace(path, subcolumn.to_subcolumn());
     }
 
-    return subcolumns;
+    return result;
 }
 
 namespace {

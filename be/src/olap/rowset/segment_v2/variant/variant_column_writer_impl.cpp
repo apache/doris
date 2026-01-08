@@ -40,6 +40,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_variant.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/variant_util.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -292,7 +293,9 @@ Status UnifiedSparseColumnWriter::append_single_sparse(
 
     // Build path frequency statistics with upper bound limit to avoid
     // large memory and metadata size. Persist to meta for readers.
-    std::unordered_map<StringRef, size_t> path_counts;
+    // Use flat_hash_map for better performance
+    vectorized::flat_hash_map<StringRef, size_t> path_counts;
+    path_counts.reserve(1024);
     const auto [paths, _] = src.get_sparse_data_paths_and_values();
     size_t limit = parent_column.variant_max_sparse_column_statistics_size();
     for (size_t i = 0; i != paths->size(); ++i) {
@@ -326,12 +329,18 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(
     const auto& offsets = src.serialized_sparse_column_offsets();
 
     std::vector<vectorized::MutableColumnPtr> tmp_maps(bucket_num);
+    // Estimate entries per bucket for pre-allocation
+    size_t total_entries = paths_col->size();
+    size_t estimated_per_bucket = (total_entries + bucket_num - 1) / bucket_num;
     for (int b = 0; b < bucket_num; ++b) {
-        tmp_maps[b] = vectorized::ColumnMap::create(
-                vectorized::ColumnString::create(), vectorized::ColumnString::create(),
-                vectorized::ColumnArray::ColumnOffsets::create());
-    }
-    for (int b = 0; b < bucket_num; ++b) {
+        auto keys_col = vectorized::ColumnString::create();
+        auto bucket_values_col = vectorized::ColumnString::create();
+        // Pre-allocate capacity for keys and values to reduce reallocation
+        keys_col->reserve(estimated_per_bucket);
+        bucket_values_col->reserve(estimated_per_bucket);
+        tmp_maps[b] =
+                vectorized::ColumnMap::create(std::move(keys_col), std::move(bucket_values_col),
+                                              vectorized::ColumnArray::ColumnOffsets::create());
         auto& m = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
         m.get_offsets().reserve(num_rows);
     }
@@ -364,11 +373,11 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(
         converter->clear_source_content(this_col_id);
         _bucket_opts[b].meta->set_num_rows(num_rows);
     }
-    // per-bucket statistics
+    // per-bucket statistics using flat_hash_map for better performance
     for (int b = 0; b < bucket_num; ++b) {
         auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
         const auto& keys = assert_cast<const vectorized::ColumnString&>(map_col.get_keys());
-        std::unordered_map<StringRef, size_t> bucket_path_counts;
+        vectorized::flat_hash_map<StringRef, size_t> bucket_path_counts;
         bucket_path_counts.reserve(1024);
         size_t limit = parent_column.variant_max_sparse_column_statistics_size();
         for (size_t i = 0; i < keys.size(); ++i) {
@@ -416,14 +425,25 @@ Status VariantDocWriter::append_data(const TabletColumn* parent_column,
     const auto [paths_col, values_col] = src.get_doc_value_data_paths_and_values();
     const auto& offsets = src.serialized_doc_value_column_offsets();
 
+    // Estimate entries per bucket for pre-allocation
+    size_t total_entries = paths_col->size();
+    size_t estimated_per_bucket = (total_entries + _bucket_num - 1) / _bucket_num;
+
     std::vector<vectorized::MutableColumnPtr> tmp_maps(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
         tmp_maps[b] = vectorized::ColumnVariant::create_binary_column_fn();
         auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
         map_col.get_offsets().reserve(num_rows);
+        // Pre-allocate keys and values capacity
+        map_col.get_keys_ptr()->assume_mutable()->reserve(estimated_per_bucket);
+        map_col.get_values_ptr()->assume_mutable()->reserve(estimated_per_bucket);
     }
 
-    std::vector<std::unordered_map<StringRef, uint32_t>> bucket_path_counts(_bucket_num);
+    // Use flat_hash_map instead of unordered_map for better performance
+    std::vector<vectorized::flat_hash_map<StringRef, uint32_t>> bucket_path_counts(_bucket_num);
+    for (int b = 0; b < _bucket_num; ++b) {
+        bucket_path_counts[b].reserve(1024);
+    }
 
     for (size_t row = 0; row < num_rows; ++row) {
         const ssize_t srow = static_cast<ssize_t>(row);
@@ -1095,7 +1115,6 @@ Status VariantDocCompactWriter::finalize() {
                         ->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
                 continue;
             }
-            subcolumn.finalize();
             TabletColumn tablet_column;
             TabletSchema::SubColumnInfo sub_column_info;
             vectorized::ColumnPtr current_column = subcolumn.get_finalized_column_ptr()->get_ptr();
@@ -1174,9 +1193,11 @@ Status VariantDocCompactWriter::finalize() {
 
     auto [column_key, column_value] = variant_column->get_doc_value_data_paths_and_values();
     const auto& column_offsets = variant_column->serialized_doc_value_column_offsets();
-    std::map<StringRef, uint32_t> column_stats;
-    for (int64_t i = 0; i < num_rows; ++i) {
-        size_t start = column_offsets[i - 1];
+    // Use flat_hash_map instead of std::map for better performance
+    vectorized::flat_hash_map<StringRef, uint32_t> column_stats;
+    column_stats.reserve(1024); // Pre-allocate to reduce rehashing
+    for (size_t i = 0; i < num_rows; ++i) {
+        size_t start = column_offsets[static_cast<ssize_t>(i) - 1];
         size_t end = column_offsets[i];
         for (size_t j = start; j < end; ++j) {
             const auto& key = column_key->get_data_at(j);
