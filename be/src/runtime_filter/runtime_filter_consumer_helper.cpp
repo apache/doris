@@ -130,6 +130,17 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     return Status::OK();
 }
 
+Status RuntimeFilterConsumerHelper::clone_conjunct_ctxs(
+        RuntimeState* state, vectorized::VExprContextSPtrs& scanner_conjuncts,
+        vectorized::VExprContextSPtrs& local_state_conjuncts) {
+    std::unique_lock l(_rf_locks);
+    scanner_conjuncts.resize(local_state_conjuncts.size());
+    for (size_t i = 0; i != _conjuncts.size(); ++i) {
+        RETURN_IF_ERROR(_conjuncts[i]->clone(state(), conjuncts[i]));
+    }
+    return Status::OK();
+}
+
 void RuntimeFilterConsumerHelper::collect_realtime_profile(
         RuntimeProfile* parent_operator_profile) {
     std::ignore = parent_operator_profile->add_counter("RuntimeFilterInfo", TUnit::NONE,
