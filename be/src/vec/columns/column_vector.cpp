@@ -191,7 +191,7 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 
 template <PrimitiveType T>
 Field ColumnVector<T>::operator[](size_t n) const {
-    return Field::create_field<T>((typename PrimitiveTypeTraits<T>::NearestFieldType)data[n]);
+    return Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)(&data[n]));
 }
 
 template <PrimitiveType T>
@@ -352,6 +352,75 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     }
 
     return res;
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::insert(const Field& x) {
+    value_type tmp;
+    switch (x.get_type()) {
+    case TYPE_NULL:
+        tmp = default_value();
+        break;
+    case TYPE_BOOLEAN:
+        tmp = doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>(x);
+        break;
+    case TYPE_TINYINT:
+        tmp = doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>(x);
+        break;
+    case TYPE_SMALLINT:
+        tmp = (value_type)
+                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>(x);
+        break;
+    case TYPE_INT:
+        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>(
+                x);
+        break;
+    case TYPE_BIGINT:
+        tmp = (value_type)
+                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>(x);
+        break;
+    case TYPE_LARGEINT:
+        tmp = (value_type)
+                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>(x);
+        break;
+    case TYPE_IPV4:
+        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>(
+                x);
+        break;
+    case TYPE_IPV6:
+        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>(
+                x);
+        break;
+    case TYPE_FLOAT:
+        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>(
+                x);
+        break;
+    case TYPE_DOUBLE:
+        tmp = (value_type)
+                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>(x);
+        break;
+    case TYPE_TIME:
+        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_TIME>::CppType>(
+                x);
+        break;
+    case TYPE_TIMEV2:
+        tmp = (value_type)
+                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>(x);
+        break;
+    case TYPE_DATE:
+    case TYPE_DATETIME:
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMPTZ:
+        tmp = doris::vectorized::get<typename PrimitiveTypeTraits<T>::ColumnItemType>(x);
+        break;
+    default:
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Unsupported type {} to insert into {} type column",
+                               type_to_string(x.get_type()), type_to_string(T));
+        break;
+    }
+    data.push_back(tmp);
 }
 
 template <PrimitiveType T>
@@ -525,12 +594,9 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
-    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
-    if (0 == null_count) {
-        return;
-    }
+    auto value = default_value();
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? default_value() : data[i];
+        data[i] = null_map[i] ? value : data[i];
     }
 }
 

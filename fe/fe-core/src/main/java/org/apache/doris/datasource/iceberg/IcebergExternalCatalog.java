@@ -34,6 +34,8 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,7 @@ import java.util.Objects;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
+    private static final Logger LOG = LogManager.getLogger(IcebergExternalCatalog.class);
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
     public static final String ICEBERG_REST = "rest";
     public static final String ICEBERG_HMS = "hms";
@@ -210,7 +213,14 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public void onClose() {
         super.onClose();
         if (null != catalog) {
-            catalog = null;
+            try {
+                if (catalog instanceof AutoCloseable) {
+                    ((AutoCloseable) catalog).close();
+                }
+                catalog = null;
+            } catch (Exception e) {
+                LOG.warn("Failed to close iceberg catalog: {}", getName(), e);
+            }
         }
     }
 
@@ -222,46 +232,48 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     /**
      * Add partition field to Iceberg table for partition evolution
      */
-    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldOp op) throws UserException {
+    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldOp op, long updateTime)
+            throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new UserException("Add partition field operation is not supported for catalog: " + getName());
         }
-        ((IcebergMetadataOps) metadataOps).addPartitionField(table, op);
+        ((IcebergMetadataOps) metadataOps).addPartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
-                                table.getDbName(), table.getName()));
+                                table.getDbName(), table.getName(), updateTime));
     }
 
     /**
      * Drop partition field from Iceberg table for partition evolution
      */
-    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldOp op) throws UserException {
+    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldOp op, long updateTime)
+            throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new UserException("Drop partition field operation is not supported for catalog: " + getName());
         }
-        ((IcebergMetadataOps) metadataOps).dropPartitionField(table, op);
+        ((IcebergMetadataOps) metadataOps).dropPartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
-                                table.getDbName(), table.getName()));
+                                table.getDbName(), table.getName(), updateTime));
     }
 
     /**
      * Replace partition field in Iceberg table for partition evolution
      */
     public void replacePartitionField(IcebergExternalTable table,
-            ReplacePartitionFieldOp op) throws UserException {
+            ReplacePartitionFieldOp op, long updateTime) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new UserException("Replace partition field operation is not supported for catalog: " + getName());
         }
-        ((IcebergMetadataOps) metadataOps).replacePartitionField(table, op);
+        ((IcebergMetadataOps) metadataOps).replacePartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(table.getCatalog().getId(),
-                                table.getDbName(), table.getName()));
+                                table.getDbName(), table.getName(), updateTime));
     }
 }

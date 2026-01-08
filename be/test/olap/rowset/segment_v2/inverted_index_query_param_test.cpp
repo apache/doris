@@ -170,7 +170,7 @@ TEST_F(InvertedIndexQueryParamTest, TestLargeIntTemplateWithNativeValue) {
 
 TEST_F(InvertedIndexQueryParamTest, TestFloatWithField) {
     auto field =
-            vectorized::Field::create_field<TYPE_DOUBLE>(static_cast<vectorized::Float64>(3.14f));
+            vectorized::Field::create_field<TYPE_FLOAT>(static_cast<vectorized::Float32>(3.14f));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_FLOAT,
                                                                      &field, param);
@@ -380,8 +380,9 @@ TEST_F(InvertedIndexQueryParamTest, TestDateTimeWithField) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestDateV2WithField) {
+    vectorized::UInt64 v = 20231205;
     auto field = vectorized::Field::create_field<TYPE_DATETIMEV2>(
-            static_cast<vectorized::UInt64>(20231205));
+            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DATEV2,
                                                                      &field, param);
@@ -390,8 +391,9 @@ TEST_F(InvertedIndexQueryParamTest, TestDateV2WithField) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestDateTimeV2WithField) {
+    vectorized::UInt64 v = 20231205120000LL;
     auto field = vectorized::Field::create_field<TYPE_DATETIMEV2>(
-            static_cast<vectorized::UInt64>(20231205120000LL));
+            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DATETIMEV2,
                                                                      &field, param);

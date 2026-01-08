@@ -124,10 +124,19 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
 }
 
 TEST_F(DataTypeDateTimeV2Test, get_default) {
-    EXPECT_EQ(dt_datetime_v2_0.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
-    EXPECT_EQ(dt_datetime_v2_5.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
-    EXPECT_EQ(dt_datetime_v2_6.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
-    EXPECT_EQ(dt_date_v2.get_default(), Field::create_field<TYPE_DATEV2>(0UL));
+    auto v = 0UL;
+    EXPECT_EQ(dt_datetime_v2_0.get_default(),
+              Field::create_field<TYPE_DATETIMEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
+    EXPECT_EQ(dt_datetime_v2_5.get_default(),
+              Field::create_field<TYPE_DATETIMEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
+    EXPECT_EQ(dt_datetime_v2_6.get_default(),
+              Field::create_field<TYPE_DATETIMEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
+    EXPECT_EQ(dt_date_v2.get_default(),
+              Field::create_field<TYPE_DATEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType*)&v));
     EXPECT_EQ(dt_time_v2_6.get_default(), Field::create_field<TYPE_TIMEV2>(0.0));
 }
 
@@ -895,7 +904,9 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
 
 TEST_F(DataTypeDateTimeV2Test, GetFieldWithDataTypeTest) {
     auto column_datetime_v2 = dt_datetime_v2_0.create_column();
-    Field field_datetime_v2 = Field::create_field<TYPE_DATETIMEV2>(0);
+    UInt64 v = 0;
+    Field field_datetime_v2 = Field::create_field<TYPE_DATETIMEV2>(
+            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
     column_datetime_v2->insert(field_datetime_v2);
     EXPECT_EQ(dt_datetime_v2_0.get_field_with_data_type(*column_datetime_v2, 0).field,
               field_datetime_v2);

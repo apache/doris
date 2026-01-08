@@ -435,6 +435,8 @@ public:
         index_pb.set_packed_file_size(packed_file_size);
     }
 
+    int32_t schema_version() const { return _rowset_meta_pb.schema_version(); }
+
 private:
     bool _deserialize_from_pb(std::string_view value);
 

@@ -60,6 +60,15 @@ public:
 
     virtual std::string cast_name() const { return "CAST"; }
 
+    uint64_t get_digest(uint64_t seed) const override {
+        auto res = VExpr::get_digest(seed);
+        if (res) {
+            return HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
+                                    res);
+        }
+        return 0;
+    }
+
 protected:
     FunctionBasePtr _function;
     std::string _expr_name;

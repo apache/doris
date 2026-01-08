@@ -48,6 +48,14 @@ Exception::Exception(int code, const std::string_view& msg, bool from_status) {
     // std::cout << "Exception: " << code << ", " << msg << ", " << get_stack_trace(0, "DISABLED")
     //           << std::endl;
 #endif
+
+    fmt::memory_buffer buf;
+    fmt::format_to(buf, "[E{}] {}", _code, _err_msg->_msg);
+    if (!_err_msg->_stack.empty()) {
+        fmt::format_to(buf, "\n{}", _err_msg->_stack);
+    }
+    _cache_string = fmt::to_string(buf);
+
     if (config::exit_on_exception) {
         LOG(FATAL) << "[ExitOnException] error code: " << code << ", message: " << msg;
     }

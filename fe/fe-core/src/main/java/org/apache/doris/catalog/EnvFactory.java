@@ -99,19 +99,19 @@ public class EnvFactory {
     }
 
     public Tablet createTablet() {
-        return new Tablet();
+        return new LocalTablet();
     }
 
     public Tablet createTablet(long tabletId) {
-        return new Tablet(tabletId);
+        return new LocalTablet(tabletId);
     }
 
     public Replica createReplica() {
-        return new Replica();
+        return new LocalReplica();
     }
 
     public Replica createReplica(Replica.ReplicaContext context) {
-        return new Replica(context);
+        return new LocalReplica(context);
     }
 
     public ReplicaAllocation createDefReplicaAllocation() {

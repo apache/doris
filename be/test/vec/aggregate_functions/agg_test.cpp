@@ -55,7 +55,7 @@ TEST(AggTest, basic_test) {
     Arena arena;
     auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
+        column_vector_int32->insert(Field::create_field<TYPE_INT>(i));
     }
     // test implement interface
     AggregateFunctionSimpleFactory factory;

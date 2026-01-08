@@ -92,6 +92,10 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
                                           const std::initializer_list<size_t>& parameters,
                                           Block& block, const ColumnNumbers& arg_indexes);
 
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::span<const size_t>& parameters, Block& block,
+                                          const ColumnNumbers& arg_indexes);
+
 /** ColumnConst contains another column with single element,
   *  but looks like a column with arbitrary amount of same elements.
   */
@@ -274,10 +278,10 @@ public:
 
     Field get_field() const { return get_data_column()[0]; }
 
-    template <typename T>
-    T get_value() const {
+    template <PrimitiveType T>
+    typename PrimitiveTypeTraits<T>::CppType get_value() const {
         // Here the cast is correct, relevant code is rather tricky.
-        return static_cast<T>(get_field().get<NearestFieldType<T>>());
+        return get_field().get<typename PrimitiveTypeTraits<T>::CppType>();
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {

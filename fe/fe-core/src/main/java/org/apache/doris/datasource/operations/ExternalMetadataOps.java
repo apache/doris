@@ -140,14 +140,14 @@ public interface ExternalMetadataOps {
      * @param dorisTable
      * @param partitions
      */
-    default void truncateTable(ExternalTable dorisTable, List<String> partitions) throws DdlException {
+    default void truncateTable(ExternalTable dorisTable, List<String> partitions, long updateTime) throws DdlException {
         truncateTableImpl(dorisTable, partitions);
-        afterTruncateTable(dorisTable.getDbName(), dorisTable.getName());
+        afterTruncateTable(dorisTable.getDbName(), dorisTable.getName(), updateTime);
     }
 
     void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) throws DdlException;
 
-    default void afterTruncateTable(String dbName, String tblName) {
+    default void afterTruncateTable(String dbName, String tblName, long updateTime) {
     }
 
     /**
@@ -223,7 +223,7 @@ public interface ExternalMetadataOps {
      * @param position
      * @throws UserException
      */
-    default void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+    default void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         throw new UnsupportedOperationException("Add column operation is not supported for this table type.");
     }
@@ -235,7 +235,7 @@ public interface ExternalMetadataOps {
      * @param columns
      * @throws UserException
      */
-    default void addColumns(ExternalTable dorisTable, List<Column> columns)
+    default void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime)
             throws UserException {
         throw new UnsupportedOperationException("Add columns operation is not supported for this table type.");
     }
@@ -247,7 +247,7 @@ public interface ExternalMetadataOps {
      * @param columnName
      * @throws UserException
      */
-    default void dropColumn(ExternalTable dorisTable, String columnName)
+    default void dropColumn(ExternalTable dorisTable, String columnName, long updateTime)
             throws UserException {
         throw new UnsupportedOperationException("Drop column operation is not supported for this table type.");
     }
@@ -260,7 +260,7 @@ public interface ExternalMetadataOps {
      * @param newName
      * @throws UserException
      */
-    default void renameColumn(ExternalTable dorisTable, String oldName, String newName)
+    default void renameColumn(ExternalTable dorisTable, String oldName, String newName, long updateTime)
             throws UserException {
         throw new UnsupportedOperationException("Rename column operation is not supported for this table type.");
     }
@@ -273,7 +273,7 @@ public interface ExternalMetadataOps {
      * @param position
      * @throws UserException
      */
-    default void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+    default void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         throw new UnsupportedOperationException("Modify column operation is not supported for this table type.");
     }
@@ -285,7 +285,7 @@ public interface ExternalMetadataOps {
      * @param newOrder
      * @throws UserException
      */
-    default void reorderColumns(ExternalTable dorisTable, List<String> newOrder)
+    default void reorderColumns(ExternalTable dorisTable, List<String> newOrder, long updateTime)
             throws UserException {
         throw new UnsupportedOperationException("Reorder columns operation is not supported for this table type.");
     }
