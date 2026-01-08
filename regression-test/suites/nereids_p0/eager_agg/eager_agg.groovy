@@ -105,4 +105,18 @@ suite("eager_agg") {
     and ss_item_sk = ws_item_sk
     group by dt.d_year, ss_hdemo_sk + d_moy
     """
+
+    qt_sum_if_push """
+        explain physical plan
+        select d_week_seq,
+                sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
+                sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,
+                sum(case when (d_day_name='Wednesday') then ws_sales_price else null end) wed_sales,
+                sum(case when (d_day_name='Thursday') then ws_sales_price else null end) thu_sales,
+                sum(case when (d_day_name='Friday') then ws_sales_price else null end) fri_sales,
+                sum(case when (d_day_name='Saturday') then ws_sales_price else null end) sat_sales
+        from web_sales join item on ws_item_sk = i_item_sk
+                        join date_dim on d_date_sk = ws_sold_date_sk
+        group by d_week_seq, ws_item_sk;
+        """
 }

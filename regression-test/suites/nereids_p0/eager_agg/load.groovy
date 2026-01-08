@@ -161,6 +161,37 @@ PROPERTIES (
 "group_commit_data_bytes" = "134217728"
 ); 
 
+drop table if exists item;
+CREATE TABLE `item` (
+  `i_item_sk` bigint NULL,
+  `i_item_id` char(16) NULL,
+  `i_rec_start_date` date NULL,
+  `i_rec_end_date` date NULL,
+  `i_item_desc` varchar(200) NULL,
+  `i_current_price` decimal(7,2) NULL,
+  `i_wholesale_cost` decimal(7,2) NULL,
+  `i_brand_id` int NULL,
+  `i_brand` char(50) NULL,
+  `i_class_id` int NULL,
+  `i_class` char(50) NULL,
+  `i_category_id` int NULL,
+  `i_category` char(50) NULL,
+  `i_manufact_id` int NULL,
+  `i_manufact` char(50) NULL,
+  `i_size` char(20) NULL,
+  `i_formulation` char(20) NULL,
+  `i_color` char(20) NULL,
+  `i_units` char(10) NULL,
+  `i_container` char(10) NULL,
+  `i_manager_id` int NULL,
+  `i_product_name` char(50) NULL
+) ENGINE=OLAP
+DUPLICATE KEY(`i_item_sk`, `i_item_id`)
+DISTRIBUTED BY HASH(`i_item_sk`) BUCKETS 3
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+
 INSERT INTO store_sales (
   ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk,
   ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity,
@@ -208,6 +239,27 @@ INSERT INTO web_sales (
   3.47, 0.00, 5.00, 49.50, 52.97,
   54.50, 58.00, 7.97
 );
+
+INSERT INTO item (
+  i_item_sk, i_item_id, i_rec_start_date, i_rec_end_date,
+  i_item_desc, i_current_price, i_wholesale_cost,
+  i_brand_id, i_brand, i_class_id, i_class,
+  i_category_id, i_category, i_manufact_id, i_manufact,
+  i_size, i_formulation, i_color, i_units, i_container,
+  i_manager_id, i_product_name
+) VALUES
+  (1001, 'ITEM-0001001', '2024-01-01', NULL,
+   'Sample item 1001', 12.00, 10.00,
+   10, 'BrandA', 101, 'ClassA',
+   201, 'CategoryA', 301, 'ManufactA',
+   'M', 'Std', 'Red', 'EA', 'BOX',
+   1, 'Product 1001'),
+  (2001, 'ITEM-0002001', '2024-01-01', NULL,
+   'Sample item 2001', 18.00, 15.00,
+   11, 'BrandB', 102, 'ClassB',
+   202, 'CategoryB', 302, 'ManufactB',
+   'L', 'Std', 'Blue', 'EA', 'BOX',
+   2, 'Product 2001');
 """
 }
 
