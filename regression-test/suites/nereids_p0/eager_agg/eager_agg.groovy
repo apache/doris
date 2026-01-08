@@ -35,6 +35,18 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
+   qt_a_exe"""
+    select /*+leading({ss ws} dt)*/ dt.d_year 
+       ,sum(ws_list_price) brand
+       ,sum(ss_sales_price) sum_agg
+    from  date_dim dt 
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
     // push to ss-join-ws
     qt_a2 """
     explain shape plan
@@ -49,6 +61,18 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
+    qt_a2_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year 
+       ,sum(ws_list_price + ss_sales_price) brand
+
+    from  date_dim dt 
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+    
     // push sum/min/max aggFunc
     qt_sum_min_max """
     explain shape plan
@@ -64,6 +88,18 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
+    qt_sum_min_max_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year 
+       ,sum(ws_list_price) brand
+       ,min(ss_sales_price) min_agg
+       ,max(ss_sales_price) max_agg
+    from  date_dim dt 
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
 
     // do not push avg/count aggFunc
     qt_avg_count """
@@ -78,9 +114,32 @@ suite("eager_agg") {
     group by dt.d_year
     """
 
+    qt_avg_count_exe """
+    select /*+leading({ss ws} dt)*/ dt.d_year 
+       ,avg(ws_list_price) 
+    from  date_dim dt 
+        ,store_sales ss
+        ,web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year
+    """
+
     // agg push to ss-d
     qt_groupkey_push_SS_JOIN_D """
     explain shape plan
+    select /*+leading({ss dt} ws)*/  dt.d_year 
+        ,sum(ss_wholesale_cost) brand
+        ,sum(ss_sales_price + d_moy) sum_agg
+    from  store_sales ss
+        join date_dim dt
+        join web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year, ss_hdemo_sk + ws_quantity
+    """
+
+    qt_groupkey_push_SS_JOIN_D_exe """
     select /*+leading({ss dt} ws)*/  dt.d_year 
         ,sum(ss_wholesale_cost) brand
         ,sum(ss_sales_price + d_moy) sum_agg
@@ -106,8 +165,33 @@ suite("eager_agg") {
     group by dt.d_year, ss_hdemo_sk + d_moy
     """
 
+    qt_groupkey_push_exe """
+    select /*+leading({ss dt} ws)*/  dt.d_year 
+        ,sum(ss_wholesale_cost) brand
+        ,sum(ss_sales_price) sum_agg
+    from  store_sales ss
+        join date_dim dt
+        join web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year, ss_hdemo_sk + d_moy
+    """
+
     qt_sum_if_push """
         explain physical plan
+        select d_week_seq,
+                sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
+                sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,
+                sum(case when (d_day_name='Wednesday') then ws_sales_price else null end) wed_sales,
+                sum(case when (d_day_name='Thursday') then ws_sales_price else null end) thu_sales,
+                sum(case when (d_day_name='Friday') then ws_sales_price else null end) fri_sales,
+                sum(case when (d_day_name='Saturday') then ws_sales_price else null end) sat_sales
+        from web_sales join item on ws_item_sk = i_item_sk
+                        join date_dim on d_date_sk = ws_sold_date_sk
+        group by d_week_seq, ws_item_sk;
+        """
+
+    qt_sum_if_push """
         select d_week_seq,
                 sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
                 sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,

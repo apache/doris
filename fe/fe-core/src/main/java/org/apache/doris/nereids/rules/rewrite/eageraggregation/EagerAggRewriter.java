@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -67,6 +69,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
     private final StatsDerive derive = new StatsDerive(false);
+    private CheckAfterRewrite checker = new CheckAfterRewrite();
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
@@ -144,12 +147,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         if (toLeft) {
             Plan newLeft = join.left().accept(this, childContext);
+            checker.checkTreeAllSlotReferenceFromChildren(newLeft);
             if (newLeft != join.left()) {
                 return join.withChildren(newLeft, join.right());
             }
         } else {
             Plan newRight = join.right().accept(this, childContext);
             if (newRight != join.right()) {
+                checker.checkTreeAllSlotReferenceFromChildren(newRight);
                 return join.withChildren(join.left(), newRight);
             }
         }
@@ -224,7 +229,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         // push sum(A) through project(x, x+y as A)
         // if x is not used as group key, do not push through
-        for(Slot slot : context.getAggFunctionsInputSlots()) {
+        for (Slot slot : context.getAggFunctionsInputSlots()) {
             for (NamedExpression prj : project.getProjects()) {
                 if (prj instanceof Alias && prj.getExprId() == slot.getExprId()) {
                     if (prj.getInputSlots().stream()
@@ -260,6 +265,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         PushDownAggContext newContext = createContextFromProject(project, context);
         Plan newChild = project.child().accept(this, newContext);
+        checker.checkTreeAllSlotReferenceFromChildren(newChild);
         if (newChild != project.child()) {
             /*
              * agg[sum(a), groupBy(b)]
@@ -305,10 +311,26 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 }
             }
 
-            return project.withProjectsAndChild(newProjections, newChild);
+            return project.withProjectsAndChild(
+                    newProjections.stream().map(e -> (NamedExpression) replaceBySlots(e, newChild.getOutput()))
+                            .collect(Collectors.toList()),
+                    newChild);
         }
 
         return project;
+    }
+
+    private static Expression replaceBySlots(Expression expression, List<Slot> slots) {
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        for (Slot slot1 : expression.getInputSlots()) {
+            for (Slot slot2 : slots) {
+                if (slot1.getExprId().asInt() == slot2.getExprId().asInt()) {
+                    replaceMap.put(slot1, slot2);
+                }
+            }
+        }
+        Expression result = ExpressionUtils.replace(expression, replaceMap);
+        return result;
     }
 
     @Override
