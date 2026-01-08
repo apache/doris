@@ -48,7 +48,10 @@
 #include "meta-store/versioned_value.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
+#include "recycler/recycler.h"
 #include "resource-manager/resource_manager.h"
+
+doris::cloud::RecyclerThreadPoolGroup thread_group;
 
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";
@@ -68,6 +71,18 @@ int main(int argc, char** argv) {
         return -1;
     }
     ::testing::InitGoogleTest(&argc, argv);
+    config::recycler_sleep_before_scheduling_seconds = 0; // we dont have to wait in UT
+
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_tablet_pool->start();
+    auto group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    group_recycle_function_pool->start();
+    thread_group =
+            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
+                                    std::move(group_recycle_function_pool));
     return RUN_ALL_TESTS();
 }
 
@@ -1808,6 +1823,8 @@ TEST(MetaServiceTest, CommitTxnTest) {
             create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -1910,6 +1927,8 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
             create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -1937,6 +1956,8 @@ void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id, 
     create_tablet(meta_service, table_id, index_id, partition_id, tablet_id);
     auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
     CreateRowsetResponse res;
+    prepare_rowset(meta_service, tmp_rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     commit_rowset(meta_service, tmp_rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
@@ -2529,6 +2550,8 @@ TEST(MetaServiceTest, AbortTxnTest) {
             create_tablet(meta_service.get(), 12345, 1235, 1236, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -2579,6 +2602,8 @@ TEST(MetaServiceTest, AbortTxnTest) {
             create_tablet(meta_service.get(), table_id, 1235, 1236, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -2769,6 +2794,8 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
         create_tablet(meta_service.get(), table_id, 1235, 1236, tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -3042,6 +3069,8 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
             create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -3295,6 +3324,8 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
                         create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
                         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
                         CreateRowsetResponse res;
+                        prepare_rowset(meta_service.get(), tmp_rowset, res);
+                        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                         commit_rowset(meta_service.get(), tmp_rowset, res);
                         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                     }
@@ -3363,6 +3394,8 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
                         create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
                         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
                         CreateRowsetResponse res;
+                        prepare_rowset(meta_service.get(), tmp_rowset, res);
+                        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                         commit_rowset(meta_service.get(), tmp_rowset, res);
                         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                     }
@@ -6924,6 +6957,8 @@ TEST(MetaServiceTest, DeleteBimapCommitTxnTest) {
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             tmp_rowset.set_partition_id(partition_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -10406,6 +10441,16 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("compaction1");
         req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+
+        arena = res.GetArena();
+        req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
         meta_service->commit_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
@@ -10413,7 +10458,7 @@ TEST(MetaServiceTest, CheckJobExisted) {
         res.Clear();
     }
 
-    // commit rowset, job does not exist,
+    // prepare rowset, job does not exist,
     {
         constexpr auto table_id = 953101, index_id = 953102, partition_id = 953103,
                        tablet_id = 953104;
@@ -10431,14 +10476,14 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("compaction1");
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
         res.Clear();
     }
 
-    // commit rowset, compaction job exists, job id not match
+    // prepare rowset, compaction job exists, job id not match
     {
         constexpr auto table_id = 953201, index_id = 953202, partition_id = 953203,
                        tablet_id = 953204;
@@ -10462,14 +10507,14 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("compaction2");
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
         res.Clear();
     }
 
-    // do not set job id when commit rowset
+    // do not set job id when prepare rowset
     {
         constexpr auto table_id = 953301, index_id = 953302, partition_id = 953303,
                        tablet_id = 953304;
@@ -10492,14 +10537,14 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto arena = res.GetArena();
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         res.Clear();
     }
 
-    // job id is empty string when commit rowset
+    // job id is empty string when prepare rowset
     {
         constexpr auto table_id = 953401, index_id = 953402, partition_id = 953403,
                        tablet_id = 953404;
@@ -10523,7 +10568,7 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("");
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
@@ -10588,11 +10633,13 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
+            << res.status().msg();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
-    ASSERT_TRUE(res.status().msg().find("txn is not in") != std::string::npos)
+    ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
 }
@@ -12216,6 +12263,8 @@ TEST(MetaServiceTest, RowsetVisibleTimeTest) {
         create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -12309,6 +12358,7 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteSkipWithoutRecycleKey) {
     auto tmp_rowset = create_rowset(txn_id, tablet_id);
     {
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -12426,6 +12476,7 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteDeleteWithRecycleKey) {
     auto tmp_rowset = create_rowset(txn_id, tablet_id);
     {
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -12575,6 +12626,7 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
         auto tmp_rowset = create_rowset(txn_id, tablet_id);
         {
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
