@@ -566,15 +566,15 @@ public class SummaryProfile {
                 RuntimeProfile.printCounter(memoryHighWatermark, TUnit.UNIT));
         executionSummaryProfile.addInfoString(SCAN_THREAD_NUM, RuntimeProfile.printCounter(scanThreadNum, TUnit.UNIT));
         executionSummaryProfile.addInfoString(MAX_REMOTE_SCAN_THREAD_NUM,
-                RuntimeProfile.printCounter(readBytesPerSecond, TUnit.UNIT));
+                RuntimeProfile.printCounter(maxRemoteScanThreadNum, TUnit.UNIT));
         executionSummaryProfile.addInfoString(MIN_REMOTE_SCAN_THREAD_NUM,
                 RuntimeProfile.printCounter(minRemoteScanThreadNum, TUnit.UNIT));
         executionSummaryProfile.addInfoString(MEMORY_LOW_WATERMARK,
                 RuntimeProfile.printCounter(memoryLowWatermark, TUnit.UNIT));
         executionSummaryProfile.addInfoString(READ_BYTES_PER_SECOND,
-                RuntimeProfile.printCounter(readBytesPerSecond, TUnit.UNIT));
+                RuntimeProfile.printCounter(readBytesPerSecond, TUnit.BYTES_PER_SECOND));
         executionSummaryProfile.addInfoString(REMOTE_READ_BYTES_PER_SECOND,
-                RuntimeProfile.printCounter(remoteReadBytesPerSecond, TUnit.UNIT));
+                RuntimeProfile.printCounter(remoteReadBytesPerSecond, TUnit.BYTES_PER_SECOND));
         setTransactionSummary();
 
         if (Config.isCloudMode()) {
