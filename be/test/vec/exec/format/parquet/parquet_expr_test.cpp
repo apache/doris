@@ -665,13 +665,10 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(3, 0, &min_field, &max_field);
 
-        auto col = ColumnHelper::create_column_with_name<DataTypeFloat64>({1.1f, 3.1f});
+        auto col = ColumnHelper::create_column_with_name<DataTypeFloat32>({1.1f, 3.1f});
 
         std::cout << "min_field = " << min_field.get<float>() << "\n";
         std::cout << "max_field = " << max_field.get<float>() << "\n";
-
-        std::cout << "min_field = " << min_field.get<double>() << "\n";
-        std::cout << "max_field = " << max_field.get<double>() << "\n";
 
         Field ans_min = col.column->operator[](0);
         Field ans_max = col.column->operator[](1);
@@ -684,7 +681,7 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(6, 0, &min_field, &max_field);
 
-        auto col = ColumnHelper::create_column_with_name<DataTypeInt64>({0, 1});
+        auto col = ColumnHelper::create_column_with_name<DataTypeBool>({0, 1});
 
         Field ans_min = col.column->operator[](0);
         Field ans_max = col.column->operator[](1);
@@ -751,8 +748,8 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(9, 0, &min_field, &max_field);
 
-        Field ans_min = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(10000, 2));
-        Field ans_max = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(10200, 2));
+        Field ans_min = Field::create_field<TYPE_DECIMAL64>(Decimal64(10000));
+        Field ans_max = Field::create_field<TYPE_DECIMAL64>(Decimal64(10200));
         ASSERT_EQ(ans_min, min_field);
         ASSERT_EQ(ans_max, max_field);
     }
@@ -761,8 +758,8 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(10, 1, &min_field, &max_field);
 
-        Field ans_min = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(1030000, 6));
-        Field ans_max = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(1050000, 6));
+        Field ans_min = Field::create_field<TYPE_DECIMAL64>(Decimal64(1030000));
+        Field ans_max = Field::create_field<TYPE_DECIMAL64>(Decimal64(1050000));
         ASSERT_EQ(ans_min, min_field);
         ASSERT_EQ(ans_max, max_field);
     }

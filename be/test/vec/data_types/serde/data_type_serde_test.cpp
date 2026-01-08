@@ -352,7 +352,7 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // decimal32_subcolumn.serialize_to_sparse_column(&key, "j", &value, 0);
 
     // Field decimal64_field =
-    //         Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(13452435, 6));
+    //         Field::create_field<TYPE_DECIMAL64>(Decimal64(13452435, 6));
     // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL64;
     // info.precision = 12;
     // info.scale = 6;
@@ -361,7 +361,7 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // decimal64_subcolumn.serialize_to_sparse_column(&key, "k", &value, 0);
 
     // Field decimal128i_field =
-    //         Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(2342345, 12));
+    //         Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(2342345, 12));
     // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL128I;
     // info.precision = 32;
     // info.scale = 12;
@@ -511,12 +511,12 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DATEV2);
-        EXPECT_EQ(subcolumn.get_last_field().get<UInt64>(), 154543245);
+        EXPECT_EQ(subcolumn.get_last_field().get<UInt32>(), 154543245);
         subcolumn.deserialize_from_sparse_column(&value, 6);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DATEV2);
-        EXPECT_EQ(subcolumn.get_last_field().get<UInt64>(), 154543245);
+        EXPECT_EQ(subcolumn.get_last_field().get<UInt32>(), 154543245);
     }
 
     {
@@ -553,8 +553,8 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL32);
-        auto v = subcolumn.get_last_field().get<DecimalField<Decimal32>>();
-        EXPECT_EQ(static_cast<Int32>(v.get_value()), static_cast<Int32>(3456345634));
+        auto v = subcolumn.get_last_field().get<Decimal32>();
+        EXPECT_EQ(static_cast<Int32>(v), static_cast<Int32>(3456345634));
         subcolumn.deserialize_from_sparse_column(&value, 9);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
@@ -567,14 +567,14 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL64);
-        auto v = subcolumn.get_last_field().get<DecimalField<Decimal64>>();
-        EXPECT_EQ(static_cast<Int64>(v.get_value()), static_cast<Int64>(13452435));
+        auto v = subcolumn.get_last_field().get<Decimal64>();
+        EXPECT_EQ(static_cast<Int64>(v), static_cast<Int64>(13452435));
         subcolumn.deserialize_from_sparse_column(&value, 10);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL64);
-        v = subcolumn.get_last_field().get<DecimalField<Decimal64>>();
-        EXPECT_EQ(static_cast<Int64>(v.get_value()), static_cast<Int64>(13452435));
+        v = subcolumn.get_last_field().get<Decimal64>();
+        EXPECT_EQ(static_cast<Int64>(v), static_cast<Int64>(13452435));
     }
 
     {
@@ -583,14 +583,14 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL128I);
-        auto v = subcolumn.get_last_field().get<DecimalField<Decimal128V3>>();
-        EXPECT_EQ(static_cast<Int128>(v.get_value()), static_cast<Int128>(2342345));
+        auto v = subcolumn.get_last_field().get<Decimal128V3>();
+        EXPECT_EQ(static_cast<Int128>(v), static_cast<Int128>(2342345));
         subcolumn.deserialize_from_sparse_column(&value, 11);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL128I);
-        v = subcolumn.get_last_field().get<DecimalField<Decimal128V3>>();
-        EXPECT_EQ(static_cast<Int128>(v.get_value()), static_cast<Int128>(2342345));
+        v = subcolumn.get_last_field().get<Decimal128V3>();
+        EXPECT_EQ(static_cast<Int128>(v), static_cast<Int128>(2342345));
     }
 
     {
@@ -599,14 +599,14 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL256);
-        auto v = subcolumn.get_last_field().get<DecimalField<Decimal256>>();
-        EXPECT_TRUE(v.get_value() == Decimal256(2345243));
+        auto v = subcolumn.get_last_field().get<Decimal256>();
+        EXPECT_TRUE(v == Decimal256(2345243));
         subcolumn.deserialize_from_sparse_column(&value, 12);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_DECIMAL256);
-        v = subcolumn.get_last_field().get<DecimalField<Decimal256>>();
-        EXPECT_TRUE(v.get_value() == Decimal256(2345243));
+        v = subcolumn.get_last_field().get<Decimal256>();
+        EXPECT_TRUE(v == Decimal256(2345243));
     }
 
     {
