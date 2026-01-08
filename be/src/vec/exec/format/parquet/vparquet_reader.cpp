@@ -777,7 +777,7 @@ Status ParquetReader::_next_row_group_reader() {
                                                               _io_ctx->file_reader_stats)
                     : group_file_reader,
             _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,
-            position_delete_ctx, _lazy_read_ctx, _state));
+            position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
@@ -999,8 +999,6 @@ Status ParquetReader::_process_page_index_filter(
             return false;
         }
         const tparquet::OffsetIndex& offset_index = _col_offsets[parquet_col_id];
-
-        auto& offset_index = _col_offsets[parquet_col_id];
         const auto& page_locations = offset_index.page_locations;
 
         sig_stat.col_schema = col_schema;

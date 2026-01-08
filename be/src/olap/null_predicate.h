@@ -29,7 +29,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/schema.h"
 #include "olap/wrapper_field.h"
-#include "vec/exec/format/parquet/parquet_predicate.h"
+#include "vec/exec/format/parquet/parquet_pred_cmp.h"
 
 namespace roaring {
 class Roaring;

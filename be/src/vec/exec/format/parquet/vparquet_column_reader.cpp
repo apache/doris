@@ -235,9 +235,6 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
 void ParquetColumnReader::_generate_read_ranges(RowRange page_row_range,
                                                 RowRanges* result_ranges) const {
     result_ranges->add(page_row_range);
-    if (_nested_column) {
-        return;
-    }
     RowRanges::ranges_intersection(*result_ranges, _row_ranges, result_ranges);
 }
 
@@ -465,10 +462,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
         return Status::OK();
     };
 
-    while (_current_range_idx < _row_ranges.size()) {
-        size_t left_row = std::max(_current_row_index, _row_ranges[_current_range_idx].first_row);
+    while (_current_range_idx < _row_ranges.range_size()) {
+        size_t left_row =
+                std::max(_current_row_index, _row_ranges.get_range_from(_current_range_idx));
         size_t right_row = std::min(left_row + batch_size - *read_rows,
-                                    (size_t)_row_ranges[_current_range_idx].last_row);
+                                    (size_t)_row_ranges.get_range_to(_current_range_idx));
         _current_row_index = left_row;
         RETURN_IF_ERROR(_chunk_reader->seek_to_nested_row(left_row));
         size_t load_rows = 0;
@@ -485,12 +483,12 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
         }
         *read_rows += load_rows;
         _current_row_index += load_rows;
-        _current_range_idx += (_current_row_index == _row_ranges[_current_range_idx].last_row);
+        _current_range_idx += (_current_row_index == _row_ranges.get_range_to(_current_range_idx));
         if (*read_rows == batch_size) {
             break;
         }
     }
-    *eof = _current_range_idx == _row_ranges.size();
+    *eof = _current_range_idx == _row_ranges.range_size();
     return Status::OK();
 }
 
