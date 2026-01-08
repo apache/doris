@@ -2198,7 +2198,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
     search_param.root = rootClause;
 
     std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
-    std::unordered_map<std::string, IndexIterator*> iterators;
+    std::unordered_map<std::string, InvertedIndexIterator*> iterators;
 
     // No real iterators - will fail but tests the code path
     data_types["title"] = {"title", nullptr};
@@ -2213,7 +2213,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
             search_param, data_types, iterators, num_rows, bitmap_result);
     // Will return OK because root_query is nullptr (all child queries fail)
     //    EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
+    EXPECT_TRUE(status.template is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
 }
 
 } // namespace doris::vectorized
