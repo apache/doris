@@ -47,7 +47,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
-#include "olap/collection_statistics.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -424,28 +423,6 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
-
-    // If some rowsets has idx files and some rowsets has not, we can not do link file compaction.
-    // Since the output rowset will be broken.
-
-    // Use schema version instead of schema hash to check if they are the same,
-    // because light schema change will not change the schema hash on BE, but will increase the schema version
-    // See fe/fe-core/src/main/java/org/apache/doris/alter/SchemaChangeHandler.java::2979
-    std::vector<int32_t> schema_versions_of_rowsets;
-
-    for (auto input_rowset : _input_rowsets) {
-        schema_versions_of_rowsets.push_back(input_rowset->rowset_meta()->schema_version());
-    }
-
-    // If all rowsets has same schema version, then we can do link file compaction directly.
-    bool all_same_schema_version =
-            std::all_of(schema_versions_of_rowsets.begin(), schema_versions_of_rowsets.end(),
-                        [&](int32_t v) { return v == schema_versions_of_rowsets.front(); });
-
-    if (!all_same_schema_version) {
-        return false;
-    }
-
     if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION ||
         compaction_type() == ReaderType::READER_FULL_COMPACTION) {
         // The remote file system and full compaction does not support to link files.
