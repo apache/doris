@@ -307,7 +307,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA > 5 + 1 and TA > 10", "cast(TA as smallint) > 6 and TA > 10");
         assertRewrite("(TA > 1 and TA > 10) or TA > 20", "TA > 10");
         assertRewrite("(TA > 1 or TA > 10) and TA > 20", "TA > 20");
-        assertRewrite("(TA < 1 and TA > 10) or TA = 20 and TB > 10", "(TA is null and null) or TA = 20 and TB > 10");
+        assertRewrite("(TA < 1 and TA > 10) or TA = 20 and TB > 10", "TA = 20 and TB > 10 or (TA is null and null) ");
         assertRewrite("(TA + TB > 1 or TA + TB > 10) and TA + TB > 20", "TA + TB > 20");
         assertRewrite("TA > 10 or TA > 10", "TA > 10");
         assertRewrite("(TA > 10 or TA > 20) and (TB > 10 and TB < 20)", "TA > 10 and (TB > 10 and TB < 20) ");
@@ -671,6 +671,16 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("CA > timestamp '2024-01-03 00:50:00' and CB < timestamp '2024-01-05 00:50:00' and CA < timestamp '2024-01-01 00:50:00'", "CA is null and null and CB < timestamp '2024-01-05 00:50:00'");
         assertRewrite("(CA > timestamp '2024-01-03 00:50:00' and CA < timestamp '2024-01-01 00:50:00') or CB < timestamp '2024-01-05 00:50:00'",
                 "(CA is null and null) OR CB < timestamp '2024-01-05 00:50:00'");
+    }
+
+    @Test
+    public void testMixTypes() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyRange.INSTANCE)
+        ));
+        assertRewrite("(TA > 1 and FALSE or FALSE and SA > 'aaaa') and TB is null", "FALSE");
+        assertRewrite("(TA > 1 and FALSE or FALSE and SA > 'aaaa') and (TA > 1 and FALSE or FALSE and SA > 'aaaa') and TB is null",
+                "FALSE");
     }
 
     private ValueDesc getValueDesc(String expression) {
