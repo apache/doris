@@ -71,10 +71,10 @@ public class ConflictRulesMaker {
     private ConflictRulesMaker() {}
 
     /**
-     * Make edge with CD-C algorithm in
+     * Make edge's conflict rule by CD-C algorithm in
      * On the correct and complete enumeration of the core search
      */
-    public static void makeJoinConflictRules(Edge edgeB, List<Edge> joinEdges, ExpressionRewriteContext ctx) {
+    public static void makeConflictRules(Edge edgeB, List<Edge> joinEdges, ExpressionRewriteContext ctx) {
         // find all left and right subtree edges and ready for CD-C check
         BitSet leftSubTreeEdges = subTreeEdges(edgeB.getLeftChildEdges(), joinEdges);
         BitSet rightSubTreeEdges = subTreeEdges(edgeB.getRightChildEdges(), joinEdges);
@@ -152,7 +152,8 @@ public class ConflictRulesMaker {
         int indexA = getIndexForJoinType(leftChildEdge.getJoinType());
         int indexB = getIndexForJoinType(currentEdge.getJoinType());
         if (indexA >= 0 && indexB >= 0) {
-            return isValidToReorder(leftAsscomTable[indexA][indexB], leftChildEdge.getJoin(), currentEdge.getJoin(), ctx);
+            return isValidToReorder(leftAsscomTable[indexA][indexB], leftChildEdge.getJoin(), currentEdge.getJoin(),
+                    ctx);
         } else {
             return false;
         }
@@ -162,7 +163,8 @@ public class ConflictRulesMaker {
         int indexA = getIndexForJoinType(currentEdge.getJoinType());
         int indexB = getIndexForJoinType(rightChildEdge.getJoinType());
         if (indexA >= 0 && indexB >= 0) {
-            return isValidToReorder(rightAsscomTable[indexA][indexB], currentEdge.getJoin(), rightChildEdge.getJoin(), ctx);
+            return isValidToReorder(rightAsscomTable[indexA][indexB], currentEdge.getJoin(), rightChildEdge.getJoin(),
+                    ctx);
         } else {
             return false;
         }
@@ -216,9 +218,9 @@ public class ConflictRulesMaker {
     }
 
     private static boolean isValidToReorder(ValEntry valEntry,
-                                            LogicalJoin joinA,
-                                            LogicalJoin joinB,
-                                            ExpressionRewriteContext ctx) {
+            LogicalJoin joinA,
+            LogicalJoin joinB,
+            ExpressionRewriteContext ctx) {
         switch (valEntry) {
             case YES:
                 return true;
@@ -315,8 +317,7 @@ public class ConflictRulesMaker {
             replaceMap.put(slot, new NullLiteral(slot.getDataType()));
         }
         Expression evalExpr = FoldConstantRule.evaluate(
-                ExpressionUtils.replace(expression, replaceMap), ctx
-        );
+                ExpressionUtils.replace(expression, replaceMap), ctx);
         return evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr);
     }
 
