@@ -29,7 +29,7 @@ suite('test_manager_interface_5',"p0") {
         def futures = []
         futures.add( thread {
             try{
-                sql """set session_context="trace_id:test_manager_interface_5_trace_id"""
+                sql """set session_context="trace_id:test_manager_interface_5_trace_id""""
                 sql """ set parallel_pipeline_task_num = 1; """
                 sql """ select count(*)  from numbers("number" = "598318881") as  a  join numbers('number'="598318881") as b on a.number = b.number; """
             }catch(Exception e){
