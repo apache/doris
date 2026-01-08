@@ -249,7 +249,8 @@ enum TTaskType {
     PUSH_INDEX_POLICY = 35,
 
     // CLOUD
-    CALCULATE_DELETE_BITMAP = 1000
+    CALCULATE_DELETE_BITMAP = 1000,
+    MAKE_CLOUD_TMP_RS_VISIBLE = 1001
 }
 
 // level of verboseness for "explain" output

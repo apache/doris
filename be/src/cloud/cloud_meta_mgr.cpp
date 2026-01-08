@@ -1338,6 +1338,20 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     }
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
     manager.warm_up_rowset(rs_meta, timeout_ms);
+
+    // For load-generated rowsets (job_id is empty), add to pending rowset manager
+    // so FE can notify BE to promote them later
+    if (st.ok() && job_id.empty()) {
+        int64_t expiration_time =
+                std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count() +
+                config::tablet_txn_info_min_expired_seconds;
+        auto rowset_meta_ptr = std::make_shared<RowsetMeta>(rs_meta);
+        ExecEnv::GetInstance()->storage_engine().to_cloud().pending_rs_mgr().add_pending_rowset(
+                rs_meta.txn_id(), rs_meta.tablet_id(), rowset_meta_ptr, expiration_time);
+    }
+
     return st;
 }
 
@@ -1360,6 +1374,25 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     if (!st.ok() && resp.status().code() == MetaServiceCode::ROWSET_META_NOT_FOUND) {
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
+
+    // Update the rowset meta in pending rowset manager if it exists
+    // This is needed for partial update scenarios where rowset meta is modified during publish
+    if (st.ok()) {
+        auto rowset_meta_ptr = std::make_shared<RowsetMeta>(rs_meta);
+        auto update_st = ExecEnv::GetInstance()
+                                 ->storage_engine()
+                                 .to_cloud()
+                                 .pending_rs_mgr()
+                                 .update_pending_rowset(rs_meta.txn_id(), rs_meta.tablet_id(),
+                                                        rowset_meta_ptr);
+        // It's OK if the rowset is not found in pending manager (may have been cleaned up)
+        if (!update_st.ok() && !update_st.is<ErrorCode::NOT_FOUND>()) {
+            LOG(WARNING) << "failed to update pending rowset, tablet_id=" << rs_meta.tablet_id()
+                         << ", txn_id=" << rs_meta.txn_id()
+                         << ", rowset_id=" << rs_meta.rowset_id() << ", st=" << update_st;
+        }
+    }
+
     return st;
 }
 

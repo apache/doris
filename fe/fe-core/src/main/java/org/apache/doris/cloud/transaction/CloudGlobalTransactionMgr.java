@@ -100,6 +100,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CalcDeleteBitmapTask;
+import org.apache.doris.task.MakeCloudTmpRsVisibleTask;
 import org.apache.doris.thrift.TCalcDeleteBitmapPartitionInfo;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -2636,5 +2637,59 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void clearTxnLastSignature(long dbId, long txnId) {
         txnLastSignatureMap.remove(txnId);
+    }
+
+    /**
+     * Send agent tasks to notify BEs to make temporary cloud rowsets visible.
+     * This is called after transaction commit to MS, to notify BEs to promote
+     * rowset metadata from CloudPendingRSMgr to tablet meta.
+     *
+     * @param txnId transaction id
+     * @param commitInfos tablet commit infos containing backend and tablet mapping
+     * @param partitionVersionMap partition id to version mapping
+     * @param updateVersionVisibleTime visible time for the version
+     */
+    public void sendMakeCloudTmpRsVisibleTasks(long txnId,
+                                               List<TTabletCommitInfo> commitInfos,
+                                               Map<Long, Long> partitionVersionMap,
+                                               long updateVersionVisibleTime) {
+        if (commitInfos == null || commitInfos.isEmpty()) {
+            LOG.info("no commit infos to send make cloud tmp rs visible tasks, txn_id: {}", txnId);
+            return;
+        }
+
+        // Group tablet_ids by backend_id
+        Map<Long, List<Long>> beToTabletIds = Maps.newHashMap();
+        for (TTabletCommitInfo commitInfo : commitInfos) {
+            long backendId = commitInfo.getBackendId();
+            long tabletId = commitInfo.getTabletId();
+            beToTabletIds.computeIfAbsent(backendId, k -> Lists.newArrayList()).add(tabletId);
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("send make cloud tmp rs visible tasks, txn_id: {}, backend_count: {}, total_tablets: {}",
+                    txnId, beToTabletIds.size(), commitInfos.size());
+        }
+
+        // Create agent tasks for each BE
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Map.Entry<Long, List<Long>> entry : beToTabletIds.entrySet()) {
+            long backendId = entry.getKey();
+            List<Long> tabletIds = entry.getValue();
+
+            MakeCloudTmpRsVisibleTask task = new MakeCloudTmpRsVisibleTask(
+                    backendId, txnId, tabletIds, partitionVersionMap, updateVersionVisibleTime);
+            batchTask.addTask(task);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add make cloud tmp rs visible task, txn_id: {}, backend_id: {}, tablet_count: {}",
+                        txnId, backendId, tabletIds.size());
+            }
+        }
+
+        // Submit tasks
+        AgentTaskExecutor.submit(batchTask);
+        LOG.info("sent make cloud tmp rs visible tasks, txn_id: {}, backend_count: {}, total_tablets: {}",
+                txnId, beToTabletIds.size(), commitInfos.size());
     }
 }

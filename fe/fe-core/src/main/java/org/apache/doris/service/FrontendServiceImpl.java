@@ -4590,6 +4590,46 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+    @Override
+    public TForwardMakeCloudTmpRsVisibleResult forwardMakeCloudTmpRsVisible(
+            TForwardMakeCloudTmpRsVisibleRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.info("receive forward make cloud tmp rs visible request from BE: {}, txn_id: {}",
+                clientAddr, request.getTxnId());
+
+        TForwardMakeCloudTmpRsVisibleResult result = new TForwardMakeCloudTmpRsVisibleResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+        // Check if this is master FE
+        if (!Env.getCurrentEnv().isMaster()) {
+            LOG.warn("failed to handle forward make cloud tmp rs visible: not master, backend: {}",
+                    clientAddr);
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
+        try {
+            // Send agent tasks to notify all involved BEs
+            Env.getCurrentGlobalTransactionMgr().sendMakeCloudTmpRsVisibleTasks(
+                    request.getTxnId(),
+                    request.getCommitInfos(),
+                    request.getPartitionVersionMap(),
+                    request.isSetUpdateVersionVisibleTime() ? request.getUpdateVersionVisibleTime() : 0);
+
+            LOG.info("successfully forwarded make cloud tmp rs visible notification, txn_id: {}",
+                    request.getTxnId());
+        } catch (Exception e) {
+            LOG.warn("failed to forward make cloud tmp rs visible, txn_id: {}, error: {}",
+                    request.getTxnId(), e.getMessage(), e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs("Failed to forward notification: " + e.getMessage());
+        }
+
+        return result;
+    }
+
     private TStatus checkMaster() {
         TStatus status = new TStatus(TStatusCode.OK);
         if (!Env.getCurrentEnv().isMaster()) {

@@ -565,6 +565,14 @@ struct TPushCooldownConfReq {
     1: required list<TCooldownConf> cooldown_confs
 }
 
+// Request to make temporary cloud rowsets visible
+struct TMakeCloudTmpRsVisibleRequest {
+    1: required i64 txn_id
+    2: required list<Types.TTabletId> tablet_ids // tablets on this BE involved in the transaction
+    3: required map<Types.TPartitionId, Types.TVersion> partition_version_map
+    4: optional i64 update_version_visible_time
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -607,6 +615,7 @@ struct TAgentTaskRequest {
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req
+    1001: optional TMakeCloudTmpRsVisibleRequest make_cloud_tmp_rs_visible_req
 }
 
 struct TAgentResult {

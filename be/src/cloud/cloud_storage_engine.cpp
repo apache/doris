@@ -223,6 +223,9 @@ Status CloudStorageEngine::open() {
                     : config::delete_bitmap_agg_cache_capacity);
     RETURN_IF_ERROR(_txn_delete_bitmap_cache->init());
 
+    _pending_rs_mgr = std::make_unique<CloudPendingRSMgr>();
+    RETURN_IF_ERROR(_pending_rs_mgr->init());
+
     _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
 
     _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);

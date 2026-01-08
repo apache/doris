@@ -1736,5 +1736,91 @@ void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
             .start_tp = std::chrono::steady_clock::now()};
 }
 
+void CloudTablet::add_visible_pending_rowset(int64_t version,
+                                             const RowsetMetaSharedPtr& rowset_meta,
+                                             int64_t expiration_time) {
+    std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
+    _visible_pending_rs_map[version] = VisiblePendingRowset(rowset_meta, expiration_time);
+    LOG(INFO) << "add visible pending rowset, tablet_id=" << tablet_id() << ", version=" << version
+              << ", rowset_id=" << rowset_meta->rowset_id().to_string()
+              << ", expiration_time=" << expiration_time;
+}
+
+Status CloudTablet::apply_visible_pending_rowsets() {
+    std::vector<RowsetSharedPtr> to_add;
+    {
+        std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
+        std::shared_lock<std::shared_mutex> meta_rlock(_meta_lock);
+
+        if (_visible_pending_rs_map.empty()) {
+            return Status::OK();
+        }
+
+        int64_t cur_max_version = _max_version;
+        int64_t next_version = cur_max_version + 1;
+
+        // Remove expired entries that are <= current max version
+        auto it = _visible_pending_rs_map.begin();
+        while (it != _visible_pending_rs_map.end()) {
+            if (it->first <= cur_max_version) {
+                LOG(INFO) << "remove expired visible pending rowset, tablet_id=" << tablet_id()
+                          << ", version=" << it->first << ", cur_max_version=" << cur_max_version;
+                it = _visible_pending_rs_map.erase(it);
+            } else {
+                break;
+            }
+        }
+
+        // Find the longest continuous sequence of versions starting from next_version
+        std::vector<int64_t> continuous_versions;
+        for (auto& [version, pending_rs] : _visible_pending_rs_map) {
+            if (version == next_version) {
+                continuous_versions.push_back(version);
+                next_version++;
+            } else {
+                break;
+            }
+        }
+
+        if (continuous_versions.empty()) {
+            return Status::OK();
+        }
+
+        // Create rowsets from pending rowset metas
+        for (int64_t version : continuous_versions) {
+            auto& pending_rs = _visible_pending_rs_map[version];
+            RowsetSharedPtr rowset;
+            auto st = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(),
+                                                   tablet_path(), pending_rs.rowset_meta, &rowset);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to create rowset from pending rowset meta, tablet_id="
+                             << tablet_id() << ", version=" << version
+                             << ", rowset_id=" << pending_rs.rowset_meta->rowset_id().to_string()
+                             << ", error=" << st;
+                return st;
+            }
+            to_add.push_back(std::move(rowset));
+        }
+
+        // Remove from pending map
+        for (int64_t version : continuous_versions) {
+            _visible_pending_rs_map.erase(version);
+            LOG(INFO) << "apply visible pending rowset, tablet_id=" << tablet_id()
+                      << ", version=" << version;
+        }
+    }
+
+    // Add rowsets to tablet meta
+    if (!to_add.empty()) {
+        std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
+        add_rowsets(to_add, false, meta_wlock, false);
+        LOG(INFO) << "applied " << to_add.size() << " visible pending rowsets to tablet_id="
+                  << tablet_id() << ", new max_version=" << _max_version;
+    }
+
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
+
 } // namespace doris

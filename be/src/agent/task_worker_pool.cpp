@@ -2387,6 +2387,100 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     remove_task_info(req.task_type, req.signature);
 }
 
+void make_cloud_tmp_rs_visible_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    LOG(INFO) << "begin to make cloud tmp rs visible, txn_id=" << req.make_cloud_tmp_rs_visible_req.txn_id
+              << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();
+
+    const auto& make_visible_req = req.make_cloud_tmp_rs_visible_req;
+    auto& pending_rs_mgr = engine.pending_rs_mgr();
+    auto& tablet_mgr = engine.tablet_mgr();
+
+    int64_t txn_id = make_visible_req.txn_id;
+    int64_t update_visible_time = make_visible_req.__isset.update_version_visible_time
+                                          ? make_visible_req.update_version_visible_time
+                                          : 0;
+
+    // Process each tablet involved in this transaction on this BE
+    for (int64_t tablet_id : make_visible_req.tablet_ids) {
+        // Get pending rowset meta from CloudPendingRSMgr
+        RowsetMetaSharedPtr rowset_meta;
+        auto st = pending_rs_mgr.get_pending_rowset(txn_id, tablet_id, &rowset_meta);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to get pending rowset, txn_id=" << txn_id
+                         << ", tablet_id=" << tablet_id << ", status=" << st;
+            continue;
+        }
+
+        // Get tablet
+        auto tablet_result = tablet_mgr.get_tablet(tablet_id);
+        if (!tablet_result.has_value()) {
+            LOG(WARNING) << "failed to get tablet, txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+            continue;
+        }
+        auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet_result.value());
+        if (!cloud_tablet) {
+            LOG(WARNING) << "tablet is not CloudTablet, txn_id=" << txn_id
+                         << ", tablet_id=" << tablet_id;
+            continue;
+        }
+
+        // Get partition_id and version for this tablet
+        int64_t partition_id = rowset_meta->partition_id();
+        auto version_iter = make_visible_req.partition_version_map.find(partition_id);
+        if (version_iter == make_visible_req.partition_version_map.end()) {
+            LOG(WARNING) << "partition version not found, txn_id=" << txn_id
+                         << ", tablet_id=" << tablet_id << ", partition_id=" << partition_id;
+            continue;
+        }
+        int64_t version = version_iter->second;
+
+        // Update rowset meta with correct version and visible_ts
+        rowset_meta->set_start_version(version);
+        rowset_meta->set_end_version(version);
+        if (update_visible_time > 0) {
+            rowset_meta->set_creation_time(update_visible_time);
+        }
+
+        // Add to CloudTablet's VisiblePendingRSMap
+        // Use transaction timeout as expiration time
+        int64_t expiration_time =
+                std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count() +
+                config::tablet_txn_info_min_expired_seconds;
+
+        cloud_tablet->add_visible_pending_rowset(version, rowset_meta, expiration_time);
+
+        LOG(INFO) << "added visible pending rowset, txn_id=" << txn_id << ", tablet_id=" << tablet_id
+                  << ", version=" << version << ", rowset_id=" << rowset_meta->rowset_id().to_string();
+
+        // Remove from CloudPendingRSMgr as it's now in VisiblePendingRSMap
+        pending_rs_mgr.remove_pending_rowset(txn_id, tablet_id);
+    }
+
+    // Apply visible pending rowsets for each tablet
+    for (int64_t tablet_id : make_visible_req.tablet_ids) {
+        auto tablet_result = tablet_mgr.get_tablet(tablet_id);
+        if (!tablet_result.has_value()) {
+            continue;
+        }
+        auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet_result.value());
+        if (!cloud_tablet) {
+            continue;
+        }
+
+        // Try to apply visible pending rowsets
+        auto apply_st = cloud_tablet->apply_visible_pending_rowsets();
+        if (!apply_st.ok()) {
+            LOG(WARNING) << "failed to apply visible pending rowsets, txn_id=" << txn_id
+                         << ", tablet_id=" << tablet_id << ", status=" << apply_st;
+        }
+    }
+
+    LOG(INFO) << "make cloud tmp rs visible finished, txn_id=" << txn_id
+              << ", processed_tablets=" << make_visible_req.tablet_ids.size();
+}
+
 void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     LOG(INFO) << "clean trash start";
     DBUG_EXECUTE_IF("clean_trash_callback_sleep", { sleep(100); })

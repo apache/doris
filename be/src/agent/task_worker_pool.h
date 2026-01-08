@@ -205,6 +205,8 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
 
 void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
+void make_cloud_tmp_rs_visible_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void report_index_policy_callback(const ClusterInfo* cluster_info);
 
 } // namespace doris

@@ -499,6 +499,15 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setCleanUdfCacheReq(request);
                 return tAgentTaskRequest;
             }
+            case MAKE_CLOUD_TMP_RS_VISIBLE: {
+                MakeCloudTmpRsVisibleTask makeCloudTmpRsVisibleTask = (MakeCloudTmpRsVisibleTask) task;
+                TMakeCloudTmpRsVisibleRequest request = makeCloudTmpRsVisibleTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setMakeCloudTmpRsVisibleReq(request);
+                return tAgentTaskRequest;
+            }
             default:
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("could not find task type for task [{}]", task);
