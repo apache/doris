@@ -38,23 +38,22 @@ class BufferReadable;
 class BufferWritable;
 
 template <PrimitiveType T>
-bool dec_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
-               typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_equal(typename PrimitiveTypeTraits<T>::CppType x,
+               typename PrimitiveTypeTraits<T>::CppType y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, EqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
 template <PrimitiveType T>
-bool dec_less(typename PrimitiveTypeTraits<T>::ColumnItemType x,
-              typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_less(typename PrimitiveTypeTraits<T>::CppType x,
+              typename PrimitiveTypeTraits<T>::CppType y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
 template <PrimitiveType T>
-bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
-                       typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale,
-                       UInt32 y_scale) {
+bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::CppType x,
+                       typename PrimitiveTypeTraits<T>::CppType y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOrEqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
@@ -75,7 +74,7 @@ bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
 
 DECLARE_DECIMAL_COMPARISON(Decimal32, TYPE_DECIMAL32)
 DECLARE_DECIMAL_COMPARISON(Decimal64, TYPE_DECIMAL64)
-DECLARE_DECIMAL_COMPARISON(Decimal128V2, TYPE_DECIMALV2)
+DECLARE_DECIMAL_COMPARISON(DecimalV2Value, TYPE_DECIMALV2)
 DECLARE_DECIMAL_COMPARISON(Decimal256, TYPE_DECIMAL256)
 
 template <>
@@ -92,26 +91,26 @@ bool decimal_less_or_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys)
 }
 
 template <PrimitiveType Type>
-void Field::create_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x) {
+void Field::create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
     // In both Field and PODArray, small types may be stored as wider types,
     // e.g. char is stored as UInt64. Field can return this extended value
     // with get<StorageType>(). To avoid uninitialized results from get(),
     // we must initialize the entire wide stored type, and not just the
     // nominal type.
-    using StorageType = typename PrimitiveTypeTraits<Type>::NearestFieldType;
+    using StorageType = typename PrimitiveTypeTraits<Type>::CppType;
     new (&storage) StorageType(std::move(x));
     type = Type;
     DCHECK_NE(type, PrimitiveType::INVALID_TYPE);
 }
 
 template <PrimitiveType Type>
-void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x) {
+void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x) {
     // In both Field and PODArray, small types may be stored as wider types,
     // e.g. char is stored as UInt64. Field can return this extended value
     // with get<StorageType>(). To avoid uninitialized results from get(),
     // we must initialize the entire wide stored type, and not just the
     // nominal type.
-    using StorageType = typename PrimitiveTypeTraits<Type>::NearestFieldType;
+    using StorageType = typename PrimitiveTypeTraits<Type>::CppType;
     new (&storage) StorageType(x);
     type = Type;
     DCHECK_NE(type, PrimitiveType::INVALID_TYPE);
@@ -120,265 +119,311 @@ void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::NearestFie
 void Field::create(Field&& field) {
     switch (field.type) {
     case PrimitiveType::TYPE_NULL:
-        create_concrete<TYPE_NULL>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>()));
+        create_concrete<TYPE_NULL>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::CppType>()));
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
-        create_concrete<TYPE_DATETIMEV2>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>()));
+        create_concrete<TYPE_DATETIMEV2>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>()));
         return;
     case PrimitiveType::TYPE_DATEV2:
         create_concrete<TYPE_DATEV2>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>()));
         return;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
-        create_concrete<TYPE_TIMESTAMPTZ>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>()));
+        create_concrete<TYPE_TIMESTAMPTZ>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>()));
         return;
     case PrimitiveType::TYPE_DATETIME:
+        create_concrete<TYPE_DATETIME>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>()));
+        return;
     case PrimitiveType::TYPE_DATE:
+        create_concrete<TYPE_DATE>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>()));
+        return;
     case PrimitiveType::TYPE_BOOLEAN:
+        create_concrete<TYPE_BOOLEAN>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>()));
+        return;
     case PrimitiveType::TYPE_TINYINT:
+        create_concrete<TYPE_TINYINT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>()));
+        return;
     case PrimitiveType::TYPE_SMALLINT:
+        create_concrete<TYPE_SMALLINT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>()));
+        return;
     case PrimitiveType::TYPE_INT:
+        create_concrete<TYPE_INT>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>()));
+        return;
     case PrimitiveType::TYPE_BIGINT:
         create_concrete<TYPE_BIGINT>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>()));
         return;
     case PrimitiveType::TYPE_LARGEINT:
-        create_concrete<TYPE_LARGEINT>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>()));
+        create_concrete<TYPE_LARGEINT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>()));
         return;
     case PrimitiveType::TYPE_IPV4:
-        create_concrete<TYPE_IPV4>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>()));
+        create_concrete<TYPE_IPV4>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>()));
         return;
     case PrimitiveType::TYPE_IPV6:
-        create_concrete<TYPE_IPV6>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>()));
+        create_concrete<TYPE_IPV6>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>()));
         return;
     case PrimitiveType::TYPE_FLOAT:
+        create_concrete<TYPE_FLOAT>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>()));
+        return;
     case PrimitiveType::TYPE_TIMEV2:
+        create_concrete<TYPE_TIMEV2>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>()));
+        return;
     case PrimitiveType::TYPE_DOUBLE:
         create_concrete<TYPE_DOUBLE>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>()));
         return;
     case PrimitiveType::TYPE_STRING:
         create_concrete<TYPE_STRING>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::CppType>()));
         return;
     case PrimitiveType::TYPE_CHAR:
-        create_concrete<TYPE_CHAR>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>()));
+        create_concrete<TYPE_CHAR>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::CppType>()));
         return;
     case PrimitiveType::TYPE_VARCHAR:
-        create_concrete<TYPE_VARCHAR>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>()));
+        create_concrete<TYPE_VARCHAR>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType>()));
         return;
     case PrimitiveType::TYPE_JSONB:
-        create_concrete<TYPE_JSONB>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>()));
+        create_concrete<TYPE_JSONB>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::CppType>()));
         return;
     case PrimitiveType::TYPE_ARRAY:
-        create_concrete<TYPE_ARRAY>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>()));
+        create_concrete<TYPE_ARRAY>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType>()));
         return;
     case PrimitiveType::TYPE_STRUCT:
         create_concrete<TYPE_STRUCT>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType>()));
         return;
     case PrimitiveType::TYPE_MAP:
-        create_concrete<TYPE_MAP>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>()));
+        create_concrete<TYPE_MAP>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL32:
-        create_concrete<TYPE_DECIMAL32>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>()));
+        create_concrete<TYPE_DECIMAL32>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL64:
-        create_concrete<TYPE_DECIMAL64>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>()));
+        create_concrete<TYPE_DECIMAL64>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMALV2:
-        create_concrete<TYPE_DECIMALV2>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>()));
+        create_concrete<TYPE_DECIMALV2>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL128I:
-        create_concrete<TYPE_DECIMAL128I>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>()));
+        create_concrete<TYPE_DECIMAL128I>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL256:
-        create_concrete<TYPE_DECIMAL256>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>()));
+        create_concrete<TYPE_DECIMAL256>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>()));
         return;
     case PrimitiveType::TYPE_VARIANT:
-        create_concrete<TYPE_VARIANT>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>()));
+        create_concrete<TYPE_VARIANT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType>()));
         return;
     case PrimitiveType::TYPE_BITMAP:
         create_concrete<TYPE_BITMAP>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType>()));
         return;
     case PrimitiveType::TYPE_HLL:
-        create_concrete<TYPE_HLL>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>()));
+        create_concrete<TYPE_HLL>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::CppType>()));
         return;
     case PrimitiveType::TYPE_QUANTILE_STATE:
-        create_concrete<TYPE_QUANTILE_STATE>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>()));
+        create_concrete<TYPE_QUANTILE_STATE>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType>()));
         return;
     case PrimitiveType::TYPE_VARBINARY:
-        create_concrete<TYPE_VARBINARY>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>()));
+        create_concrete<TYPE_VARBINARY>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>()));
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
     }
 }
 
+Field::Field(const Field& rhs) {
+    create(rhs);
+}
+
+Field::Field(Field&& rhs) {
+    create(std::move(rhs));
+}
+
+Field& Field::operator=(const Field& rhs) {
+    if (this != &rhs) {
+        if (type != rhs.type) {
+            destroy();
+            create(rhs);
+        } else {
+            assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
+        }
+    }
+    return *this;
+}
+
 void Field::create(const Field& field) {
     switch (field.type) {
     case PrimitiveType::TYPE_NULL:
         create_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::CppType>());
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         create_concrete<TYPE_DATETIMEV2>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>());
         return;
     case PrimitiveType::TYPE_DATEV2:
         create_concrete<TYPE_DATEV2>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>());
         return;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         create_concrete<TYPE_TIMESTAMPTZ>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>());
         return;
     case PrimitiveType::TYPE_DATETIME:
+        create_concrete<TYPE_DATETIME>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>());
+        return;
     case PrimitiveType::TYPE_DATE:
+        create_concrete<TYPE_DATE>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>());
+        return;
     case PrimitiveType::TYPE_BOOLEAN:
+        create_concrete<TYPE_BOOLEAN>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>());
+        return;
     case PrimitiveType::TYPE_TINYINT:
+        create_concrete<TYPE_TINYINT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>());
+        return;
     case PrimitiveType::TYPE_SMALLINT:
+        create_concrete<TYPE_SMALLINT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>());
+        return;
     case PrimitiveType::TYPE_INT:
+        create_concrete<TYPE_INT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>());
+        return;
     case PrimitiveType::TYPE_BIGINT:
         create_concrete<TYPE_BIGINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>());
         return;
     case PrimitiveType::TYPE_LARGEINT:
         create_concrete<TYPE_LARGEINT>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>());
         return;
     case PrimitiveType::TYPE_IPV4:
         create_concrete<TYPE_IPV4>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>());
         return;
     case PrimitiveType::TYPE_IPV6:
         create_concrete<TYPE_IPV6>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>());
         return;
     case PrimitiveType::TYPE_FLOAT:
+        create_concrete<TYPE_FLOAT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>());
+        return;
     case PrimitiveType::TYPE_TIMEV2:
+        create_concrete<TYPE_TIMEV2>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>());
+        return;
     case PrimitiveType::TYPE_DOUBLE:
         create_concrete<TYPE_DOUBLE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>());
         return;
     case PrimitiveType::TYPE_STRING:
         create_concrete<TYPE_STRING>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::CppType>());
         return;
     case PrimitiveType::TYPE_CHAR:
         create_concrete<TYPE_CHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::CppType>());
         return;
     case PrimitiveType::TYPE_VARCHAR:
         create_concrete<TYPE_VARCHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType>());
         return;
     case PrimitiveType::TYPE_JSONB:
         create_concrete<TYPE_JSONB>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::CppType>());
         return;
     case PrimitiveType::TYPE_ARRAY:
         create_concrete<TYPE_ARRAY>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType>());
         return;
     case PrimitiveType::TYPE_STRUCT:
         create_concrete<TYPE_STRUCT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType>());
         return;
     case PrimitiveType::TYPE_MAP:
         create_concrete<TYPE_MAP>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL32:
         create_concrete<TYPE_DECIMAL32>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL64:
         create_concrete<TYPE_DECIMAL64>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMALV2:
         create_concrete<TYPE_DECIMALV2>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL128I:
         create_concrete<TYPE_DECIMAL128I>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL256:
         create_concrete<TYPE_DECIMAL256>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>());
         return;
     case PrimitiveType::TYPE_VARIANT:
         create_concrete<TYPE_VARIANT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType>());
         return;
     case PrimitiveType::TYPE_BITMAP:
         create_concrete<TYPE_BITMAP>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType>());
         return;
     case PrimitiveType::TYPE_HLL:
         create_concrete<TYPE_HLL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::CppType>());
         return;
     case PrimitiveType::TYPE_QUANTILE_STATE:
         create_concrete<TYPE_QUANTILE_STATE>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType>());
         return;
     case PrimitiveType::TYPE_UINT32:
         create_concrete<TYPE_UINT32>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT32>::CppType>());
         return;
     case PrimitiveType::TYPE_UINT64:
         create_concrete<TYPE_UINT64>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::CppType>());
         return;
     case PrimitiveType::TYPE_VARBINARY:
         create_concrete<TYPE_VARBINARY>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -388,40 +433,40 @@ void Field::create(const Field& field) {
 void Field::destroy() {
     switch (type) {
     case PrimitiveType::TYPE_STRING:
-        destroy<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_STRING>::CppType>();
         break;
     case PrimitiveType::TYPE_CHAR:
-        destroy<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_CHAR>::CppType>();
         break;
     case PrimitiveType::TYPE_VARCHAR:
-        destroy<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType>();
         break;
     case PrimitiveType::TYPE_JSONB:
-        destroy<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_JSONB>::CppType>();
         break;
     case PrimitiveType::TYPE_ARRAY:
-        destroy<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType>();
         break;
     case PrimitiveType::TYPE_STRUCT:
-        destroy<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType>();
         break;
     case PrimitiveType::TYPE_MAP:
-        destroy<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_MAP>::CppType>();
         break;
     case PrimitiveType::TYPE_VARIANT:
-        destroy<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType>();
         break;
     case PrimitiveType::TYPE_BITMAP:
-        destroy<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType>();
         break;
     case PrimitiveType::TYPE_HLL:
-        destroy<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_HLL>::CppType>();
         break;
     case PrimitiveType::TYPE_QUANTILE_STATE:
-        destroy<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType>();
         break;
     case PrimitiveType::TYPE_VARBINARY:
-        destroy<typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>();
+        destroy<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>();
         break;
     default:
         break;
@@ -434,133 +479,140 @@ void Field::destroy() {
 void Field::assign(Field&& field) {
     switch (field.type) {
     case PrimitiveType::TYPE_NULL:
-        assign_concrete<TYPE_NULL>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>()));
+        assign_concrete<TYPE_NULL>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::CppType>()));
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
-        assign_concrete<TYPE_DATETIMEV2>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>()));
+        assign_concrete<TYPE_DATETIMEV2>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>()));
         return;
     case PrimitiveType::TYPE_DATETIME:
-        assign_concrete<TYPE_DATETIME>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType>()));
+        assign_concrete<TYPE_DATETIME>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>()));
         return;
     case PrimitiveType::TYPE_DATE:
-        assign_concrete<TYPE_DATE>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>()));
+        assign_concrete<TYPE_DATE>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>()));
         return;
     case PrimitiveType::TYPE_DATEV2:
         assign_concrete<TYPE_DATEV2>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>()));
         return;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
-        assign_concrete<TYPE_TIMESTAMPTZ>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>()));
+        assign_concrete<TYPE_TIMESTAMPTZ>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>()));
         return;
     case PrimitiveType::TYPE_BOOLEAN:
+        assign_concrete<TYPE_BOOLEAN>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>()));
+        return;
     case PrimitiveType::TYPE_TINYINT:
+        assign_concrete<TYPE_TINYINT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>()));
+        return;
     case PrimitiveType::TYPE_SMALLINT:
+        assign_concrete<TYPE_SMALLINT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>()));
+        return;
     case PrimitiveType::TYPE_INT:
+        assign_concrete<TYPE_INT>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>()));
+        return;
     case PrimitiveType::TYPE_BIGINT:
         assign_concrete<TYPE_BIGINT>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>()));
         return;
     case PrimitiveType::TYPE_LARGEINT:
-        assign_concrete<TYPE_LARGEINT>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>()));
+        assign_concrete<TYPE_LARGEINT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>()));
         return;
     case PrimitiveType::TYPE_IPV4:
-        assign_concrete<TYPE_IPV4>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>()));
+        assign_concrete<TYPE_IPV4>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>()));
         return;
     case PrimitiveType::TYPE_IPV6:
-        assign_concrete<TYPE_IPV6>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>()));
+        assign_concrete<TYPE_IPV6>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>()));
+        return;
+    case PrimitiveType::TYPE_FLOAT:
+        assign_concrete<TYPE_FLOAT>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>()));
+        return;
+    case PrimitiveType::TYPE_TIMEV2:
+        assign_concrete<TYPE_TIMEV2>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>()));
         return;
     case PrimitiveType::TYPE_DOUBLE:
         assign_concrete<TYPE_DOUBLE>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>()));
         return;
     case PrimitiveType::TYPE_STRING:
         assign_concrete<TYPE_STRING>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::CppType>()));
         return;
     case PrimitiveType::TYPE_CHAR:
-        assign_concrete<TYPE_CHAR>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>()));
+        assign_concrete<TYPE_CHAR>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::CppType>()));
         return;
     case PrimitiveType::TYPE_VARCHAR:
-        assign_concrete<TYPE_VARCHAR>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>()));
+        assign_concrete<TYPE_VARCHAR>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType>()));
         return;
     case PrimitiveType::TYPE_JSONB:
-        assign_concrete<TYPE_JSONB>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>()));
+        assign_concrete<TYPE_JSONB>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::CppType>()));
         return;
     case PrimitiveType::TYPE_ARRAY:
-        assign_concrete<TYPE_ARRAY>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>()));
+        assign_concrete<TYPE_ARRAY>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType>()));
         return;
     case PrimitiveType::TYPE_STRUCT:
         assign_concrete<TYPE_STRUCT>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType>()));
         return;
     case PrimitiveType::TYPE_MAP:
-        assign_concrete<TYPE_MAP>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>()));
+        assign_concrete<TYPE_MAP>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL32:
-        assign_concrete<TYPE_DECIMAL32>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>()));
+        assign_concrete<TYPE_DECIMAL32>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL64:
-        assign_concrete<TYPE_DECIMAL64>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>()));
+        assign_concrete<TYPE_DECIMAL64>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMALV2:
-        assign_concrete<TYPE_DECIMALV2>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>()));
+        assign_concrete<TYPE_DECIMALV2>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL128I:
-        assign_concrete<TYPE_DECIMAL128I>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>()));
+        assign_concrete<TYPE_DECIMAL128I>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>()));
         return;
     case PrimitiveType::TYPE_DECIMAL256:
-        assign_concrete<TYPE_DECIMAL256>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>()));
+        assign_concrete<TYPE_DECIMAL256>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>()));
         return;
     case PrimitiveType::TYPE_VARIANT:
-        assign_concrete<TYPE_VARIANT>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>()));
+        assign_concrete<TYPE_VARIANT>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType>()));
         return;
     case PrimitiveType::TYPE_BITMAP:
         assign_concrete<TYPE_BITMAP>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>()));
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType>()));
         return;
     case PrimitiveType::TYPE_HLL:
-        assign_concrete<TYPE_HLL>(std::move(
-                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>()));
+        assign_concrete<TYPE_HLL>(
+                std::move(field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::CppType>()));
         return;
     case PrimitiveType::TYPE_QUANTILE_STATE:
-        assign_concrete<TYPE_QUANTILE_STATE>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>()));
+        assign_concrete<TYPE_QUANTILE_STATE>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType>()));
         return;
     case PrimitiveType::TYPE_VARBINARY:
-        assign_concrete<TYPE_VARBINARY>(
-                std::move(field.template get<
-                          typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>()));
+        assign_concrete<TYPE_VARBINARY>(std::move(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>()));
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -571,138 +623,147 @@ void Field::assign(const Field& field) {
     switch (field.type) {
     case PrimitiveType::TYPE_NULL:
         assign_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::CppType>());
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         assign_concrete<TYPE_DATETIMEV2>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>());
         return;
     case PrimitiveType::TYPE_DATETIME:
         assign_concrete<TYPE_DATETIME>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>());
         return;
     case PrimitiveType::TYPE_DATE:
         assign_concrete<TYPE_DATE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>());
         return;
     case PrimitiveType::TYPE_DATEV2:
         assign_concrete<TYPE_DATEV2>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>());
         return;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         assign_concrete<TYPE_TIMESTAMPTZ>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>());
         return;
     case PrimitiveType::TYPE_BOOLEAN:
+        assign_concrete<TYPE_BOOLEAN>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>());
+        return;
     case PrimitiveType::TYPE_TINYINT:
+        assign_concrete<TYPE_TINYINT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>());
+        return;
     case PrimitiveType::TYPE_SMALLINT:
+        assign_concrete<TYPE_SMALLINT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>());
+        return;
     case PrimitiveType::TYPE_INT:
+        assign_concrete<TYPE_INT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>());
+        return;
     case PrimitiveType::TYPE_BIGINT:
         assign_concrete<TYPE_BIGINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>());
         return;
     case PrimitiveType::TYPE_LARGEINT:
         assign_concrete<TYPE_LARGEINT>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>());
         return;
     case PrimitiveType::TYPE_IPV4:
         assign_concrete<TYPE_IPV4>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>());
         return;
     case PrimitiveType::TYPE_IPV6:
         assign_concrete<TYPE_IPV6>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>());
+        return;
+    case PrimitiveType::TYPE_FLOAT:
+        assign_concrete<TYPE_FLOAT>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>());
+        return;
+    case PrimitiveType::TYPE_TIMEV2:
+        assign_concrete<TYPE_TIMEV2>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>());
         return;
     case PrimitiveType::TYPE_DOUBLE:
         assign_concrete<TYPE_DOUBLE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>());
         return;
     case PrimitiveType::TYPE_STRING:
         assign_concrete<TYPE_STRING>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::CppType>());
         return;
     case PrimitiveType::TYPE_CHAR:
         assign_concrete<TYPE_CHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::CppType>());
         return;
     case PrimitiveType::TYPE_VARCHAR:
         assign_concrete<TYPE_VARCHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType>());
         return;
     case PrimitiveType::TYPE_JSONB:
         assign_concrete<TYPE_JSONB>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::CppType>());
         return;
     case PrimitiveType::TYPE_ARRAY:
         assign_concrete<TYPE_ARRAY>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType>());
         return;
     case PrimitiveType::TYPE_STRUCT:
         assign_concrete<TYPE_STRUCT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType>());
         return;
     case PrimitiveType::TYPE_MAP:
         assign_concrete<TYPE_MAP>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL32:
         assign_concrete<TYPE_DECIMAL32>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL64:
         assign_concrete<TYPE_DECIMAL64>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMALV2:
         assign_concrete<TYPE_DECIMALV2>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL128I:
         assign_concrete<TYPE_DECIMAL128I>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>());
         return;
     case PrimitiveType::TYPE_DECIMAL256:
         assign_concrete<TYPE_DECIMAL256>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>());
         return;
     case PrimitiveType::TYPE_VARIANT:
         assign_concrete<TYPE_VARIANT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType>());
         return;
     case PrimitiveType::TYPE_BITMAP:
         assign_concrete<TYPE_BITMAP>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType>());
         return;
     case PrimitiveType::TYPE_HLL:
         assign_concrete<TYPE_HLL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::CppType>());
         return;
     case PrimitiveType::TYPE_QUANTILE_STATE:
         assign_concrete<TYPE_QUANTILE_STATE>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType>());
         return;
     case PrimitiveType::TYPE_UINT32:
         assign_concrete<TYPE_UINT32>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT32>::CppType>());
         return;
     case PrimitiveType::TYPE_UINT64:
         assign_concrete<TYPE_UINT64>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::CppType>());
         return;
     case PrimitiveType::TYPE_VARBINARY:
         assign_concrete<TYPE_VARBINARY>(
-                field.template get<
-                        typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -711,27 +772,25 @@ void Field::assign(const Field& field) {
 
 /// Assuming same types.
 template <PrimitiveType Type>
-void Field::assign_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x) {
-    auto* MAY_ALIAS ptr =
-            reinterpret_cast<typename PrimitiveTypeTraits<Type>::NearestFieldType*>(&storage);
-    *ptr = std::forward<typename PrimitiveTypeTraits<Type>::NearestFieldType>(x);
+void Field::assign_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
+    auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<Type>::CppType*>(&storage);
+    *ptr = std::forward<typename PrimitiveTypeTraits<Type>::CppType>(x);
 }
 
 template <PrimitiveType Type>
-void Field::assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x) {
-    auto* MAY_ALIAS ptr =
-            reinterpret_cast<typename PrimitiveTypeTraits<Type>::NearestFieldType*>(&storage);
-    *ptr = std::forward<const typename PrimitiveTypeTraits<Type>::NearestFieldType>(x);
+void Field::assign_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x) {
+    auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<Type>::CppType*>(&storage);
+    *ptr = std::forward<const typename PrimitiveTypeTraits<Type>::CppType>(x);
 }
 
 std::string Field::get_type_name() const {
     return type_to_string(type);
 }
 
-#define MATCH_PRIMITIVE_TYPE(primite_type)                                                   \
-    if (type == primite_type) {                                                              \
-        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::NearestFieldType>(); \
-        return std::string_view(reinterpret_cast<const char*>(&v), sizeof(v));               \
+#define MATCH_PRIMITIVE_TYPE(primite_type)                                          \
+    if (type == primite_type) {                                                     \
+        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::CppType>(); \
+        return std::string_view(reinterpret_cast<const char*>(&v), sizeof(v));      \
     }
 
 std::string_view Field::as_string_view() const {
@@ -792,16 +851,16 @@ std::string_view Field::as_string_view() const {
 
 #undef MATCH_PRIMITIVE_TYPE
 
-#define MATCH_NUMBER_TYPE(primite_type)                                                      \
-    if (type == primite_type) {                                                              \
-        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::NearestFieldType>(); \
-        return CastToString::from_number(v);                                                 \
+#define MATCH_NUMBER_TYPE(primite_type)                                             \
+    if (type == primite_type) {                                                     \
+        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::CppType>(); \
+        return CastToString::from_number(v);                                        \
     }
 
-#define MATCH_DECIMAL_TYPE(primite_type)                                                     \
-    if (type == primite_type) {                                                              \
-        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::NearestFieldType>(); \
-        return CastToString::from_decimal(v.get_value(), v.get_scale());                     \
+#define MATCH_DECIMAL_TYPE(primite_type)                                            \
+    if (type == primite_type) {                                                     \
+        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::CppType>(); \
+        return CastToString::from_decimal(v.get_value(), v.get_scale());            \
     }
 
 std::string Field::to_string() const {
@@ -818,17 +877,17 @@ std::string Field::to_string() const {
 
     if (type == TYPE_DATE || type == TYPE_DATETIME) {
         const auto& v = binary_cast<int64_t, doris::VecDateTimeValue>(
-                get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>());
+                get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>());
         return CastToString::from_date_or_datetime(v);
     }
     if (type == TYPE_DATEV2) {
         const auto& v = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(
-                (uint32_t)get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
+                (uint32_t)get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>());
         return CastToString::from_datev2(v);
     }
     if (type == TYPE_DATETIMEV2) {
         const auto& v = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
-                (uint64_t)get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
+                (uint64_t)get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>());
         return CastToString::from_datetimev2(v);
     }
     MATCH_NUMBER_TYPE(TYPE_BOOLEAN);
@@ -846,151 +905,152 @@ std::string Field::to_string() const {
 #undef MATCH_NUMBER_TYPE
 #undef MATCH_DECIMAL_TYPE
 
-#define DECLARE_FUNCTION(FUNC_NAME)                                                          \
-    template void Field::FUNC_NAME<TYPE_NULL>(                                               \
-            typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_TINYINT>(                                            \
-            typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                           \
-            typename PrimitiveTypeTraits<TYPE_SMALLINT>::NearestFieldType && rhs);           \
-    template void Field::FUNC_NAME<TYPE_INT>(                                                \
-            typename PrimitiveTypeTraits<TYPE_INT>::NearestFieldType && rhs);                \
-    template void Field::FUNC_NAME<TYPE_BIGINT>(                                             \
-            typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                           \
-            typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType && rhs);           \
-    template void Field::FUNC_NAME<TYPE_DATE>(                                               \
-            typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_DATETIME>(                                           \
-            typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType && rhs);           \
-    template void Field::FUNC_NAME<TYPE_DATEV2>(                                             \
-            typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                         \
-            typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType && rhs);         \
-    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                          \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType && rhs);          \
-    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                          \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType && rhs);          \
-    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                          \
-            typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType && rhs);          \
-    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                        \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType && rhs);        \
-    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                         \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType && rhs);         \
-    template void Field::FUNC_NAME<TYPE_CHAR>(                                               \
-            typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                            \
-            typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_STRING>(                                             \
-            typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_VARBINARY>(                                          \
-            typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType && rhs);          \
-    template void Field::FUNC_NAME<TYPE_HLL>(                                                \
-            typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType && rhs);                \
-    template void Field::FUNC_NAME<TYPE_VARIANT>(                                            \
-            typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                     \
-            typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType && rhs);     \
-    template void Field::FUNC_NAME<TYPE_ARRAY>(                                              \
-            typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType && rhs);              \
-    template void Field::FUNC_NAME<TYPE_NULL>(                                               \
-            const typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_TINYINT>(                                            \
-            const typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_SMALLINT>::NearestFieldType& rhs);       \
-    template void Field::FUNC_NAME<TYPE_INT>(                                                \
-            const typename PrimitiveTypeTraits<TYPE_INT>::NearestFieldType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_BIGINT>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType& rhs);       \
-    template void Field::FUNC_NAME<TYPE_DATE>(                                               \
-            const typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_DATETIME>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType& rhs);       \
-    template void Field::FUNC_NAME<TYPE_DATEV2>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                         \
-            const typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType& rhs);     \
-    template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                        \
-            const typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType& rhs);    \
-    template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                        \
-            typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType && rhs);        \
-    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType& rhs);      \
-    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType& rhs);      \
-    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType& rhs);      \
-    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                        \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType& rhs);    \
-    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                         \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType& rhs);     \
-    template void Field::FUNC_NAME<TYPE_CHAR>(                                               \
-            const typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                            \
-            const typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_STRING>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_VARBINARY>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType& rhs);      \
-    template void Field::FUNC_NAME<TYPE_HLL>(                                                \
-            const typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_VARIANT>(                                            \
-            const typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                     \
-            const typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType& rhs); \
-    template void Field::FUNC_NAME<TYPE_ARRAY>(                                              \
-            const typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType& rhs);          \
-    template void Field::FUNC_NAME<TYPE_IPV4>(                                               \
-            typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_IPV4>(                                               \
-            const typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_IPV6>(                                               \
-            typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_IPV6>(                                               \
-            const typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                            \
-            typename PrimitiveTypeTraits<TYPE_BOOLEAN>::NearestFieldType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                            \
-            const typename PrimitiveTypeTraits<TYPE_BOOLEAN>::NearestFieldType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_FLOAT>(                                              \
-            typename PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType && rhs);              \
-    template void Field::FUNC_NAME<TYPE_FLOAT>(                                              \
-            const typename PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType& rhs);          \
-    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                             \
-            typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_JSONB>(                                              \
-            typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType && rhs);              \
-    template void Field::FUNC_NAME<TYPE_JSONB>(                                              \
-            const typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType& rhs);          \
-    template void Field::FUNC_NAME<TYPE_STRUCT>(                                             \
-            typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_STRUCT>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_MAP>(                                                \
-            typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType && rhs);                \
-    template void Field::FUNC_NAME<TYPE_MAP>(                                                \
-            const typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_BITMAP>(                                             \
-            typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_BITMAP>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \
-            typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_UINT32>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_UINT32>(                                             \
-            typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_UINT64>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_UINT64>(                                             \
-            typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType && rhs);
+#define DECLARE_FUNCTION(FUNC_NAME)                                                               \
+    template void Field::FUNC_NAME<TYPE_NULL>(typename PrimitiveTypeTraits<TYPE_NULL>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_TINYINT>(                                                 \
+            typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType && rhs);                          \
+    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                                \
+            typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType && rhs);                         \
+    template void Field::FUNC_NAME<TYPE_INT>(typename PrimitiveTypeTraits<TYPE_INT>::CppType &&   \
+                                             rhs);                                                \
+    template void Field::FUNC_NAME<TYPE_BIGINT>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                                \
+            typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType && rhs);                         \
+    template void Field::FUNC_NAME<TYPE_DATE>(typename PrimitiveTypeTraits<TYPE_DATE>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_DATETIME>(                                                \
+            typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType && rhs);                         \
+    template void Field::FUNC_NAME<TYPE_DATEV2>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                              \
+            typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType && rhs);                       \
+    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                               \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType && rhs);                        \
+    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                               \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType && rhs);                        \
+    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                               \
+            typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType && rhs);                        \
+    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                             \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType && rhs);                      \
+    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                              \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType && rhs);                       \
+    template void Field::FUNC_NAME<TYPE_CHAR>(typename PrimitiveTypeTraits<TYPE_CHAR>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                                 \
+            typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType && rhs);                          \
+    template void Field::FUNC_NAME<TYPE_STRING>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_STRING>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_VARBINARY>(                                               \
+            typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType && rhs);                        \
+    template void Field::FUNC_NAME<TYPE_HLL>(typename PrimitiveTypeTraits<TYPE_HLL>::CppType &&   \
+                                             rhs);                                                \
+    template void Field::FUNC_NAME<TYPE_VARIANT>(                                                 \
+            typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType && rhs);                          \
+    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                          \
+            typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType && rhs);                   \
+    template void Field::FUNC_NAME<TYPE_ARRAY>(                                                   \
+            typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType && rhs);                            \
+    template void Field::FUNC_NAME<TYPE_NULL>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_NULL>::CppType& rhs);                         \
+    template void Field::FUNC_NAME<TYPE_TINYINT>(                                                 \
+            const typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType& rhs);                      \
+    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                                \
+            const typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType& rhs);                     \
+    template void Field::FUNC_NAME<TYPE_INT>(                                                     \
+            const typename PrimitiveTypeTraits<TYPE_INT>::CppType& rhs);                          \
+    template void Field::FUNC_NAME<TYPE_BIGINT>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                                \
+            const typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType& rhs);                     \
+    template void Field::FUNC_NAME<TYPE_DATE>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_DATE>::CppType& rhs);                         \
+    template void Field::FUNC_NAME<TYPE_DATETIME>(                                                \
+            const typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType& rhs);                     \
+    template void Field::FUNC_NAME<TYPE_DATEV2>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                              \
+            const typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType& rhs);                   \
+    template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType& rhs);                  \
+    template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                             \
+            typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType && rhs);                      \
+    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType& rhs);                    \
+    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType& rhs);                    \
+    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType& rhs);                    \
+    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType& rhs);                  \
+    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                              \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType& rhs);                   \
+    template void Field::FUNC_NAME<TYPE_CHAR>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_CHAR>::CppType& rhs);                         \
+    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                                 \
+            const typename PrimitiveTypeTraits<TYPE_VARCHAR>::CppType& rhs);                      \
+    template void Field::FUNC_NAME<TYPE_STRING>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_STRING>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_VARBINARY>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType& rhs);                    \
+    template void Field::FUNC_NAME<TYPE_HLL>(                                                     \
+            const typename PrimitiveTypeTraits<TYPE_HLL>::CppType& rhs);                          \
+    template void Field::FUNC_NAME<TYPE_VARIANT>(                                                 \
+            const typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType& rhs);                      \
+    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                          \
+            const typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType& rhs);               \
+    template void Field::FUNC_NAME<TYPE_ARRAY>(                                                   \
+            const typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType& rhs);                        \
+    template void Field::FUNC_NAME<TYPE_IPV4>(typename PrimitiveTypeTraits<TYPE_IPV4>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_IPV4>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_IPV4>::CppType& rhs);                         \
+    template void Field::FUNC_NAME<TYPE_IPV6>(typename PrimitiveTypeTraits<TYPE_IPV6>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_IPV6>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_IPV6>::CppType& rhs);                         \
+    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                                 \
+            typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType && rhs);                          \
+    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                                 \
+            const typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType& rhs);                      \
+    template void Field::FUNC_NAME<TYPE_FLOAT>(                                                   \
+            typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType && rhs);                            \
+    template void Field::FUNC_NAME<TYPE_FLOAT>(                                                   \
+            const typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType& rhs);                        \
+    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_JSONB>(                                                   \
+            typename PrimitiveTypeTraits<TYPE_JSONB>::CppType && rhs);                            \
+    template void Field::FUNC_NAME<TYPE_JSONB>(                                                   \
+            const typename PrimitiveTypeTraits<TYPE_JSONB>::CppType& rhs);                        \
+    template void Field::FUNC_NAME<TYPE_STRUCT>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_STRUCT>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_MAP>(typename PrimitiveTypeTraits<TYPE_MAP>::CppType &&   \
+                                             rhs);                                                \
+    template void Field::FUNC_NAME<TYPE_MAP>(                                                     \
+            const typename PrimitiveTypeTraits<TYPE_MAP>::CppType& rhs);                          \
+    template void Field::FUNC_NAME<TYPE_BITMAP>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_BITMAP>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_UINT32>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_UINT32>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_UINT32>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_UINT32>::CppType && rhs);                           \
+    template void Field::FUNC_NAME<TYPE_UINT64>(                                                  \
+            const typename PrimitiveTypeTraits<TYPE_UINT64>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_UINT64>(                                                  \
+            typename PrimitiveTypeTraits<TYPE_UINT64>::CppType && rhs);
+
 DECLARE_FUNCTION(create_concrete)
 DECLARE_FUNCTION(assign_concrete)
 

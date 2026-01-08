@@ -1177,7 +1177,7 @@ class FieldVisitorToNumberOfDimensions : public StaticVisitor<size_t> {
 public:
     FieldVisitorToNumberOfDimensions() = default;
     template <PrimitiveType T>
-    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+    size_t apply(const typename PrimitiveTypeTraits<T>::CppType& x) {
         if constexpr (T == TYPE_ARRAY) {
             const size_t size = x.size();
             size_t dimensions = 0;
@@ -1198,7 +1198,7 @@ public:
 class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
     template <PrimitiveType T>
-    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+    size_t apply(const typename PrimitiveTypeTraits<T>::CppType& x) {
         if constexpr (T == TYPE_ARRAY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
         } else if constexpr (T == TYPE_BIGINT) {
@@ -1238,7 +1238,7 @@ private:
 class FieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
     template <PrimitiveType T>
-    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+    size_t apply(const typename PrimitiveTypeTraits<T>::CppType& x) {
         if constexpr (T == TYPE_ARRAY) {
             size_t size = x.size();
             for (size_t i = 0; i < size; ++i) {

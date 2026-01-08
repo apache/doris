@@ -393,8 +393,7 @@ public:
 
         CPP_TYPE cpp_val;
         if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
-            auto field_val =
-                    doris::vectorized::get<doris::vectorized::NearestFieldType<CPP_TYPE>>(*value);
+            auto field_val = value->template get<typename PrimitiveTypeTraits<PT>::CppType>();
             cpp_val = static_cast<CPP_TYPE>(field_val);
         } else {
             cpp_val = static_cast<CPP_TYPE>(*value);

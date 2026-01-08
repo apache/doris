@@ -700,7 +700,7 @@ private:
             auto& n = null_map->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>(), n[i]);
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::type>(), n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -708,7 +708,7 @@ private:
             auto& c = column_result->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>());
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::type>());
             }
             return column_result;
         }
@@ -727,7 +727,7 @@ private:
             auto& n = null_map->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i], n[i]);
+                c[i] = Impl::apply(column_left_ptr->template get_value<Impl::type>(), b[i], n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -735,7 +735,7 @@ private:
             auto& c = column_result->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i]);
+                c[i] = Impl::apply(column_left_ptr->template get_value<Impl::type>(), b[i]);
             }
             return column_result;
         }

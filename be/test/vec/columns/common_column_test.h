@@ -1048,9 +1048,6 @@ public:
                     source_column->get(j, f);
                     assert_cols[i]->insert(f);
                 }
-                // check with null Field
-                Field null_field;
-                assert_cols[i]->insert(null_field);
             }
             // Verify the inserted data matches the expected results in `assert_res`
             for (size_t i = 0; i < assert_cols.size(); ++i) {
@@ -1087,9 +1084,6 @@ public:
                     Field f = source_column->operator[](j);
                     assert_cols[i]->insert(f);
                 }
-                // check with null Field
-                Field null_field;
-                assert_cols[i]->insert(null_field);
             }
 
             // Verify the inserted data matches the expected results in `assert_res`

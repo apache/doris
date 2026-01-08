@@ -347,13 +347,15 @@ TEST_F(ColumnVarbinaryTest, FieldAccessOperatorAndGet) {
     for (size_t i = 0; i < vals.size(); ++i) {
         // operator[]
         Field f = (*col)[i];
-        const auto& sv = vectorized::get<const StringViewField&>(f);
+        const auto& sv =
+                vectorized::get<const typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType&>(f);
         ASSERT_EQ(sv.size(), vals[i].size());
         ASSERT_EQ(memcmp(sv.data(), vals[i].data(), sv.size()), 0);
         // get(size_t, Field&)
         Field f2;
         col->get(i, f2);
-        const auto& sv2 = vectorized::get<const StringViewField&>(f2);
+        const auto& sv2 =
+                vectorized::get<const typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType&>(f2);
         ASSERT_EQ(sv2.size(), vals[i].size());
         ASSERT_EQ(memcmp(sv2.data(), vals[i].data(), sv2.size()), 0);
     }

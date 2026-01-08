@@ -223,7 +223,7 @@ struct literal_traits<TYPE_FLOAT> {
 
 template <>
 struct literal_traits<TYPE_DOUBLE> {
-    const static TPrimitiveType::type ttype = TPrimitiveType::FLOAT;
+    const static TPrimitiveType::type ttype = TPrimitiveType::DOUBLE;
     const static TExprNodeType::type tnode_type = TExprNodeType::FLOAT_LITERAL;
     using CXXType = float;
 };
@@ -497,7 +497,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<double>();
+        auto v = (*ctn.column)[0].get<float>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
         EXPECT_EQ("1024", literal.value());
 
@@ -513,8 +513,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
-        EXPECT_FLOAT_EQ(v, 1024.0);
-        EXPECT_EQ("1024", literal.value());
+        EXPECT_FLOAT_EQ(v, 1024.0) << ctn.column->get_name();
+        EXPECT_EQ("1024", literal.value()) << ctn.column->get_name();
 
         auto node = std::make_shared<VLiteral>(
                 create_texpr_node_from((*ctn.column)[0], TYPE_DOUBLE, 0, 0), true);
@@ -699,8 +699,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
-        EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        auto v = (*ctn.column)[0].get<Decimal128V2>();
+        EXPECT_FLOAT_EQ(((double)v) / (std::pow(10, 9)), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
 
         auto node = std::make_shared<VLiteral>(

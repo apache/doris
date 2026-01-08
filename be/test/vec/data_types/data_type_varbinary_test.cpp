@@ -87,7 +87,7 @@ TEST_F(DataTypeVarbinaryTest, CreateColumnAndCheckColumn) {
 TEST_F(DataTypeVarbinaryTest, GetDefaultField) {
     DataTypeVarbinary dt;
     Field def = dt.get_default();
-    const auto& sv = get<const StringViewField&>(def);
+    const auto& sv = get<const StringView&>(def);
     EXPECT_EQ(sv.size(), 0U);
 }
 
@@ -176,7 +176,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldWithDataType) {
 
     auto fwd = dt.get_field_with_data_type(*col, 0);
     EXPECT_EQ(fwd.base_scalar_type_id, PrimitiveType::TYPE_VARBINARY);
-    const auto& sv = get<const StringViewField&>(fwd.field);
+    const auto& sv = get<const StringView&>(fwd.field);
     ASSERT_EQ(sv.size(), v.size());
     ASSERT_EQ(memcmp(sv.data(), v.data(), sv.size()), 0);
 }
@@ -189,7 +189,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNode) {
     node.__isset.varbinary_literal = true;
 
     Field f = dt.get_field(node);
-    const auto& sv = get<const StringViewField&>(f);
+    const auto& sv = get<const StringView&>(f);
     ASSERT_EQ(sv.size(), 5U);
     ASSERT_EQ(memcmp(sv.data(), "hello", 5), 0);
 }
@@ -276,7 +276,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNodeWithEmbeddedNull) {
     node.__isset.varbinary_literal = true;
 
     Field f = dt.get_field(node);
-    const auto& sv = get<const StringViewField&>(f);
+    const auto& sv = get<const StringView&>(f);
     ASSERT_EQ(sv.size(), raw.size());
     ASSERT_EQ(memcmp(sv.data(), raw.data(), sv.size()), 0);
 }
@@ -299,7 +299,7 @@ TEST_F(DataTypeVarbinaryTest, GetFieldWithDataTypeNonInline) {
 
     auto fwd = dt.get_field_with_data_type(*col, 0);
     EXPECT_EQ(fwd.base_scalar_type_id, PrimitiveType::TYPE_VARBINARY);
-    const auto& sv = get<const StringViewField&>(fwd.field);
+    const auto& sv = get<const StringView&>(fwd.field);
     ASSERT_EQ(sv.size(), big.size());
     ASSERT_EQ(memcmp(sv.data(), big.data(), sv.size()), 0);
 }
