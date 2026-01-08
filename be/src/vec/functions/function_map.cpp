@@ -812,7 +812,8 @@ public:
         ColumnNullable* result_nullable_column = nullptr;
         if (result_col->is_nullable()) {
             result_nullable_column = assert_cast<ColumnNullable*>(result_col.get());
-            result_map_column = assert_cast<ColumnMap*>(result_nullable_column->get_nested_column_ptr().get());
+            result_map_column =
+                    assert_cast<ColumnMap*>(result_nullable_column->get_nested_column_ptr().get());
         } else {
             result_map_column = assert_cast<ColumnMap*>(result_col.get());
         }
@@ -834,7 +835,8 @@ public:
                         block.get_by_position(col).column->convert_to_full_column_if_const();
                 if (src_column->is_nullable()) {
                     auto nullable_column = assert_cast<const ColumnNullable*>(src_column.get());
-                    map_column = assert_cast<const ColumnMap*>(nullable_column->get_nested_column_ptr().get());
+                    map_column = assert_cast<const ColumnMap*>(
+                            nullable_column->get_nested_column_ptr().get());
                 } else {
                     map_column = assert_cast<const ColumnMap*>(src_column.get());
                 }
