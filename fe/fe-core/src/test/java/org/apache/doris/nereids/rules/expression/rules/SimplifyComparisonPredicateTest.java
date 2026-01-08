@@ -397,40 +397,32 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                         new GreaterThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 00:00:00.00")),
                         new LessThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 23:59:59.99")),
                         new Not(new IsNull(datetime2)))));
+
+        // when cast from high scale datetime to low scale datetime, don't change anything because the cast may generate null
         assertRewrite(new GreaterThan(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")),
-                new GreaterThan(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.99")));
+                new GreaterThan(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")));
         assertRewrite(new GreaterThanEqual(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")),
-                new GreaterThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.00")));
+                new GreaterThanEqual(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")));
         assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")),
-                new LessThan(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.00")));
+                new LessThan(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")));
         assertRewrite(new LessThanEqual(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")),
-                new LessThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.99")));
+                new LessThanEqual(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")));
         assertRewrite(new EqualTo(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")),
-                new And(
-                        new GreaterThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.00")),
-                        new LessThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.99"))));
+                new EqualTo(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")));
         assertRewrite(new NullSafeEqual(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")),
-                new And(ImmutableList.of(
-                        new GreaterThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.00")),
-                        new LessThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.99")),
-                        new Not(new IsNull(datetime2)))));
+                new NullSafeEqual(new Cast(datetime2, DateTimeV2Type.of(0)), new DateTimeV2Literal(DateTimeV2Type.of(0), "9999-12-31 12:34:56")));
         assertRewrite(new GreaterThan(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")),
-                new GreaterThan(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.79")));
+                new GreaterThan(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")));
         assertRewrite(new GreaterThanEqual(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")),
-                new GreaterThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.70")));
+                new GreaterThanEqual(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")));
         assertRewrite(new LessThan(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")),
-                new LessThan(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.70")));
+                new LessThan(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")));
         assertRewrite(new LessThanEqual(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")),
-                new LessThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.79")));
+                new LessThanEqual(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")));
         assertRewrite(new EqualTo(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")),
-                new And(
-                        new GreaterThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.70")),
-                        new LessThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.79"))));
+                new EqualTo(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")));
         assertRewrite(new NullSafeEqual(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")),
-                new And(ImmutableList.of(
-                        new GreaterThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.70")),
-                        new LessThanEqual(datetime2, new DateTimeV2Literal(DateTimeV2Type.of(2), "9999-12-31 12:34:56.79")),
-                        new Not(new IsNull(datetime2)))));
+                new NullSafeEqual(new Cast(datetime2, DateTimeV2Type.of(1)), new DateTimeV2Literal(DateTimeV2Type.of(1), "9999-12-31 12:34:56.7")));
 
         assertRewrite(new EqualTo(new Cast(datetime0, DateTimeV2Type.of(1)), new DateTimeV2Literal("9999-12-31 23:59:59.1")),
                 ExpressionUtils.falseOrNull(datetime0));
