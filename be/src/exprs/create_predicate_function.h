@@ -48,16 +48,15 @@ public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function(bool null_aware) {
-        using CppType = typename PrimitiveTypeTraits<type>::CppType;
         if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
             using Set = std::conditional_t<
-                    std::is_same_v<CppType, StringRef>, StringSet<>,
+                    is_string_type(type), StringSet<>,
                     HybridSet<type,
                               FixedContainer<typename PrimitiveTypeTraits<type>::CppType, N>>>;
             return new Set(null_aware);
         } else {
             using Set = std::conditional_t<
-                    std::is_same_v<CppType, StringRef>, StringSet<>,
+                    is_string_type(type), StringSet<>,
                     HybridSet<type, DynamicContainer<typename PrimitiveTypeTraits<type>::CppType>>>;
             return new Set(null_aware);
         }

@@ -258,22 +258,22 @@ public:
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
                                      cast_set<int>(node.decimal_literal.value.size())) ==
                 E_DEC_OK) {
-                return Field::create_field<TYPE_DECIMALV2>(
-                        DecimalField<FieldType>(value.value(), value.scale()));
+                return Field::create_field<TYPE_DECIMALV2>(std::move(value));
             } else {
                 throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                        "Invalid decimal(scale: {}) value: {}", value.scale(),
                                        node.decimal_literal.value);
             }
+        } else {
+            // decimal
+            FieldType val;
+            if (!parse_from_string(node.decimal_literal.value, &val)) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid value: {} for type {}", node.decimal_literal.value,
+                                       do_get_name());
+            };
+            return Field::create_field<T>(std::move(val));
         }
-        // decimal
-        FieldType val;
-        if (!parse_from_string(node.decimal_literal.value, &val)) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type {}", node.decimal_literal.value,
-                                   do_get_name());
-        };
-        return Field::create_field<T>(DecimalField<FieldType>(val, scale));
     }
 
     MutableColumnPtr create_column() const override;
