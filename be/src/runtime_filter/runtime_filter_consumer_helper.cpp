@@ -135,8 +135,8 @@ Status RuntimeFilterConsumerHelper::clone_conjunct_ctxs(
         vectorized::VExprContextSPtrs& local_state_conjuncts) {
     std::unique_lock l(_rf_locks);
     scanner_conjuncts.resize(local_state_conjuncts.size());
-    for (size_t i = 0; i != _conjuncts.size(); ++i) {
-        RETURN_IF_ERROR(_conjuncts[i]->clone(state(), conjuncts[i]));
+    for (size_t i = 0; i != local_state_conjuncts.size(); ++i) {
+        RETURN_IF_ERROR(local_state_conjuncts[i]->clone(state, scanner_conjuncts[i]));
     }
     return Status::OK();
 }
