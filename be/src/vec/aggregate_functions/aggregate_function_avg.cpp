@@ -28,13 +28,25 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+constexpr PrimitiveType result_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else if (is_decimalv3(T) && T != TYPE_DECIMAL256) {
+        return TYPE_DECIMAL128I;
+    } else {
+        return T;
+    }
+}
+
 // TODO: use result type got from FE plan
 template <PrimitiveType T>
 struct Avg {
     static constexpr PrimitiveType ResultPType = T == TYPE_DECIMALV2 ? T : TYPE_DOUBLE;
-    using Function = AggregateFunctionAvg<
-            T, ResultPType,
-            AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType>>;
+    using Function = AggregateFunctionAvg<T, ResultPType, AggregateFunctionAvgData<result_type(T)>>;
 };
 
 template <PrimitiveType T>
