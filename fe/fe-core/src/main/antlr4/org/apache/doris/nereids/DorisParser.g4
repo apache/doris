@@ -1703,6 +1703,7 @@ functionNameIdentifier
     | CURRENT_USER
     | DATABASE
     | IF
+    | INTERVAL
     | LEFT
     | LIKE
     | PASSWORD
