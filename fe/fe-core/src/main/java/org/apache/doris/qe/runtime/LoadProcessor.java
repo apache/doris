@@ -85,7 +85,7 @@ public class LoadProcessor extends AbstractJobProcessor {
     @Override
     protected void afterSetPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {
         Map<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks = this.backendFragmentTasks.get();
-        MarkedCountDownLatch<Integer, Long> latch = new MarkedCountDownLatch<>(backendFragmentTasks.size());
+        MarkedCountDownLatch<Integer, Long> latch = new MarkedCountDownLatch<>();
         for (BackendFragmentId backendFragmentId : backendFragmentTasks.keySet()) {
             latch.addMark(backendFragmentId.fragmentId, backendFragmentId.backendId);
         }
@@ -107,7 +107,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         this.topFragmentTasks = topFragmentTasks;
 
         // only wait top fragments
-        MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>(topFragmentTasks.size());
+        MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>();
         for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
             topFragmentLatch.addMark(topFragmentTask.getFragmentId(), topFragmentTask.getBackend().getId());
         }

@@ -559,12 +559,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             DeleteJob deleteJob = ConnectContext.get() != null && ConnectContext.get().isTxnModel()
                     ? new TxnDeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo)
                     : new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
-            long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
             deleteJob.setPartitions(partitions);
             deleteJob.setDeleteConditions(params.getDeleteConditions());
             deleteJob.setTargetDb(params.getDb());
             deleteJob.setTargetTbl(params.getTable());
-            deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
+            deleteJob.setCountDownLatch(new MarkedCountDownLatch<>());
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
                 deleteJob.setTimeoutS(connectContext.getExecTimeoutS());
@@ -596,7 +595,6 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             DeleteJob deleteJob = ConnectContext.get() != null && ConnectContext.get().isTxnModel()
                     ? new TxnDeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo)
                     : new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
-            long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
             deleteJob.setPartitions(partitions);
             deleteJob.setDeleteConditions(params.getDeleteConditions());
             deleteJob.setTargetDb(params.getDb());

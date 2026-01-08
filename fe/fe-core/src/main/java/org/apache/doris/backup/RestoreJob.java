@@ -1041,7 +1041,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 .stream()
                 .mapToInt(AgentBatchTask::getTaskNum)
                 .sum();
-        createReplicaTasksLatch = new MarkedCountDownLatch<>(numBatchTasks);
+        createReplicaTasksLatch = new MarkedCountDownLatch<>();
         if (numBatchTasks > 0) {
             LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. {}",
                     numBatchTasks, this);

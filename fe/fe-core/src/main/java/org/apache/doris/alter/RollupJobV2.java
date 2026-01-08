@@ -212,7 +212,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 totalReplicaNum += tablet.getReplicas().size();
             }
         }
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>();
         OlapTable tbl;
         try {
             tbl = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);

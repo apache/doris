@@ -261,7 +261,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 totalReplicaNum += tablet.getReplicas().size();
             }
         }
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>();
 
         OlapTable tbl;
         try {

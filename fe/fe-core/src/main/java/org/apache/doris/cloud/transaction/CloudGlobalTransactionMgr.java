@@ -1302,9 +1302,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         stopWatch.start();
         boolean res = false;
         try {
-            int totalTaskNum = backendToPartitionInfos.size();
-            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(
-                    totalTaskNum);
+            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>();
             AgentBatchTask batchTask = new AgentBatchTask();
 
             long signature = getTxnLastSignature(dbId, transactionId);

@@ -33,15 +33,9 @@ public class MarkedCountDownLatch<K, V>  {
     private Multimap<K, V> marks;
     private Multimap<K, V> failedMarks;
     private Status st = Status.OK;
-    private int markCount = 0;
+    private int markCount;
     private CountDownLatch downLatch;
 
-    public MarkedCountDownLatch(int count) {
-        this.markCount = count;
-        this.downLatch = new CountDownLatch(count);
-        marks = HashMultimap.create();
-        failedMarks = HashMultimap.create();
-    }
 
     public MarkedCountDownLatch() {
         marks = HashMultimap.create();

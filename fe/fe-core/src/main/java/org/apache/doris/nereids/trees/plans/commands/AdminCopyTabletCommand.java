@@ -193,7 +193,7 @@ public class AdminCopyTabletCommand extends ShowCommand {
                 tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, version, 0,
                 getExpirationMinutes() * 60 * 1000, false);
         task.setIsCopyTabletTask(true);
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(1);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>();
         countDownLatch.addMark(backendId, tabletId);
         task.setCountDownLatch(countDownLatch);
 

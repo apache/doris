@@ -2773,7 +2773,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         int totalTaskNum = beIdToTabletIdWithHash.keySet().size();
-        MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> countDownLatch = new MarkedCountDownLatch<>(totalTaskNum);
+        MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> countDownLatch = new MarkedCountDownLatch<>();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Map.Entry<Long, Set<Pair<Long, Integer>>> kv : beIdToTabletIdWithHash.entrySet()) {
             countDownLatch.addMark(kv.getKey(), kv.getValue());

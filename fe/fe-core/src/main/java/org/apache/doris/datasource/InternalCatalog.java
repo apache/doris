@@ -2093,7 +2093,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             KeysType keysType = indexMeta.getKeysType();
             List<Index> indexes = indexId == tbl.getBaseIndexId() ? tbl.getCopiedIndexes() : null;
             int totalTaskNum = index.getTablets().size() * totalReplicaNum;
-            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
+            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>();
             AgentBatchTask batchTask = new AgentBatchTask();
             List<String> rowStoreColumns = tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {

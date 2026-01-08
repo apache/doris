@@ -365,7 +365,7 @@ public class NodeAction extends RestBaseController {
         // The configuration information returned by each node is a List<List<String>> type,
         // configInfoTotal is used to store the configuration information of all nodes.
         List<List<List<String>>> configInfoTotal = Lists.newArrayList();
-        MarkedCountDownLatch<String, Integer> configRequestDoneSignal = new MarkedCountDownLatch<>(hostPorts.size());
+        MarkedCountDownLatch<String, Integer> configRequestDoneSignal = new MarkedCountDownLatch<>();
         for (int i = 0; i < hostPorts.size(); ++i) {
             configInfoTotal.add(Lists.newArrayList());
 
@@ -815,9 +815,7 @@ public class NodeAction extends RestBaseController {
             List<Map<String, String>> failedTotal) {
         initHttpExecutor();
 
-        int configNum = nodeConfigList.stream().mapToInt(e -> e.getConfigs(true).size() + e.getConfigs(false).size())
-                .sum();
-        MarkedCountDownLatch<String, Integer> beSetConfigCountDownSignal = new MarkedCountDownLatch<>(configNum);
+        MarkedCountDownLatch<String, Integer> beSetConfigCountDownSignal = new MarkedCountDownLatch<>();
         for (NodeConfigs nodeConfigs : nodeConfigList) {
             submitBeSetConfigTask(nodeConfigs, true, authorization, beSetConfigCountDownSignal, failedTotal);
             submitBeSetConfigTask(nodeConfigs, false, authorization, beSetConfigCountDownSignal, failedTotal);
