@@ -642,31 +642,6 @@ bool FSFileCacheStorage::handle_already_loaded_block(
     return true;
 }
 
-bool FSFileCacheStorage::handle_already_loaded_block(
-        BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset, size_t new_size,
-        int64_t tablet_id, std::lock_guard<std::mutex>& cache_lock) const {
-    auto file_it = mgr->_files.find(hash);
-    if (file_it == mgr->_files.end()) {
-        return false;
-    }
-
-    auto cell_it = file_it->second.find(offset);
-    if (cell_it == file_it->second.end()) {
-        return false;
-    }
-
-    auto block = cell_it->second.file_block;
-    if (tablet_id != 0 && block->tablet_id() == 0) {
-        block->set_tablet_id(tablet_id);
-    }
-
-    size_t old_size = block->range().size();
-    if (old_size != new_size) {
-        mgr->reset_range(hash, offset, old_size, new_size, cache_lock);
-    }
-    return true;
-}
-
 void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr) const {
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
@@ -943,6 +918,34 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* mgr) const 
         return;
     }
     if (version == "3.0") {
+        return;
+    }
+
+    // If cache directory is effectively empty (no cache data entries), write version hint and
+    // return directly.
+    auto is_cache_base_path_empty = [&]() -> bool {
+        std::error_code ec;
+        std::filesystem::directory_iterator it {_cache_base_path, ec};
+        if (ec) {
+            LOG(WARNING) << "Failed to list cache directory: " << _cache_base_path
+                         << ", error: " << ec.message();
+            return false;
+        }
+
+        for (; it != std::filesystem::directory_iterator(); ++it) {
+            auto name = it->path().filename().native();
+            if (name == META_DIR_NAME || name == "version") {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    };
+
+    if (is_cache_base_path_empty()) {
+        if (st = write_file_cache_version(); !st.ok()) {
+            LOG(WARNING) << "Failed to write version hints for file cache, err=" << st.to_string();
+        }
         return;
     }
 
@@ -1383,7 +1386,9 @@ void FSFileCacheStorage::leak_cleaner_loop() {
             std::max<int64_t>(1, config::file_cache_leak_scan_interval_seconds);
     std::mt19937_64 rng(std::random_device {}());
     std::uniform_int_distribution<int64_t> dist(0, interval_seconds);
-    const int64_t initial_delay = dist(rng);
+    int64_t initial_delay = dist(rng);
+    TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::leak_cleaner_loop::initial_delay",
+                             &initial_delay);
     if (initial_delay > 0) {
         std::unique_lock<std::mutex> lock(_leak_cleaner_mutex);
         _leak_cleaner_cv.wait_for(lock, std::chrono::seconds(initial_delay), [this]() {
@@ -1396,7 +1401,9 @@ void FSFileCacheStorage::leak_cleaner_loop() {
     }
 
     while (!_stop_leak_cleaner.load(std::memory_order_relaxed)) {
-        auto interval = std::chrono::seconds(interval_seconds);
+        int64_t interval_s = interval_seconds;
+        TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::leak_cleaner_loop::interval", &interval_s);
+        auto interval = std::chrono::seconds(interval_s);
         std::unique_lock<std::mutex> lock(_leak_cleaner_mutex);
         _leak_cleaner_cv.wait_for(lock, interval, [this]() {
             return _stop_leak_cleaner.load(std::memory_order_relaxed);
