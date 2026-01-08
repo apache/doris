@@ -45,6 +45,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -64,6 +66,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * push down aggregation
@@ -106,21 +109,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             return agg;
         }
 
-        List<AggregateFunction> aggFunctions = new ArrayList<>();
-
-        for (AggregateFunction aggFunction : agg.getAggregateFunctions()) {
-            if (pushDownAggFunctionSet.contains(aggFunction.getClass())
-                    && !aggFunction.isDistinct()) {
-                aggFunctions.add(aggFunction);
-            } else {
-                return agg;
-            }
-        }
-
-        if (!checkSubTreePattern(agg.child())) {
-            return agg;
-        }
-
         List<SlotReference> groupKeys = new ArrayList<>();
         for (Expression groupKey : agg.getGroupByExpressions()) {
             if (groupKey instanceof SlotReference) {
@@ -133,6 +121,35 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     return agg;
                 }
             }
+        }
+
+        List<AggregateFunction> aggFunctions = new ArrayList<>();
+
+        for (AggregateFunction aggFunction : agg.getAggregateFunctions()) {
+            if (pushDownAggFunctionSet.contains(aggFunction.getClass())
+                    && !aggFunction.isDistinct()) {
+                if(aggFunction instanceof Sum && ((Sum) aggFunction).child() instanceof If) {
+                    If body = (If) ((Sum) aggFunction).child();
+                    aggFunctions.add(new Sum(body.getTrueValue()));
+                    if (!(body.getFalseValue() instanceof NullLiteral)) {
+                        aggFunctions.add(new Sum(body.getFalseValue()));
+                    }
+                    groupKeys.addAll(body.getCondition().getInputSlots()
+                            .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
+                } else {
+                    aggFunctions.add(aggFunction);
+                }
+            } else {
+                return agg;
+            }
+        }
+        aggFunctions = aggFunctions.stream().distinct().collect(Collectors.toList());
+        if (!checkSubTreePattern(agg.child())) {
+            return agg;
+        }
+
+        if (!checkSubTreePattern(agg.child())) {
+            return agg;
         }
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
