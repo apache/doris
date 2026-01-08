@@ -472,7 +472,7 @@ suite('test_manager_interface_1',"p0") {
             
             try{
                 sql """ set parallel_pipeline_task_num= 1; """
-                sql """ select count(*) from numbers("number" = "598318892") as a join numbers("number" = "598318892) as b on a.number = b.number ; """
+                sql """ select count(*) from numbers("number" = "598318892") as a join numbers("number" = "598318892") as b on a.number = b.number ; """
             }catch(Exception e){
             }
         })
