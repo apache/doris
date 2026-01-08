@@ -384,7 +384,7 @@ class SuiteCluster {
 
         sqlModeNodeMgr = options.sqlModeNodeMgr
 
-        runCmd(cmd.join(' '), 180)
+        runCmdList(cmd, 180)
 
         // wait be report disk
         Thread.sleep(5000)
@@ -773,6 +773,32 @@ class SuiteCluster {
         def fullCmd = String.format('python -W ignore %s %s -v --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        Awaitility.await().atMost(timeoutSecond, SECONDS).until({
+            proc.waitForProcessOutput(outBuf, errBuf)
+            return true
+        })
+        if (proc.exitValue() != 0) {
+            throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
+                                              proc.exitValue(), outBuf.toString(), errBuf.toString()))
+        }
+        def parser = new JsonSlurper()
+        if (outBuf.toString().size() == 0) {
+            throw new Exception(String.format('doris compose output is empty, err: %s', errBuf.toString()))
+        }
+        def object = (Map<String, Object>) parser.parseText(outBuf.toString())
+        if (object.get('code') != 0) {
+            throw new Exception(String.format('Code: %s != 0, err: %s', object.get('code'), object.get('err')))
+        }
+        return object.get('data')
+    }
+
+    // Execute command with proper argument list to avoid shell escaping issues
+    private Object runCmdList(List<String> cmdList, int timeoutSecond = 60) throws Exception {
+        def fullCmdList = ['python', '-W', 'ignore', config.dorisComposePath] + cmdList + ['-v', '--output-json']
+        logger.info('Run doris compose cmd: {}', fullCmdList.join(' '))
+        def proc = fullCmdList.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
         Awaitility.await().atMost(timeoutSecond, SECONDS).until({
