@@ -210,6 +210,36 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 context.getCascadesContext(), context.isPassThroughBigJoin());
     }
 
+    private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
+        for (SlotReference slot : context.getGroupKeys()) {
+            if (!project.getOutputSet().contains(slot)) {
+                return false;
+            }
+        }
+        for (Slot slot : context.getAggFunctionsInputSlots()) {
+            if (!project.getOutputSet().contains(slot)) {
+                return false;
+            }
+        }
+
+        // push sum(A) through project(x, x+y as A)
+        // if x is not used as group key, do not push through
+        for(Slot slot : context.getAggFunctionsInputSlots()) {
+            for (NamedExpression prj : project.getProjects()) {
+                if (prj instanceof Alias && prj.getExprId() == slot.getExprId()) {
+                    if (prj.getInputSlots().stream()
+                            .anyMatch(
+                                    s -> project.getOutputSet().contains(s)
+                                            && !context.getGroupKeys().contains(s))) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
         if (project.child() instanceof LogicalCatalogRelation
@@ -224,20 +254,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return genAggregate(project, context);
         }
 
-        // check validation
-        // all slots in context are projected
-        List<Slot> slotsInContext = context.getGroupKeys().stream()
-                .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
-        slotsInContext.addAll(context.getAggFunctionsInputSlots());
-        for (Slot slot : slotsInContext) {
-            if (!project.getOutputSet().contains(slot)) {
-                if (SessionVariable.isFeDebug()) {
-                    throw new RuntimeException("push down failed: " + slot + " is not in project \n"
-                            + project.treeString());
-                } else {
-                    return project;
-                }
-            }
+        if (!canPushThroughProject(project, context)) {
+            return genAggregate(project, context);
         }
 
         PushDownAggContext newContext = createContextFromProject(project, context);
@@ -264,7 +282,11 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 if (newChild.getOutputSet().containsAll(ne.getInputSlots())) {
                     newProjections.add(ne);
                 } else {
-                    if (!(ne instanceof SlotReference && aggFuncInputSlots.contains((SlotReference) ne))) {
+                    // if ne is not child output, it means ne is used by aggFunc
+                    // push sum(a) through project(expr as a)
+                    // "sum(expr)" is pushed, and newChild output x, x is alias of sum(expr)
+                    // the new project should output x.
+                    if (!aggFuncInputSlots.contains(ne.toSlot())) {
                         if (SessionVariable.isFeDebug()) {
                             throw new RuntimeException("push down Agg failed: " + ne + " is not in project \n"
                                     + project.treeString());
