@@ -64,7 +64,7 @@ public:
         VecDateTimeValue value;
         if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
             value.cast_to_date();
-            return Field::create_field<TYPE_DATE>(Int64(*reinterpret_cast<__int64_t*>(&value)));
+            return Field::create_field<TYPE_DATE>(std::move(value));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type Date", node.date_literal.value);

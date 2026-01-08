@@ -111,7 +111,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * This field is used to perform metadata operations like creating, querying,
      * and deleting Iceberg tables.
      */
-    public final Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public final Catalog initializeCatalog(String catalogName,
+                                                        List<StorageProperties> storagePropertiesList) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
         if (StringUtils.isNotBlank(warehouse)) {
             catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);

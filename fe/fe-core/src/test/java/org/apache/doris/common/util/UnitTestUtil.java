@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -72,9 +73,9 @@ public class UnitTestUtil {
                                         long tabletId, long backendId, long version) {
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, 0);
-        Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, 0);
-        Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, 0);
+        Replica replica1 = new LocalReplica(replicaId, backendId, ReplicaState.NORMAL, version, 0);
+        Replica replica2 = new LocalReplica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, 0);
+        Replica replica3 = new LocalReplica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, 0);
 
         // tablet
         Tablet tablet = new LocalTablet(tabletId);

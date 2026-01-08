@@ -97,9 +97,7 @@ private:
                     }
                     if (!_cur_probe_row_visited_flags[i]) {
                         _cur_probe_row_visited_flags[i] =
-                                simd::contain_byte<uint8_t>(filter.data() + offset, end - offset, 1)
-                                        ? 1
-                                        : 0;
+                                simd::contain_one(filter.data() + offset, end - offset);
                     }
                     end = offset;
                 }

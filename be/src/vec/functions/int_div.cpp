@@ -80,8 +80,8 @@ private:
         ColumnPtr column_result = nullptr;
 
         column_result =
-                Impl::constant_constant(column_left_ptr->template get_value<typename Impl::Arg>(),
-                                        column_right_ptr->template get_value<typename Impl::Arg>());
+                Impl::constant_constant(column_left_ptr->template get_value<Impl::ResultType>(),
+                                        column_right_ptr->template get_value<Impl::ResultType>());
 
         return ColumnConst::create(std::move(column_result), column_left->size());
     }
@@ -91,14 +91,14 @@ private:
         DCHECK(column_right_ptr != nullptr);
 
         return Impl::vector_constant(column_left->get_ptr(),
-                                     column_right_ptr->template get_value<typename Impl::Arg>());
+                                     column_right_ptr->template get_value<Impl::ResultType>());
     }
 
     ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
         DCHECK(column_left_ptr != nullptr);
 
-        return Impl::constant_vector(column_left_ptr->template get_value<typename Impl::Arg>(),
+        return Impl::constant_vector(column_left_ptr->template get_value<Impl::ResultType>(),
                                      column_right->get_ptr());
     }
 
