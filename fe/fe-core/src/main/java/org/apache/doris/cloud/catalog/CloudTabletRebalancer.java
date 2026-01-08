@@ -60,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -138,6 +139,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private BalanceTypeEnum globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
 
     private Set<Long> activeTabletIds = new HashSet<>();
+
+    // cache for scheduling order in one daemon run (rebuilt in statRouteInfo)
+    // table/partition active count is computed from activeTabletIds
+    private volatile Map<Long, Long> tableIdToActiveCount = new ConcurrentHashMap<>();
+    private volatile Map<Long, Long> partitionIdToActiveCount = new ConcurrentHashMap<>();
+    private volatile Map<Long, Long> dbIdToActiveCount = new ConcurrentHashMap<>();
+    private volatile Map<Long, Long> tableIdToDbId = new ConcurrentHashMap<>();
+    private volatile Map<Long, Long> partitionIdToDbId = new ConcurrentHashMap<>();
+    private static final Set<String> INTERNAL_DB_NAMES = Sets.newHashSet("__internal_schema", "information_schema");
 
     /**
      * Get the current balance type for a compute group, falling back to global balance type if not found
@@ -1009,9 +1019,24 @@ public class CloudTabletRebalancer extends MasterDaemon {
         beToTabletsInTable = new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>();
         futureBeToTabletsInTable = new ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>();
 
+        // rebuild scheduling caches for this run
+        Map<Long, Long> tmpTableActive = new HashMap<>();
+        Map<Long, Long> tmpPartitionActive = new HashMap<>();
+        Map<Long, Long> tmpDbActive = new HashMap<>();
+        Map<Long, Long> tmpTableToDb = new HashMap<>();
+        Map<Long, Long> tmpPartitionToDb = new HashMap<>();
+
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             boolean isColocated = Env.getCurrentColocateIndex().isColocateTable(table.getId());
+            tmpTableToDb.put(table.getId(), db.getId());
+            tmpPartitionToDb.put(partition.getId(), db.getId());
             for (Tablet tablet : index.getTablets()) {
+                // active tablet scoring (used for scheduling order)
+                if (activeTabletIds != null && !activeTabletIds.isEmpty() && activeTabletIds.contains(tablet.getId())) {
+                    tmpTableActive.merge(table.getId(), 1L, Long::sum);
+                    tmpPartitionActive.merge(partition.getId(), 1L, Long::sum);
+                    tmpDbActive.merge(db.getId(), 1L, Long::sum);
+                }
                 for (Replica r : tablet.getReplicas()) {
                     CloudReplica replica = (CloudReplica) r;
                     if (isColocated) {
@@ -1059,6 +1084,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
         futureBeToTabletsGlobal = tmpFutureBeToTabletsGlobal;
         beToTabletsGlobalInSecondary = tmpBeToTabletsGlobalInSecondary;
         beToColocateTabletsGlobal = tmpBeToColocateTabletsGlobal;
+
+        tableIdToActiveCount = new ConcurrentHashMap<>(tmpTableActive);
+        partitionIdToActiveCount = new ConcurrentHashMap<>(tmpPartitionActive);
+        dbIdToActiveCount = new ConcurrentHashMap<>(tmpDbActive);
+        tableIdToDbId = new ConcurrentHashMap<>(tmpTableToDb);
+        partitionIdToDbId = new ConcurrentHashMap<>(tmpPartitionToDb);
     }
 
     public void loopCloudReplica(Operator operator) {
@@ -1092,12 +1123,35 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public void balanceInPartition(List<Long> bes, String clusterId, List<UpdateCloudReplicaInfo> infos) {
-        // balance all partition
+        // balance all partition (prefer active partitions/tables, put internal db at tail)
+        Iterable<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>>> partitions;
+        if (Config.enable_cloud_active_tablet_priority_scheduling) {
+            List<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>>> sorted =
+                    new ArrayList<>(futurePartitionToTablets.entrySet());
+            sorted.sort(partitionEntryComparator());
+            partitions = sorted;
+            if (LOG.isDebugEnabled() && !sorted.isEmpty()) {
+                Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>> top = sorted.get(0);
+                long partId = top.getKey();
+                LOG.debug("partition scheduling enabled: topPartitionId={}, activeCnt={}, dbActiveCnt={}, cluster={}",
+                        partId,
+                        partitionIdToActiveCount.getOrDefault(partId, 0L),
+                        dbIdToActiveCount.getOrDefault(partitionIdToDbId.get(partId), 0L),
+                        clusterId);
+            }
+        } else {
+            partitions = futurePartitionToTablets.entrySet();
+        }
+
         for (Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>> partitionEntry
-                : futurePartitionToTablets.entrySet()) {
+                : partitions) {
             Map<Long, ConcurrentHashMap<Long, Set<Tablet>>> indexToTablets = partitionEntry.getValue();
             // balance all index of a partition
-            for (Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>> entry : indexToTablets.entrySet()) {
+            List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> indexes =
+                    new ArrayList<>(indexToTablets.entrySet());
+            // index-level ordering is not critical; keep stable by id
+            indexes.sort(Comparator.comparingLong(Map.Entry::getKey));
+            for (Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>> entry : indexes) {
                 // balance a index
                 balanceImpl(bes, clusterId, entry.getValue(), BalanceType.PARTITION, infos);
             }
@@ -1105,10 +1159,96 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     public void balanceInTable(List<Long> bes, String clusterId, List<UpdateCloudReplicaInfo> infos) {
-        // balance all tables
-        for (Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>> entry : futureBeToTabletsInTable.entrySet()) {
+        // balance all tables (prefer active tables/dbs, put internal db at tail)
+        Iterable<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> tables;
+        if (Config.enable_cloud_active_tablet_priority_scheduling) {
+            List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> sorted =
+                    new ArrayList<>(futureBeToTabletsInTable.entrySet());
+            sorted.sort(tableEntryComparator());
+            tables = sorted;
+            if (LOG.isDebugEnabled() && !sorted.isEmpty()) {
+                Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>> top = sorted.get(0);
+                long tableId = top.getKey();
+                LOG.debug("table scheduling enabled: topTableId={}, activeCnt={}, dbActiveCnt={}, cluster={}",
+                        tableId,
+                        tableIdToActiveCount.getOrDefault(tableId, 0L),
+                        dbIdToActiveCount.getOrDefault(tableIdToDbId.get(tableId), 0L),
+                        clusterId);
+            }
+        } else {
+            tables = futureBeToTabletsInTable.entrySet();
+        }
+
+        for (Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>> entry : tables) {
             balanceImpl(bes, clusterId, entry.getValue(), BalanceType.TABLE, infos);
         }
+    }
+
+    // For unit test: override this method to avoid dependency on Env/internal catalog.
+    protected boolean isInternalDbId(Long dbId) {
+        if (!Config.enable_cloud_active_tablet_priority_scheduling) {
+            return false;
+        }
+        if (dbId == null || dbId <= 0) {
+            return false;
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            return false;
+        }
+        String name = db.getFullName();
+        return name != null && INTERNAL_DB_NAMES.contains(name);
+    }
+
+    private Comparator<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> tableEntryComparator() {
+        return (a, b) -> {
+            Long tableIdA = a.getKey();
+            Long tableIdB = b.getKey();
+            boolean internalA = isInternalDbId(tableIdToDbId.get(tableIdA));
+            boolean internalB = isInternalDbId(tableIdToDbId.get(tableIdB));
+            if (internalA != internalB) {
+                return internalA ? 1 : -1; // internal goes last
+            }
+            long dbActiveA = dbIdToActiveCount.getOrDefault(tableIdToDbId.get(tableIdA), 0L);
+            long dbActiveB = dbIdToActiveCount.getOrDefault(tableIdToDbId.get(tableIdB), 0L);
+            int cmpDb = Long.compare(dbActiveB, dbActiveA);
+            if (cmpDb != 0) {
+                return cmpDb;
+            }
+            long activeA = tableIdToActiveCount.getOrDefault(tableIdA, 0L);
+            long activeB = tableIdToActiveCount.getOrDefault(tableIdB, 0L);
+            int cmp = Long.compare(activeB, activeA); // more active first
+            if (cmp != 0) {
+                return cmp;
+            }
+            return Long.compare(tableIdB, tableIdA); // tabletId bigger, newer first
+        };
+    }
+
+    private Comparator<Map.Entry<Long,
+            ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>>> partitionEntryComparator() {
+        return (a, b) -> {
+            Long partIdA = a.getKey();
+            Long partIdB = b.getKey();
+            boolean internalA = isInternalDbId(partitionIdToDbId.get(partIdA));
+            boolean internalB = isInternalDbId(partitionIdToDbId.get(partIdB));
+            if (internalA != internalB) {
+                return internalA ? 1 : -1; // internal goes last
+            }
+            long dbActiveA = dbIdToActiveCount.getOrDefault(partitionIdToDbId.get(partIdA), 0L);
+            long dbActiveB = dbIdToActiveCount.getOrDefault(partitionIdToDbId.get(partIdB), 0L);
+            int cmpDb = Long.compare(dbActiveB, dbActiveA);
+            if (cmpDb != 0) {
+                return cmpDb;
+            }
+            long activeA = partitionIdToActiveCount.getOrDefault(partIdA, 0L);
+            long activeB = partitionIdToActiveCount.getOrDefault(partIdB, 0L);
+            int cmp = Long.compare(activeB, activeA); // more active first
+            if (cmp != 0) {
+                return cmp;
+            }
+            return Long.compare(partIdB, partIdA); // partId bigger, newer first
+        };
     }
 
     private void sendPreHeatingRpc(Tablet pickedTablet, long srcBe, long destBe) throws Exception {
@@ -1495,7 +1635,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             long srcBe = pairInfo.srcBe;
             long destBe = pairInfo.destBe;
 
-            Tablet pickedTablet = pickTabletPreferActive(srcBe, beToTablets.get(srcBe),
+            Tablet pickedTablet = pickTabletPreferCold(srcBe, beToTablets.get(srcBe),
                     this.activeTabletIds, activeTabletsByBeCache, pickedTabletIds);
             if (pickedTablet == null) {
                 continue; // No tablet to pick
@@ -1586,10 +1726,11 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    // choose active tablet first to re-balance, otherwise random pick
-    private Tablet pickTabletPreferActive(long srcBe, Set<Tablet> tablets, Set<Long> activeTabletIds,
-                                          Map<Long, List<Tablet>> activeTabletsByBeCache,
-                                          Set<Long> pickedTabletIds) {
+    // Choose non-active (cold) tablet first to re-balance, to reduce impact on hot tablets.
+    // Fallback to active/random if no cold tablet is available.
+    private Tablet pickTabletPreferCold(long srcBe, Set<Tablet> tablets, Set<Long> activeTabletIds,
+                                        Map<Long, List<Tablet>> activeTabletsByBeCache,
+                                        Set<Long> pickedTabletIds) {
         if (tablets == null || tablets.isEmpty()) {
             return null;
         }
@@ -1602,6 +1743,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             return null; // No available tablets
         }
 
+        // If no active stats available, just random pick from remaining candidates
         if (activeTabletIds == null || activeTabletIds.isEmpty() || activeTabletsByBeCache == null) {
             return pickRandomTablet(availableTablets);
         }
@@ -1611,15 +1753,34 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 .filter(t -> activeTabletIds.contains(t.getId()))
                 .collect(Collectors.toList()));
 
-        List<Tablet> availableActiveInSrc = activeInSrc.stream()
-                .filter(t -> !pickedTabletIds.contains(t.getId()))
-                .collect(Collectors.toList());
-
-        if (availableActiveInSrc != null && !availableActiveInSrc.isEmpty()) {
-            return availableActiveInSrc.get(rand.nextInt(availableActiveInSrc.size()));
+        // Tie this behavior to the single switch:
+        // - enabled: use active tablet stats, and prefer moving cold tablets to reduce hot-query jitter
+        // - disabled: behave like legacy random pick
+        boolean preferCold = Config.enable_cloud_active_tablet_priority_scheduling;
+        if (preferCold) {
+            // Prefer cold tablets first
+            List<Tablet> coldInSrc = availableTablets.stream()
+                    .filter(t -> !activeTabletIds.contains(t.getId()))
+                    .collect(Collectors.toList());
+            if (!coldInSrc.isEmpty()) {
+                Tablet t = coldInSrc.get(rand.nextInt(coldInSrc.size()));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("pick tablet cold-first: picked={}, isActive={}, coldCandidates={}, activeCandidates={}, "
+                                    + "srcBe={}",
+                            t.getId(), activeTabletIds.contains(t.getId()),
+                            coldInSrc.size(), activeInSrc.size(), srcBe);
+                }
+                return t;
+            }
         }
 
-        return pickRandomTablet(availableTablets);
+        Tablet t = pickRandomTablet(availableTablets);
+        if (LOG.isDebugEnabled() && t != null) {
+            LOG.debug("pick tablet fallback(random): picked={}, isActive={}, coldFirstEnabled={}, "
+                            + "totalCandidates={}, srcBe={}",
+                    t.getId(), activeTabletIds.contains(t.getId()), preferCold, availableTablets.size(), srcBe);
+        }
+        return t;
     }
 
     private Tablet pickRandomTablet(Set<Tablet> tablets) {

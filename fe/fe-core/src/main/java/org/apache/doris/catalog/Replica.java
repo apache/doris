@@ -176,7 +176,7 @@ public class Replica {
     }
 
     // just record read,write ops
-    public long getBackendIdRecordAccessInfo() throws UserException {
+    public long getBackendIdAndRecordAccessInfo() throws UserException {
         // Use async version to avoid blocking getBackendIdImpl which is called frequently
         TabletAccessStats.getInstance().recordAccessAsync(getId());
         return getBackendId();
