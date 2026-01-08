@@ -248,14 +248,14 @@ public class FileCacheAdmissionManager {
         public boolean isAllowed(String userIdentity, String catalog, String database, String table,
                                  AtomicReference<String> reason) {
 
-            String catalogTable = catalog + "." + database;
+            String catalogDatabase = catalog + "." + database;
 
-            if (containsKeyValue(excludeTableRules, table, catalogTable)) {
+            if (containsKeyValue(excludeTableRules, table, catalogDatabase)) {
                 reason.set(reasons.get(4));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
-            if (containsKeyValue(includeTableRules, table, catalogTable)) {
+            if (containsKeyValue(includeTableRules, table, catalogDatabase)) {
                 reason.set(reasons.get(5));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
@@ -292,24 +292,24 @@ public class FileCacheAdmissionManager {
         public boolean isAllowed(ConcurrentRuleCollection userCollection, String userIdentity, String catalog,
                                  String database, String table, AtomicReference<String> reason) {
 
-            String catalogTable = catalog + "." + database;
+            String catalogDatabase = catalog + "." + database;
 
-            if (containsKeyValue(excludeTableRules, table, catalogTable)) {
+            if (containsKeyValue(excludeTableRules, table, catalogDatabase)) {
                 reason.set(reasons.get(4));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
-            if (containsKeyValue(userCollection.excludeTableRules, table, catalogTable)) {
+            if (containsKeyValue(userCollection.excludeTableRules, table, catalogDatabase)) {
                 reason.set(reasons.get(12));
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
-            if (containsKeyValue(includeTableRules, table, catalogTable)) {
+            if (containsKeyValue(includeTableRules, table, catalogDatabase)) {
                 reason.set(reasons.get(5));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
-            if (containsKeyValue(userCollection.includeTableRules, table, catalogTable)) {
+            if (containsKeyValue(userCollection.includeTableRules, table, catalogDatabase)) {
                 reason.set(reasons.get(13));
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
