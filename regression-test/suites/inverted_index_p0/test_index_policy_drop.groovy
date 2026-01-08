@@ -22,7 +22,7 @@ suite("test_index_policy_drop") {
     sql "DROP INVERTED INDEX TOKENIZER IF EXISTS ${tokenizerName}"
     sql """
         CREATE INVERTED INDEX TOKENIZER ${tokenizerName}
-        PROPERTIES("type" = "pinyin")
+        PROPERTIES("type" = "standard")
     """
 
     // 2. Attempt to drop it using DROP ANALYZER syntax (should fail)
