@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -145,12 +146,12 @@ public abstract class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica1 = new LocalReplica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L,
+                0, 2000L, Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica2 = new LocalReplica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L,
+                0, 2000L, Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica3 = new LocalReplica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L,
+                0, 2000L, Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new LocalTablet(tabletId);

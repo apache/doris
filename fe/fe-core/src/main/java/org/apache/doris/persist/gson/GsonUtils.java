@@ -85,6 +85,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
@@ -522,8 +523,7 @@ public class GsonUtils {
     // runtime adapter for class "CloudReplica".
     private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Replica.class, "clazz")
-            .registerDefaultSubtype(Replica.class)
-            .registerSubtype(Replica.class, Replica.class.getSimpleName())
+            .registerSubtype(LocalReplica.class, LocalReplica.class.getSimpleName())
             .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<Tablet> tabletTypeAdapterFactory;
@@ -536,9 +536,12 @@ public class GsonUtils {
         if (Config.isNotCloudMode()) {
             tabletTypeAdapterFactory.registerDefaultSubtype(LocalTablet.class);
             tabletTypeAdapterFactory.registerCompatibleSubtype(LocalTablet.class, Tablet.class.getSimpleName());
+            replicaTypeAdapterFactory.registerDefaultSubtype(LocalReplica.class);
+            replicaTypeAdapterFactory.registerCompatibleSubtype(LocalReplica.class, Replica.class.getSimpleName());
         } else {
             // compatible with old cloud code.
             tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);
+            replicaTypeAdapterFactory.registerDefaultSubtype(CloudReplica.class);
         }
     }
 
