@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
@@ -181,7 +180,7 @@ public class GraphSimplifier {
         return (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getLeftExtendedNodes())
                 && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes()))
                 || (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes())
-                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()));
+                        && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()));
     }
 
     private boolean unApplySimplificationStep() {
@@ -400,12 +399,12 @@ public class GraphSimplifier {
             // to avoid lengthy enumeration time.
             join = edge.getJoin();
         } else {
-            BitSet validEdgesMap = graph.getEdgesInOperator(leftNodes, rightNodes);
-            List<Expression> hashConditions = validEdgesMap.stream()
+            BitSet connectionEdges = graph.findConnectionEdges(leftNodes, rightNodes);
+            List<Expression> hashConditions = connectionEdges.stream()
                     .mapToObj(i -> graph.getJoinEdge(i).getJoin().getHashJoinConjuncts())
                     .flatMap(Collection::stream)
                     .collect(Collectors.toList());
-            List<Expression> otherConditions = validEdgesMap.stream()
+            List<Expression> otherConditions = connectionEdges.stream()
                     .mapToObj(i -> graph.getJoinEdge(i).getJoin().getHashJoinConjuncts())
                     .flatMap(Collection::stream)
                     .collect(Collectors.toList());
@@ -414,7 +413,7 @@ public class GraphSimplifier {
 
         Edge newEdge = new Edge(join, edge.getIndex(), edge.getLeftChildEdges(), edge.getRightChildEdges(),
                 edge.getLeftSubtreeNodes(), edge.getRightSubtreeNodes(),
-                edge.getLeftRequiredNodes(), edge.getRightRequiredNodes(), ImmutableSet.of(), ImmutableSet.of());
+                edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
         newEdge.addLeftExtendNode(leftNodes);
         newEdge.addRightExtendNode(rightNodes);
         return newEdge;
@@ -511,8 +510,8 @@ public class GraphSimplifier {
         long e1Right = e1.getRightExtendedNodes();
         long e2Left = e2.getLeftExtendedNodes();
         long e2Right = e2.getRightExtendedNodes();
-        if (LongBitmap.isSubset(e1Left, e2Left) || LongBitmap.isSubset(e2Left, e1Left) ||
-                LongBitmap.isSubset(e1Right, e2Left) || LongBitmap.isSubset(e2Left, e1Right)) {
+        if (LongBitmap.isSubset(e1Left, e2Left) || LongBitmap.isSubset(e2Left, e1Left)
+                || LongBitmap.isSubset(e1Right, e2Left) || LongBitmap.isSubset(e2Left, e1Right)) {
             if (!LongBitmap.isOverlap(e2Right, e1Left | e1Right)) {
                 fullStep.newEdgeLeft |= (e1Left | e1Right);
             } else {
@@ -596,7 +595,7 @@ public class GraphSimplifier {
                 if (LongBitmap.isOverlap(rightNodes, components[leftComponent])) {
                     //TODO return ???
                     return -1;
-//                    continue;
+                    //                    continue;
                 }
                 int rightComponent = getComponent(components, inComponent, e.getRightExtendedNodes());
                 if (rightComponent == -1

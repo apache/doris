@@ -118,9 +118,9 @@ public class PlanReceiver extends AbstractReceiver {
         }
 
         emitCount += 1;
-//        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
-//            return false;
-//        }
+        //        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
+        //            return false;
+        //        }
 
         if (emitCount > limit) {
             if (fullKeyEmitted) {
@@ -178,7 +178,7 @@ public class PlanReceiver extends AbstractReceiver {
     // be aware that the requiredOutputSlots is a superset of the actual output of current node
     // check proposeProject method to get how to create a project node for the outputs of current node.
     private Set<Slot> calculateRequiredSlots(long left, long right, List<Edge> edges) {
-        // required output slots = final outputs + slot of unused edges + complex project exprs(if there is any)
+        // required output slots = final outputs + slot of unused edges
         // 1. add finalOutputs to requiredOutputSlots
         Set<Slot> requiredOutputSlots = new HashSet<>(this.finalRequiredSlots);
         BitSet usedEdgesBitmap = new BitSet();
@@ -196,14 +196,6 @@ public class PlanReceiver extends AbstractReceiver {
             }
         }
 
-        // 3. add input slots of all complex projects which should be done by all upper level (parents) nodes
-        // dphyper enumerate subsets before supersets, so all subsets' complex projects should be excluded here
-        // because it's been processed by subsets already
-        long fullKey = LongBitmap.newBitmapUnion(left, right);
-        hyperGraph.getComplexProject().entrySet().stream()
-                .filter(l -> !LongBitmap.isSubset(l.getKey(), fullKey))
-                .flatMap(l -> l.getValue().stream())
-                .forEach(expr -> requiredOutputSlots.addAll(expr.getInputSlots()));
         return requiredOutputSlots;
     }
 
@@ -312,23 +304,22 @@ public class PlanReceiver extends AbstractReceiver {
         if (allProjects.isEmpty()) {
             allProjects.add(ExpressionUtils.selectMinimumColumn(outputs));
         }
-//        if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap && !finalProjects.equals(allProjects)) {
-//            // add final project for the join cluster
-//            return new LogicalProject<>(finalProjects, join);
-//        }
-        if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap && !outputSet.equals(new HashSet<>(finalProjects))) {
+        //        if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap && !finalProjects.equals(allProjects)) {
+        //            // add final project for the join cluster
+        //            return new LogicalProject<>(finalProjects, join);
+        //        }
+        if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
+                && !outputSet.equals(new HashSet<>(finalProjects))) {
             // add final project for the join cluster
             return new LogicalProject<>(finalProjects, join);
-        }
-        else {
+        } else {
             if (outputSet.equals(new HashSet<>(allProjects))) {
                 return join;
             }
 
             Set<Slot> childOutputSet = join.getOutputSet();
             List<NamedExpression> projects = allProjects.stream()
-                    .filter(expr ->
-                            childOutputSet.containsAll(expr.getInputSlots()))
+                    .filter(expr -> childOutputSet.containsAll(expr.getInputSlots()))
                     .collect(Collectors.toList());
             LogicalPlan project = join;
             if (!outputSet.equals(new HashSet<>(projects))) {

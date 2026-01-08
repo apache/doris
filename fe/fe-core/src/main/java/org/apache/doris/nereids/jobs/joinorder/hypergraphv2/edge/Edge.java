@@ -28,12 +28,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.base.Preconditions;
 
-import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Edge in HyperGraph, currently it's a join edge or filter edge
@@ -42,8 +42,6 @@ import java.util.Set;
  */
 public class Edge implements HyperElement {
     private final LogicalJoin<? extends Plan, ? extends Plan> join;
-    private final Set<Slot> leftInputSlots;
-    private final Set<Slot> rightInputSlots;
     // record all left subtree nodes bellow the original operator.
     private final long leftSubtreeNodes;
     // record all right subtree nodes bellow the original operator.
@@ -77,8 +75,8 @@ public class Edge implements HyperElement {
      * Create simple edge.
      */
     public Edge(LogicalJoin<? extends Plan, ? extends Plan> join, int index,
-                BitSet leftChildEdges, BitSet rightChildEdges, long leftSubtreeNodes, long rightSubtreeNodes,
-                long leftRequiredNodes, long rightRequiredNodes, Set<Slot> leftInputSlots, Set<Slot> rightInputSlots) {
+            BitSet leftChildEdges, BitSet rightChildEdges, long leftSubtreeNodes, long rightSubtreeNodes,
+            long leftRequiredNodes, long rightRequiredNodes) {
         this.index = index;
         this.selectivity = 1.0;
         this.leftChildEdges = leftChildEdges;
@@ -89,8 +87,6 @@ public class Edge implements HyperElement {
         this.rightRequiredNodes = rightRequiredNodes;
         this.subTreeNodes = LongBitmap.newBitmapUnion(leftSubtreeNodes, rightSubtreeNodes);
         this.join = join;
-        this.leftInputSlots = leftInputSlots;
-        this.rightInputSlots = rightInputSlots;
         this.leftSubtreeNodes = leftSubtreeNodes;
         this.rightSubtreeNodes = rightSubtreeNodes;
         this.conflictRules = new ArrayList<>();
@@ -185,11 +181,9 @@ public class Edge implements HyperElement {
      * swap the edge
      */
     public Edge swap() {
-        Edge swapEdge = new
-                Edge(join.swap(), getIndex(), getRightChildEdges(),
+        Edge swapEdge = new Edge(join.swap(), getIndex(), getRightChildEdges(),
                 getLeftChildEdges(), getRightSubtreeNodes(), getLeftSubtreeNodes(),
-                getRightRequiredNodes(), getLeftRequiredNodes(),
-                this.rightInputSlots, this.leftInputSlots);
+                getRightRequiredNodes(), getLeftRequiredNodes());
         return swapEdge;
     }
 
@@ -213,7 +207,7 @@ public class Edge implements HyperElement {
      * extract join type for edges and push them in hash conjuncts and other conjuncts
      */
     public static @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges,
-                                                                 List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
+            List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
         JoinType joinType = null;
         for (Edge edge : edges) {
             if (edge.getJoinType() != joinType && joinType != null) {
@@ -232,16 +226,16 @@ public class Edge implements HyperElement {
         return join.getExpressions().get(0);
     }
 
-    public List<? extends Expression> getExpressions() {
-        return join.getExpressions();
-    }
-
     public Expression getExpression(int i) {
         return getExpressions().get(i);
     }
 
+    public List<? extends Expression> getExpressions() {
+        return join.getExpressions();
+    }
+
     public String getTypeName() {
-        return ((Edge) this).getJoinType().toString();
+        return getJoinType().toString();
     }
 
     @Override
