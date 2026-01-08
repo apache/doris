@@ -59,7 +59,7 @@ suite("test_backup_restore_medium_capacity_docker", "docker,backup_restore") {
 
         def feHttpAddress = context.config.feHttpAddress.split(":")
         def helper = new BackupRestoreHelper(
-            sql, getSyncer(), 
+            this.&sql, getSyncer(), 
             feHttpAddress[0], 
             feHttpAddress[1] as int
         )

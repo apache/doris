@@ -30,7 +30,7 @@ package org.apache.doris.regression.util
 class BackupRestoreHelper {
     private static final String LOCAL_REPO_NAME = "__keep_on_local__"
     
-    private def sql
+    private Closure sql
     private def syncer
     private def logger
     
@@ -68,11 +68,11 @@ class BackupRestoreHelper {
             String tables = tableNames.join(", ")
             logger.info("S3 BACKUP: ${dbName}.${snapshotName} ON (${tables})")
             
-            sql """
+            sql.call("""
                 BACKUP SNAPSHOT ${dbName}.${snapshotName}
                 TO `${repoName}`
                 ON (${tables})
-            """
+            """)
             
             syncer.waitSnapshotFinish(dbName)
             logger.info("S3 BACKUP completed: ${dbName}.${snapshotName}")
@@ -104,13 +104,13 @@ class BackupRestoreHelper {
                 propStr = "\"backup_timestamp\" = \"${snapshot}\""
             }
             
-            sql """
+            sql.call("""
                 RESTORE SNAPSHOT ${dbName}.${snapshotName} FROM `${repoName}`
                 ON (`${tableName}`)
                 PROPERTIES (
                     ${propStr}
                 )
-            """
+            """)
             
             syncer.waitAllRestoreFinish(dbName)
             logger.info("S3 RESTORE completed: ${dbName}.${snapshotName}")
@@ -133,11 +133,11 @@ class BackupRestoreHelper {
         try {
             logger.info("LOCAL BACKUP: ${dbName}.${snapshotName} ON (${tableName})")
             
-            sql """
+            sql.call("""
                 BACKUP SNAPSHOT ${dbName}.${snapshotName}
                 TO `${LOCAL_REPO_NAME}`
                 ON (${tableName})
-            """
+            """)
             
             syncer.waitSnapshotFinish(dbName)
             logger.info("LOCAL BACKUP completed: ${dbName}.${snapshotName}")
@@ -210,7 +210,7 @@ class BackupRestoreHelper {
             propStr += ",\n\"replication_num\" = \"1\""
         }
         
-        sql """
+        sql.call("""
             CREATE TABLE ${dbName}.${tableName} (
                 `id` INT,
                 `value` STRING
@@ -219,7 +219,7 @@ class BackupRestoreHelper {
             PROPERTIES (
                 ${propStr}
             )
-        """
+        """)
         logger.info("Created table: ${dbName}.${tableName}")
     }
     
@@ -234,7 +234,7 @@ class BackupRestoreHelper {
             propStr += ",\n\"replication_num\" = \"1\""
         }
         
-        sql """
+        sql.call("""
             CREATE TABLE ${dbName}.${tableName} (
                 `date` DATE,
                 `id` INT,
@@ -248,7 +248,7 @@ class BackupRestoreHelper {
             PROPERTIES (
                 ${propStr}
             )
-        """
+        """)
         logger.info("Created partition table: ${dbName}.${tableName}")
     }
     
@@ -256,7 +256,7 @@ class BackupRestoreHelper {
      * Insert test data
      */
     void insertData(String dbName, String tableName, List<String> values) {
-        sql "INSERT INTO ${dbName}.${tableName} VALUES ${values.join(',')}"
+        sql.call("INSERT INTO ${dbName}.${tableName} VALUES ${values.join(',')}")
         logger.info("Inserted ${values.size()} rows into ${dbName}.${tableName}")
     }
     
@@ -264,7 +264,7 @@ class BackupRestoreHelper {
      * Truncate table
      */
     void truncateTable(String dbName, String tableName) {
-        sql "TRUNCATE TABLE ${dbName}.${tableName}"
+        sql.call("TRUNCATE TABLE ${dbName}.${tableName}")
         logger.info("Truncated table: ${dbName}.${tableName}")
     }
     
@@ -274,9 +274,9 @@ class BackupRestoreHelper {
     void dropTable(String dbName, String tableName, boolean force = true) {
         try {
             if (force) {
-                sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
+                sql.call("DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE")
             } else {
-                sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+                sql.call("DROP TABLE IF EXISTS ${dbName}.${tableName}")
             }
             logger.info("Dropped table: ${dbName}.${tableName}")
         } catch (Exception e) {
@@ -292,7 +292,7 @@ class BackupRestoreHelper {
      * Verify row count
      */
     boolean verifyRowCount(String dbName, String tableName, int expectedCount) {
-        def result = sql "SELECT COUNT(*) FROM ${dbName}.${tableName}"
+        def result = sql.call("SELECT COUNT(*) FROM ${dbName}.${tableName}")
         def actualCount = result[0][0]
         if (actualCount == expectedCount) {
             logger.info("✓ Row count verified: ${actualCount} == ${expectedCount}")
@@ -307,7 +307,7 @@ class BackupRestoreHelper {
      * Verify data exists
      */
     boolean verifyDataExists(String dbName, String tableName, String whereClause, boolean shouldExist = true) {
-        def result = sql "SELECT COUNT(*) FROM ${dbName}.${tableName} WHERE ${whereClause}"
+        def result = sql.call("SELECT COUNT(*) FROM ${dbName}.${tableName} WHERE ${whereClause}")
         def count = result[0][0]
         
         if (shouldExist && count > 0) {
@@ -326,7 +326,7 @@ class BackupRestoreHelper {
      * Verify table property
      */
     boolean verifyTableProperty(String dbName, String tableName, String propertyName) {
-        def result = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
+        def result = sql.call("SHOW CREATE TABLE ${dbName}.${tableName}")
         def createTableStr = result[0][1]
         
         if (createTableStr.contains(propertyName)) {

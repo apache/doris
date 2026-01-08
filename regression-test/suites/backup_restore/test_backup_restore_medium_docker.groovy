@@ -42,7 +42,7 @@ suite("test_backup_restore_medium_docker", "docker,backup_restore") {
         String repoName = "test_br_medium_repo"
         String tableName = "test_table"
         
-        def helper = new BackupRestoreHelper(sql, getSyncer())
+        def helper = new BackupRestoreHelper(this.&sql, getSyncer())
         getSyncer().createS3Repository(repoName)
         sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
 
