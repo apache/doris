@@ -15,7 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// the following code are modified from RocksDB:
+// https://github.com/facebook/rocksdb/blob/master/util/crc32c.h
+
 #pragma once
+
+#include <stddef.h>
+#include <stdint.h>
 
 #include <vector>
 
@@ -24,13 +30,24 @@
 namespace doris {
 namespace crc32c {
 
-uint32_t Extend(uint32_t crc, const char* data, size_t n);
+// Return the crc32c of concat(A, data[0,n-1]) where init_crc is the
+// crc32c of some string A.  Extend() is often used to maintain the
+// crc32c of a stream of data.
+extern uint32_t Extend(uint32_t init_crc, const char* data, size_t n);
 
 // Return the crc32c of data[0,n-1]
-uint32_t Value(const char* data, size_t n);
+inline uint32_t Value(const char* data, size_t n) {
+    return Extend(0, data, n);
+}
 
 // Return the crc32c of data content in all slices
-uint32_t Value(const std::vector<Slice>& slices);
+inline uint32_t Value(const std::vector<Slice>& slices) {
+    uint32_t crc = 0;
+    for (auto& slice : slices) {
+        crc = Extend(crc, slice.get_data(), slice.get_size());
+    }
+    return crc;
+}
 
 } // namespace crc32c
 } // namespace doris

@@ -714,7 +714,7 @@ public:
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
-    // Shuffle data by Crc32CHashPartitioner
+    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
     HASH_SHUFFLE = 1,
     // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,
