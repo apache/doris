@@ -2214,6 +2214,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
     public boolean eagerAggregationOnJoin = false;
+
     public static boolean isEagerAggregationOnJoin() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;

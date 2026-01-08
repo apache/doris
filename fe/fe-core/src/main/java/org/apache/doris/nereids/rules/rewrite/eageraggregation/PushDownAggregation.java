@@ -37,9 +37,9 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Sets;
@@ -63,7 +64,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -128,7 +131,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         for (AggregateFunction aggFunction : agg.getAggregateFunctions()) {
             if (pushDownAggFunctionSet.contains(aggFunction.getClass())
                     && !aggFunction.isDistinct()) {
-                if(aggFunction instanceof Sum && ((Sum) aggFunction).child() instanceof If) {
+                if (aggFunction instanceof Sum && ((Sum) aggFunction).child() instanceof If) {
                     If body = (If) ((Sum) aggFunction).child();
                     aggFunctions.add(new Sum(body.getTrueValue()));
                     if (!(body.getFalseValue() instanceof NullLiteral)) {
@@ -144,6 +147,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
         aggFunctions = aggFunctions.stream().distinct().collect(Collectors.toList());
+        groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         if (!checkSubTreePattern(agg.child())) {
             return agg;
         }
@@ -168,20 +172,43 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 //                                 ->scan(T1[A...])
                 //                       ->scan(T2)
                 List<NamedExpression> newOutputExpressions = new ArrayList<>();
+                Map<Expression, Slot> replaceMap = new HashMap<>();
+                for (Expression x : pushDownContext.getAliasMap().keySet()) {
+                    replaceMap.put(x.child(0), pushDownContext.getAliasMap().get(x).toSlot());
+                }
+
                 for (NamedExpression ne : agg.getOutputExpressions()) {
                     if (ne instanceof SlotReference) {
                         newOutputExpressions.add(ne);
+                    //} else if (ne instanceof Alias
+                    //        && ne.child(0) instanceof Sum
+                    //        && ne.child(0).child(0) instanceof If
+                    //        && ne.child(0).child(0).child(1) instanceof SlotReference) {
+                    //    SlotReference targetSlot = (SlotReference) ne.child(0).child(0).child(1);
+                    //    Slot toReplace = null;
+                    //    for (Slot slot : child.getOutput()) {
+                    //        if (slot.getExprId().equals(targetSlot.getExprId())) {
+                    //            toReplace = slot;
+                    //        }
+                    //    }
+                    //    if (toReplace != null) {
+                    //        Alias newOutput = (Alias) ((Alias) ne).withChildren(
+                    //                new Sum(
+                    //                        new If(
+                    //                                ne.child(0).child(0).child(0),
+                    //                                toReplace,
+                    //                                new NullLiteral(toReplace.getDataType())
+                    //                        )
+                    //                )
+                    //        );
+                    //        newOutputExpressions.add(newOutput);
+                    //    } else {
+                    //        return agg;
+                    //    }
+
                     } else {
-                        NamedExpression replaceAliasExpr = (NamedExpression) ne
-                                .rewriteDownShortCircuit(e -> {
-                                    Alias alias = pushDownContext.getAliasMap().get(e);
-                                    if (alias != null) {
-                                        AggregateFunction aggFunction = (AggregateFunction) e;
-                                        return aggFunction.withChildren(alias.toSlot());
-                                    } else {
-                                        return e;
-                                    }
-                                });
+                        NamedExpression replaceAliasExpr = (NamedExpression) ExpressionUtils.replace(ne, replaceMap);
+                        replaceAliasExpr = (NamedExpression) ExpressionUtils.rebuildSignature(replaceAliasExpr);
                         newOutputExpressions.add(replaceAliasExpr);
                     }
                 }
