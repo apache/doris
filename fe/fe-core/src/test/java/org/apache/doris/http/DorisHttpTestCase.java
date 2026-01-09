@@ -28,6 +28,7 @@ import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -364,7 +365,7 @@ public abstract class DorisHttpTestCase {
     public void setUp() {
         Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
-        TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
+        TabletInvertedIndex tabletInvertedIndex = new LocalTabletInvertedIndex();
         new MockUp<Env>() {
             @Mock
             SchemaChangeHandler getSchemaChangeHandler() {

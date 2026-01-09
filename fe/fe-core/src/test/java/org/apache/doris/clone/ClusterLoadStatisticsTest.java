@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -148,7 +149,7 @@ public class ClusterLoadStatisticsTest {
         systemInfoService.addBackend(be4);
 
         // tablet
-        invertedIndex = new TabletInvertedIndex();
+        invertedIndex = new LocalTabletInvertedIndex();
 
         invertedIndex.addTablet(50000, new TabletMeta(1, 2, 3, 4, 5, TStorageMedium.HDD));
         invertedIndex.addReplica(50000, new LocalReplica(50001, be1.getId(), 0, ReplicaState.NORMAL));
