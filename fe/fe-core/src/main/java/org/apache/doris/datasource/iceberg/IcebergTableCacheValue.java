@@ -17,17 +17,12 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
-import java.util.List;
 import java.util.function.Supplier;
 
 public class IcebergTableCacheValue {
     private final Table icebergTable;
-
-    private volatile boolean snapshotListLoaded;
-    private volatile List<Snapshot> snapshotList;
 
     private volatile boolean snapshotCacheLoaded;
     private volatile IcebergSnapshotCacheValue snapshotCacheValue;
@@ -38,18 +33,6 @@ public class IcebergTableCacheValue {
 
     public Table getIcebergTable() {
         return icebergTable;
-    }
-
-    public List<Snapshot> getSnapshotList(Supplier<List<Snapshot>> loader) {
-        if (!snapshotListLoaded) {
-            synchronized (this) {
-                if (!snapshotListLoaded) {
-                    snapshotList = loader.get();
-                    snapshotListLoaded = true;
-                }
-            }
-        }
-        return snapshotList;
     }
 
     public IcebergSnapshotCacheValue getSnapshotCacheValue(Supplier<IcebergSnapshotCacheValue> loader) {

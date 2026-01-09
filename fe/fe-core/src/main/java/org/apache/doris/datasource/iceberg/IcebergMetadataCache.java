@@ -104,21 +104,14 @@ public class IcebergMetadataCache {
     }
 
     public List<Snapshot> getSnapshotList(ExternalTable dorisTable) {
-        IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(dorisTable.getOrBuildNameMapping());
-        IcebergTableCacheValue cacheValue = tableCache.get(key);
-        return cacheValue.getSnapshotList(() -> loadSnapshotList(cacheValue));
+        Table icebergTable = getIcebergTable(dorisTable);
+        List<Snapshot> snaps = Lists.newArrayList();
+        Iterables.addAll(snaps, icebergTable.snapshots());
+        return snaps;
     }
 
     public IcebergManifestCache getManifestCache() {
         return manifestCache;
-    }
-
-    @NotNull
-    private List<Snapshot> loadSnapshotList(IcebergTableCacheValue cacheValue) {
-        Table icebergTable = cacheValue.getIcebergTable();
-        List<Snapshot> snaps = Lists.newArrayList();
-        Iterables.addAll(snaps, icebergTable.snapshots());
-        return snaps;
     }
 
     @NotNull
