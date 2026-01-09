@@ -182,7 +182,8 @@ public class LogicalHudiScan extends LogicalFileScan {
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
         return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
-            operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()), cachedOutputs);
+            operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
+            Optional.of(cachedOutputs));
     }
 
     /**
