@@ -526,9 +526,10 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     fmt::format_to(debug_string_buffer, "{}, _eos = {} , _opened = {}",
                    PipelineXLocalState<>::debug_string(indentation_level), _eos.load(),
                    _opened.load());
-    if (_scanner_ctx) {
+    auto ctx = _scanner_ctx;
+    if (ctx) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
+        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", ctx->debug_string());
     } else {
         fmt::format_to(debug_string_buffer, "");
         fmt::format_to(debug_string_buffer, ", Scanner Context: NULL");

@@ -49,8 +49,9 @@ ExchangeLocalState::~ExchangeLocalState() {
 
 std::string ExchangeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
+    auto recvr = stream_recvr;
     fmt::format_to(debug_string_buffer, "{}, recvr: ({})", Base::debug_string(indentation_level),
-                   stream_recvr ? stream_recvr->debug_string() : "null");
+                   recvr ? recvr->debug_string() : "null");
     return fmt::to_string(debug_string_buffer);
 }
 
