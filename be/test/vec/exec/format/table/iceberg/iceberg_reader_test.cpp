@@ -572,7 +572,7 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, nullptr, conjuncts,
+    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts,
                                      tuple_descriptor, row_descriptor, colname_to_slot_id,
                                      not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
@@ -707,7 +707,7 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, nullptr, conjuncts,
+    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts,
                                      tuple_descriptor, row_descriptor, colname_to_slot_id,
                                      not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;

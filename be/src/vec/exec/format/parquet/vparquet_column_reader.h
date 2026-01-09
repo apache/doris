@@ -116,9 +116,10 @@ public:
         }
     };
 
-    ParquetColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                        cctz::time_zone* ctz, io::IOContext* io_ctx)
+    ParquetColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                        io::IOContext* io_ctx)
             : _row_ranges(row_ranges), _total_rows(total_rows), _ctz(ctz), _io_ctx(io_ctx) {}
+
     virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
@@ -136,10 +137,9 @@ public:
     }
 
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
-                         const tparquet::RowGroup& row_group,
-                         const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                         io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size,
+                         const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
+                         cctz::time_zone* ctz, io::IOContext* io_ctx,
+                         std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size,
                          std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
                          bool in_collection = false, const std::set<uint64_t>& column_ids = {},
                          const std::set<uint64_t>& filter_column_ids = {});
@@ -153,16 +153,14 @@ public:
     FieldSchema* get_field_schema() const { return _field_schema; }
 
 protected:
-    void _generate_read_ranges(int64_t start_index, int64_t end_index,
-                               std::list<RowRange>& read_ranges);
+    void _generate_read_ranges(RowRange page_row_range, RowRanges* result_ranges) const;
 
     FieldSchema* _field_schema = nullptr;
-    const std::vector<RowRange>& _row_ranges;
+    const RowRanges& _row_ranges;
     size_t _total_rows = 0;
     const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     int64_t _current_row_index = 0;
-    int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
 
     size_t _filter_map_index = 0;
@@ -173,7 +171,7 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class ScalarColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
-    ScalarColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
+    ScalarColumnReader(const RowRanges& row_ranges, size_t total_rows,
                        const tparquet::ColumnChunk& chunk_meta,
                        const tparquet::OffsetIndex* offset_index, cctz::time_zone* ctz,
                        io::IOContext* io_ctx)
@@ -291,8 +289,8 @@ private:
 class ArrayColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ArrayColumnReader)
 public:
-    ArrayColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                      cctz::time_zone* ctz, io::IOContext* io_ctx)
+    ArrayColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                      io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
     Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
@@ -318,8 +316,8 @@ private:
 class MapColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(MapColumnReader)
 public:
-    MapColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                    cctz::time_zone* ctz, io::IOContext* io_ctx)
+    MapColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                    io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~MapColumnReader() override { close(); }
 
@@ -359,8 +357,8 @@ private:
 class StructColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(StructColumnReader)
 public:
-    StructColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                       cctz::time_zone* ctz, io::IOContext* io_ctx)
+    StructColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                       io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~StructColumnReader() override { close(); }
 
@@ -424,8 +422,8 @@ private:
 // This is used when a column is not needed but its structure is required (e.g., for map keys)
 class SkipReadingReader : public ParquetColumnReader {
 public:
-    SkipReadingReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                      cctz::time_zone* ctz, io::IOContext* io_ctx, FieldSchema* field_schema)
+    SkipReadingReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                      io::IOContext* io_ctx, FieldSchema* field_schema)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {
         _field_schema = field_schema; // Use inherited member from base class
         VLOG_DEBUG << "[ParquetReader] Created SkipReadingReader for field: "
@@ -465,7 +463,7 @@ public:
         return Status::OK();
     }
 
-    static std::unique_ptr<SkipReadingReader> create_unique(const std::vector<RowRange>& row_ranges,
+    static std::unique_ptr<SkipReadingReader> create_unique(const RowRanges& row_ranges,
                                                             size_t total_rows, cctz::time_zone* ctz,
                                                             io::IOContext* io_ctx,
                                                             FieldSchema* field_schema) {

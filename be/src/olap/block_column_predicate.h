@@ -84,6 +84,18 @@ public:
         throw Exception(Status::FatalError("should not reach here"));
     }
 
+    /**
+     * For Parquet page indexes, since the number of rows filtered by each column's page index is not the same,
+     * a `RowRanges` is needed to represent the range of rows to be read after filtering. If no rows need to
+     * be read, it returns false; otherwise, it returns true. Because the page index needs to be
+     * parsed, `CachedPageIndexStat` is used to avoid repeatedly parsing the page index information
+     * of the same column.
+     */
+    virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                              RowRanges* row_ranges) const {
+        throw Exception(Status::FatalError("should not reach here"));
+    }
+
     virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
@@ -124,6 +136,11 @@ public:
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
         return _predicate->evaluate_and(statistic);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        return _predicate->evaluate_and(statistic, row_ranges);
     }
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
@@ -201,6 +218,9 @@ public:
         }
     }
 
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override;
+
     // note(wb) we didnt't implement evaluate_vec method here, because storage layer only support AND predicate now;
 };
 
@@ -231,6 +251,9 @@ public:
         }
         return true;
     }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override;
 
     bool can_do_bloom_filter(bool ngram) const override {
         for (auto& pred : _block_column_predicate_vec) {
