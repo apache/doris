@@ -97,6 +97,8 @@ public class StreamingJobUtils {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static int lastSelectedBackendIndex = 0;
+
     public static void createMetaTableIfNotExist() throws Exception {
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
@@ -213,25 +215,29 @@ public class StreamingJobUtils {
         return JdbcClient.createJdbcClient(config);
     }
 
-    public static Backend selectBackend(Long jobId) throws JobException {
+    public static Backend selectBackend() throws JobException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
 
-        policy = new BeSelectionPolicy.Builder()
-                .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
+        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
+        policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
+
         List<Long> backendIds;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (backendIds.isEmpty()) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        // jobid % backendSize
-        long index = backendIds.get(jobId.intValue() % backendIds.size());
-        backend = Env.getCurrentSystemInfo().getBackend(index);
+        backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         if (backend == null) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         return backend;
+    }
+
+    private static synchronized int getLastSelectedBackendIndexAndUpdate() {
+        int index = lastSelectedBackendIndex;
+        lastSelectedBackendIndex = (index >= Integer.MAX_VALUE - 1) ? 0 : index + 1;
+        return index;
     }
 
     public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,
