@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_format_type.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -424,6 +425,76 @@ struct FromUnixTimeDecimalImpl {
             offset += len;
         }
         return false;
+    }
+};
+
+template <PrimitiveType ArgPType>
+class FunctionTimeFormat : public IFunction {
+public:
+    using ArgColType = typename PrimitiveTypeTraits<ArgPType>::ColumnType;
+    using ArgCppType = typename PrimitiveTypeTraits<ArgPType>::CppType;
+
+    static constexpr auto name = "time_format";
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionTimeFormat>(); }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<typename PrimitiveTypeTraits<ArgPType>::DataType>(),
+                std::make_shared<vectorized::DataTypeString>()};
+    }
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_col = ColumnString::create();
+        ColumnString::Chars& res_chars = res_col->get_chars();
+        ColumnString::Offsets& res_offsets = res_col->get_offsets();
+
+        auto null_map = ColumnUInt8::create();
+        auto& null_map_data = null_map->get_data();
+        null_map_data.resize_fill(input_rows_count, 0);
+
+        res_offsets.reserve(input_rows_count);
+
+        ColumnPtr arg_col[2];
+        bool is_const[2];
+        for (size_t i = 0; i < 2; ++i) {
+            const ColumnPtr& col = block.get_by_position(arguments[i]).column;
+            std::tie(arg_col[i], is_const[i]) = unpack_if_const(col);
+        }
+
+        const auto* datetime_col = assert_cast<const ArgColType*>(arg_col[0].get());
+        const auto* format_col = assert_cast<const ColumnString*>(arg_col[1].get());
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto& datetime_val = datetime_col->get_element(index_check_const(i, is_const[0]));
+            StringRef format = format_col->get_data_at(index_check_const(i, is_const[1]));
+            TimeValue::TimeType time = get_time_value(datetime_val);
+
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!TimeValue::to_format_string_conservative(format.data, format.size, buf,
+                                                          100 + SAFE_FORMAT_STRING_MARGIN, time)) {
+                null_map_data[i] = 1;
+                res_offsets.push_back(res_chars.size());
+                continue;
+            }
+            res_chars.insert(buf, buf + strlen(buf));
+            res_offsets.push_back(res_chars.size());
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res_col), std::move(null_map)));
+        return Status::OK();
+    }
+
+private:
+    TimeValue::TimeType get_time_value(const ArgCppType& datetime_val) const {
+        if constexpr (ArgPType == PrimitiveType::TYPE_TIMEV2) {
+            return static_cast<TimeValue::TimeType>(datetime_val);
+        } else {
+            return TimeValue::make_time(datetime_val.hour(), datetime_val.minute(),
+                                        datetime_val.second(), datetime_val.microsecond());
+        }
     }
 };
 
