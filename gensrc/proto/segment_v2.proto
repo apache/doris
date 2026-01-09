@@ -166,11 +166,33 @@ message ColumnPathInfo {
     optional uint32 parrent_column_unique_id = 4;
     // is_typed flags if the subcolumn is assigned specific types
     optional bool is_typed = 5;
+
+    // NestedGroup support fields
+    // True if this column is the offsets column for a NestedGroup
+    optional bool is_nested_group_offsets = 10;
+    // The parent array path for NestedGroup columns
+    optional string nested_group_parent_path = 11;
+    // Depth level for nested groups (for multi-level nested arrays)
+    optional uint32 nested_group_depth = 12;
+}
+
+// Statistics for a single NestedGroup
+message NestedGroupInfoPB {
+    // Total number of array elements across all rows
+    optional uint32 element_count = 1;
+    // Number of child fields in this NestedGroup
+    optional uint32 child_count = 2;
+    // True if a structure conflict was detected
+    optional bool has_conflict = 3;
 }
 
 message VariantStatisticsPB {
     // in the order of subcolumns in variant
     map<string, uint32> sparse_column_non_null_size = 2;
+
+    // NestedGroup statistics
+    // Key: array path string (e.g., "items", "data.records")
+    map<string, NestedGroupInfoPB> nested_group_info = 3;
 } 
 
 message ColumnMetaPB {

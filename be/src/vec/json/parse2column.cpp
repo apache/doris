@@ -51,6 +51,107 @@
 
 namespace doris::vectorized {
 
+namespace {
+
+// English comment: parse JSON into (paths, values). If invalid JSON and strict mode is disabled,
+// fall back to treating it as a plain string field at root.
+template <typename ParserImpl>
+std::optional<ParseResult> parse_json_or_fallback_as_string(const char* src, size_t length,
+                                                           JSONDataParser<ParserImpl>* parser,
+                                                           const ParseConfig& config) {
+    std::optional<ParseResult> result;
+    if (length > 0) {
+        result = parser->parse(src, length, config);
+    } else {
+        result = ParseResult {};
+    }
+    if (result) {
+        return result;
+    }
+    VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
+    if (config::variant_throw_exeception_on_invalid_json) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
+                               std::string_view(src, length));
+    }
+    PathInData root_path;
+    Field field = Field::create_field<TYPE_STRING>(String(src, length));
+    return ParseResult {.paths = {root_path}, .values = {field}};
+}
+
+inline void check_ambiguous_paths_or_fallback(const ColumnVariant& column_variant,
+                                             const std::vector<PathInData>& paths,
+                                             bool enable_flatten_nested) {
+    if (!enable_flatten_nested) {
+        return;
+    }
+    std::vector<PathInData> check_paths;
+    check_paths.reserve(column_variant.get_subcolumns().size() + paths.size());
+    for (const auto& entry : column_variant.get_subcolumns()) {
+        check_paths.push_back(entry->path);
+    }
+    check_paths.insert(check_paths.end(), paths.begin(), paths.end());
+    auto st = vectorized::schema_util::check_variant_has_no_ambiguous_paths(check_paths);
+    if (st.ok()) {
+        return;
+    }
+    // When ambiguous paths detected, log warning and continue
+    // NestedGroup expansion will be handled at storage layer
+    LOG(WARNING) << "Ambiguous variant nested paths detected, will fallback to JSONB for conflicting paths. "
+                 << st;
+}
+
+inline void insert_paths_legacy(ColumnVariant& column_variant, std::vector<PathInData>& paths,
+                                std::vector<Field>& values, size_t old_num_rows) {
+    for (size_t i = 0; i < paths.size(); ++i) {
+        FieldInfo field_info;
+        schema_util::get_field_info(values[i], &field_info);
+        if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
+            continue;
+        }
+        if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
+            if (paths[i].has_nested_part()) {
+                column_variant.add_nested_subcolumn(paths[i], field_info, old_num_rows);
+            } else {
+                column_variant.add_sub_column(paths[i], old_num_rows);
+            }
+        }
+        auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
+        if (!subcolumn) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
+                                   paths[i].get_path());
+        }
+        if (subcolumn->cur_num_of_defaults() > 0) {
+            subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
+            subcolumn->reset_current_num_of_defaults();
+        }
+        if (subcolumn->size() != old_num_rows) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "subcolumn {} size missmatched, may contains duplicated entry",
+                                   paths[i].get_path());
+        }
+        subcolumn->insert(std::move(values[i]), field_info);
+    }
+}
+
+inline void fill_missed_subcolumns(ColumnVariant& column_variant, size_t old_num_rows) {
+    const auto& subcolumns = column_variant.get_subcolumns();
+    for (const auto& entry : subcolumns) {
+        if (entry->data.size() != old_num_rows) {
+            continue;
+        }
+        if (entry->path.has_nested_part()) {
+            bool success = UNLIKELY(column_variant.try_insert_default_from_nested(entry));
+            if (!success) {
+                entry->data.insert_default();
+            }
+        } else {
+            entry->data.increment_default_counter();
+        }
+    }
+}
+
+} // namespace
+
 /** Pool for objects that cannot be used from different threads simultaneously.
   * Allows to create an object for each thread.
   * Pool has unbounded size and objects are not destroyed before destruction of pool.
@@ -133,84 +234,18 @@ template <typename ParserImpl>
 void parse_json_to_variant(IColumn& column, const char* src, size_t length,
                            JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
     auto& column_variant = assert_cast<ColumnVariant&>(column);
-    std::optional<ParseResult> result;
-    /// Treat empty string as an empty object
-    /// for better CAST from String to Object.
-    if (length > 0) {
-        result = parser->parse(src, length, config);
-    } else {
-        result = ParseResult {};
-    }
-    if (!result) {
-        VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
-        if (config::variant_throw_exeception_on_invalid_json) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
-                                   std::string_view(src, length));
-        }
-        // Treat as string
-        PathInData root_path;
-        Field field = Field::create_field<TYPE_STRING>(String(src, length));
-        result = ParseResult {{root_path}, {field}};
-    }
+    auto result = parse_json_or_fallback_as_string(src, length, parser, config);
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
     size_t old_num_rows = column_variant.rows();
-    if (config.enable_flatten_nested) {
-        // here we should check the paths in variant and paths in result,
-        // if two paths which same prefix have different structure, we should throw an exception
-        std::vector<PathInData> check_paths;
-        for (const auto& entry : column_variant.get_subcolumns()) {
-            check_paths.push_back(entry->path);
-        }
-        check_paths.insert(check_paths.end(), paths.begin(), paths.end());
-        THROW_IF_ERROR(vectorized::schema_util::check_variant_has_no_ambiguous_paths(check_paths));
-    }
-    for (size_t i = 0; i < paths.size(); ++i) {
-        FieldInfo field_info;
-        schema_util::get_field_info(values[i], &field_info);
-        if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
-            continue;
-        }
-        if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
-            if (paths[i].has_nested_part()) {
-                column_variant.add_nested_subcolumn(paths[i], field_info, old_num_rows);
-            } else {
-                column_variant.add_sub_column(paths[i], old_num_rows);
-            }
-        }
-        auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
-        if (!subcolumn) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
-                                   paths[i].get_path());
-        }
-        if (subcolumn->cur_num_of_defaults() > 0) {
-            subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
-            subcolumn->reset_current_num_of_defaults();
-        }
-        if (subcolumn->size() != old_num_rows) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "subcolumn {} size missmatched, may contains duplicated entry",
-                                   paths[i].get_path());
-        }
-        subcolumn->insert(std::move(values[i]), std::move(field_info));
-    }
-    // /// Insert default values to missed subcolumns.
-    const auto& subcolumns = column_variant.get_subcolumns();
-    for (const auto& entry : subcolumns) {
-        if (entry->data.size() == old_num_rows) {
-            // Handle nested paths differently from simple paths
-            if (entry->path.has_nested_part()) {
-                // Try to insert default from nested, if failed, insert regular default
-                bool success = UNLIKELY(column_variant.try_insert_default_from_nested(entry));
-                if (!success) {
-                    entry->data.insert_default();
-                }
-            } else {
-                // For non-nested paths, increment default counter
-                entry->data.increment_default_counter();
-            }
-        }
-    }
+    check_ambiguous_paths_or_fallback(column_variant, paths, config.enable_flatten_nested);
+
+    // Always use legacy path insertion - NestedGroup expansion moved to storage layer
+    insert_paths_legacy(column_variant, paths, values, old_num_rows);
+
+    // Insert default values to missed subcolumns.
+    fill_missed_subcolumns(column_variant, old_num_rows);
+
     column_variant.incr_num_rows();
     auto sparse_column = column_variant.get_sparse_column();
     if (sparse_column->size() == old_num_rows) {
@@ -224,7 +259,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
 // exposed interfaces
 void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser,
                            const ParseConfig& config) {
-    return parse_json_to_variant(column, json.data, json.size, parser, config);
+    parse_json_to_variant(column, json.data, json.size, parser, config);
 }
 
 void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,

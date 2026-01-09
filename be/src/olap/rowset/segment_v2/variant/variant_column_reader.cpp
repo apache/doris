@@ -20,7 +20,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <memory>
-#include <set>
 #include <utility>
 
 #include "common/config.h"
@@ -29,26 +28,234 @@
 #include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
-#include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
 #include "olap/tablet_schema.h"
-#include "util/slice.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
+
+namespace {
+
+// English comment: read offsets in range [start, start+count) and also return previous offset.
+Status _read_offsets_with_prev(ColumnIterator* offsets_iter, ordinal_t start, size_t count,
+                               uint64_t* prev, std::vector<uint64_t>* out) {
+    *prev = 0;
+    out->clear();
+    if (count == 0) {
+        return Status::OK();
+    }
+    if (start > 0) {
+        RETURN_IF_ERROR(offsets_iter->seek_to_ordinal(start - 1));
+        vectorized::MutableColumnPtr prev_col = vectorized::ColumnOffset64::create();
+        size_t one = 1;
+        bool has_null = false;
+        RETURN_IF_ERROR(offsets_iter->next_batch(&one, prev_col, &has_null));
+        auto* prev_data = assert_cast<vectorized::ColumnOffset64*>(prev_col.get());
+        if (!prev_data->get_data().empty()) {
+            *prev = prev_data->get_data()[0];
+        }
+    }
+    RETURN_IF_ERROR(offsets_iter->seek_to_ordinal(start));
+    vectorized::MutableColumnPtr off_col = vectorized::ColumnOffset64::create();
+    bool has_null = false;
+    RETURN_IF_ERROR(offsets_iter->next_batch(&count, off_col, &has_null));
+    auto* off_data = assert_cast<vectorized::ColumnOffset64*>(off_col.get());
+    out->assign(off_data->get_data().begin(), off_data->get_data().end());
+    return Status::OK();
+}
+
+// Iterator for reading the whole NestedGroup as ColumnVariant::NESTED_TYPE (Nullable(Array(Nullable(Variant)))).
+class NestedGroupWholeIterator : public ColumnIterator {
+public:
+    explicit NestedGroupWholeIterator(const NestedGroupReader* group_reader)
+            : _group_reader(group_reader) {}
+
+    Status init(const ColumnIteratorOptions& opts) override {
+        DCHECK(_group_reader && _group_reader->is_valid());
+        _iter_opts = opts;
+
+        // Build iterators for this group recursively.
+        RETURN_IF_ERROR(_build_group_state(_root_state, _group_reader));
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_ordinal = ord_idx;
+        RETURN_IF_ERROR(_seek_group_state(_root_state, ord_idx));
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+        RETURN_IF_ERROR(_append_group_as_nested_type(_root_state, _current_ordinal, *n, dst));
+        _current_ordinal += *n;
+        *has_null = false;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        bool has_null = false;
+        for (size_t i = 0; i < count; ++i) {
+            RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
+            size_t one = 1;
+            RETURN_IF_ERROR(next_batch(&one, dst, &has_null));
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+private:
+    struct GroupState {
+        const NestedGroupReader* reader = nullptr;
+        ColumnIteratorUPtr offsets_iter;
+        std::unordered_map<std::string, ColumnIteratorUPtr> child_iters;
+        std::unordered_map<std::string, std::unique_ptr<GroupState>> nested_groups;
+    };
+
+    Status _build_group_state(GroupState& state, const NestedGroupReader* reader) {
+        state.reader = reader;
+        RETURN_IF_ERROR(reader->offsets_reader->new_iterator(&state.offsets_iter, nullptr));
+        RETURN_IF_ERROR(state.offsets_iter->init(_iter_opts));
+        for (const auto& [name, cr] : reader->child_readers) {
+            ColumnIteratorUPtr it;
+            RETURN_IF_ERROR(cr->new_iterator(&it, nullptr));
+            RETURN_IF_ERROR(it->init(_iter_opts));
+            state.child_iters.emplace(name, std::move(it));
+        }
+        for (const auto& [name, nested] : reader->nested_group_readers) {
+            auto st = std::make_unique<GroupState>();
+            RETURN_IF_ERROR(_build_group_state(*st, nested.get()));
+            state.nested_groups.emplace(name, std::move(st));
+        }
+        return Status::OK();
+    }
+
+    Status _seek_group_state(GroupState& state, ordinal_t row_ord) {
+        RETURN_IF_ERROR(state.offsets_iter->seek_to_ordinal(row_ord));
+        uint64_t start_off = 0;
+        if (row_ord > 0) {
+            std::vector<uint64_t> prev;
+            RETURN_IF_ERROR(_read_offsets_with_prev(state.offsets_iter.get(), row_ord, 1, &start_off,
+                                                   &prev));
+            if (!prev.empty()) {
+                start_off = prev[0];
+            }
+        }
+        for (auto& [_, it] : state.child_iters) {
+            RETURN_IF_ERROR(it->seek_to_ordinal(start_off));
+        }
+        for (auto& [_, nested] : state.nested_groups) {
+            // nested groups are indexed by parent element ordinal (flat index)
+            RETURN_IF_ERROR(_seek_group_state(*nested, start_off));
+        }
+        return Status::OK();
+    }
+
+    // Build an array<object> column (ColumnVariant::NESTED_TYPE) for rows [row_ord, row_ord+row_cnt)
+    // and append it into dst (expected Nullable(Array(Nullable(Variant)))).
+    Status _append_group_as_nested_type(GroupState& state, ordinal_t row_ord, size_t row_cnt,
+                                        vectorized::MutableColumnPtr& dst) {
+        // dst is expected to be Nullable(Array(Nullable(Variant)))
+        auto* dst_nullable = assert_cast<vectorized::ColumnNullable*>(dst.get());
+        auto& dst_array =
+                assert_cast<vectorized::ColumnArray&>(dst_nullable->get_nested_column());
+        auto& dst_offsets = dst_array.get_offsets();
+
+        uint64_t start_off = 0;
+        std::vector<uint64_t> offsets;
+        RETURN_IF_ERROR(_read_offsets_with_prev(state.offsets_iter.get(), row_ord, row_cnt, &start_off,
+                                               &offsets));
+        uint64_t end_off = offsets.empty() ? start_off : offsets.back();
+        auto elem_count = static_cast<size_t>(end_off - start_off);
+
+        // Seek all child iterators to start offset (safe for both sequential/random usage)
+        for (auto& [_, it] : state.child_iters) {
+            RETURN_IF_ERROR(it->seek_to_ordinal(start_off));
+        }
+
+        // Read scalar child columns (flat) for this batch
+        std::unordered_map<std::string, vectorized::MutableColumnPtr> child_cols;
+        child_cols.reserve(state.child_iters.size());
+        for (auto& [name, it] : state.child_iters) {
+            auto type = state.reader->child_readers.at(name)->get_vec_data_type();
+            auto col = type->create_column();
+            if (elem_count > 0) {
+                size_t to_read = elem_count;
+                bool child_has_null = false;
+                RETURN_IF_ERROR(it->next_batch(&to_read, col, &child_has_null));
+            }
+            child_cols.emplace(name, std::move(col));
+        }
+
+        // Build element objects: ColumnVariant with paths = field names
+        auto elem_obj = vectorized::ColumnVariant::create(0, elem_count);
+        auto* elem_obj_ptr = assert_cast<vectorized::ColumnVariant*>(elem_obj.get());
+        for (auto& [name, col] : child_cols) {
+            vectorized::PathInData p(name);
+            bool ok = elem_obj_ptr->add_sub_column(
+                    p, col->assume_mutable(),
+                    state.reader->child_readers.at(name)->get_vec_data_type());
+            if (!ok) {
+                return Status::InternalError("Duplicated NestedGroup child field {}", name);
+            }
+        }
+
+        // Reconstruct nested array fields (multi-level NestedGroup)
+        for (auto& [name, nested_state] : state.nested_groups) {
+            // Create a nested type column for this field, sized by elem_count (rows = parent elements)
+            vectorized::MutableColumnPtr nested_col =
+                    vectorized::ColumnVariant::NESTED_TYPE->create_column();
+            if (elem_count > 0) {
+                // Fill nested_col by reading from nested group rows [start_off, start_off+elem_count)
+                RETURN_IF_ERROR(_append_group_as_nested_type(*nested_state, start_off, elem_count,
+                                                            nested_col));
+            }
+            vectorized::PathInData p(name);
+            bool ok = elem_obj_ptr->add_sub_column(p, std::move(nested_col),
+                                                  vectorized::ColumnVariant::NESTED_TYPE);
+            if (!ok) {
+                return Status::InternalError("Duplicated NestedGroup nested field {}", name);
+            }
+        }
+
+        // Ensure element objects are nullable to match NESTED_TYPE inner nullable
+        vectorized::ColumnPtr elem_obj_nullable = vectorized::make_nullable(elem_obj->get_ptr());
+
+        // Append array offsets
+        size_t prev = dst_offsets.empty() ? 0 : dst_offsets.back();
+        for (size_t i = 0; i < offsets.size(); ++i) {
+            uint64_t sz = (i == 0) ? (offsets[i] - start_off) : (offsets[i] - offsets[i - 1]);
+            dst_offsets.push_back(prev + static_cast<size_t>(sz));
+            prev = dst_offsets.back();
+        }
+
+        // Append array data
+        dst_array.get_data().insert_range_from(*elem_obj_nullable, 0, elem_obj_nullable->size());
+        dst_nullable->get_null_map_column().insert_many_vals(0, offsets.size());
+        return Status::OK();
+    }
+
+    const NestedGroupReader* _group_reader;
+    ColumnIteratorOptions _iter_opts;
+    GroupState _root_state;
+    ordinal_t _current_ordinal = 0;
+};
+
+} // namespace
 
 const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_path(
         const vectorized::PathInData& relative_path) const {
@@ -158,7 +365,7 @@ private:
                 }
             }
 
-            std::sort(all_paths.begin(), all_paths.end());
+            std::ranges::sort(all_paths);
             for (const auto& [path, bucket, offset] : all_paths) {
                 dst_sparse_data_paths.insert_data(path.data(), path.size());
                 dst_sparse_data_values.insert_from(*src_sparse_data_values_buckets[bucket], offset);
@@ -178,7 +385,9 @@ Status UnifiedSparseColumnReader::new_sparse_iterator(ColumnIteratorUPtr* iter) 
         std::vector<std::unique_ptr<ColumnIterator>> iters;
         iters.reserve(_buckets.size());
         for (const auto& br : _buckets) {
-            if (!br) continue;
+            if (!br) {
+                continue;
+            }
             ColumnIteratorUPtr it;
             RETURN_IF_ERROR(br->new_iterator(&it, nullptr));
             iters.emplace_back(std::move(it));
@@ -195,8 +404,8 @@ Status UnifiedSparseColumnReader::new_sparse_iterator(ColumnIteratorUPtr* iter) 
 std::pair<std::shared_ptr<ColumnReader>, std::string>
 UnifiedSparseColumnReader::select_reader_and_cache_key(const std::string& relative_path) const {
     if (has_buckets()) {
-        uint32_t N = static_cast<uint32_t>(_buckets.size());
-        uint32_t bucket_index = vectorized::schema_util::variant_sparse_shard_of(
+        auto N = static_cast<uint32_t>(_buckets.size());
+        auto bucket_index = vectorized::schema_util::variant_sparse_shard_of(
                 StringRef {relative_path.data(), relative_path.size()}, N);
         DCHECK(bucket_index < _buckets.size());
         std::string key = std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
@@ -210,8 +419,7 @@ bool VariantColumnReader::exist_in_sparse_column(
     // Check if path exist in sparse column
     bool existed_in_sparse_column =
             !_statistics->sparse_column_non_null_size.empty() &&
-            _statistics->sparse_column_non_null_size.find(relative_path.get_path()) !=
-                    _statistics->sparse_column_non_null_size.end();
+            _statistics->sparse_column_non_null_size.contains(relative_path.get_path());
     const std::string& prefix = relative_path.get_path() + ".";
     bool prefix_existed_in_sparse_column =
             !_statistics->sparse_column_non_null_size.empty() &&
@@ -327,9 +535,9 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         // If bucketized sparse column is requested (per-bucket sparse output column),
         // only collect subcolumns that belong to this bucket to avoid extra IO.
         if (bucket_index.has_value() && _sparse_reader.has_buckets()) {
-            uint32_t N = static_cast<uint32_t>(_sparse_reader.num_buckets());
+            auto N = static_cast<uint32_t>(_sparse_reader.num_buckets());
             if (N > 1) {
-                uint32_t b = vectorized::schema_util::variant_sparse_shard_of(
+                auto b = vectorized::schema_util::variant_sparse_shard_of(
                         StringRef {path.data(), path.size()}, N);
                 if (b != bucket_index.value()) {
                     continue; // prune subcolumns of other buckets early
@@ -416,11 +624,12 @@ Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
     return sparse_column_cache_ptr->at(path);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status VariantColumnReader::_new_iterator_with_flat_leaves(
         ColumnIteratorUPtr* iterator, const TabletColumn& target_col,
         const StorageReadOptions* opts, bool exceeded_sparse_column_limit,
         bool existed_in_sparse_column, ColumnReaderCache* column_reader_cache,
-        PathToSparseColumnCache* sparse_column_cache_ptr) {
+        PathToSparseColumnCache* sparse_column_cache_ptr) { // NOLINT(readability-function-cognitive-complexity,readability-function-size,readability-function-cognitive-complexity)
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     RETURN_IF_ERROR(load_external_meta_once());
 
@@ -444,8 +653,7 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(
             return Status::OK();
         }
         // Case 2: bucketized sparse column path: __DORIS_VARIANT_SPARSE__.b{i}
-        if (rel.rfind(std::string(SPARSE_COLUMN_PATH) + ".b", 0) == 0 &&
-            _sparse_reader.has_buckets()) {
+        if (rel.starts_with(std::string(SPARSE_COLUMN_PATH) + ".b") && _sparse_reader.has_buckets()) {
             // parse bucket index
             uint32_t bucket_index = static_cast<uint32_t>(
                     atoi(rel.substr(std::string(SPARSE_COLUMN_PATH).size() + 2).c_str()));
@@ -547,11 +755,12 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     return Status::NotSupported("Not implemented");
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* target_col,
                                          const StorageReadOptions* opt,
                                          ColumnReaderCache* column_reader_cache,
-                                         PathToSparseColumnCache* sparse_column_cache_ptr) {
+                                         PathToSparseColumnCache* sparse_column_cache_ptr) { // NOLINT(readability-function-cognitive-complexity,readability-function-size,readability-function-cognitive-complexity)
     int32_t col_uid =
             target_col->unique_id() >= 0 ? target_col->unique_id() : target_col->parent_unique_id();
     // root column use unique id, leaf column use parent_unique_id
@@ -566,6 +775,48 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     if (node == nullptr) {
         relative_path = vectorized::PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
+    }
+
+    // Whole NestedGroup access: reading $.nested should return the array<object> itself.
+    if (!relative_path.empty()) {
+        const NestedGroupReader* gr = get_nested_group_reader(relative_path.get_path());
+        if (gr && gr->is_valid()) {
+            *iterator = std::make_unique<NestedGroupWholeIterator>(gr);
+            return Status::OK();
+        }
+    }
+
+    // Check if path belongs to a NestedGroup
+    // NestedGroup stores array<object> with shared offsets for element-level associations
+    if (is_nested_group_path(relative_path)) {
+        auto [array_path, child_relative_path] =
+                vectorized::ColumnVariant::split_array_path(relative_path);
+        const NestedGroupReader* group_reader = get_nested_group_reader(array_path.get_path());
+        if (group_reader && group_reader->is_valid()) {
+            // Find the child reader for this relative path
+            auto child_it = group_reader->child_readers.find(child_relative_path.get_path());
+            if (child_it != group_reader->child_readers.end()) {
+                // Create iterators for offsets and child data
+                ColumnIteratorUPtr offsets_iter;
+                RETURN_IF_ERROR(group_reader->offsets_reader->new_iterator(&offsets_iter, nullptr));
+
+                ColumnIteratorUPtr child_iter;
+                RETURN_IF_ERROR(child_it->second->new_iterator(&child_iter, nullptr));
+
+                // Determine result type (array of child type)
+                auto child_type = child_it->second->get_vec_data_type();
+                auto result_type = std::make_shared<vectorized::DataTypeArray>(child_type);
+
+                *iterator = std::make_unique<NestedGroupIterator>(
+                        std::move(offsets_iter), std::move(child_iter), result_type);
+
+                if (opt && opt->stats) {
+                    opt->stats->variant_subtree_leaf_iter_count++;
+                }
+                return Status::OK();
+            }
+        }
+        // If NestedGroup reader not found or child not found, fall through to other logic
     }
 
     // Check if path exist in sparse column
@@ -673,9 +924,10 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                                  const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
-                                 uint64_t num_rows, io::FileReaderSPtr file_reader) {
+                                 uint64_t num_rows, io::FileReaderSPtr file_reader) { // NOLINT(readability-function-cognitive-complexity,readability-function-size,readability-function-cognitive-complexity)
     // init sub columns
     _subcolumns_meta_info = std::make_unique<SubcolumnColumnMetaInfo>();
     _statistics = std::make_unique<VariantStatistics>();
@@ -844,6 +1096,11 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     // try build external meta readers (optional)
     _ext_meta_reader = std::make_unique<VariantExternalMetaReader>();
     RETURN_IF_ERROR(_ext_meta_reader->init_from_footer(footer, file_reader, _root_unique_id));
+
+    // Initialize NestedGroup readers based on segment footer (not config flag)
+    // If segment contains NestedGroup columns (__ng. prefix), initialize readers
+    RETURN_IF_ERROR(_init_nested_group_readers(opts, footer, file_reader));
+
     return Status::OK();
 }
 Status VariantColumnReader::create_reader_from_external_meta(const std::string& path,
@@ -953,6 +1210,14 @@ vectorized::DataTypePtr VariantColumnReader::infer_data_type_for_path(
         const TabletColumn& column, const vectorized::PathInData& relative_path,
         bool read_flat_leaves, ColumnReaderCache* cache, int32_t col_uid) const {
     // english only in comments
+    // If this is exactly a NestedGroup array path, expose it as ColumnVariant::NESTED_TYPE so
+    // callers can read $.nested without relying on root JSONB.
+    if (!relative_path.empty()) {
+        const NestedGroupReader* gr = get_nested_group_reader(relative_path.get_path());
+        if (gr && gr->is_valid()) {
+            return vectorized::ColumnVariant::NESTED_TYPE;
+        }
+    }
     // Locate the subcolumn node by path.
     const auto* node = get_subcolumn_meta_by_path(relative_path);
 
@@ -1061,7 +1326,7 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
                     : assert_cast<vectorized::ColumnVariant&>(*dst);
 
-    auto most_common_type = obj.get_most_common_type();
+    auto most_common_type = obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
     auto root_column = most_common_type->create_column();
     RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
 
@@ -1077,7 +1342,7 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
                     : assert_cast<vectorized::ColumnVariant&>(*dst);
 
-    auto most_common_type = obj.get_most_common_type();
+    auto most_common_type = obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
     auto root_column = most_common_type->create_column();
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
 
@@ -1133,6 +1398,323 @@ Status DefaultNestedColumnIterator::read_by_rowids(const rowid_t* rowids, const 
     } else {
         dst->insert_many_defaults(count);
     }
+    return Status::OK();
+}
+
+// NestedGroup support implementations
+
+// Helper to find or create nested group reader at the right level
+static NestedGroupReader* find_or_create_nested_group(
+        NestedGroupReaders& readers,
+        const std::string& full_path,
+        size_t depth) {
+    // Parse the path to find the hierarchy
+    // Format: path1.__ng.path2.__ng.path3...
+    std::string ng_marker = ".__ng.";
+
+    // Split by .__ng. to get hierarchy
+    std::vector<std::string> path_parts;
+    size_t start = 0;
+    size_t pos;
+    while ((pos = full_path.find(ng_marker, start)) != std::string::npos) {
+        path_parts.push_back(full_path.substr(start, pos - start));
+        start = pos + ng_marker.length();
+    }
+    path_parts.push_back(full_path.substr(start));
+
+    if (path_parts.empty()) {
+        return nullptr;
+    }
+
+    // Navigate/create the hierarchy
+    NestedGroupReaders* current_map = &readers;
+    NestedGroupReader* current_reader = nullptr;
+
+    for (size_t i = 0; i < path_parts.size(); ++i) {
+        const std::string& part = path_parts[i];
+        auto it = current_map->find(part);
+
+        if (it == current_map->end()) {
+            // Create new reader
+            auto new_reader = std::make_unique<NestedGroupReader>();
+            new_reader->array_path = part;
+            new_reader->depth = i + 1;
+            current_reader = new_reader.get();
+            (*current_map)[part] = std::move(new_reader);
+        } else {
+            current_reader = it->second.get();
+        }
+
+        if (i + 1 < path_parts.size()) {
+            current_map = &current_reader->nested_group_readers;
+        }
+    }
+
+    return current_reader;
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+Status VariantColumnReader::_init_nested_group_readers(
+        const ColumnReaderOptions& opts, const std::shared_ptr<SegmentFooterPB>& footer,
+        const io::FileReaderSPtr& file_reader) { // NOLINT(readability-function-cognitive-complexity,readability-function-size,readability-function-cognitive-complexity)
+    // Scan footer for NestedGroup columns (columns with __ng. prefix)
+    // Pattern: <variant_name>.__ng.<array_path>.__offsets for offsets
+    // Pattern: <variant_name>.__ng.<array_path>.<field_path> for children
+    // Multi-level: <variant>.__ng.a.__ng.b.__offsets for nested groups
+
+    std::string ng_prefix = ".__ng.";
+    std::string offsets_suffix = ".__offsets";
+
+    // Collect all columns info first
+    struct ColumnInfo {
+        int ordinal;
+        std::string full_ng_path;  // The full nested group path (may include .__ng.)
+        std::string relative_path; // Relative path for children
+        bool is_offsets;
+        size_t depth;
+    };
+    std::vector<ColumnInfo> column_infos;
+
+    for (int i = 0; i < footer->columns_size(); ++i) {
+        const auto& col = footer->columns(i);
+        if (!col.has_column_path_info()) {
+            continue;
+        }
+
+        const auto& path_info = col.column_path_info();
+        if (!path_info.has_nested_group_parent_path()) {
+            continue;
+        }
+
+        ColumnInfo info;
+        info.ordinal = i;
+        info.full_ng_path = path_info.nested_group_parent_path();
+        info.is_offsets = path_info.has_is_nested_group_offsets() && path_info.is_nested_group_offsets();
+        info.depth = path_info.has_nested_group_depth() ? path_info.nested_group_depth() : 1;
+
+        if (!info.is_offsets) {
+            // Extract relative path
+            std::string path_str = path_info.path();
+            size_t last_ng_pos = path_str.rfind(ng_prefix);
+            if (last_ng_pos != std::string::npos) {
+                size_t after_ng = last_ng_pos + ng_prefix.length();
+                // Find the end of the array path part
+                size_t dot_pos = path_str.find('.', after_ng);
+                while (dot_pos != std::string::npos) {
+                    std::string potential_child = path_str.substr(dot_pos + 1);
+                    // Check if this is still part of the nested group path
+                    if (!potential_child.starts_with("__ng.")) {
+                        info.relative_path = potential_child;
+                        break;
+                    }
+                    dot_pos = path_str.find('.', dot_pos + 1);
+                }
+            }
+        }
+
+        column_infos.push_back(std::move(info));
+    }
+
+    // Create readers for each NestedGroup
+    for (const auto& info : column_infos) {
+        NestedGroupReader* group_reader = find_or_create_nested_group(
+                _nested_group_readers, info.full_ng_path, info.depth);
+
+        if (!group_reader) {
+            continue;
+        }
+
+        const auto& col_meta = footer->columns(info.ordinal);
+
+        if (info.is_offsets) {
+            // Create offsets reader
+            RETURN_IF_ERROR(ColumnReader::create(opts, col_meta, _num_rows, file_reader,
+                                                 &group_reader->offsets_reader));
+        } else if (!info.relative_path.empty()) {
+            // Create child reader
+            std::shared_ptr<ColumnReader> child_reader;
+            uint64_t child_num_rows = col_meta.has_num_rows() ? col_meta.num_rows() : _num_rows;
+            RETURN_IF_ERROR(ColumnReader::create(opts, col_meta, child_num_rows, file_reader,
+                                                 &child_reader));
+            group_reader->child_readers[info.relative_path] = std::move(child_reader);
+        }
+    }
+
+    return Status::OK();
+}
+
+// Helper to recursively find a nested group reader
+static const NestedGroupReader* find_nested_group_reader_recursive(
+        const NestedGroupReaders& readers,
+        const std::string& target_path) {
+    for (const auto& [path, reader] : readers) {
+        if (path == target_path) {
+            return reader.get();
+        }
+        // Check nested groups
+        const NestedGroupReader* nested_result =
+                find_nested_group_reader_recursive(reader->nested_group_readers, target_path);
+        if (nested_result) {
+            return nested_result;
+        }
+    }
+    return nullptr;
+}
+
+const NestedGroupReader* VariantColumnReader::get_nested_group_reader(
+        const std::string& array_path) const {
+    // First try direct lookup
+    auto it = _nested_group_readers.find(array_path);
+    if (it != _nested_group_readers.end()) {
+        return it->second.get();
+    }
+    // Try recursive search for nested groups
+    return find_nested_group_reader_recursive(_nested_group_readers, array_path);
+}
+
+bool VariantColumnReader::is_nested_group_path(const vectorized::PathInData& path) const {
+    auto [array_path, relative_path] = vectorized::ColumnVariant::split_array_path(path);
+    if (array_path.empty()) {
+        return false;
+    }
+    return get_nested_group_reader(array_path.get_path()) != nullptr;
+}
+
+// NestedGroupIterator implementations
+
+Status NestedGroupIterator::init(const ColumnIteratorOptions& opts) {
+    RETURN_IF_ERROR(_offsets_iter->init(opts));
+    RETURN_IF_ERROR(_child_iter->init(opts));
+    return Status::OK();
+}
+
+Status NestedGroupIterator::seek_to_ordinal(ordinal_t ord_idx) {
+    _current_ordinal = ord_idx;
+    RETURN_IF_ERROR(_offsets_iter->seek_to_ordinal(ord_idx));
+    // For child iterator, we need to seek to the flat position
+    // corresponding to this row ordinal
+    // This requires reading the offset at ord_idx-1 (or 0 if ord_idx == 0)
+    if (ord_idx > 0) {
+        std::vector<uint64_t> prev_offset;
+        RETURN_IF_ERROR(_read_offsets(ord_idx - 1, 1, &prev_offset));
+        if (!prev_offset.empty()) {
+            RETURN_IF_ERROR(_child_iter->seek_to_ordinal(prev_offset[0]));
+        }
+    } else {
+        RETURN_IF_ERROR(_child_iter->seek_to_ordinal(0));
+    }
+    return Status::OK();
+}
+
+Status NestedGroupIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                       bool* has_null) {
+    // Read offsets for these rows
+    std::vector<uint64_t> offsets;
+    RETURN_IF_ERROR(_read_offsets(_current_ordinal, *n, &offsets));
+
+    // Calculate how many child elements to read
+    // For start_offset, we need the offset of the previous row (or 0 if this is the first row)
+    size_t start_offset = 0;
+    if (_current_ordinal > 0) {
+        // Read the previous row's offset
+        std::vector<uint64_t> prev_offsets;
+        RETURN_IF_ERROR(_read_offsets(_current_ordinal - 1, 1, &prev_offsets));
+        if (!prev_offsets.empty()) {
+            start_offset = prev_offsets[0];
+        }
+    }
+    size_t end_offset = offsets.empty() ? start_offset : offsets.back();
+    size_t num_elements = end_offset - start_offset;
+
+    // Read child data
+    auto child_col = _result_type->create_column();
+    if (num_elements > 0) {
+        bool child_has_null = false;
+        RETURN_IF_ERROR(_child_iter->next_batch(&num_elements, child_col, &child_has_null));
+    }
+
+    // Build array column from offsets and child data
+    auto* dst_array = assert_cast<vectorized::ColumnArray*>(dst.get());
+
+    // Convert offsets to array offsets (relative to start)
+    auto& dst_offsets = dst_array->get_offsets();
+    size_t prev_offset = dst_offsets.empty() ? 0 : dst_offsets.back();
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        size_t array_size = (i == 0) ? (offsets[i] - start_offset)
+                                     : (offsets[i] - offsets[i - 1]);
+        dst_offsets.push_back(prev_offset + array_size);
+        prev_offset = dst_offsets.back();
+    }
+
+    // Insert child data
+    dst_array->get_data().insert_range_from(*child_col, 0, child_col->size());
+
+    _current_ordinal += *n;
+    *has_null = false;
+    return Status::OK();
+}
+
+Status NestedGroupIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                           vectorized::MutableColumnPtr& dst) {
+    // For random access, we need to read offsets for each row and then
+    // read the corresponding child elements
+    // This is more complex and less efficient than sequential access
+
+    auto* dst_array = assert_cast<vectorized::ColumnArray*>(dst.get());
+    auto& dst_offsets = dst_array->get_offsets();
+
+    for (size_t i = 0; i < count; ++i) {
+        rowid_t rowid = rowids[i];
+
+        // Read offset for this row and previous row
+        vectorized::MutableColumnPtr offset_col = vectorized::ColumnOffset64::create();
+        size_t start_offset = 0;
+        if (rowid > 0) {
+            RETURN_IF_ERROR(_offsets_iter->seek_to_ordinal(rowid - 1));
+            size_t n = 2;
+            bool has_null = false;
+            RETURN_IF_ERROR(_offsets_iter->next_batch(&n, offset_col, &has_null));
+            auto* offset_data = assert_cast<vectorized::ColumnOffset64*>(offset_col.get());
+            start_offset = offset_data->get_data()[0];
+        } else {
+            RETURN_IF_ERROR(_offsets_iter->seek_to_ordinal(0));
+            size_t n = 1;
+            bool has_null = false;
+            RETURN_IF_ERROR(_offsets_iter->next_batch(&n, offset_col, &has_null));
+        }
+
+        auto* offset_data = assert_cast<vectorized::ColumnOffset64*>(offset_col.get());
+        size_t end_offset = offset_data->get_data().back();
+        size_t num_elements = end_offset - start_offset;
+
+        // Read child elements for this row
+        auto child_col = _result_type->create_column();
+        if (num_elements > 0) {
+            RETURN_IF_ERROR(_child_iter->seek_to_ordinal(start_offset));
+            bool child_has_null = false;
+            RETURN_IF_ERROR(_child_iter->next_batch(&num_elements, child_col, &child_has_null));
+        }
+
+        // Add to destination array
+        size_t prev_offset = dst_offsets.empty() ? 0 : dst_offsets.back();
+        dst_offsets.push_back(prev_offset + num_elements);
+        dst_array->get_data().insert_range_from(*child_col, 0, child_col->size());
+    }
+
+    return Status::OK();
+}
+
+Status NestedGroupIterator::_read_offsets(ordinal_t start_ordinal, size_t num_rows,
+                                          std::vector<uint64_t>* offsets_out) {
+    RETURN_IF_ERROR(_offsets_iter->seek_to_ordinal(start_ordinal));
+
+    vectorized::MutableColumnPtr offset_col = vectorized::ColumnOffset64::create();
+    bool has_null = false;
+    RETURN_IF_ERROR(_offsets_iter->next_batch(&num_rows, offset_col, &has_null));
+
+    auto* offset_data = assert_cast<vectorized::ColumnOffset64*>(offset_col.get());
+    offsets_out->assign(offset_data->get_data().begin(), offset_data->get_data().end());
+
     return Status::OK();
 }
 

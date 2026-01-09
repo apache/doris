@@ -39,6 +39,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"
@@ -264,6 +265,60 @@ public:
     };
     using Subcolumns = SubcolumnsTree<Subcolumn, false>;
 
+    /**
+     * Represents a nested array group with shared offsets.
+     * Each array<object> path gets its own NestedGroup to maintain
+     * element-level field associations.
+     *
+     * Example: for JSON {"items": [{"a":1,"b":"x"}, {"a":2,"b":"y"}]}
+     *   - NestedGroup path = "items"
+     *   - offsets = [2] (one row with 2 array elements)
+     *   - children = {"a": [1,2], "b": ["x","y"]}
+     */
+    struct NestedGroup {
+        // The path this group represents (e.g., "voltage_list")
+        PathInData path;
+
+        // Offsets array: prefix-sum of array sizes per row
+        // offsets[i] = total number of elements in rows [0, i]
+        // Example: if rows have arrays of sizes [2, 3, 1], offsets = [2, 5, 6]
+        MutableColumnPtr offsets;
+
+        // Child subcolumns under this array path
+        // Key: relative path under this array (e.g., "voltage", "current")
+        // Value: the subcolumn data (flat values, using shared offsets)
+        std::unordered_map<PathInData, Subcolumn, PathInData::Hash> children;
+
+        // For nested arrays within this group
+        // Key: relative path to child array
+        std::unordered_map<PathInData, std::shared_ptr<NestedGroup>, PathInData::Hash> nested_groups;
+
+        // Current total flat size (sum of all array elements so far)
+        size_t current_flat_size = 0;
+
+        // Conflict tracking: if true, this path is disabled and falls back to JSONB
+        bool is_disabled = false;
+
+        // Expected structure info for conflict detection
+        enum struct StructureType { UNKNOWN, SCALAR, ARRAY, OBJECT };
+        StructureType expected_type = StructureType::UNKNOWN;
+        size_t expected_array_depth = 0;
+
+        size_t size() const { return current_flat_size; }
+        size_t num_rows() const { return offsets ? offsets->size() : 0; }
+
+        // Initialize offsets column if not created
+        void ensure_offsets() {
+            if (!offsets) {
+                offsets = ColumnOffset64::create();
+            }
+        }
+    };
+
+    // Map from array path to NestedGroup
+    using NestedGroupsMap =
+            std::unordered_map<PathInData, std::shared_ptr<NestedGroup>, PathInData::Hash>;
+
 private:
     /// If true then all subcolumns are nullable.
     const bool is_nullable;
@@ -287,6 +342,15 @@ private:
 
     // subcolumns count materialized from nested paths
     size_t nested_path_count = 0;
+
+    // NestedGroup storage for array<object> paths
+    // Key: array path (e.g., "items", "data.records")
+    // Value: NestedGroup containing shared offsets and child columns
+    NestedGroupsMap _nested_groups;
+
+    // Paths that have been disabled due to structure conflicts
+    // Data for these paths falls back to root JSONB
+    std::unordered_set<PathInData, PathInData::Hash> _disabled_paths;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
@@ -386,6 +450,56 @@ public:
     Subcolumns& get_subcolumns() { return subcolumns; }
 
     ColumnPtr get_sparse_column() const { return serialized_sparse_column; }
+
+    // NestedGroup management APIs
+    // Get or create a NestedGroup for the given array path
+    NestedGroup* get_or_create_nested_group(const PathInData& array_path);
+
+    // Get an existing NestedGroup (returns nullptr if not found)
+    NestedGroup* get_nested_group(const PathInData& array_path);
+    const NestedGroup* get_nested_group(const PathInData& array_path) const;
+
+    // Get all NestedGroups (for iteration during write/finalize)
+    const NestedGroupsMap& get_nested_groups() const { return _nested_groups; }
+    NestedGroupsMap& get_nested_groups() { return _nested_groups; }
+
+    // Check if a path has structure conflict with existing data
+    bool check_path_conflict(const PathInData& path, size_t array_depth,
+                             const FieldInfo& field_info) const;
+
+    // Disable a path (fallback to JSONB)
+    void disable_path(const PathInData& path);
+
+    // Check if a path is disabled
+    bool is_path_disabled(const PathInData& path) const {
+        return _disabled_paths.contains(path);
+    }
+
+    // Get subcolumn from NestedGroup (for reading)
+    const Subcolumn* get_subcolumn_from_nested_group(const PathInData& path) const;
+
+    // Get finalized column from NestedGroup, reconstructing array semantics
+    // Returns array column with proper offsets
+    ColumnPtr get_finalized_column_from_nested_group(const PathInData& path) const;
+
+    // Finalize all NestedGroup children
+    void finalize_nested_groups(FinalizeMode mode);
+
+    // Split a path at the array<object> boundary
+    // Returns: (array_path, relative_path)
+    // If no array<object> in path, array_path is empty
+    static std::pair<PathInData, PathInData> split_array_path(const PathInData& path);
+
+    // Get all nested levels in a path
+    // Returns: vector of (array_path, depth) pairs for each nested level
+    // Example: for path "a.b.c.d" where a and c are nested:
+    //   Returns: [("a", 1), ("a.b.c", 2)]
+    static std::vector<std::pair<PathInData, size_t>> get_nested_levels(const PathInData& path);
+
+    // Get the relative path after removing all nested prefixes
+    // Example: for path "a.b.c.d" where a and c are nested:
+    //   Returns: "d" (the leaf path after the deepest nested level)
+    static PathInData get_leaf_path_after_nested(const PathInData& path);
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_sparse_column_fn() {

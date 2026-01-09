@@ -599,6 +599,10 @@ Status VariantColumnWriterImpl::finalize() {
         // process sparse column and append to sparse writer buffer
         RETURN_IF_ERROR(
                 _process_sparse_column(ptr, olap_data_convertor.get(), num_rows, column_id));
+
+        // NestedGroup processing: expansion from JSONB is handled by NestedGroupBuilder
+        // This will be implemented in a subsequent phase
+        // TODO: Call _build_nested_groups_from_jsonb() and _write_nested_groups() here
     }
 
     _is_finalized = true;
@@ -844,6 +848,148 @@ Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const ui
                                                size_t num_rows) {
     // the root contains the same nullable info
     RETURN_IF_ERROR(append_data(ptr, num_rows));
+    return Status::OK();
+}
+
+// Helper function to recursively write a NestedGroup
+static Status write_nested_group_recursive(
+        const vectorized::ColumnVariant::NestedGroup* group,
+        const std::string& path_prefix,
+        const TabletColumn* tablet_column,
+        const ColumnWriterOptions& base_opts,
+        vectorized::OlapBlockDataConvertor* converter,
+        size_t parent_num_rows,
+        int& column_id,
+        std::unordered_map<std::string, NestedGroupWriter>& writers,
+        VariantStatistics& statistics,
+        size_t depth) {
+
+    if (!group || group->is_disabled) {
+        return Status::OK();
+    }
+
+    std::string full_path = path_prefix.empty() ? group->path.get_path()
+                                                 : path_prefix + ".__ng." + group->path.get_path();
+    auto& group_writer = writers[full_path];
+
+    // 1. Create and write offsets column
+    std::string offsets_col_name = tablet_column->name_lower_case() + ".__ng." +
+                                   full_path + ".__offsets";
+
+    TabletColumn offsets_column;
+    offsets_column.set_name(offsets_col_name);
+    offsets_column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    offsets_column.set_is_nullable(false);
+    offsets_column.set_length(sizeof(uint64_t));
+    offsets_column.set_index_length(sizeof(uint64_t));
+
+    group_writer.offsets_opts = base_opts;
+    group_writer.offsets_opts.meta = base_opts.footer->add_columns();
+    _init_column_meta(group_writer.offsets_opts.meta, column_id, offsets_column,
+                      base_opts.compression_type);
+
+    // Mark as NestedGroup offsets in metadata
+    auto* path_info = group_writer.offsets_opts.meta->mutable_column_path_info();
+    path_info->set_is_nested_group_offsets(true);
+    path_info->set_nested_group_parent_path(full_path);
+    path_info->set_path(offsets_col_name);
+    path_info->set_nested_group_depth(static_cast<uint32_t>(depth));
+
+    RETURN_IF_ERROR(ColumnWriter::create(group_writer.offsets_opts, &offsets_column,
+                                         base_opts.file_writer, &group_writer.offsets_writer));
+    RETURN_IF_ERROR(group_writer.offsets_writer->init());
+
+    // Write offsets data
+    // English comment: avoid implicit conversion from MutablePtr to immutable ColumnPtr.
+    vectorized::ColumnPtr offsets_col =
+            static_cast<const vectorized::IColumn&>(*group->offsets).get_ptr();
+    size_t offsets_num_rows = offsets_col->size();
+    converter->add_column_data_convertor(offsets_column);
+    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+            {offsets_col, nullptr, ""}, 0, offsets_num_rows, column_id));
+    auto [status, converted] = converter->convert_column_data(column_id);
+    RETURN_IF_ERROR(status);
+    RETURN_IF_ERROR(group_writer.offsets_writer->append(converted->get_nullmap(),
+                                                        converted->get_data(), offsets_num_rows));
+    converter->clear_source_content(column_id);
+    group_writer.offsets_opts.meta->set_num_rows(offsets_num_rows);
+    ++column_id;
+
+    // 2. Write child columns
+    for (const auto& [relative_path, subcolumn] : group->children) {
+        std::string child_col_name = tablet_column->name_lower_case() + ".__ng." +
+                                     full_path + "." + relative_path.get_path();
+
+        const auto& child_type = subcolumn.get_least_common_type();
+        TabletColumn child_column = vectorized::schema_util::get_column_by_type(
+                child_type, child_col_name,
+                vectorized::schema_util::ExtraInfo {
+                        .unique_id = -1,
+                        .parent_unique_id = tablet_column->unique_id(),
+                        .path_info = vectorized::PathInData(child_col_name)});
+
+        ColumnWriterOptions child_opts = base_opts;
+        child_opts.meta = base_opts.footer->add_columns();
+        _init_column_meta(child_opts.meta, column_id, child_column, base_opts.compression_type);
+
+        // Mark child as part of NestedGroup
+        auto* child_path_info = child_opts.meta->mutable_column_path_info();
+        child_path_info->set_nested_group_parent_path(full_path);
+        child_path_info->set_path(child_col_name);
+    child_path_info->set_nested_group_depth(static_cast<uint32_t>(depth));
+
+        std::unique_ptr<ColumnWriter> child_writer;
+        RETURN_IF_ERROR(ColumnWriter::create(child_opts, &child_column, base_opts.file_writer,
+                                             &child_writer));
+        RETURN_IF_ERROR(child_writer->init());
+
+        // Get the child's finalized data (flat values)
+        auto child_col = subcolumn.get_finalized_column_ptr();
+        size_t child_num_rows = child_col->size();
+
+        converter->add_column_data_convertor(child_column);
+        RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+                {child_col, nullptr, ""}, 0, child_num_rows, column_id));
+        auto [child_status, child_converted] = converter->convert_column_data(column_id);
+        RETURN_IF_ERROR(child_status);
+        RETURN_IF_ERROR(child_writer->append(child_converted->get_nullmap(),
+                                             child_converted->get_data(), child_num_rows));
+        converter->clear_source_content(column_id);
+        child_opts.meta->set_num_rows(child_num_rows);
+
+        group_writer.child_writers[relative_path.get_path()] = std::move(child_writer);
+        group_writer.child_opts[relative_path.get_path()] = child_opts;
+        ++column_id;
+    }
+
+    // 3. Recursively write nested groups within this group
+    for (const auto& [nested_path, nested_group] : group->nested_groups) {
+        RETURN_IF_ERROR(write_nested_group_recursive(
+                nested_group.get(), full_path, tablet_column, base_opts, converter,
+                group->current_flat_size, column_id, writers, statistics, depth + 1));
+    }
+
+    // Update statistics
+    NestedGroupInfoPB info;
+    info.set_element_count(static_cast<uint32_t>(group->current_flat_size));
+    info.set_child_count(static_cast<uint32_t>(group->children.size() + group->nested_groups.size()));
+    info.set_has_conflict(group->is_disabled);
+    statistics.nested_group_info[full_path] = info;
+
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::_process_nested_groups(vectorized::ColumnVariant* ptr,
+                                                       vectorized::OlapBlockDataConvertor* converter,
+                                                       size_t num_rows, int& column_id) {
+    const auto& nested_groups = ptr->get_nested_groups();
+
+    for (const auto& [array_path, group] : nested_groups) {
+        RETURN_IF_ERROR(write_nested_group_recursive(
+                group.get(), "", _tablet_column, _opts, converter,
+                num_rows, column_id, _nested_group_writers, _statistics, 1));
+    }
+
     return Status::OK();
 }
 

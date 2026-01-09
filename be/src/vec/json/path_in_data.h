@@ -57,6 +57,14 @@ public:
         /// "k1" is nested and has anonymous_array_level = 0.
         /// "k2" and "k3" are not nested and have anonymous_array_level = 2.
         UInt8 anonymous_array_level = 0;
+
+        /// Get the total array depth for this part.
+        /// Used for NestedGroup offset indexing.
+        /// If is_nested (array<object>), the depth is anonymous_array_level + 1
+        /// Otherwise it's just the anonymous_array_level.
+        UInt8 get_array_depth() const {
+            return is_nested ? (anonymous_array_level + 1) : anonymous_array_level;
+        }
     };
     using Parts = std::vector<Part>;
     PathInData() = default;

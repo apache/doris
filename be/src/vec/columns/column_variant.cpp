@@ -20,7 +20,7 @@
 
 #include "vec/columns/column_variant.h"
 
-#include <assert.h>
+#include <cassert>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -78,6 +78,27 @@ namespace doris::vectorized {
 namespace {
 
 #include "common/compile_check_begin.h"
+
+// English comment: deep clone nested group tree (offsets + nested groups).
+std::shared_ptr<ColumnVariant::NestedGroup> clone_nested_group_tree(
+        const ColumnVariant::NestedGroup& src) {
+    auto dst = std::make_shared<ColumnVariant::NestedGroup>();
+    dst->path = src.path;
+    dst->current_flat_size = src.current_flat_size;
+    dst->is_disabled = src.is_disabled;
+    dst->expected_type = src.expected_type;
+    dst->expected_array_depth = src.expected_array_depth;
+    dst->children = src.children;
+    if (src.offsets) {
+        dst->offsets = src.offsets->clone_resized(src.offsets->size())->assume_mutable();
+    }
+    for (const auto& [p, ng] : src.nested_groups) {
+        if (ng) {
+            dst->nested_groups.emplace(p, clone_nested_group_tree(*ng));
+        }
+    }
+    return dst;
+}
 
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable,
                                  int precision = -1, int scale = -1) {
@@ -1254,6 +1275,232 @@ bool ColumnVariant::has_subcolumn(const PathInData& key) const {
     return subcolumns.find_leaf(key) != nullptr;
 }
 
+// NestedGroup management implementations
+
+ColumnVariant::NestedGroup* ColumnVariant::get_or_create_nested_group(const PathInData& array_path) {
+    auto it = _nested_groups.find(array_path);
+    if (it != _nested_groups.end()) {
+        return it->second.get();
+    }
+
+    auto group = std::make_shared<NestedGroup>();
+    group->path = array_path;
+    group->offsets = ColumnOffset64::create();
+
+    auto* ptr = group.get();
+    _nested_groups[array_path] = std::move(group);
+    return ptr;
+}
+
+ColumnVariant::NestedGroup* ColumnVariant::get_nested_group(const PathInData& array_path) {
+    auto it = _nested_groups.find(array_path);
+    if (it != _nested_groups.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+const ColumnVariant::NestedGroup* ColumnVariant::get_nested_group(
+        const PathInData& array_path) const {
+    auto it = _nested_groups.find(array_path);
+    if (it != _nested_groups.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+bool ColumnVariant::check_path_conflict(const PathInData& path, size_t array_depth,
+                                        const FieldInfo& field_info) const {
+    // Check if path is already disabled
+    if (_disabled_paths.contains(path)) {
+        return true; // Conflict detected
+    }
+
+    // Check existing NestedGroup for this path
+    auto it = _nested_groups.find(path);
+    if (it == _nested_groups.end()) {
+        return false; // No existing data, no conflict
+    }
+
+    const auto* group = it->second.get();
+    if (group->expected_type == NestedGroup::StructureType::UNKNOWN) {
+        return false; // First time seeing this path
+    }
+
+    // Conflict cases:
+    // 1. Current is scalar, expected array
+    // 2. Current is array, expected scalar
+    // 3. Array depth mismatch
+
+    bool current_is_array = (array_depth > 0);
+    bool expected_is_array = (group->expected_type == NestedGroup::StructureType::ARRAY ||
+                              group->expected_type == NestedGroup::StructureType::OBJECT);
+
+    if (current_is_array != expected_is_array) {
+        return true; // Structure conflict
+    }
+
+    if (current_is_array && array_depth != group->expected_array_depth) {
+        return true; // Array dimension conflict
+    }
+
+    return false;
+}
+
+void ColumnVariant::disable_path(const PathInData& path) {
+    _disabled_paths.insert(path);
+
+    // If there's a NestedGroup for this path, mark it as disabled
+    auto it = _nested_groups.find(path);
+    if (it != _nested_groups.end()) {
+        it->second->is_disabled = true;
+    }
+}
+
+const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn_from_nested_group(
+        const PathInData& path) const {
+    auto [array_path, relative_path] = split_array_path(path);
+    if (array_path.empty()) {
+        return nullptr; // Not a nested path
+    }
+
+    auto it = _nested_groups.find(array_path);
+    if (it == _nested_groups.end()) {
+        return nullptr;
+    }
+
+    const auto* group = it->second.get();
+    auto child_it = group->children.find(relative_path);
+    if (child_it == group->children.end()) {
+        return nullptr;
+    }
+
+    return &child_it->second;
+}
+
+std::pair<PathInData, PathInData> ColumnVariant::split_array_path(const PathInData& path) {
+    const auto& parts = path.get_parts();
+
+    // Find the FIRST array<object> part (marked with is_nested = true)
+    // Deeper nestings will be stored in their original form (as JSONB or array)
+    // This ensures we maintain element-level associations for the outermost array<object>
+    // while avoiding complexity of recursive nesting
+    //
+    // Example: {"a": [{"b": [{"c": 123}]}]}
+    //   path = a.b.c (a is_nested=true, b is_nested=true)
+    //   Result: array_path="a", relative_path="b.c"
+    //   The "b.c" path's value [[{"c": 123}]] is stored as-is in children["b"]
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (parts[i].is_nested) {
+            // Split at first nested position
+            PathInData::Parts array_parts(parts.begin(), parts.begin() + i + 1);
+            PathInData::Parts relative_parts(parts.begin() + i + 1, parts.end());
+            return {PathInData(array_parts), PathInData(relative_parts)};
+        }
+    }
+
+    // No array<object> in path
+    return {PathInData {}, path};
+}
+
+std::vector<std::pair<PathInData, size_t>> ColumnVariant::get_nested_levels(const PathInData& path) {
+    const auto& parts = path.get_parts();
+    std::vector<std::pair<PathInData, size_t>> levels;
+    size_t depth = 0;
+
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (parts[i].is_nested) {
+            ++depth;
+            // Build the path up to this nested level
+            PathInData::Parts level_parts(parts.begin(), parts.begin() + i + 1);
+            levels.emplace_back(PathInData(level_parts), depth);
+        }
+    }
+
+    return levels;
+}
+
+PathInData ColumnVariant::get_leaf_path_after_nested(const PathInData& path) {
+    const auto& parts = path.get_parts();
+
+    // Find the last nested part
+    size_t last_nested_pos = std::string::npos;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (parts[i].is_nested) {
+            last_nested_pos = i;
+        }
+    }
+
+    if (last_nested_pos == std::string::npos || last_nested_pos + 1 >= parts.size()) {
+        // No nested part or nested part is the last element
+        return PathInData {};
+    }
+
+    // Return the path after the last nested part
+    PathInData::Parts leaf_parts(parts.begin() + last_nested_pos + 1, parts.end());
+    return PathInData(leaf_parts);
+}
+
+ColumnPtr ColumnVariant::get_finalized_column_from_nested_group(const PathInData& path) const {
+    auto [array_path, relative_path] = split_array_path(path);
+    if (array_path.empty()) {
+        return nullptr;
+    }
+
+    auto it = _nested_groups.find(array_path);
+    if (it == _nested_groups.end()) {
+        return nullptr;
+    }
+
+    const auto* group = it->second.get();
+    if (!group || group->is_disabled) {
+        return nullptr;
+    }
+
+    auto child_it = group->children.find(relative_path);
+    if (child_it == group->children.end()) {
+        return nullptr;
+    }
+
+    // Get the child column's finalized data
+    const auto& child = child_it->second;
+    auto child_col = child.get_finalized_column_ptr();
+
+    // Rebuild array column using offsets
+    // The offsets define how the flat child data maps back to row-level arrays
+    auto offsets_clone = group->offsets->clone_resized(group->offsets->size());
+    auto array_col = ColumnArray::create(child_col->clone_resized(child_col->size()),
+                                         std::move(offsets_clone));
+
+    return array_col;
+}
+
+// Helper function to recursively finalize a NestedGroup
+static void finalize_nested_group_recursive(ColumnVariant::NestedGroup* group,
+                                            ColumnVariant::FinalizeMode mode) {
+    if (!group || group->is_disabled) {
+        return;
+    }
+
+    // Finalize each child subcolumn
+    for (auto& [child_path, child] : group->children) {
+        if (!child.is_finalized()) {
+            child.finalize(mode);
+        }
+    }
+
+    // Recursively finalize nested groups within this group
+    for (auto& [nested_path, nested_group] : group->nested_groups) {
+        finalize_nested_group_recursive(nested_group.get(), mode);
+    }
+}
+
+void ColumnVariant::finalize_nested_groups(FinalizeMode mode) {
+    for (auto& [array_path, group] : _nested_groups) {
+        finalize_nested_group_recursive(group.get(), mode);
+    }
+}
+
 bool ColumnVariant::add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn,
                                    DataTypePtr type) {
     size_t new_size = subcolumn->size();
@@ -1860,6 +2107,10 @@ void ColumnVariant::finalize(FinalizeMode mode) {
             std::count_if(new_subcolumns.begin(), new_subcolumns.end(),
                           [](const auto& entry) { return entry->path.has_nested_part(); });
     std::swap(subcolumns, new_subcolumns);
+
+    // Finalize NestedGroup children
+    finalize_nested_groups(mode);
+
     _prev_positions.clear();
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -2401,6 +2652,16 @@ MutableColumnPtr ColumnVariant::clone() const {
     auto sparse_column = std::move(*column).mutate();
     res->serialized_sparse_column = sparse_column->assume_mutable();
     res->set_num_rows(num_rows);
+
+    // Clone NestedGroups and disabled paths.
+    res->_disabled_paths = _disabled_paths;
+    res->_nested_groups.clear();
+    res->_nested_groups.reserve(_nested_groups.size());
+    for (const auto& [p, group] : _nested_groups) {
+        if (group) {
+            res->_nested_groups.emplace(p, clone_nested_group_tree(*group));
+        }
+    }
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
 }

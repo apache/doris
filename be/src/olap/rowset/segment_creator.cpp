@@ -18,7 +18,7 @@
 #include "olap/rowset/segment_creator.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <errno.h> // IWYU pragma: keep
+#include <cerrno> // IWYU pragma: keep
 
 #include <filesystem>
 #include <memory>
@@ -60,6 +60,7 @@ SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollecti
 
 SegmentFlusher::~SegmentFlusher() = default;
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_t segment_id,
                                           int64_t* flush_size) {
     if (block->rows() == 0) {
@@ -103,10 +104,12 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
         return Status::OK();
     }
 
-    vectorized::ParseConfig config;
-    config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
+    vectorized::ParseConfig parse_config;
+    // English comment: enable_flatten_nested controls whether to flatten nested array<object> paths
+    // NestedGroup expansion is handled at storage layer, not at parse time
+    parse_config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
     RETURN_IF_ERROR(
-            vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
+            vectorized::schema_util::parse_variant_columns(block, variant_column_pos, parse_config));
     return Status::OK();
 }
 
@@ -115,19 +118,19 @@ Status SegmentFlusher::close() {
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_offset,
-                                 size_t row_num) {
-    RETURN_IF_ERROR(segment_writer->append_block(block, row_offset, row_num));
-    _num_rows_written += row_num;
+                                 const vectorized::Block* block, size_t row_pos,
+                                 size_t num_rows) {
+    RETURN_IF_ERROR(segment_writer->append_block(block, row_pos, num_rows));
+    _num_rows_written += num_rows;
     return Status::OK();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_offset,
-                                 size_t row_num) {
-    RETURN_IF_ERROR(segment_writer->batch_block(block, row_offset, row_num));
+                                 const vectorized::Block* block, size_t row_pos,
+                                 size_t num_rows) {
+    RETURN_IF_ERROR(segment_writer->batch_block(block, row_pos, num_rows));
     RETURN_IF_ERROR(segment_writer->write_batch());
-    _num_rows_written += row_num;
+    _num_rows_written += num_rows;
     return Status::OK();
 }
 

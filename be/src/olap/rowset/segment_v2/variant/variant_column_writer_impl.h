@@ -108,6 +108,14 @@ private:
     int _first_column_id = -1;
 };
 
+// NestedGroup writers for array<object> paths (offsets + child writers).
+struct NestedGroupWriter {
+    std::unique_ptr<ColumnWriter> offsets_writer;
+    std::unordered_map<std::string, std::unique_ptr<ColumnWriter>> child_writers;
+    ColumnWriterOptions offsets_opts;
+    std::unordered_map<std::string, ColumnWriterOptions> child_opts;
+};
+
 class VariantColumnWriterImpl {
 public:
     VariantColumnWriterImpl(const ColumnWriterOptions& opts, const TabletColumn* column);
@@ -137,6 +145,11 @@ private:
     Status _process_subcolumns(vectorized::ColumnVariant* ptr,
                                vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                int& column_id);
+
+    // NestedGroup support
+    Status _process_nested_groups(vectorized::ColumnVariant* ptr,
+                                  vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
+                                  int& column_id);
     // prepare a column for finalize
     doris::vectorized::MutableColumnPtr _column;
     doris::vectorized::ColumnUInt8 _null_column;
@@ -158,6 +171,7 @@ private:
 
     // hold the references of subcolumns info
     std::unordered_map<std::string, TabletSchema::SubColumnInfo> _subcolumns_info;
+    std::unordered_map<std::string, NestedGroupWriter> _nested_group_writers;
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,

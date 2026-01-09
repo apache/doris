@@ -200,6 +200,24 @@ using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
 using PathToSparseColumnCache = std::unordered_map<std::string, SparseColumnCacheSPtr>;
 using PathToSparseColumnCacheUPtr = std::unique_ptr<PathToSparseColumnCache>;
 
+// Forward declaration
+struct NestedGroupReader;
+
+// Map from array path to NestedGroupReader
+using NestedGroupReaders = std::unordered_map<std::string, std::unique_ptr<NestedGroupReader>>;
+
+// Holds readers for a single NestedGroup (offsets + child columns + nested groups)
+struct NestedGroupReader {
+    std::string array_path;
+    size_t depth = 1;  // Nesting depth (1 = first level)
+    std::shared_ptr<ColumnReader> offsets_reader;
+    std::unordered_map<std::string, std::shared_ptr<ColumnReader>> child_readers;
+    // Nested groups within this group (for multi-level nesting)
+    NestedGroupReaders nested_group_readers;
+
+    bool is_valid() const { return offsets_reader != nullptr; }
+};
+
 class VariantColumnReader : public ColumnReader {
 public:
     VariantColumnReader() = default;
@@ -286,7 +304,21 @@ public:
     // 3) Externalized metas via `_ext_meta_reader`
     bool has_prefix_path(const vectorized::PathInData& relative_path) const;
 
+    // NestedGroup support
+    // Get NestedGroup reader for a given array path
+    const NestedGroupReader* get_nested_group_reader(const std::string& array_path) const;
+
+    // Check if a path belongs to a NestedGroup
+    bool is_nested_group_path(const vectorized::PathInData& path) const;
+
+    // Get all NestedGroup readers
+    const NestedGroupReaders& get_nested_group_readers() const { return _nested_group_readers; }
+
 private:
+    // Initialize NestedGroup readers from footer metadata
+    Status _init_nested_group_readers(const ColumnReaderOptions& opts,
+                                      const std::shared_ptr<SegmentFooterPB>& footer,
+                                      const io::FileReaderSPtr& file_reader);
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                               const StorageReadOptions* opt,
@@ -333,6 +365,9 @@ private:
     uint32_t _root_unique_id {0};
 
     // call-once guard moved into VariantExternalMetaReader
+
+    // NestedGroup readers for array<object> paths
+    NestedGroupReaders _nested_group_readers;
 };
 
 class VariantRootColumnIterator : public ColumnIterator {
@@ -414,6 +449,40 @@ private:
     std::shared_ptr<const vectorized::IDataType> _file_column_type;
     // current rowid
     ordinal_t _current_rowid = 0;
+};
+
+// Iterator for reading a child column from a NestedGroup
+// Reads flat child data and reconstructs array semantics using shared offsets
+class NestedGroupIterator : public ColumnIterator {
+public:
+    NestedGroupIterator(ColumnIteratorUPtr offsets_iter, ColumnIteratorUPtr child_iter,
+                        vectorized::DataTypePtr result_type)
+            : _offsets_iter(std::move(offsets_iter)),
+              _child_iter(std::move(child_iter)),
+              _result_type(std::move(result_type)) {}
+
+    ~NestedGroupIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+private:
+    // Read offsets for the given row range
+    Status _read_offsets(ordinal_t start_ordinal, size_t num_rows,
+                         std::vector<uint64_t>* offsets_out);
+
+    ColumnIteratorUPtr _offsets_iter;
+    ColumnIteratorUPtr _child_iter;
+    vectorized::DataTypePtr _result_type;
+    ordinal_t _current_ordinal = 0;
 };
 
 #include "common/compile_check_end.h"
