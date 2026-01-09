@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.config;
 
+import org.apache.doris.cdcclient.exception.StreamException;
 import org.apache.doris.cdcclient.model.rest.RestResponse;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,5 +35,11 @@ public class GlobalExceptionHandler {
     public Object exceptionHandler(HttpServletRequest request, Exception e) {
         log.error("Unexpected exception", e);
         return RestResponse.internalError(e.getMessage());
+    }
+
+    @ExceptionHandler(StreamException.class)
+    public Object streamExceptionHandler(StreamException e) {
+        log.error("Exception in streaming response, re-throwing to client", e);
+        throw e;
     }
 }

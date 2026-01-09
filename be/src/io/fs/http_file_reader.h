@@ -82,6 +82,7 @@ private:
     // Configuration for non-Range request handling
     bool _enable_range_request = true;                         // Whether Range request is required
     size_t _max_request_size_bytes = DEFAULT_MAX_REQUEST_SIZE; // Max size for non-Range downloads
+    bool _enable_chunk_response = false; // Whether server returns chunk streaming response
 };
 
 } // namespace doris::io

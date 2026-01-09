@@ -70,7 +70,6 @@ import org.apache.kafka.connect.source.SourceRecord;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -120,7 +119,7 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
     }
 
@@ -180,15 +179,13 @@ public class MySqlSourceReader implements SourceReader {
         SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
         if (currentSplitRecords == null) {
             DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
-            if (currentReader == null || baseReq.isReload()) {
-                LOG.info(
-                        "No current reader or reload {}, create new split reader",
-                        baseReq.isReload());
+            if (currentReader == null) {
+                LOG.info("No current reader, create new split reader");
                 // build split
                 Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
                 // reset binlog reader
-                closeBinlogReader();
+                // closeBinlogReader();
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
                 this.setCurrentSplitRecords(currentSplitRecords);
                 this.setCurrentSplit(split);
@@ -598,12 +595,11 @@ public class MySqlSourceReader implements SourceReader {
 
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        String[] includingTbls =
-                Arrays.stream(includingTables.split(","))
-                        .map(t -> databaseName + "." + t.trim())
-                        .toArray(String[]::new);
-        configFactory.tableList(includingTbls);
+        // Set table list
+        String[] tableList = ConfigUtil.getTableList(databaseName, cdcConfig);
+        com.google.common.base.Preconditions.checkArgument(
+                tableList.length >= 1, "include_tables or table is required");
+        configFactory.tableList(tableList);
 
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
@@ -718,6 +714,9 @@ public class MySqlSourceReader implements SourceReader {
     @Override
     public void finishSplitRecords() {
         this.setCurrentSplitRecords(null);
+        // Close after each read, the binlog client will occupy the connection.
+        closeBinlogReader();
+        this.setCurrentReader(null);
     }
 
     @Override

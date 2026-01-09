@@ -97,7 +97,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
     }
 
@@ -164,14 +164,12 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
         if (currentSplitRecords == null) {
             Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-            if (currentReader == null || baseReq.isReload()) {
-                LOG.info(
-                        "No current reader or reload {}, create new split reader",
-                        baseReq.isReload());
+            if (currentReader == null) {
+                LOG.info("No current reader , create new split reader");
                 // build split
                 Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
-                closeBinlogReader();
+                // closeBinlogReader();
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
                 this.setCurrentSplitRecords(currentSplitRecords);
                 this.setCurrentSplit(split);
@@ -615,6 +613,9 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     @Override
     public void finishSplitRecords() {
         this.setCurrentSplitRecords(null);
+        // Close after each read, the binlog client will occupy the connection.
+        closeBinlogReader();
+        this.setCurrentReader(null);
     }
 
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {

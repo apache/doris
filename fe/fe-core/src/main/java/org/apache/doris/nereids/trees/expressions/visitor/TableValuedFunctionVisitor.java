@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.ParquetMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
+import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -79,6 +80,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitHttp(Http http, C context) {
         return visitTableValuedFunction(http, context);
+    }
+
+    default R visitPostgresCdc(CdcStream cdcStream, C context) {
+        return visitTableValuedFunction(cdcStream, context);
     }
 
     default R visitFrontendsDisks(FrontendsDisks frontendsDisks, C context) {

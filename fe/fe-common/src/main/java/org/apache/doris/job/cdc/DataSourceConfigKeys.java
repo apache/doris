@@ -19,6 +19,7 @@ package org.apache.doris.job.cdc;
 
 public class DataSourceConfigKeys {
     public static final String JDBC_URL = "jdbc_url";
+    public static final String TYPE = "type";
     public static final String DRIVER_URL = "driver_url";
     public static final String DRIVER_CLASS = "driver_class";
     public static final String USER = "user";
@@ -26,6 +27,7 @@ public class DataSourceConfigKeys {
     public static final String DATABASE = "database";
     public static final String SCHEMA = "schema";
     public static final String INCLUDE_TABLES = "include_tables";
+    public static final String TABLE = "table";
     public static final String EXCLUDE_TABLES = "exclude_tables";
     // initial,earliest,latest,{binlog,postion},\d{13}
     public static final String OFFSET = "offset";

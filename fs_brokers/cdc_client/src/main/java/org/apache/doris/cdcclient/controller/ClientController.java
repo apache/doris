@@ -32,10 +32,12 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 public class ClientController {
@@ -56,15 +58,15 @@ public class ClientController {
         }
     }
 
-    /** Fetch records from source reader */
-    @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
-    public Object fetchRecords(@RequestBody FetchRecordRequest recordReq) {
-        try {
-            return RestResponse.success(pipelineCoordinator.fetchRecords(recordReq));
-        } catch (Exception ex) {
-            LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
-            return RestResponse.internalError(ex.getMessage());
-        }
+    @RequestMapping(path = "/api/fetchRecordStream", method = RequestMethod.POST)
+    public StreamingResponseBody fetchRecordStream(@RequestBody FetchRecordRequest recordReq)
+            throws Exception {
+        return pipelineCoordinator.fetchRecordStream(recordReq);
+    }
+
+    @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)
+    public Object getTaskIdOffset(@PathVariable String taskId) {
+        return RestResponse.success(pipelineCoordinator.getOffsetWithTaskId(taskId));
     }
 
     /** Fetch records from source reader and Write records to backend */

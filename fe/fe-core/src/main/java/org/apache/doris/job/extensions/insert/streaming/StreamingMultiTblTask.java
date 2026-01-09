@@ -167,7 +167,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private WriteRecordRequest buildRequestParams() throws JobException {
         JdbcOffset offset = (JdbcOffset) runningOffset;
         WriteRecordRequest request = new WriteRecordRequest();
-        request.setJobId(getJobId());
+        request.setJobId(getJobId() + "");
         request.setConfig(sourceProperties);
         request.setDataSource(dataSourceType.name());
 

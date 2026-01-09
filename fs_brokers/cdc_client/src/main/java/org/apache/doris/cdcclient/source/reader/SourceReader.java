@@ -36,7 +36,7 @@ public interface SourceReader {
     String SPLIT_ID = "splitId";
 
     /** Initialization, called when the program starts */
-    void initialize(long jobId, DataSource dataSource, Map<String, String> config);
+    void initialize(String jobId, DataSource dataSource, Map<String, String> config);
 
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
@@ -81,5 +81,5 @@ public interface SourceReader {
      * Commits the given offset with the source database. Used by some source like Postgres to
      * indicate how far the source TX log can be discarded.
      */
-    default void commitSourceOffset(Long jobId, SourceSplit sourceSplit) {}
+    default void commitSourceOffset(String jobId, SourceSplit sourceSplit) {}
 }

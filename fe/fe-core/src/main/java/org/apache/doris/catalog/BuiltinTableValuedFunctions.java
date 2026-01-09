@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.ParquetKvMetad
 import org.apache.doris.nereids.trees.expressions.functions.table.ParquetMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
+import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
@@ -77,7 +78,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(ParquetMeta.class, "parquet_meta"),
             tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
             tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
-            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe")
+            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe"),
+            tableValued(CdcStream.class, "cdc_stream")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

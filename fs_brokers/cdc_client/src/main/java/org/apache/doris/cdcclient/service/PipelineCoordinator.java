@@ -18,20 +18,29 @@
 package org.apache.doris.cdcclient.service;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.model.response.RecordWithMeta;
+import org.apache.doris.cdcclient.exception.StreamException;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
-import org.apache.doris.job.cdc.split.SnapshotSplit;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import io.debezium.data.Envelope;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import java.io.BufferedOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -42,24 +51,20 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import io.debezium.data.Envelope;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
 /** Pipeline coordinator. */
 @Component
 public class PipelineCoordinator {
     private static final Logger LOG = LoggerFactory.getLogger(PipelineCoordinator.class);
     private static final String SPLIT_ID = "splitId";
     // jobId
-    private final Map<Long, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
+    private final Map<String, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
+    // taskId, offset
+    private final Map<String, Map<String, String>> taskOffsetCache = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
     private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
     private static ObjectMapper objectMapper = new ObjectMapper();
+    private final byte[] LINE_DELIMITER = "\n".getBytes(StandardCharsets.UTF_8);
 
     public PipelineCoordinator() {
         this.executor =
@@ -79,19 +84,54 @@ public class PipelineCoordinator {
                         new ThreadPoolExecutor.AbortPolicy());
     }
 
-    public RecordWithMeta fetchRecords(FetchRecordRequest fetchRecordRequest) throws Exception {
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchRecordRequest);
-        SplitReadResult readResult = sourceReader.readSplitRecords(fetchRecordRequest);
-        return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
+    public StreamingResponseBody fetchRecordStream(FetchRecordRequest fetchReq) throws Exception {
+        if (fetchReq.getTaskId() == null && fetchReq.getMeta() == null) {
+            LOG.info(
+                    "Generate initial meta for fetch record request, jobId={}, taskId={}",
+                    fetchReq.getJobId(),
+                    fetchReq.getTaskId());
+            // means the request did not originate from the job, only tvf
+            Map<String, Object> meta = generateMeta(fetchReq.getConfig());
+            fetchReq.setMeta(meta);
+        }
+
+        SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchReq);
+        SplitReadResult readResult = sourceReader.readSplitRecords(fetchReq);
+        return outputStream -> {
+            try {
+                buildRecords(sourceReader, fetchReq, readResult, outputStream);
+            } catch (Exception ex) {
+                LOG.error(
+                        "Failed fetch record, jobId={}, taskId={}",
+                        fetchReq.getJobId(),
+                        fetchReq.getTaskId(),
+                        ex);
+                throw new StreamException(ex);
+            }
+        };
     }
 
-    /** build RecordWithMeta */
-    private RecordWithMeta buildRecordResponse(
-            SourceReader sourceReader, FetchRecordRequest fetchRecord, SplitReadResult readResult)
+    private Map<String, Object> generateMeta(Map<String, String> cdcConfig) {
+        Map<String, Object> meta = new HashMap<>();
+        String offset = cdcConfig.get(DataSourceConfigKeys.OFFSET);
+        if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)) {
+            meta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+        } else {
+            throw new RuntimeException("Unsupported offset:" + offset);
+        }
+        return meta;
+    }
+
+    private void buildRecords(
+            SourceReader sourceReader,
+            FetchRecordRequest fetchRecord,
+            SplitReadResult readResult,
+            OutputStream rawOutputStream)
             throws Exception {
-        RecordWithMeta recordResponse = new RecordWithMeta();
         SourceSplit split = readResult.getSplit();
-        int count = 0;
+        Map<String, String> lastMeta = null;
+        int rowCount = 0;
+        BufferedOutputStream bos = new BufferedOutputStream(rawOutputStream);
         try {
             // Serialize records and add them to the response (collect from iterator)
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
@@ -99,60 +139,65 @@ public class PipelineCoordinator {
                 SourceRecord element = iterator.next();
                 List<String> serializedRecords =
                         sourceReader.deserialize(fetchRecord.getConfig(), element);
-                if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    recordResponse.getRecords().addAll(serializedRecords);
-                    count += serializedRecords.size();
-                    if (sourceReader.isBinlogSplit(split)) {
-                        // put offset for event
-                        Map<String, String> lastMeta =
-                                sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                        lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                        recordResponse.setMeta(lastMeta);
-                    }
-                    if (count >= fetchRecord.getFetchSize()) {
-                        return recordResponse;
-                    }
+                for (String record : serializedRecords) {
+                    bos.write(record.getBytes(StandardCharsets.UTF_8));
+                    bos.write(LINE_DELIMITER);
                 }
+                rowCount += serializedRecords.size();
             }
+            // force flush buffer
+            bos.flush();
         } finally {
             sourceReader.finishSplitRecords();
         }
 
-        if (readResult.getSplitState() != null) {
-            // Set meta information for hw
+        LOG.info(
+                "Fetch records completed, jobId={}, taskId={}, splitId={}, rowCount={}",
+                fetchRecord.getJobId(),
+                fetchRecord.getTaskId(),
+                split.splitId(),
+                rowCount);
+        if (rowCount > 0) {
             if (sourceReader.isSnapshotSplit(split)) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                offsetRes.put(SPLIT_ID, split.splitId());
-                recordResponse.setMeta(offsetRes);
-                return recordResponse;
+                // Set meta information for hw
+                lastMeta = sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
+                lastMeta.put(SPLIT_ID, split.splitId());
+            } else if (sourceReader.isBinlogSplit(split)) {
+                // set meta for binlog event
+                lastMeta = sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+                lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
             }
-            // set meta for binlog event
+        } else {
+            // no data in this split, set meta info
             if (sourceReader.isBinlogSplit(split)) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                lastMeta = sourceReader.extractBinlogOffset(readResult.getSplit());
+                lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            } else {
+                // chunk no data
+                throw new RuntimeException("Chunk has no data," + split.splitId());
             }
         }
 
-        // no data in this split, set meta info
-        if (CollectionUtils.isEmpty(recordResponse.getRecords())) {
-            if (sourceReader.isBinlogSplit(split)) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractBinlogOffset(readResult.getSplit());
-                offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                recordResponse.setMeta(offsetRes);
-            } else {
-                SnapshotSplit snapshotSplit =
-                        objectMapper.convertValue(fetchRecord.getMeta(), SnapshotSplit.class);
-                Map<String, String> meta = new HashMap<>();
-                meta.put(SPLIT_ID, snapshotSplit.getSplitId());
-                // chunk no data
-                recordResponse.setMeta(meta);
-            }
+        if (StringUtils.isNotEmpty(fetchRecord.getTaskId())) {
+            taskOffsetCache.put(fetchRecord.getTaskId(), lastMeta);
         }
+
         sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
-        return recordResponse;
+        if (!isLong(fetchRecord.getJobId())) {
+            // TVF requires closing the window after each execution, while PG requires dropping the
+            // slot.
+            sourceReader.close(fetchRecord);
+        }
+    }
+
+    private boolean isLong(String s) {
+        if (s == null || s.isEmpty()) return false;
+        try {
+            Long.parseLong(s);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     public CompletableFuture<Void> writeRecordsAsync(WriteRecordRequest writeRecordRequest) {
@@ -255,7 +300,9 @@ public class PipelineCoordinator {
                     batchStreamLoad.commitOffset(offsetRes, scannedRows, scannedBytes);
                     return;
                 } else {
-                    throw new RuntimeException("should not happen");
+                    // chunk no data
+                    throw new RuntimeException(
+                            "Chunk has no data," + readResult.getSplit().splitId());
                 }
             }
 
@@ -278,7 +325,7 @@ public class PipelineCoordinator {
         }
     }
 
-    private DorisBatchStreamLoad getOrCreateBatchStreamLoad(Long jobId, String targetDb) {
+    private DorisBatchStreamLoad getOrCreateBatchStreamLoad(String jobId, String targetDb) {
         return batchStreamLoadMap.computeIfAbsent(
                 jobId,
                 k -> {
@@ -287,7 +334,7 @@ public class PipelineCoordinator {
                 });
     }
 
-    public void closeJobStreamLoad(Long jobId) {
+    public void closeJobStreamLoad(String jobId) {
         DorisBatchStreamLoad batchStreamLoad = batchStreamLoadMap.remove(jobId);
         if (batchStreamLoad != null) {
             LOG.info("Close DorisBatchStreamLoad for jobId={}", jobId);
@@ -299,5 +346,9 @@ public class PipelineCoordinator {
     private String extractTable(SourceRecord record) {
         Struct value = (Struct) record.value();
         return value.getStruct(Envelope.FieldName.SOURCE).getString("table");
+    }
+
+    public Map<String, String> getOffsetWithTaskId(String taskId) {
+        return taskOffsetCache.get(taskId);
     }
 }

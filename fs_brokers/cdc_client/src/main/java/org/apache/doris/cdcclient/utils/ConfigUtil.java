@@ -17,9 +17,12 @@
 
 package org.apache.doris.cdcclient.utils;
 
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Map;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -35,8 +38,8 @@ public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
-    public static String getServerId(long jobId) {
-        return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
+    public static String getServerId(String jobId) {
+        return String.valueOf(Math.abs(jobId.hashCode()));
     }
 
     public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {
@@ -91,6 +94,21 @@ public class ConfigUtil {
             }
         }
         return ZoneId.systemDefault();
+    }
+
+    public static String[] getTableList(String schema, Map<String, String> cdcConfig) {
+        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
+        String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+        if (StringUtils.isNotEmpty(includingTables)) {
+            return Arrays.stream(includingTables.split(","))
+                    .map(t -> schema + "." + t.trim())
+                    .toArray(String[]::new);
+        } else if (StringUtils.isNotEmpty(table)) {
+            Preconditions.checkArgument(!table.contains(","), "table only support one table");
+            return new String[] {schema + "." + table.trim()};
+        } else {
+            return new String[0];
+        }
     }
 
     public static boolean is13Timestamp(String s) {
