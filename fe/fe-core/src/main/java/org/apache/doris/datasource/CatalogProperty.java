@@ -45,6 +45,8 @@ public class CatalogProperty {
 
     // Default: false, mapping BINARY types to STRING for compatibility
     public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
+    // Default: false, mapping TIMESTAMP_TZ types to DATETIME for compatibility
+    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
 
     @Deprecated
     @SerializedName(value = "resource")
@@ -109,6 +111,21 @@ public class CatalogProperty {
      */
     public void setEnableMappingVarbinary(boolean enable) {
         addProperty(ENABLE_MAPPING_VARBINARY, String.valueOf(enable));
+    }
+
+    /**
+     * @return true if timestamp_tz mapping is enabled, false otherwise
+     */
+    public boolean getEnableMappingTimestampTz() {
+        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+    }
+
+    /**
+     * Set enable mapping timestamp_tz property.
+     * @param enable true to enable timestamp_tz mapping, false to disable
+     */
+    public void setEnableMappingTimestampTz(boolean enable) {
+        addProperty(ENABLE_MAPPING_TIMESTAMP_TZ, String.valueOf(enable));
     }
 
     public void modifyCatalogProps(Map<String, String> props) {

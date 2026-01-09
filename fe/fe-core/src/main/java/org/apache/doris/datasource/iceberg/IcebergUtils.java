@@ -557,7 +557,7 @@ public class IcebergUtils {
     }
 
     private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive,
-            boolean enableMappingVarbinary) {
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         switch (primitive.typeId()) {
             case BOOLEAN:
                 return Type.BOOLEAN;
@@ -586,6 +586,9 @@ public class IcebergUtils {
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP:
+                if (enableMappingTimestampTz && ((TimestampType) primitive).shouldAdjustToUTC()) {
+                    return ScalarType.createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS);
+                }
                 return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
             case TIME:
                 return Type.UNSUPPORTED;
@@ -594,24 +597,28 @@ public class IcebergUtils {
         }
     }
 
-    public static Type icebergTypeToDorisType(org.apache.iceberg.types.Type type, boolean enableMappingVarbinary) {
+    public static Type icebergTypeToDorisType(org.apache.iceberg.types.Type type, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
         if (type.isPrimitiveType()) {
             return icebergPrimitiveTypeToDorisType((org.apache.iceberg.types.Type.PrimitiveType) type,
-                    enableMappingVarbinary);
+                    enableMappingVarbinary, enableMappingTimestampTz);
         }
         switch (type.typeId()) {
             case LIST:
                 Types.ListType list = (Types.ListType) type;
-                return ArrayType.create(icebergTypeToDorisType(list.elementType(), enableMappingVarbinary), true);
+                return ArrayType.create(
+                        icebergTypeToDorisType(list.elementType(), enableMappingVarbinary, enableMappingTimestampTz),
+                        true);
             case MAP:
                 Types.MapType map = (Types.MapType) type;
                 return new MapType(
-                        icebergTypeToDorisType(map.keyType(), enableMappingVarbinary),
-                        icebergTypeToDorisType(map.valueType(), enableMappingVarbinary));
+                        icebergTypeToDorisType(map.keyType(), enableMappingVarbinary, enableMappingTimestampTz),
+                        icebergTypeToDorisType(map.valueType(), enableMappingVarbinary, enableMappingTimestampTz));
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
                 ArrayList<StructField> nestedTypes = struct.fields().stream().map(
-                        x -> new StructField(x.name(), icebergTypeToDorisType(x.type(), enableMappingVarbinary)))
+                        x -> new StructField(x.name(),
+                                icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz)))
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
             default:
@@ -939,7 +946,8 @@ public class IcebergUtils {
                 Preconditions.checkNotNull(schema,
                         "Schema for " + type + " " + dorisTable.getCatalog().getName()
                                 + "." + dorisTable.getDbName() + "." + dorisTable.getName() + " is null");
-                return parseSchema(schema, dorisTable.getCatalog().getEnableMappingVarbinary());
+                return parseSchema(schema, dorisTable.getCatalog().getEnableMappingVarbinary(),
+                        dorisTable.getCatalog().getEnableMappingTimestampTz());
             });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -950,13 +958,15 @@ public class IcebergUtils {
     /**
      * Parse iceberg schema to doris schema
      */
-    public static List<Column> parseSchema(Schema schema, boolean enableMappingVarbinary) {
+    public static List<Column> parseSchema(Schema schema, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            Column column =  new Column(field.name().toLowerCase(Locale.ROOT),
-                            IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary), true, null,
-                            true, field.doc(), true, -1);
+            Column column = new Column(field.name().toLowerCase(Locale.ROOT),
+                    IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
+                    true, null,
+                    true, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
             if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
                 Types.TimestampType timestampType = (Types.TimestampType) field.type();

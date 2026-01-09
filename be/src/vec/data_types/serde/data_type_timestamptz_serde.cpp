@@ -17,6 +17,8 @@
 
 #include "data_type_timestamptz_serde.h"
 
+#include <arrow/builder.h>
+
 #include "runtime/primitive_type.h"
 #include "vec/functions/cast/cast_parameters.h"
 #include "vec/functions/cast/cast_to_timestamptz.h"
@@ -169,6 +171,69 @@ Status DataTypeTimeStampTzSerDe::write_column_to_mysql_binary(const IColumn& col
     if (UNLIKELY(0 != result.push_timestamptz(val, *options.timezone, _scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
+    return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
+                                                       const NullMap* null_map,
+                                                       arrow::ArrayBuilder* array_builder,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
+    const auto& col_data = assert_cast<const ColumnTimeStampTz&>(column).get_data();
+    auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
+    std::shared_ptr<arrow::TimestampType> timestamp_type =
+            std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
+    static const auto& utc = cctz::utc_time_zone();
+    for (size_t i = start; i < end; ++i) {
+        if (null_map && (*null_map)[i]) {
+            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
+        } else {
+            int64_t timestamp = 0;
+            DateV2Value<DateTimeV2ValueType> datetime_val =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[i]);
+            datetime_val.unix_timestamp(&timestamp, utc);
+
+            if (_scale > 3) {
+                uint32_t microsecond = datetime_val.microsecond();
+                timestamp = (timestamp * 1000000) + microsecond;
+            } else if (_scale > 0) {
+                uint32_t millisecond = datetime_val.microsecond() / 1000;
+                timestamp = (timestamp * 1000) + millisecond;
+            }
+            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
+                                             array_builder->type()->name()));
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone,
+                                                     const IColumn& column, const NullMap* null_map,
+                                                     orc::ColumnVectorBatch* orc_col_batch,
+                                                     int64_t start, int64_t end,
+                                                     vectorized::Arena& arena,
+                                                     const FormatOptions& options) const {
+    const auto& col_data = assert_cast<const ColumnTimeStampTz&>(column).get_data();
+    auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
+    static const int64_t micro_to_nano_second = 1000;
+    static const auto& utc = cctz::utc_time_zone();
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 0) {
+            continue;
+        }
+
+        int64_t timestamp = 0;
+        DateV2Value<DateTimeV2ValueType> datetime_val =
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[row_id]);
+        if (!datetime_val.unix_timestamp(&timestamp, utc)) {
+            return Status::InternalError("get unix timestamp error.");
+        }
+
+        cur_batch->data[row_id] = timestamp;
+        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
+    }
+    cur_batch->numElements = end - start;
     return Status::OK();
 }
 

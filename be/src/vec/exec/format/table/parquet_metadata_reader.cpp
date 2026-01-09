@@ -864,7 +864,8 @@ Status ParquetMetadataReader::_append_file_rows(const std::string& path,
     std::unique_ptr<FileMetaData> file_metadata;
     size_t meta_size = 0;
     io::IOContext io_ctx;
-    RETURN_IF_ERROR(parse_thrift_footer(file_reader, &file_metadata, &meta_size, &io_ctx, false));
+    RETURN_IF_ERROR(
+            parse_thrift_footer(file_reader, &file_metadata, &meta_size, &io_ctx, false, false));
 
     if (_mode_handler == nullptr) {
         return Status::InternalError(

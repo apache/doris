@@ -677,6 +677,31 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
     }
 };
 
+struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        ColumnPtr src_col = remove_nullable(src_physical_col);
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+
+        size_t rows = src_col->size();
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+
+        const auto& src_data = assert_cast<const ColumnInt64*>(src_col.get())->get_data();
+        auto& dest_data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
+        static const cctz::time_zone utc = cctz::utc_time_zone();
+
+        for (int i = 0; i < rows; i++) {
+            int64_t x = src_data[i];
+            auto& num = dest_data[start_idx + i];
+            auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
+            value.from_unixtime(x / _convert_params->second_mask, utc);
+            value.set_microsecond((x % _convert_params->second_mask) *
+                                  (_convert_params->scale_to_nano_factor / 1000));
+        }
+        return Status::OK();
+    }
+};
+
 struct Int96toTimestamp : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);

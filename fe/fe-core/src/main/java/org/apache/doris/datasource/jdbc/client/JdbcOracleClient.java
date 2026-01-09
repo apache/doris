@@ -227,6 +227,10 @@ public class JdbcOracleClient extends JdbcClient {
             case "BLOB":
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
                         : ScalarType.createStringType();
+            case "TIMESTAMP WITH LOCAL TIME ZONE": {
+                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createDatetimeV2Type(fieldSchema.requiredColumnSize());
+            }
             case "NCLOB":
             case "BFILE":
             case "BINARY_FLOAT":
