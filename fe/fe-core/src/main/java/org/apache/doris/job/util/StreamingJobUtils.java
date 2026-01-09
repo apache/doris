@@ -97,6 +97,8 @@ public class StreamingJobUtils {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static int lastSelectedBackendIndex = 0;
+
     public static void createMetaTableIfNotExist() throws Exception {
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
@@ -217,9 +219,8 @@ public class StreamingJobUtils {
         Backend backend = null;
         BeSelectionPolicy policy = null;
 
-        policy = new BeSelectionPolicy.Builder()
-                .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
+        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
+        policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
 
         List<Long> backendIds;
         backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
@@ -231,6 +232,12 @@ public class StreamingJobUtils {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         return backend;
+    }
+
+    private static synchronized int getLastSelectedBackendIndexAndUpdate() {
+        int index = lastSelectedBackendIndex;
+        lastSelectedBackendIndex = (index >= Integer.MAX_VALUE - 1) ? 0 : index + 1;
+        return index;
     }
 
     public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,
