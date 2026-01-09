@@ -1239,7 +1239,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
         ctx->stop_scanners(state);
         // _scanner_ctx may be accessed in debug_string concurrently
         // so use atomic shared ptr to avoid use after free
-        _scanner_ctx.reset();
+        _scanner_ctx.store(nullptr);
     }
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
