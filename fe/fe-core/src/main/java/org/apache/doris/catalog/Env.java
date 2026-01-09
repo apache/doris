@@ -740,7 +740,7 @@ public class Env {
         this.feSessionMgr = new FESessionMgr();
         this.temporaryTableMgr = new TemporaryTableMgr();
         this.aliveSessionSet = Sets.newConcurrentHashSet();
-        this.tabletInvertedIndex = new TabletInvertedIndex();
+        this.tabletInvertedIndex = EnvFactory.getInstance().createTabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
         this.functionSet = new FunctionSet();
