@@ -66,7 +66,7 @@ protected:
         column_variant = ColumnVariant::create(true);
         std::cout << dt_variant->get_name() << std::endl;
 
-        //load_json_columns_data();
+        load_json_columns_data();
     }
 
     static void load_json_columns_data() {
