@@ -22,7 +22,6 @@
 
 #include "common/exception.h"
 #include "util/jsonb_document.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 
@@ -156,8 +155,7 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
                                                     size_t depth) {
     DCHECK(arr_value && arr_value->isArray());
     group.ensure_offsets();
-    auto* offsets_col =
-            vectorized::assert_cast<vectorized::ColumnOffset64*>(group.offsets.get());
+    auto* offsets_col = assert_cast<vectorized::ColumnOffset64*>(group.offsets.get());
 
     const auto* arr = arr_value->unpack<doris::ArrayVal>();
     const int n = arr->numElem();
@@ -187,16 +185,15 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
 
         // Fill defaults for missing scalar children.
         for (auto& [p, sub] : group.children) {
-            if (seen_child.find(p.get_path()) == seen_child.end()) {
+            if (!seen_child.contains(p.get_path())) {
                 sub.insert_default();
             }
         }
         // Fill empty offsets for missing nested groups.
         for (auto& [p, ng] : group.nested_groups) {
-            if (seen_nested.find(p.get_path()) == seen_nested.end()) {
+            if (!seen_nested.contains(p.get_path())) {
                 ng->ensure_offsets();
-                auto* off =
-                        vectorized::assert_cast<vectorized::ColumnOffset64*>(ng->offsets.get());
+                auto* off = assert_cast<vectorized::ColumnOffset64*>(ng->offsets.get());
                 off->get_data().push_back(static_cast<uint64_t>(ng->current_flat_size));
             }
         }
@@ -205,6 +202,7 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status NestedGroupBuilder::_process_object_as_paths(
         const doris::JsonbValue* obj_value, const vectorized::PathInData& current_prefix,
         NestedGroup& group, size_t element_flat_idx,
@@ -216,13 +214,13 @@ Status NestedGroupBuilder::_process_object_as_paths(
     }
 
     const auto* obj = obj_value->unpack<doris::ObjectVal>();
-    for (auto it = obj->begin(); it != obj->end(); ++it) {
-        std::string key(it->getKeyStr(), it->klen());
+    for (const auto& kv : *obj) {
+        std::string key(kv.getKeyStr(), kv.klen());
         vectorized::PathInData next_prefix =
                 current_prefix.empty() ? vectorized::PathInData(key)
                                        : vectorized::PathInData(current_prefix.get_path() + "." +
                                                                 key);
-        const auto* v = it->value();
+        const auto* v = kv.value();
         if (!v) {
             continue;
         }
@@ -237,6 +235,11 @@ Status NestedGroupBuilder::_process_object_as_paths(
 
         if (v->isArray() && _is_array_of_objects(v)) {
             // Nested array<object> inside this group.
+            // English comment: array<object> has the highest priority. If the same path was
+            // previously treated as a scalar child, discard it.
+            if (auto it_child = group.children.find(next_prefix); it_child != group.children.end()) {
+                group.children.erase(it_child);
+            }
             std::shared_ptr<NestedGroup>& ng = group.nested_groups[next_prefix];
             if (!ng) {
                 ng = std::make_shared<NestedGroup>();
@@ -249,7 +252,7 @@ Status NestedGroupBuilder::_process_object_as_paths(
 
             // Ensure offsets size up to current parent element.
             ng->ensure_offsets();
-            auto* off = vectorized::assert_cast<vectorized::ColumnOffset64*>(ng->offsets.get());
+            auto* off = assert_cast<vectorized::ColumnOffset64*>(ng->offsets.get());
             if (off->size() < element_flat_idx) {
                 // English comment: fill missing parent elements with empty arrays.
                 const size_t gap = element_flat_idx - off->size();
@@ -265,6 +268,10 @@ Status NestedGroupBuilder::_process_object_as_paths(
         }
 
         // Scalar / non-array value becomes a child subcolumn.
+        // English comment: if this path is already a nested array<object>, discard scalars.
+        if (group.nested_groups.contains(next_prefix)) {
+            continue;
+        }
         vectorized::Field f;
         RETURN_IF_ERROR(_jsonb_to_field(v, f));
 
