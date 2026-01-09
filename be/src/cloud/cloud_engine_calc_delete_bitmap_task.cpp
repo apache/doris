@@ -223,13 +223,6 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         }
     });
 
-    // Check if this is a known empty/skipped rowset
-    if (_engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
-        LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
-                  << " is empty rowset, skip delete bitmap calculation";
-        return Status::OK();
-    }
-
     Status status;
     if (_sub_txn_ids.empty()) {
         status = _handle_rowset(tablet, _version);
@@ -293,6 +286,12 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     int64_t transaction_id = sub_txn_id == -1 ? _transaction_id : sub_txn_id;
     std::string txn_str = "txn_id=" + std::to_string(_transaction_id) +
                           (sub_txn_id == -1 ? "" : ", sub_txn_id=" + std::to_string(sub_txn_id));
+    // Check if this is a known empty/skipped rowset
+    if (_engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
+        LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
+                  << " is empty rowset, skip delete bitmap calculation";
+        return Status::OK();
+    }
     RowsetSharedPtr rowset;
     DeleteBitmapPtr delete_bitmap;
     RowsetIdUnorderedSet rowset_ids;
