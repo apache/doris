@@ -260,8 +260,6 @@ private:
     Status _fill_elem_object_with_scalar_children(GroupState& state, uint64_t start_off,
                                                   size_t elem_count,
                                                   vectorized::ColumnVariant* elem_obj_ptr) {
-        std::unordered_map<std::string, vectorized::MutableColumnPtr> child_cols;
-        child_cols.reserve(state.child_iters.size());
         for (auto& [name, it] : state.child_iters) {
             auto type = state.reader->child_readers.at(name)->get_vec_data_type();
             auto col = type->create_column();
@@ -270,14 +268,8 @@ private:
                 bool child_has_null = false;
                 RETURN_IF_ERROR(it->next_batch(&to_read, col, &child_has_null));
             }
-            child_cols.emplace(name, std::move(col));
-        }
-
-        for (auto& [name, col] : child_cols) {
             vectorized::PathInData p(name);
-            bool ok = elem_obj_ptr->add_sub_column(
-                    p, col->assume_mutable(),
-                    state.reader->child_readers.at(name)->get_vec_data_type());
+            bool ok = elem_obj_ptr->add_sub_column(p, col->assume_mutable(), type);
             if (!ok) {
                 return Status::InternalError("Duplicated NestedGroup child field {}", name);
             }
@@ -287,6 +279,7 @@ private:
 
     Status _fill_elem_object_with_nested_groups(GroupState& state, uint64_t start_off, size_t elem_count,
                                                 vectorized::ColumnVariant* elem_obj_ptr) {
+        auto jsonb_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>());
         for (auto& [name, nested_state] : state.nested_groups) {
             auto nested_jsonb = vectorized::ColumnString::create();
             auto nested_nullable = vectorized::ColumnNullable::create(
@@ -299,9 +292,7 @@ private:
                 nested_mut->insert_many_defaults(elem_count);
             }
             vectorized::PathInData p(name);
-            bool ok = elem_obj_ptr->add_sub_column(
-                    p, std::move(nested_mut),
-                    vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>()));
+            bool ok = elem_obj_ptr->add_sub_column(p, std::move(nested_mut), jsonb_type);
             if (!ok) {
                 return Status::InternalError("Duplicated NestedGroup nested field {}", name);
             }
