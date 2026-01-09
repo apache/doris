@@ -215,8 +215,8 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, nullptr, {}, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -288,8 +288,8 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, nullptr, {}, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -363,8 +363,8 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, nullptr, {}, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -438,8 +438,8 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, nullptr, {}, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
