@@ -563,10 +563,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     do {
         // generate the row ranges that should be read
         RowRanges read_ranges;
-        _generate_read_ranges(RowRange {_current_row_index,
-                                        _current_row_index + _chunk_reader->remaining_num_values()},
-                              &read_ranges);
-
+        _generate_read_ranges(RowRange {_current_row_index, right_row}, &read_ranges);
         if (read_ranges.count() == 0) {
             // skip the whole page
             _current_row_index = right_row;
