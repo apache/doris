@@ -345,10 +345,6 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     return _calc_delete_bitmap_token->submit_func(
             [this, segment_id, specified_rowsets = std::move(specified_rowsets)]() -> Status {
                 Status st = Status::OK();
-                Defer defer([&]() {
-                    auto* task = calc_delete_bitmap_task(segment_id);
-                    task->set_status(st);
-                });
                 // Step 1: Close file_writer (must be done before load_segments)
                 auto* file_writer = _seg_files.get(segment_id);
                 if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
