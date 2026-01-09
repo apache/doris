@@ -30,7 +30,6 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_range_search_runtime.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -194,6 +193,7 @@ public:
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
     [[nodiscard]] Status execute(const Block* block, ColumnPtr& result_column);
+    [[nodiscard]] Status execute(const Block* block, ColumnWithTypeAndName& result_data);
     [[nodiscard]] DataTypePtr execute_type(const Block* block);
     [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;

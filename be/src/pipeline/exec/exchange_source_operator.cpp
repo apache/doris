@@ -50,7 +50,7 @@ ExchangeLocalState::~ExchangeLocalState() {
 std::string ExchangeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}, recvr: ({})", Base::debug_string(indentation_level),
-                   stream_recvr->debug_string());
+                   stream_recvr ? stream_recvr->debug_string() : "null");
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -210,6 +210,7 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     }
     if (stream_recvr != nullptr) {
         stream_recvr->close();
+        stream_recvr.reset();
     }
     if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
         vsort_exec_exprs.close(state);
@@ -223,5 +224,10 @@ Status ExchangeSourceOperatorX::close(RuntimeState* state) {
     }
     _is_closed = true;
     return OperatorX<ExchangeLocalState>::close(state);
+}
+
+Status ExchangeSourceOperatorX::reset(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    return local_state.reset(state);
 }
 } // namespace doris::pipeline

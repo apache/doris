@@ -68,38 +68,6 @@ VecDateTimeValue timestamp_from_date(const std::string& date_str) {
     return VecDateTimeValue::create_from_olap_date(value);
 }
 
-DateV2Value<DateV2ValueType> timestamp_from_date_v2(const std::string& date_str) {
-    tm time_tm;
-    char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
-
-    uint32_t value = 0;
-    if (nullptr != res) {
-        value = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
-    } else {
-        value = MIN_DATE_V2;
-    }
-
-    return DateV2Value<DateV2ValueType>::create_from_olap_date(value);
-}
-
-DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& date_str) {
-    DateV2Value<DateTimeV2ValueType> val;
-    std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
-    val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
-                             date_str.size());
-    return val;
-}
-
-TimestampTzValue timestamptz_from_string(const std::string& date_str) {
-    vectorized::CastParameters params;
-    TimestampTzValue value;
-    auto tz = cctz::utc_time_zone();
-    if (!vectorized::CastToTimstampTz::from_string(StringRef(date_str), value, params, &tz, 6)) {
-        throw Exception(Status::InternalError("parse to timestamptz failed, value: {}", date_str));
-    }
-    return value;
-}
-
 //FIXME: try to remove or refactor all those time input/output functions.
 uint8_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     char* begin = buffer;

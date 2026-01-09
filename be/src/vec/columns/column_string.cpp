@@ -20,6 +20,8 @@
 
 #include "vec/columns/column_string.h"
 
+#include <crc32c/crc32c.h>
+
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
@@ -319,6 +321,44 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
 }
 
 template <typename T>
+void ColumnStr<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                       const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; i++) {
+            if (null_map[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hashes[i] =
+                        crc32c_extend(hashes[i], (const uint8_t*)(data_ref.data), data_ref.size);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            auto data_ref = get_data_at(i);
+            hashes[i] = crc32c_extend(hashes[i], (const uint8_t*)(data_ref.data), data_ref.size);
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                        const uint8_t* __restrict null_map) const {
+    if (null_map) {
+        for (size_t i = start; i < end; i++) {
+            if (null_map[i] == 0) {
+                auto data_ref = get_data_at(i);
+                hash = crc32c_extend(hash, (const uint8_t*)(data_ref.data), data_ref.size);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            auto data_ref = get_data_at(i);
+            hash = crc32c_extend(hash, (const uint8_t*)(data_ref.data), data_ref.size);
+        }
+    }
+}
+
+template <typename T>
 ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     if constexpr (std::is_same_v<UInt32, T>) {
         if (offsets.size() == 0) {
@@ -561,7 +601,7 @@ struct ColumnStr<T>::less {
 
 template <typename T>
 void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                                   IColumn::Permutation& res) const {
+                                   HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = offsets.size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -569,9 +609,9 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), less<false>(*this));
+        sorter.sort(res.begin(), res.end(), less<false>(*this));
     } else {
-        pdqsort(res.begin(), res.end(), less<true>(*this));
+        sorter.sort(res.begin(), res.end(), less<true>(*this));
     }
 }
 

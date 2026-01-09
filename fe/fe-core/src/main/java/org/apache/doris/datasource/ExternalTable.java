@@ -85,8 +85,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @SerializedName(value = "ta")
     private final TableAttributes tableAttributes = new TableAttributes();
 
-    // this field will be refreshed after reloading schema
-    protected volatile long schemaUpdateTime;
+    // record the table update time, like insert/alter/delete
+    protected volatile long updateTime = 0;
 
     protected long dbId;
     protected boolean objectCreated;
@@ -276,16 +276,15 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
-    // return schema update time as default
-    // override this method if there is some other kinds of update time
-    // use getSchemaUpdateTime if just need the schema update time
     @Override
+    // Returns the table update time, tracking when the table was last modified
+    // (for example, by insert, alter, or refresh operations).
     public long getUpdateTime() {
-        return this.schemaUpdateTime;
+        return updateTime;
     }
 
-    public void setUpdateTime(long schemaUpdateTime) {
-        this.schemaUpdateTime = schemaUpdateTime;
+    public void setUpdateTime(long updateTime) {
+        this.updateTime = updateTime;
     }
 
     @Override
@@ -345,7 +344,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @return
      */
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
-        schemaUpdateTime = System.currentTimeMillis();
+        setUpdateTime(System.currentTimeMillis());
         return initSchema(key);
     }
 
@@ -482,10 +481,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hashCode(name, db);
-    }
-
-    public long getSchemaUpdateTime() {
-        return schemaUpdateTime;
     }
 
     public long getDbId() {

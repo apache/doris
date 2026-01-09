@@ -190,4 +190,16 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         super.checkProperties();
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
     }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != catalog) {
+            try {
+                catalog.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close paimon catalog: {}", getName(), e);
+            }
+        }
+    }
 }

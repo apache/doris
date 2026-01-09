@@ -206,19 +206,59 @@ Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
     auto return_column_size = read_params.origin_return_columns->size();
-    _return_columns_loc.resize(read_params.return_columns.size());
+    _return_columns_loc.resize(read_params.return_columns.size(), -1);
+    std::unordered_map<int32_t /*cid*/, int32_t /*pos*/> pos_map;
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
         // For each original cid, find the index in return_columns
         for (int j = 0; j < read_params.return_columns.size(); ++j) {
             if (read_params.return_columns[j] == cid) {
                 if (j < _tablet->num_key_columns() || _tablet->keys_type() != AGG_KEYS) {
+                    pos_map[cid] = (int32_t)_normal_columns_idx.size();
                     _normal_columns_idx.emplace_back(j);
                 } else {
                     _agg_columns_idx.emplace_back(j);
                 }
                 _return_columns_loc[j] = i;
                 break;
+            }
+        }
+    }
+
+    if (_tablet_schema->has_seq_map()) {
+        if (_tablet_schema->has_sequence_col()) {
+            auto msg = "sequence columns conflict, both seq_col and seq_map are true!";
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
+        _has_seq_map = true;
+        for (auto seq_val_iter = _tablet_schema->seq_col_idx_to_value_cols_idx().cbegin();
+             seq_val_iter != _tablet_schema->seq_col_idx_to_value_cols_idx().cend();
+             ++seq_val_iter) {
+            int seq_loc = -1;
+            for (int i = 0; i < read_params.return_columns.size(); ++i) {
+                if (read_params.return_columns[i] == seq_val_iter->first) {
+                    seq_loc = i;
+                    break;
+                }
+            }
+            if (seq_loc == -1) {
+                // don't need to deal with this seq col
+                continue;
+            }
+
+            std::vector<uint32_t> pos_vec;
+            for (auto agg_cid : seq_val_iter->second) {
+                const auto& val_pos_iter = pos_map.find(agg_cid);
+                if (val_pos_iter == pos_map.end()) {
+                    continue;
+                }
+                pos_vec.emplace_back(val_pos_iter->second);
+            }
+            if (_return_columns_loc[seq_loc] == -1) {
+                _seq_map_not_in_origin_block.emplace(seq_loc, pos_vec);
+            } else {
+                _seq_map_in_origin_block.emplace(seq_loc, pos_vec);
             }
         }
     }
@@ -235,6 +275,14 @@ Status BlockReader::init(const ReaderParams& read_params) {
         _next_block_func = &BlockReader::_direct_next_block;
         return Status::OK();
     }
+    if (_has_seq_map && !_eof) {
+        for (auto it = _seq_map_not_in_origin_block.cbegin();
+             it != _seq_map_not_in_origin_block.cend(); ++it) {
+            auto seq_idx = it->first;
+            _seq_columns.insert(
+                    {seq_idx, _next_row.block->get_by_position(seq_idx).column->clone_empty()});
+        }
+    }
 
     switch (tablet()->keys_type()) {
     case KeysType::DUP_KEYS:
@@ -244,6 +292,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         if (read_params.reader_type == ReaderType::READER_QUERY &&
             _reader_context.enable_unique_key_merge_on_write) {
             _next_block_func = &BlockReader::_direct_next_block;
+        } else if (_has_seq_map) {
+            _next_block_func = &BlockReader::_replace_key_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
             if (_filter_delete) {
@@ -282,6 +332,123 @@ Status BlockReader::_direct_next_block(Block* block, bool* eof) {
 
 Status BlockReader::_direct_agg_key_next_block(Block* block, bool* eof) {
     return Status::OK();
+}
+
+Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
+    if (UNLIKELY(_eof)) {
+        *eof = true;
+        return Status::OK();
+    }
+
+    auto target_block_row = 0;
+    auto target_columns = block->mutate_columns();
+    // currently seq mapping only support mor table
+    // so this will not be executed for the time being
+    if (UNLIKELY(_reader_context.record_rowids)) {
+        _block_row_locations.resize(batch_size());
+    }
+    auto merged_row = 0;
+    while (target_block_row < batch_size() && !_eof) {
+        RETURN_IF_ERROR(_insert_data_normal(target_columns));
+        // use the first line to init _seq_columns
+        for (auto it = _seq_map_not_in_origin_block.cbegin();
+             it != _seq_map_not_in_origin_block.cend(); ++it) {
+            auto seq_idx = it->first;
+            _update_last_mutil_seq(seq_idx);
+        }
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
+        }
+        target_block_row++;
+
+        while (!_eof) {
+            // the version is in reverse order, the first row is the highest version,
+            // in UNIQUE_KEY highest version is the final result
+            auto res = _vcollect_iter.next(&_next_row);
+            if (UNLIKELY(res.is<END_OF_FILE>())) {
+                _eof = true;
+                *eof = true;
+                if (UNLIKELY(_reader_context.record_rowids)) {
+                    _block_row_locations.resize(target_block_row);
+                }
+                break;
+            }
+
+            if (UNLIKELY(!res.ok())) {
+                LOG(WARNING) << "next failed: " << res;
+                return res;
+            }
+
+            if (_next_row.is_same) {
+                merged_row++;
+                _compare_sequence_map_and_replace(target_columns);
+            } else {
+                break;
+            }
+        }
+    }
+    _merged_rows += merged_row;
+    return Status::OK();
+}
+
+void BlockReader::_compare_sequence_map_and_replace(MutableColumns& columns) {
+    auto src_block = _next_row.block.get();
+    auto src_pos = _next_row.row_pos;
+
+    // use seq column in origin block to compare and replace
+    for (auto it = _seq_map_in_origin_block.cbegin(); it != _seq_map_in_origin_block.cend(); ++it) {
+        auto seq_idx = it->first;
+        auto dst_seq_column = columns[_return_columns_loc[seq_idx]].get();
+        auto dst_pos = dst_seq_column->size() - 1;
+        auto src_seq_column = src_block->get_by_position(seq_idx).column;
+        // the rowset version of dst is higher .
+        auto res = dst_seq_column->compare_at(dst_pos, src_pos, *src_seq_column, -1);
+        if (res >= 0) {
+            continue;
+        }
+
+        // update value and seq column
+        for (auto& p : it->second) {
+            auto val_idx = _normal_columns_idx[p];
+            auto src_column = src_block->get_by_position(val_idx).column;
+            auto dst_column = columns[_return_columns_loc[val_idx]].get();
+            dst_column->pop_back(1);
+            dst_column->insert_from(*src_column, src_pos);
+        }
+
+        dst_seq_column->pop_back(1);
+        dst_seq_column->insert_from(*src_seq_column, src_pos);
+    }
+
+    // use temp seq block to compare and replace because origin block not contains these seq columns
+    for (auto it = _seq_map_not_in_origin_block.cbegin(); it != _seq_map_not_in_origin_block.cend();
+         ++it) {
+        auto seq_idx = it->first;
+        auto dst_seq_column = _seq_columns[seq_idx].get();
+        auto src_seq_column = src_block->get_by_position(seq_idx).column;
+        // the rowset version of dst is higher .
+        auto res = dst_seq_column->compare_at(0, src_pos, *src_seq_column, -1);
+        if (res >= 0) {
+            continue;
+        }
+
+        // update value and seq column (if need to return)
+        for (auto& p : it->second) {
+            auto val_idx = _normal_columns_idx[p];
+            auto src_column = src_block->get_by_position(val_idx).column;
+            auto dst_column = columns[_return_columns_loc[val_idx]].get();
+            dst_column->pop_back(1);
+            dst_column->insert_from(*src_column, src_pos);
+        }
+
+        _update_last_mutil_seq(seq_idx);
+    }
+}
+
+void BlockReader::_update_last_mutil_seq(int seq_idx) {
+    auto block = _next_row.block.get();
+    _seq_columns[seq_idx]->clear();
+    _seq_columns[seq_idx]->insert_from(*block->get_by_position(seq_idx).column, _next_row.row_pos);
 }
 
 Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {

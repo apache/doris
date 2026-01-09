@@ -18,6 +18,7 @@
 #include "olap/base_tablet.h"
 
 #include <bthread/mutex.h>
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
@@ -44,11 +45,11 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/txn_manager.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
@@ -2024,7 +2025,7 @@ Status BaseTablet::calc_file_crc(uint32_t* crc_value, int64_t start_version, int
             return st;
         }
         // crc_value is calculated based on the crc_value of each rowset.
-        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const uint8_t*>(&rs_crc_value),
                                     sizeof(rs_crc_value));
         *file_count += rs_file_count;
     }

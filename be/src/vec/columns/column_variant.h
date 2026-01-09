@@ -499,6 +499,12 @@ public:
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     // Not implemented
     StringRef get_data_at(size_t) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

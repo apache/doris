@@ -289,6 +289,24 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                                   table_id);
                 return;
             }
+
+            if (request->wait_for_pending_txn() && partition_version.pending_txn_ids_size() > 0) {
+                DCHECK_EQ(partition_version.pending_txn_ids_size(), 1)
+                        << "only support one pending txn id for now, version="
+                        << partition_version.ShortDebugString();
+                int64_t first_txn_id = partition_version.pending_txn_ids(0);
+                std::shared_ptr<TxnLazyCommitTask> task =
+                        txn_lazy_committer_->submit(instance_id, first_txn_id);
+                std::tie(code, msg) = task->wait();
+                if (code != MetaServiceCode::OK) {
+                    LOG(WARNING) << "wait for pending txn " << first_txn_id
+                                 << " failed, code=" << code << " msg=" << msg;
+                    return;
+                }
+                partition_version.set_version(partition_version.version() + 1);
+                partition_version.clear_pending_txn_ids();
+            }
+
             response->set_version(partition_version.version());
             response->add_version_update_time_ms(partition_version.update_time_ms());
         }
@@ -336,6 +354,23 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = "not found";
                 code = MetaServiceCode::VERSION_NOT_FOUND;
                 return;
+            }
+
+            if (request->wait_for_pending_txn() && version_pb.pending_txn_ids_size() > 0) {
+                DCHECK_EQ(version_pb.pending_txn_ids_size(), 1)
+                        << "only support one pending txn id for now, version="
+                        << version_pb.ShortDebugString();
+                int64_t first_txn_id = version_pb.pending_txn_ids(0);
+                std::shared_ptr<TxnLazyCommitTask> task =
+                        txn_lazy_committer_->submit(instance_id, first_txn_id);
+                std::tie(code, msg) = task->wait();
+                if (code != MetaServiceCode::OK) {
+                    LOG(WARNING) << "wait for pending txn " << first_txn_id
+                                 << " failed, code=" << code << " msg=" << msg;
+                    return;
+                }
+                version_pb.set_version(version_pb.version() + 1);
+                version_pb.clear_pending_txn_ids();
             }
 
             response->set_version(version_pb.version());
@@ -465,35 +500,48 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                 break;
             }
 
-            for (auto&& value : version_values) {
-                if (!value.has_value()) {
-                    // return -1 if the target version is not exists.
-                    response->add_versions(-1);
-                    response->add_version_update_time_ms(-1);
-                } else if (is_table_version) {
-                    int64_t version = 0;
-                    if (!txn->decode_atomic_int(*value, &version)) {
-                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                        msg = "malformed table version value";
-                        break;
+            if (is_table_version) {
+                for (auto&& value : version_values) {
+                    if (!value.has_value()) {
+                        // return -1 if the target version is not exists.
+                        response->add_versions(-1);
+                    } else {
+                        int64_t version = 0;
+                        if (!txn->decode_atomic_int(*value, &version)) {
+                            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                            msg = "malformed table version value";
+                            break;
+                        }
+                        response->add_versions(version);
                     }
-                    response->add_versions(version);
-                } else {
+                }
+            } else {
+                std::vector<VersionPB> partition_versions;
+                for (auto&& value : version_values) {
                     VersionPB version_pb;
-                    if (!version_pb.ParseFromString(*value)) {
+                    if (!value.has_value()) {
+                        // return -1 if the target version is not exists.
+                        version_pb.set_version(-1);
+                        version_pb.set_update_time_ms(-1);
+                    } else if (!version_pb.ParseFromString(*value)) {
                         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                         msg = "malformed version value";
                         break;
                     }
-
-                    if (!version_pb.has_version()) {
-                        // return -1 if the target version is not exists.
-                        response->add_versions(-1);
-                        response->add_version_update_time_ms(-1);
-                    } else {
-                        response->add_versions(version_pb.version());
-                        response->add_version_update_time_ms(version_pb.update_time_ms());
+                    partition_versions.push_back(std::move(version_pb));
+                }
+                if (code != MetaServiceCode::OK) {
+                    break;
+                }
+                if (request->wait_for_pending_txn()) {
+                    std::tie(code, msg) = wait_for_pending_txns(instance_id, partition_versions);
+                    if (code != MetaServiceCode::OK) {
+                        break;
                     }
+                }
+                for (auto& version_pb : partition_versions) {
+                    response->add_versions(version_pb.version());
+                    response->add_version_update_time_ms(version_pb.update_time_ms());
                 }
             }
         }
@@ -595,10 +643,10 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_partition_ver
             for (size_t j = i; j < limit; j++) {
                 acquired_ids.push_back(request->partition_ids(j));
             }
-            std::unordered_map<int64_t, VersionPB> partition_versions;
+            std::unordered_map<int64_t, VersionPB> partition_version_map;
             std::unordered_map<int64_t, Versionstamp> versionstamps;
-            err = reader.get_partition_versions(acquired_ids, &partition_versions, &versionstamps,
-                                                true);
+            err = reader.get_partition_versions(acquired_ids, &partition_version_map,
+                                                &versionstamps, true);
             if (err == TxnErrorCode::TXN_TOO_OLD) {
                 // txn too old, fallback to non-snapshot versions.
                 LOG(WARNING) << "batch_get_version execution time exceeds the txn mvcc window, "
@@ -609,16 +657,30 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_partition_ver
                 return {cast_as<ErrCategory::READ>(err),
                         fmt::format("failed to batch get versions, index={}, err={}", i, err)};
             }
+
+            std::vector<VersionPB> partition_versions;
             for (auto& acquired_id : acquired_ids) {
-                auto it = partition_versions.find(acquired_id);
-                if (it == partition_versions.end()) {
+                auto it = partition_version_map.find(acquired_id);
+                if (it == partition_version_map.end()) {
                     // return -1 if the target version is not exists.
-                    response->add_versions(-1);
-                    response->add_version_update_time_ms(-1);
+                    VersionPB version_pb;
+                    version_pb.set_version(-1);
+                    version_pb.set_update_time_ms(-1);
+                    partition_versions.push_back(std::move(version_pb));
                 } else {
-                    response->add_versions(it->second.version());
-                    response->add_version_update_time_ms(it->second.update_time_ms());
+                    partition_versions.push_back(it->second);
                 }
+            }
+            if (request->wait_for_pending_txn()) {
+                auto&& [code, msg] =
+                        wait_for_pending_txns(std::string(instance_id), partition_versions);
+                if (code != MetaServiceCode::OK) {
+                    return {code, msg};
+                }
+            }
+            for (auto& version_pb : partition_versions) {
+                response->add_versions(version_pb.version());
+                response->add_version_update_time_ms(version_pb.update_time_ms());
             }
         }
     }
@@ -2527,6 +2589,75 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     }
 }
 
+// Check recycle_rowset_key to ensure idempotency for commit_rowset operation.
+// The precondition for commit_rowset is that prepare_rowset has been successfully executed,
+// which creates the recycle_rowset_key. Therefore, we only need to check if the
+// recycle_rowset_key exists to determine if this is a duplicate request:
+// - If key not found: commit_rowset has already been executed and remove the key,
+//   this is a duplicate request and should be rejected.
+// - If key exists but marked as recycled: the rowset data has been recycled by recycler,
+//   this request should be rejected to prevent data inconsistency.
+// - If key exists and not marked: this is a valid commit_rowset request, proceed normally.
+// Note: We don't need to check txn/job status separately because prepare_rowset has already
+// validated them, and the existence of recycle_rowset_key is sufficient to guarantee idempotency.
+int check_idempotent_for_txn_or_job(Transaction* txn, const std::string& recycle_rs_key,
+                                    doris::RowsetMetaCloudPB& rowset_meta,
+                                    const std::string& instance_id, int64_t tablet_id,
+                                    const std::string& rowset_id, const std::string& tablet_job_id,
+                                    bool is_versioned_read, ResourceManager* resource_mgr,
+                                    MetaServiceCode& code, std::string& msg) {
+    if (!rowset_meta.has_delete_predicate() && config::enable_recycle_delete_rowset_key_check) {
+        std::string recycle_rs_val;
+        TxnErrorCode err = txn->get(recycle_rs_key, &recycle_rs_val);
+        if (err == TxnErrorCode::TXN_OK) {
+            RecycleRowsetPB recycle_rowset;
+            if (!recycle_rowset.ParseFromString(recycle_rs_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed recycle rowset value. key={}", hex(recycle_rs_key));
+                return 1;
+            }
+            auto rs_meta = recycle_rowset.rowset_meta();
+            if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format("rowset has already been marked as recycled, key={}, rs_meta={}",
+                                  hex(recycle_rs_key), rs_meta.ShortDebugString());
+                return 1;
+            }
+        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("recycle rowset key not found, key={}", hex(recycle_rs_key));
+            return 1;
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get recycle rowset, err={}, key={}", err,
+                              hex(recycle_rs_key));
+            return -1;
+        }
+    } else if (!config::enable_recycle_delete_rowset_key_check) {
+        if (config::enable_tablet_job_check && tablet_job_id.empty() && !tablet_job_id.empty()) {
+            if (!check_job_existed(txn, code, msg, instance_id, tablet_id, rowset_id, tablet_job_id,
+                                   is_versioned_read, resource_mgr)) {
+                return 1;
+            }
+        }
+
+        // Check if the prepare rowset request is invalid.
+        // If the transaction has been finished, it means this prepare rowset is a timeout retry request.
+        // In this case, do not write the recycle key again, otherwise it may cause data loss.
+        // If the rowset had load id, it means it is a load request, otherwise it is a
+        // compaction/sc request.
+        if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
+            !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn, instance_id,
+                                      rowset_meta.txn_id(), code, msg)) {
+            LOG(WARNING) << "prepare rowset failed, txn_id=" << rowset_meta.txn_id()
+                         << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
+                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /**
  * 1. Check and confirm tmp rowset kv does not exist
  *     a. if exist
@@ -2573,27 +2704,12 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         return;
     }
 
-    // Check if the compaction/sc tablet job has finished
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
-        !request->tablet_job_id().empty()) {
-        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
-                               request->tablet_job_id(), is_versioned_read, resource_mgr_.get())) {
-            return;
-        }
-    }
+    auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
 
-    // Check if the commit rowset request is invalid.
-    // If the transaction has been finished, it means this commit rowset is a timeout retry request.
-    // In this case, do not write the recycle key again, otherwise it may cause data loss.
-    // If the rowset has load id, it means it is a load request, otherwise it is a
-    // compaction/sc request.
-    if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
-        !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
-                                  rowset_meta.txn_id(), code, msg)) {
-        LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
-                     << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
-                     << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+    if (check_idempotent_for_txn_or_job(txn.get(), recycle_rs_key, rowset_meta, instance_id,
+                                        tablet_id, rowset_id, request->tablet_job_id(),
+                                        is_versioned_read, resource_mgr_.get(), code, msg) != 0) {
         return;
     }
 
@@ -2703,9 +2819,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         rowset_meta.set_allocated_tablet_schema(nullptr);
     }
 
-    auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
     txn->remove(recycle_rs_key);
-
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
     txn->put(tmp_rs_key, tmp_rs_val);
@@ -3117,7 +3231,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
         DCHECK(request->has_idx());
 
-        if (idx.has_db_id()) {
+        if (idx.has_db_id() && config::advance_txn_lazy_commit_during_reads) {
             // there is maybe a lazy commit txn when call get_rowset
             // we need advance lazy commit txn here
             int64_t first_txn_id = -1;
@@ -3152,13 +3266,15 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 std::shared_ptr<TxnLazyCommitTask> task =
                         txn_lazy_committer_->submit(instance_id, first_txn_id);
 
-                std::tie(code, msg) = task->wait();
-                if (code != MetaServiceCode::OK) {
-                    LOG(WARNING) << "advance_last_txn failed last_txn=" << first_txn_id
-                                 << " code=" << code << " msg=" << msg;
-                    return;
+                if (config::wait_txn_lazy_commit_during_reads) {
+                    std::tie(code, msg) = task->wait();
+                    if (code != MetaServiceCode::OK) {
+                        LOG(WARNING) << "advance_last_txn failed last_txn=" << first_txn_id
+                                     << " code=" << code << " msg=" << msg;
+                        return;
+                    }
+                    continue;
                 }
-                continue;
             }
         }
 
@@ -5464,13 +5580,45 @@ std::pair<std::string, std::string> init_key_pair(std::string instance_id, int64
 }
 
 MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_unique_id_str,
-                                                            std::string table_id_str) {
+                                                            std::string table_id_str,
+                                                            std::string tablet_id_str) {
     // parse params
     int64_t table_id;
+    int64_t tablet_id = -1;
     std::string instance_id;
-    MetaServiceResponseStatus st = parse_fix_tablet_stats_param(
-            resource_mgr_, table_id_str, cloud_unique_id_str, table_id, instance_id);
+    MetaServiceResponseStatus st =
+            parse_fix_tablet_stats_param(resource_mgr_, table_id_str, cloud_unique_id_str,
+                                         tablet_id_str, table_id, instance_id, tablet_id);
     if (st.code() != MetaServiceCode::OK) {
+        return st;
+    }
+
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    if (is_versioned_write) {
+        if (tablet_id < 0) {
+            st.set_code(MetaServiceCode::INVALID_ARGUMENT);
+            st.set_msg(
+                    "cannot fix tablet stats for all tablets of a table when versioned write is "
+                    "enabled, consider specifying tablet_id");
+            return st;
+        }
+
+        TabletIndexPB tablet_idx;
+        CloneChainReader reader(instance_id, txn_kv_.get(), resource_mgr_.get());
+        TxnErrorCode err = reader.get_tablet_index(tablet_id, &tablet_idx);
+        if (err != TxnErrorCode::TXN_OK) {
+            st.set_code(cast_as<ErrCategory::READ>(err));
+            st.set_msg(fmt::format("failed to get tablet index for tablet_id={}, err={}", tablet_id,
+                                   err));
+            return st;
+        }
+
+        auto&& [code, msg] = fix_versioned_tablet_stats_internal(
+                txn_kv_.get(), instance_id, tablet_idx, is_versioned_read, is_versioned_write,
+                resource_mgr_.get());
+        st.set_code(code);
+        st.set_msg(std::move(msg));
         return st;
     }
 
@@ -5706,6 +5854,44 @@ std::string hide_access_key(const std::string& ak) {
                     x_count - left_x_count, 'x');
     }
     return key;
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::wait_for_pending_txns(
+        const std::string& instance_id, std::vector<VersionPB>& versions) {
+    std::vector<std::shared_ptr<TxnLazyCommitTask>> tasks;
+    for (auto& version : versions) {
+        if (version.pending_txn_ids_size() == 0) {
+            continue;
+        }
+
+        DCHECK_EQ(version.pending_txn_ids_size(), 1)
+                << "only support one pending txn id for now, version="
+                << version.ShortDebugString();
+
+        int64_t first_txn_id = version.pending_txn_ids(0);
+        std::shared_ptr<TxnLazyCommitTask> task =
+                txn_lazy_committer_->submit(instance_id, first_txn_id);
+        tasks.push_back(task);
+    }
+
+    for (auto& task : tasks) {
+        auto&& [code, msg] = task->wait();
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "wait for pending txn " << task->txn_id() << " failed, code=" << code
+                         << " msg=" << msg;
+            return {code, msg};
+        }
+    }
+
+    for (auto& version : versions) {
+        if (version.pending_txn_ids_size() == 0) {
+            continue;
+        }
+        version.clear_pending_txn_ids();
+        version.set_version(version.version() + 1);
+    }
+
+    return {MetaServiceCode::OK, ""};
 }
 
 } // namespace doris::cloud

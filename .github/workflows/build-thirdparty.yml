@@ -142,7 +142,7 @@ jobs:
     name: Build Third Party Libraries (macOS)
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4

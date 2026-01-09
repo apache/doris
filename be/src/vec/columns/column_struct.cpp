@@ -257,6 +257,20 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
     }
 }
 
+void ColumnStruct::update_crc32c_batch(uint32_t* __restrict hashes,
+                                       const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_batch(hashes, nullptr);
+    }
+}
+
+void ColumnStruct::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                        const uint8_t* __restrict null_map) const {
+    for (const auto& column : columns) {
+        column->update_crc32c_single(start, end, hash, nullptr);
+    }
+}
+
 void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
@@ -414,7 +428,7 @@ struct ColumnStruct::less {
 };
 
 void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                   IColumn::Permutation& res) const {
+                                   HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -422,9 +436,9 @@ void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
     }
 }
 
