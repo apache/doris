@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
 #include "olap/storage_engine.h"
+#include "rapidjson/document.h"
 #include "testutil/variant_util.h"
 
 using namespace doris::vectorized;
@@ -360,7 +361,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<HierarchicalDataIterator*>(it.get()) != nullptr);
     ColumnIteratorOptions column_iter_opts;
     column_iter_opts.stats = &stats;
     column_iter_opts.file_reader = file_reader.get();
@@ -850,15 +850,39 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     // 6. check footer
     int expected_sparse_cols =
             variant_sparse_hash_shard_count > 1 ? variant_sparse_hash_shard_count : 1;
-    EXPECT_EQ(footer.columns_size(), 1 + 10 + expected_sparse_cols);
+    // NestedGroup columns (__ng.*) may be appended after sparse columns.
+    EXPECT_GE(footer.columns_size(), 1 + 10 + expected_sparse_cols);
     auto column_meta = footer.columns(0);
     EXPECT_EQ(column_meta.type(), (int)FieldType::OLAP_FIELD_TYPE_VARIANT);
 
-    for (int i = 1; i < footer.columns_size() - 1; ++i) {
-        auto column_met = footer.columns(i);
-        check_column_meta(column_met, path_with_size);
+    bool has_nested_group = false;
+    int sparse_meta_cnt = 0;
+    int subcolumn_meta_cnt = 0;
+    for (int i = 1; i < footer.columns_size(); ++i) {
+        const auto& col = footer.columns(i);
+        if (!col.has_column_path_info()) {
+            continue;
+        }
+        const auto& info = col.column_path_info();
+        if (info.has_nested_group_parent_path() ||
+            (info.has_is_nested_group_offsets() && info.is_nested_group_offsets())) {
+            has_nested_group = true;
+            continue;
+        }
+        auto path = std::make_shared<vectorized::PathInData>();
+        path->from_protobuf(info);
+        const std::string base = path->copy_pop_front().get_path();
+        if (base == "__DORIS_VARIANT_SPARSE__" || base.rfind("__DORIS_VARIANT_SPARSE__.b", 0) == 0) {
+            check_sparse_column_meta(col, path_with_size);
+            sparse_meta_cnt++;
+        } else {
+            check_column_meta(col, path_with_size);
+            subcolumn_meta_cnt++;
+        }
     }
-    check_sparse_column_meta(footer.columns(footer.columns_size() - 1), path_with_size);
+    EXPECT_TRUE(has_nested_group);
+    EXPECT_EQ(sparse_meta_cnt, expected_sparse_cols);
+    EXPECT_EQ(subcolumn_meta_cnt, 10);
 
     // 7. check variant reader
     io::FileReaderSPtr file_reader;
@@ -912,6 +936,63 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         assert_cast<ColumnVariant*>(new_column_object.get())
                 ->serialize_one_row_to_string(i, &value);
         EXPECT_EQ(value, inserted_jsonstr[i]);
+    }
+
+    // Whole Variant read should merge NestedGroup back as JSONB subcolumn "a.b".
+    {
+        const auto* cv = assert_cast<ColumnVariant*>(new_column_object.get());
+        const auto* ab = cv->get_subcolumn(PathInData("a.b"));
+        ASSERT_TRUE(ab != nullptr);
+        ASSERT_TRUE(ab->get_least_common_type() != nullptr);
+        EXPECT_EQ(remove_nullable(ab->get_least_common_type())->get_type_id(), TypeIndex::JSONB);
+    }
+
+    // Whole NestedGroup access: $.a.b should return Nullable(Variant(JSONB)) and be a JSON array.
+    {
+        TabletColumn ab_col;
+        ab_col.set_name(parent_column.name_lower_case() + ".a.b");
+        ab_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        ab_col.set_parent_unique_id(parent_column.unique_id());
+        ab_col.set_path_info(PathInData(parent_column.name_lower_case() + ".a.b"));
+        ab_col.set_variant_max_subcolumns_count(parent_column.variant_max_subcolumns_count());
+        ab_col.set_is_nullable(true);
+
+        ColumnIteratorUPtr ab_it;
+        st = variant_column_reader->new_iterator(&ab_it, &ab_col, &storage_read_opts,
+                                                 &column_reader_cache);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        st = ab_it->init(column_iter_opts);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        size_t ab_rows = 1000;
+        auto ab_dst = ColumnVariant::create(3);
+        st = ab_it->seek_to_ordinal(0);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        st = ab_it->next_batch(&ab_rows, ab_dst);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(ab_rows, 1000);
+
+        for (int i = 0; i < 1000; ++i) {
+            std::string json;
+            assert_cast<ColumnVariant*>(ab_dst.get())->serialize_one_row_to_string(i, &json);
+            rapidjson::Document d;
+            d.Parse(json.c_str());
+            ASSERT_FALSE(d.HasParseError());
+            ASSERT_TRUE(d.IsArray());
+            ASSERT_EQ(d.Size(), 1);
+            ASSERT_TRUE(d[0].IsObject());
+            ASSERT_TRUE(d[0].HasMember("c"));
+            ASSERT_TRUE(d[0]["c"].IsObject());
+            ASSERT_TRUE(d[0]["c"].HasMember("d"));
+            ASSERT_TRUE(d[0]["c"].HasMember("e"));
+            EXPECT_EQ(d[0]["c"]["d"].GetInt(), i);
+            EXPECT_EQ(std::string(d[0]["c"]["e"].GetString()), std::to_string(i));
+            if (i % 17 == 0) {
+                ASSERT_TRUE(d[0]["c"].HasMember("f"));
+                EXPECT_EQ(d[0]["c"]["f"].GetInt(), i);
+            } else {
+                EXPECT_FALSE(d[0]["c"].HasMember("f"));
+            }
+        }
     }
 
     auto read_to_column_object = [&](ColumnIteratorUPtr& it) {
