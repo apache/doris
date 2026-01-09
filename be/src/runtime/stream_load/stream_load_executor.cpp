@@ -213,12 +213,12 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
 
-    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     TLoadTxnCommitResult result;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
+        auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
@@ -258,11 +258,11 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
         request.__set_txnId(ctx->txn_id);
     }
 
-    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     TLoadTxn2PCResult result;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
+        auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
@@ -310,9 +310,9 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
 
-    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr_provider,
             [&request, &result](FrontendServiceConnection& client) {
@@ -342,7 +342,6 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->stream_load_txn_rollback_request_total->increment(1);
 
-    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     TLoadTxnRollbackRequest request;
     set_request_auth(&request, ctx->auth);
     request.__set_db(ctx->db);
@@ -363,6 +362,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 
     TLoadTxnRollbackResult result;
 #ifndef BE_TEST
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     auto rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr_provider, [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
