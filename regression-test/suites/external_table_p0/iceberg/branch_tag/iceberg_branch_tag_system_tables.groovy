@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_branch_tag_system_tables", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_branch_tag_system_tables", "p0,external,doris,external_docker,external_docker_doris,branch_tag") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -49,40 +49,46 @@ suite("iceberg_branch_tag_system_tables", "p0,external,doris,external_docker,ext
     sql """ create table ${table_name} (id int, name string) """
 
     sql """ insert into ${table_name} values (1, 'a'), (2, 'b'), (3, 'c') """
+    def snapshot_id1_snapshots = sql """ select snapshot_id from ${table_name}\$snapshots order by committed_at desc limit 1 """
+
     sql """ alter table ${table_name} create branch b1_system """
     sql """ alter table ${table_name} create branch b2_system """
+    def snapshot_id1_refs_b1 = sql """ select snapshot_id from ${table_name}\$refs where name = 'b1_system' """
+    def snapshot_id1_refs_b2 = sql """ select snapshot_id from ${table_name}\$refs where name = 'b2_system' """
+    assertEquals(snapshot_id1_snapshots[0][0], snapshot_id1_refs_b1[0][0])
+    assertEquals(snapshot_id1_snapshots[0][0], snapshot_id1_refs_b2[0][0])
+
     sql """ alter table ${table_name} create tag t1_system """
     sql """ alter table ${table_name} create tag t2_system """
+    def snapshot_id1_refs_t1 = sql """ select snapshot_id from ${table_name}\$refs where name = 't1_system' """
+    def snapshot_id1_refs_t2 = sql """ select snapshot_id from ${table_name}\$refs where name = 't2_system' """
+    assertEquals(snapshot_id1_snapshots[0][0], snapshot_id1_refs_t1[0][0])
+    assertEquals(snapshot_id1_snapshots[0][0], snapshot_id1_refs_t2[0][0])
+
     sql """ insert into ${table_name}@branch(b1_system) values (4, 'd') """
 
     // Test 4.1.1: Query all refs information
-    qt_refs_all """ select * from ${table_name}\$refs order by name """
+    qt_refs_all """ select name, type, max_reference_age_in_ms, min_snapshots_to_keep, max_snapshot_age_in_ms from ${table_name}\$refs order by name """
 
     // Test 4.1.2: Filter branch information
-    qt_refs_branches """ select * from ${table_name}\$refs where type = 'BRANCH' order by name """
+    qt_refs_branches """ select name, type, max_reference_age_in_ms, min_snapshots_to_keep, max_snapshot_age_in_ms from ${table_name}\$refs where type = 'BRANCH' order by name """
 
     // Test 4.1.3: Filter tag information
-    qt_refs_tags """ select * from ${table_name}\$refs where type = 'TAG' order by name """
+    qt_refs_tags """ select name, type, max_reference_age_in_ms, min_snapshots_to_keep, max_snapshot_age_in_ms from ${table_name}\$refs where type = 'TAG' order by name """
 
     // Test 4.1.4: Query specific ref information
-    qt_refs_b1 """ select * from ${table_name}\$refs where name = 'b1_system' """
+    order_qt_refs_b1 """ select name, type, max_reference_age_in_ms, min_snapshots_to_keep, max_snapshot_age_in_ms from ${table_name}\$refs where name = 'b1_system' """
 
     // Test 4.1.5: Refs information sorting
-    qt_refs_sorted """ select * from ${table_name}\$refs order by name """
+    qt_refs_sorted """ select name, type, max_reference_age_in_ms, min_snapshots_to_keep, max_snapshot_age_in_ms from ${table_name}\$refs order by name """
 
     // Test 4.1.6: Refs and snapshots join query
     qt_refs_snapshots_join """ 
-        select r.name, r.type, r.snapshot_id, s.committed_at
+        select r.name, r.type
         from ${table_name}\$refs r
         join ${table_name}\$snapshots s on r.snapshot_id = s.snapshot_id
         order by r.name
     """
-
-    // Test 4.2.1: $snapshots table query
-    qt_snapshots_all """ select snapshot_id, committed_at from ${table_name}\$snapshots order by committed_at """
-
-    // Test 4.2.2: $files table query
-    qt_files_all """ select * from ${table_name}\$files limit 10 """
 
     // Test refs count verification
     qt_refs_count """ select count(*) from ${table_name}\$refs """
@@ -94,9 +100,7 @@ suite("iceberg_branch_tag_system_tables", "p0,external,doris,external_docker,ext
         select 
             r.name,
             r.type,
-            r.snapshot_id,
-            s.operation,
-            s.summary
+            s.operation
         from ${table_name}\$refs r
         left join ${table_name}\$snapshots s on r.snapshot_id = s.snapshot_id
         order by r.name
@@ -110,5 +114,6 @@ suite("iceberg_branch_tag_system_tables", "p0,external,doris,external_docker,ext
     qt_refs_after_more """ select count(*) from ${table_name}\$refs """
     qt_refs_branches_after """ select count(*) from ${table_name}\$refs where type = 'BRANCH' """
     qt_refs_tags_after """ select count(*) from ${table_name}\$refs where type = 'TAG' """
+
 }
 

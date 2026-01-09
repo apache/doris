@@ -1,3 +1,4 @@
+package iceberg.branch_tag
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_tag_retention_and_consistency", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_tag_retention_and_consistency", "p0,external,doris,external_docker,external_docker_doris,branch_tag") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -60,7 +61,6 @@ suite("iceberg_tag_retention_and_consistency", "p0,external,doris,external_docke
     // Test 2.1.1: Tag retention time verification
     sql """ alter table ${table_name} create tag t1_retention AS OF VERSION ${s1} RETAIN 1 DAYS """
     qt_t1_initial """ select * from ${table_name}@tag(t1_retention) order by id """ // Should have 1,2
-
     // Test 2.1.2: Tag retention time update
     sql """ alter table ${table_name} create or replace tag t1_retention RETAIN 30 DAYS """
     qt_t1_after_update """ select * from ${table_name}@tag(t1_retention) order by id """ // Should still have same data

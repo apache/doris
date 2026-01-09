@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docker,external_docker_doris,branch_tag") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -64,7 +64,9 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
 
     // Test 1.1.2: Snapshot retention count verification
     sql """ alter table ${table_name} create branch b1_retention_count AS OF VERSION ${s2} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 3 SNAPSHOTS """
-    qt_b1_initial """ select * from ${table_name}@branch(b1_retention_count) order by id """ // 2 records
+    qt_b1_initial """ select * from ${table_name}@branch(b1_retention_count) order by id """ // 3 records
+    def snapshot_id1_refs_b1 = sql """ select snapshot_id from ${table_name}\$refs where name = 'b1_retention_count' """
+    assertEquals(snapshot_id1_refs_b1[0][0].toString(), s2)
 
     // Write multiple snapshots to branch
     sql """ insert into ${table_name}@branch(b1_retention_count) values (6, 'f') """
@@ -78,21 +80,32 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
 
     // Test 1.1.3: Snapshot retention time verification
     sql """ alter table ${table_name} create branch b1_retention_time AS OF VERSION ${s2} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 1 DAYS """
-    qt_b1_time_initial """ select * from ${table_name}@branch(b1_retention_time) order by id """ // 2 records
+    qt_b1_time_initial """ select * from ${table_name}@branch(b1_retention_time) order by id """ // 3 records
 
     // Test 1.1.4: Combined retention policy
     sql """ alter table ${table_name} create branch b1_combined AS OF VERSION ${s2} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 3 SNAPSHOTS 2 DAYS """
-    qt_b1_combined """ select * from ${table_name}@branch(b1_combined) order by id """ // 2 records
+    qt_b1_combined """ select * from ${table_name}@branch(b1_combined) order by id """ // 3 records
 
     // Test 1.2.1: Branch snapshot independent evolution
     sql """ alter table ${table_name} create branch b2_independent AS OF VERSION ${s1} """
     sql """ alter table ${table_name} create branch b3_independent AS OF VERSION ${s1} """
+
+    def snapshot_id1_refs_b2 = sql """ select snapshot_id from ${table_name}\$refs where name = 'b2_independent' """
+    assertEquals(snapshot_id1_refs_b2[0][0].toString(), s1)
+
 
     sql """ insert into ${table_name}@branch(b2_independent) values (11, 'k') """
     sql """ insert into ${table_name}@branch(b3_independent) values (12, 'l') """
 
     qt_b2_after_insert """ select * from ${table_name}@branch(b2_independent) order by id """ // Should have 11
     qt_b3_after_insert """ select * from ${table_name}@branch(b3_independent) order by id """ // Should have 12
+
+    def snapshot_id1_refs_b2_after = sql """ select snapshot_id from ${table_name}\$refs where name = 'b2_independent' """
+    def snapshot_id1_refs_b3_after = sql """ select snapshot_id from ${table_name}\$refs where name = 'b3_independent' """
+    def snapshot_id1_parent_id = sql """select parent_id from ${table_name}\$snapshots where snapshot_id = '${snapshot_id1_refs_b2_after[0][0]}'"""
+    def snapshot_id2_parent_id = sql """select parent_id from ${table_name}\$snapshots where snapshot_id = '${snapshot_id1_refs_b3_after[0][0]}'"""
+    assertEquals(snapshot_id1_parent_id[0][0].toString(), snapshot_id2_parent_id[0][0].toString())
+    assertEquals(snapshot_id1_parent_id[0][0].toString(), s1)
 
     // Verify branches are independent
     qt_b2_count """ select count(*) from ${table_name}@branch(b2_independent) """
@@ -118,5 +131,35 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     qt_b5_hours """ select count(*) from ${table_name}@branch(b5_hours) """
     qt_b6_minutes """ select count(*) from ${table_name}@branch(b6_minutes) """
     qt_b7_days """ select count(*) from ${table_name}@branch(b7_days) """
+
+    def table_name2 = "test_branch_retention_2"
+    sql """ drop table if exists ${table_name2} """
+    sql """ create table ${table_name2} (id int, name string) """
+    def b1 = "branch_retention_2_b1"
+    def b2 = "branch_retention_2_b2"
+    def t1 = "branch_retention_2_t1"
+    sql """insert into ${table_name2} values (100, 'base') """
+    List<List<Object>> snapshots2 = sql """ select snapshot_id from ${table_name2}\$snapshots order by committed_at; """
+    def snapshot2_0 = snapshots2[0][0].toString()
+    sql """alter table ${table_name2} create branch ${b1} AS OF VERSION ${snapshot2_0} RETAIN 2 MINUTES WITH SNAPSHOT RETENTION 3 SNAPSHOTS 1 MINUTES"""
+    def snapshot_id_b1 = sql """ select snapshot_id from ${table_name2}\$refs where name = '${b1}' """
+    assertEquals(snapshot_id_b1[0][0].toString(), snapshot2_0)
+    sql """insert into ${table_name2}@branch(${b1}) values (1, 'x'); """
+    sql """insert into ${table_name2}@branch(${b1}) values (2, 'y'); """
+    sql """insert into ${table_name2}@branch(${b1}) values (3, 'z'); """
+    sql """insert into ${table_name2}@branch(${b1}) values (4, 'w'); """
+    qt_branch2_b1_start """ select * from ${table_name2}@branch(${b1}) """ // Should have 3 records
+    def snapshot_id_b1_1 = sql """ select snapshot_id from ${table_name2}\$refs where name = '${b1}' """
+    sql """alter table ${table_name2} create branch ${b2} AS OF VERSION ${snapshot_id_b1_1[0][0]}"""
+    sql """alter table ${table_name2} create tag ${t1} AS OF VERSION ${snapshot_id_b1_1[0][0]}"""
+    sleep(70000) // Sleep for 70 seconds to exceed retention time
+    sql """select * from ${table_name2}@branch(${b2}) """
+    sql """select * from ${table_name2}@tag(${t1}) """
+
+    sleep(60000) // Sleep for another 60 seconds to exceed retaintion time
+    sql """select * from ${table_name2}@branch(${b1}) """
+    qt_branch2_b1_end """ select count(*) from ${table_name2}\$refs where name='${b1}';""" // Shouldhave 1 record
+
+
 }
 

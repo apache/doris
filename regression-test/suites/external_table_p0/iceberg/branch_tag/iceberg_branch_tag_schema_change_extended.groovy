@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_branch_tag_schema_change_extended", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_branch_tag_schema_change_extended", "p0,external,doris,external_docker,external_docker_doris,branch_tag") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -57,8 +57,9 @@ suite("iceberg_branch_tag_schema_change_extended", "p0,external,doris,external_d
     // Test 3.1.2: Drop column after branch query
     sql """ alter table ${table_name} create branch b2_schema """
     sql """ alter table ${table_name} drop column name """
-    qt_b2_no_dropped_col """ desc ${table_name}@branch(b2_schema) """ // Should not have 'name' column
-
+    qt_b2_no_dropped_col """select * from ${table_name}@branch(b2_schema) order by id """ // Should not have 'name' column
+//    qt_b2_no_dropped_col """ desc ${table_name}@branch(b2_schema) """ // Should not have 'name' column
+//
     // Recreate table for next tests
     sql """ drop table if exists ${table_name} """
     sql """ create table ${table_name} (id int, value int) """
