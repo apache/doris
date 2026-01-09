@@ -24,6 +24,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "runtime/jsonb_value.h"
 #include "io/fs/file_reader.h"
 #include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -41,6 +42,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
@@ -77,7 +79,7 @@ Status _read_offsets_with_prev(ColumnIterator* offsets_iter, ordinal_t start, si
     return Status::OK();
 }
 
-// Iterator for reading the whole NestedGroup as ColumnVariant::NESTED_TYPE (Nullable(Array(Nullable(Variant)))).
+// Iterator for reading the whole NestedGroup as Nullable(Variant(root_type=JSONB)).
 class NestedGroupWholeIterator : public ColumnIterator {
 public:
     explicit NestedGroupWholeIterator(const NestedGroupReader* group_reader)
@@ -99,7 +101,7 @@ public:
     }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
-        RETURN_IF_ERROR(_append_group_as_nested_type(_root_state, _current_ordinal, *n, dst));
+        RETURN_IF_ERROR(_append_group_as_jsonb(_root_state, _current_ordinal, *n, dst));
         _current_ordinal += *n;
         *has_null = false;
         return Status::OK();
@@ -165,16 +167,10 @@ private:
         return Status::OK();
     }
 
-    // Build an array<object> column (ColumnVariant::NESTED_TYPE) for rows [row_ord, row_ord+row_cnt)
-    // and append it into dst (expected Nullable(Array(Nullable(Variant)))).
-    Status _append_group_as_nested_type(GroupState& state, ordinal_t row_ord, size_t row_cnt,
-                                        vectorized::MutableColumnPtr& dst) {
-        // dst is expected to be Nullable(Array(Nullable(Variant)))
-        auto* dst_nullable = assert_cast<vectorized::ColumnNullable*>(dst.get());
-        auto& dst_array =
-                assert_cast<vectorized::ColumnArray&>(dst_nullable->get_nested_column());
-        auto& dst_offsets = dst_array.get_offsets();
-
+    // English comment: build a Variant(root_type=JSONB) column for rows [row_ord, row_ord+row_cnt)
+    // and append into dst (expected Nullable(Variant) or Variant).
+    Status _append_group_as_jsonb(GroupState& state, ordinal_t row_ord, size_t row_cnt,
+                                 vectorized::MutableColumnPtr& dst) {
         uint64_t start_off = 0;
         std::vector<uint64_t> offsets;
         RETURN_IF_ERROR(_read_offsets_with_prev(state.offsets_iter.get(), row_ord, row_cnt, &start_off,
@@ -182,12 +178,26 @@ private:
         uint64_t end_off = offsets.empty() ? start_off : offsets.back();
         auto elem_count = static_cast<size_t>(end_off - start_off);
 
-        // Seek all child iterators to start offset (safe for both sequential/random usage)
+        // Seek all child iterators to start offset (safe for both sequential/random usage).
+        RETURN_IF_ERROR(_seek_child_iters(state, start_off));
+
+        vectorized::MutableColumnPtr elem_obj = vectorized::ColumnVariant::create(0, elem_count);
+        auto* elem_obj_ptr = assert_cast<vectorized::ColumnVariant*>(elem_obj.get());
+        RETURN_IF_ERROR(_fill_elem_object_with_scalar_children(state, start_off, elem_count, elem_obj_ptr));
+        RETURN_IF_ERROR(_fill_elem_object_with_nested_groups(state, start_off, elem_count, elem_obj_ptr));
+        return _append_variant_jsonb_rows_from_elem_object(*elem_obj_ptr, start_off, offsets, dst);
+    }
+
+    Status _seek_child_iters(GroupState& state, uint64_t start_off) {
         for (auto& [_, it] : state.child_iters) {
             RETURN_IF_ERROR(it->seek_to_ordinal(start_off));
         }
+        return Status::OK();
+    }
 
-        // Read scalar child columns (flat) for this batch
+    Status _fill_elem_object_with_scalar_children(GroupState& state, uint64_t start_off,
+                                                  size_t elem_count,
+                                                  vectorized::ColumnVariant* elem_obj_ptr) {
         std::unordered_map<std::string, vectorized::MutableColumnPtr> child_cols;
         child_cols.reserve(state.child_iters.size());
         for (auto& [name, it] : state.child_iters) {
@@ -201,9 +211,6 @@ private:
             child_cols.emplace(name, std::move(col));
         }
 
-        // Build element objects: ColumnVariant with paths = field names
-        auto elem_obj = vectorized::ColumnVariant::create(0, elem_count);
-        auto* elem_obj_ptr = assert_cast<vectorized::ColumnVariant*>(elem_obj.get());
         for (auto& [name, col] : child_cols) {
             vectorized::PathInData p(name);
             bool ok = elem_obj_ptr->add_sub_column(
@@ -213,39 +220,73 @@ private:
                 return Status::InternalError("Duplicated NestedGroup child field {}", name);
             }
         }
+        return Status::OK();
+    }
 
-        // Reconstruct nested array fields (multi-level NestedGroup)
+    Status _fill_elem_object_with_nested_groups(GroupState& state, uint64_t start_off, size_t elem_count,
+                                                vectorized::ColumnVariant* elem_obj_ptr) {
         for (auto& [name, nested_state] : state.nested_groups) {
-            // Create a nested type column for this field, sized by elem_count (rows = parent elements)
-            vectorized::MutableColumnPtr nested_col =
-                    vectorized::ColumnVariant::NESTED_TYPE->create_column();
+            auto nested_jsonb = vectorized::ColumnString::create();
+            auto nested_nullable = vectorized::ColumnNullable::create(
+                    std::move(nested_jsonb), vectorized::ColumnUInt8::create());
+            auto nested_mut = nested_nullable->assume_mutable();
             if (elem_count > 0) {
-                // Fill nested_col by reading from nested group rows [start_off, start_off+elem_count)
-                RETURN_IF_ERROR(_append_group_as_nested_type(*nested_state, start_off, elem_count,
-                                                            nested_col));
+                size_t tmp_n = elem_count;
+                RETURN_IF_ERROR(_append_group_as_jsonb(*nested_state, start_off, tmp_n, nested_mut));
+            } else {
+                nested_mut->insert_many_defaults(elem_count);
             }
             vectorized::PathInData p(name);
-            bool ok = elem_obj_ptr->add_sub_column(p, std::move(nested_col),
-                                                  vectorized::ColumnVariant::NESTED_TYPE);
+            bool ok = elem_obj_ptr->add_sub_column(
+                    p, std::move(nested_mut),
+                    vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>()));
             if (!ok) {
                 return Status::InternalError("Duplicated NestedGroup nested field {}", name);
             }
         }
+        return Status::OK();
+    }
 
-        // Ensure element objects are nullable to match NESTED_TYPE inner nullable
-        vectorized::ColumnPtr elem_obj_nullable = vectorized::make_nullable(elem_obj->get_ptr());
+    Status _append_variant_jsonb_rows_from_elem_object(const vectorized::ColumnVariant& elem_obj,
+                                                       uint64_t start_off,
+                                                       const std::vector<uint64_t>& offsets,
+                                                       vectorized::MutableColumnPtr& dst) {
+        auto* dst_nullable = vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
+        auto& dst_variant =
+                dst_nullable ? assert_cast<vectorized::ColumnVariant&>(dst_nullable->get_nested_column())
+                             : assert_cast<vectorized::ColumnVariant&>(*dst);
 
-        // Append array offsets
-        size_t prev = dst_offsets.empty() ? 0 : dst_offsets.back();
-        for (size_t i = 0; i < offsets.size(); ++i) {
-            uint64_t sz = (i == 0) ? (offsets[i] - start_off) : (offsets[i] - offsets[i - 1]);
-            dst_offsets.push_back(prev + static_cast<size_t>(sz));
-            prev = dst_offsets.back();
+        for (size_t r = 0; r < offsets.size(); ++r) {
+            uint64_t off = offsets[r];
+            uint64_t prev = (r == 0) ? start_off : offsets[r - 1];
+
+            std::string json;
+            json.push_back('[');
+            for (uint64_t i = prev; i < off; ++i) {
+                if (i > prev) {
+                    json.push_back(',');
+                }
+                std::string obj;
+                elem_obj.serialize_one_row_to_string(static_cast<int64_t>(i), &obj);
+                json.append(obj);
+            }
+            json.push_back(']');
+
+            doris::JsonBinaryValue jsonb_value;
+            RETURN_IF_ERROR(jsonb_value.from_json_string(json.data(), json.size()));
+            vectorized::Field jsonb_field = vectorized::Field::create_field<TYPE_JSONB>(
+                    vectorized::JsonbField(jsonb_value.value(), jsonb_value.size()));
+
+            vectorized::VariantMap object;
+            object.try_emplace(vectorized::PathInData {},
+                               vectorized::FieldWithDataType(jsonb_field));
+            vectorized::Field variant_field =
+                    vectorized::Field::create_field<TYPE_VARIANT>(std::move(object));
+            dst_variant.insert(variant_field);
+            if (dst_nullable) {
+                dst_nullable->get_null_map_column().get_data().push_back(0);
+            }
         }
-
-        // Append array data
-        dst_array.get_data().insert_range_from(*elem_obj_nullable, 0, elem_obj_nullable->size());
-        dst_nullable->get_null_map_column().insert_many_vals(0, offsets.size());
         return Status::OK();
     }
 
@@ -1210,12 +1251,12 @@ vectorized::DataTypePtr VariantColumnReader::infer_data_type_for_path(
         const TabletColumn& column, const vectorized::PathInData& relative_path,
         bool read_flat_leaves, ColumnReaderCache* cache, int32_t col_uid) const {
     // english only in comments
-    // If this is exactly a NestedGroup array path, expose it as ColumnVariant::NESTED_TYPE so
-    // callers can read $.nested without relying on root JSONB.
+    // If this is exactly a NestedGroup array path, expose it as Nullable(Variant(root_type=JSONB)).
     if (!relative_path.empty()) {
         const NestedGroupReader* gr = get_nested_group_reader(relative_path.get_path());
         if (gr && gr->is_valid()) {
-            return vectorized::ColumnVariant::NESTED_TYPE;
+            return vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>(
+                    column.variant_max_subcolumns_count()));
         }
     }
     // Locate the subcolumn node by path.
