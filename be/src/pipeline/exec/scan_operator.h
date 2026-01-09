@@ -217,10 +217,6 @@ protected:
     virtual PushDownType _should_push_down_in_predicate() const {
         return PushDownType::UNACCEPTABLE;
     }
-    virtual PushDownType _should_push_down_or_predicate(
-            const vectorized::VExprContext* expr_ctx) const {
-        return PushDownType::UNACCEPTABLE;
-    }
     virtual PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
             StringRef* constant_val, const std::set<std::string> fn_name) const {
@@ -250,53 +246,47 @@ protected:
     Status _normalize_predicate(vectorized::VExprContext* context,
                                 const vectorized::VExprSPtr& root,
                                 vectorized::VExprSPtr& output_expr);
+    bool _is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
     Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
 
-    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
-                                   SlotDescriptor* slot,
+    template <PrimitiveType T>
+    Status _normalize_in_predicate(vectorized::VExprContext* expr_ctx,
+                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                   ColumnValueRange<T>& range, PushDownType* pdt);
+    template <PrimitiveType T>
+    Status _normalize_binary_predicate(vectorized::VExprContext* expr_ctx,
+                                       const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                       std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                       ColumnValueRange<T>& range, PushDownType* pdt);
+    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx,
+                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
-    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
-                                  SlotDescriptor* slot,
+    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx,
+                                  const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root,
-                                    SlotDescriptor* slot,
+    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx,
+                                    const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                     PushDownType* pdt);
 
     Status _normalize_function_filters(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
-    bool _is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
-                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
-
-    template <PrimitiveType T>
-    Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx,
-                                          vectorized::VExprSPtr& root, SlotDescriptor* slot,
-                                          std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                          ColumnValueRange<T>& range, PushDownType* pdt);
-    template <PrimitiveType T>
-    Status _normalize_not_in_and_not_eq_predicate(
-            vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
-            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-            PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_noneq_binary_predicate(
-            vectorized::VExprContext* expr_ctx, vectorized::VExprSPtr& root, SlotDescriptor* slot,
-            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-            PushDownType* pdt);
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx,
-                                        vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                        const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                         std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         ColumnValueRange<T>& range, PushDownType* pdt);
 
-    template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
-    Status _change_value_range(ColumnValueRange<PrimitiveType>& range, const void* value,
-                               const ChangeFixedValueRangeFunc& func, const std::string& fn_name);
+    template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
+    Status _change_value_range(bool is_equal_op, ColumnValueRange<PrimitiveType>& range,
+                               const void* value, const ChangeFixedValueRangeFunc& func,
+                               const std::string& fn_name);
 
     Status _prepare_scanners();
 

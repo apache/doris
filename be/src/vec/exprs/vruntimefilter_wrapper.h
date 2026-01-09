@@ -62,6 +62,7 @@ public:
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
+    TExprNodeType::type node_type() const override { return _impl->node_type(); }
 
     VExprSPtr get_impl() const override { return _impl; }
 
