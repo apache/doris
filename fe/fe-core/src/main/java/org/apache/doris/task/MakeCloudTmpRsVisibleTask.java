@@ -68,7 +68,7 @@ public class MakeCloudTmpRsVisibleTask extends AgentTask {
         request.setTabletIds(tabletIds);
         request.setPartitionVersionMap(partitionVersionMap);
         if (updateVersionVisibleTime > 0) {
-            request.setUpdateVersionVisibleTime(updateVersionVisibleTime);
+            request.setVersionUpdateTimeMs(updateVersionVisibleTime);
         }
         return request;
     }

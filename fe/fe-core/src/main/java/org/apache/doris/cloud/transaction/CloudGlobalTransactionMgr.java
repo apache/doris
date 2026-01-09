@@ -477,9 +477,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     /**
      * Post process of commitTxn
-     * 1. update some stats
-     * 2. produce event for further processes like async MV
-     * 3. notify BEs to make temporary rowsets visible
+     * 1. notify BEs to make temporary rowsets visible
+     * 2. update some stats
+     * 3. produce event for further processes like async MV
      * @param commitTxnResponse commit txn call response from meta-service
      * @param tabletCommitInfos tablet commit infos containing backend and tablet mapping
      */

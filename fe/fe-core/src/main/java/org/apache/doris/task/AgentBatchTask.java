@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TDropTabletReq;
 import org.apache.doris.thrift.TGcBinlogReq;
+import org.apache.doris.thrift.TMakeCloudTmpRsVisibleRequest;
 import org.apache.doris.thrift.TMoveDirReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;

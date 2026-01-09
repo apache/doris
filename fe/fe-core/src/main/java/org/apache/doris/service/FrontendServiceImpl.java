@@ -49,6 +49,7 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -4261,7 +4262,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return new TStatus(TStatusCode.INVALID_ARGUMENT);
             }
             CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
-            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
+            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse, null);
         } catch (InvalidProtocolBufferException e) {
             // Handle the exception, log it, or take appropriate action
             e.printStackTrace();
@@ -4612,9 +4613,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        if (!Config.isCloudMode()) {
+            return result;
+        }
+
         try {
             // Send agent tasks to notify all involved BEs
-            Env.getCurrentGlobalTransactionMgr().sendMakeCloudTmpRsVisibleTasks(
+            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).sendMakeCloudTmpRsVisibleTasks(
                     request.getTxnId(),
                     request.getCommitInfos(),
                     request.getPartitionVersionMap(),
