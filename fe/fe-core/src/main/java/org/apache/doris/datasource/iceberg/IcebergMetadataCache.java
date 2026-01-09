@@ -143,8 +143,8 @@ public class IcebergMetadataCache {
             }
             Table table = ((ExternalCatalog) catalog).getExecutionAuthenticator()
                     .execute(()
-                    -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
-                    return new IcebergTableCacheValue(table);
+                            -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
+            return new IcebergTableCacheValue(table);
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
