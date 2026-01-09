@@ -51,6 +51,7 @@
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/cloud_snapshot_loader.h"
 #include "cloud/cloud_snapshot_mgr.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -562,8 +563,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     for (int i = 0; i < normal_worker_count; ++i) {
-        auto st = Thread::create(
-                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        auto st =
+                Thread::create("Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
         CHECK(st.ok()) << name << ": " << st;
     }
 
@@ -2388,7 +2389,8 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 }
 
 void make_cloud_tmp_rs_visible_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
-    LOG(INFO) << "begin to make cloud tmp rs visible, txn_id=" << req.make_cloud_tmp_rs_visible_req.txn_id
+    LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
+              << req.make_cloud_tmp_rs_visible_req.txn_id
               << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();
 
     const auto& make_visible_req = req.make_cloud_tmp_rs_visible_req;
@@ -2396,85 +2398,48 @@ void make_cloud_tmp_rs_visible_callback(CloudStorageEngine& engine, const TAgent
     auto& tablet_mgr = engine.tablet_mgr();
 
     int64_t txn_id = make_visible_req.txn_id;
-    int64_t update_visible_time = make_visible_req.__isset.update_version_visible_time
-                                          ? make_visible_req.update_version_visible_time
-                                          : 0;
+    int64_t version_update_time_ms = make_visible_req.__isset.version_update_time_ms
+                                             ? make_visible_req.version_update_time_ms
+                                             : 0;
 
     // Process each tablet involved in this transaction on this BE
     for (int64_t tablet_id : make_visible_req.tablet_ids) {
-        // Get pending rowset meta from CloudPendingRSMgr
         RowsetMetaSharedPtr rowset_meta;
-        auto st = pending_rs_mgr.get_pending_rowset(txn_id, tablet_id, &rowset_meta);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to get pending rowset, txn_id=" << txn_id
-                         << ", tablet_id=" << tablet_id << ", status=" << st;
+        auto res = pending_rs_mgr.get_committed_rowset(txn_id, tablet_id);
+        if (!res.has_value()) {
             continue;
         }
+        auto [pending_rs, expiration_time] = res.value();
 
-        // Get tablet
-        auto tablet_result = tablet_mgr.get_tablet(tablet_id);
+        auto tablet_result = tablet_mgr.get_tablet(tablet_id, false, false, nullptr, false);
         if (!tablet_result.has_value()) {
-            LOG(WARNING) << "failed to get tablet, txn_id=" << txn_id << ", tablet_id=" << tablet_id;
             continue;
         }
         auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet_result.value());
         if (!cloud_tablet) {
-            LOG(WARNING) << "tablet is not CloudTablet, txn_id=" << txn_id
-                         << ", tablet_id=" << tablet_id;
             continue;
         }
 
-        // Get partition_id and version for this tablet
-        int64_t partition_id = rowset_meta->partition_id();
+        int64_t partition_id = cloud_tablet->partition_id();
         auto version_iter = make_visible_req.partition_version_map.find(partition_id);
         if (version_iter == make_visible_req.partition_version_map.end()) {
-            LOG(WARNING) << "partition version not found, txn_id=" << txn_id
-                         << ", tablet_id=" << tablet_id << ", partition_id=" << partition_id;
             continue;
         }
-        int64_t version = version_iter->second;
+        int64_t visible_version = version_iter->second;
 
         // Update rowset meta with correct version and visible_ts
-        rowset_meta->set_start_version(version);
-        rowset_meta->set_end_version(version);
-        if (update_visible_time > 0) {
-            rowset_meta->set_creation_time(update_visible_time);
+        // !!ATTENTION!!: this code should be updated if there are more fields in rowset meta which will be modified in meta-service in the future
+        rowset_meta->set_version({visible_version, visible_version});
+        if (version_update_time_ms > 0) {
+            rowset_meta->set_visible_ts_ms(version_update_time_ms);
         }
 
-        // Add to CloudTablet's VisiblePendingRSMap
-        // Use transaction timeout as expiration time
-        int64_t expiration_time =
-                std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count() +
-                config::tablet_txn_info_min_expired_seconds;
-
-        cloud_tablet->add_visible_pending_rowset(version, rowset_meta, expiration_time);
-
-        LOG(INFO) << "added visible pending rowset, txn_id=" << txn_id << ", tablet_id=" << tablet_id
-                  << ", version=" << version << ", rowset_id=" << rowset_meta->rowset_id().to_string();
-
-        // Remove from CloudPendingRSMgr as it's now in VisiblePendingRSMap
-        pending_rs_mgr.remove_pending_rowset(txn_id, tablet_id);
-    }
-
-    // Apply visible pending rowsets for each tablet
-    for (int64_t tablet_id : make_visible_req.tablet_ids) {
-        auto tablet_result = tablet_mgr.get_tablet(tablet_id);
-        if (!tablet_result.has_value()) {
-            continue;
-        }
-        auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet_result.value());
-        if (!cloud_tablet) {
-            continue;
-        }
-
-        // Try to apply visible pending rowsets
-        auto apply_st = cloud_tablet->apply_visible_pending_rowsets();
-        if (!apply_st.ok()) {
-            LOG(WARNING) << "failed to apply visible pending rowsets, txn_id=" << txn_id
-                         << ", tablet_id=" << tablet_id << ", status=" << apply_st;
-        }
+        cloud_tablet->add_visible_pending_rowset(visible_version, rowset_meta, expiration_time);
+        cloud_tablet->apply_visible_pending_rowsets();
+        pending_rs_mgr.remove_committed_rowset(txn_id, tablet_id);
+        LOG(INFO) << "added visible pending rowset, txn_id=" << txn_id
+                  << ", tablet_id=" << tablet_id << ", version=" << visible_version
+                  << ", rowset_id=" << rowset_meta->rowset_id().to_string();
     }
 
     LOG(INFO) << "make cloud tmp rs visible finished, txn_id=" << txn_id

@@ -780,7 +780,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     }
 }
 
-bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
+bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet,
                                                       std::ranges::range auto&& rs_metas,
                                                       DeleteBitmap* delete_bitmap) {
     std::set<int64_t> txn_processed;
@@ -824,6 +824,13 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
         }
     }
     return true;
+}
+
+bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet,
+                                                      std::span<RowsetMetaPB> rs_metas,
+                                                      DeleteBitmap* delete_bitmap) {
+    return sync_tablet_delete_bitmap_by_cache<std::span<RowsetMetaPB>>(
+            tablet, std::ranges::ref_view(rs_metas), delete_bitmap);
 }
 
 Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
@@ -938,7 +945,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     }
 
     if (!full_sync && config::enable_sync_tablet_delete_bitmap_by_cache &&
-        sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+        sync_tablet_delete_bitmap_by_cache(tablet, rs_metas, delete_bitmap)) {
         if (sync_stats) {
             sync_stats->get_local_delete_bitmap_rowsets_num += rs_metas.size();
         }
@@ -1338,21 +1345,18 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     }
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
     manager.warm_up_rowset(rs_meta, timeout_ms);
+    return st;
+}
 
+void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
     // For load-generated rowsets (job_id is empty), add to pending rowset manager
     // so FE can notify BE to promote them later
-    if (st.ok() && job_id.empty()) {
-        int64_t expiration_time =
-                std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count() +
-                config::tablet_txn_info_min_expired_seconds;
-        auto rowset_meta_ptr = std::make_shared<RowsetMeta>(rs_meta);
-        ExecEnv::GetInstance()->storage_engine().to_cloud().pending_rs_mgr().add_pending_rowset(
-                rs_meta.txn_id(), rs_meta.tablet_id(), rowset_meta_ptr, expiration_time);
-    }
 
-    return st;
+    // TODO(bobhan1): copy rs_meta?
+    int64_t txn_id = rs_meta->txn_id();
+    int64_t tablet_id = rs_meta->tablet_id();
+    ExecEnv::GetInstance()->storage_engine().to_cloud().pending_rs_mgr().add_committed_rowset(
+            txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 
 Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
@@ -1378,18 +1382,19 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     // Update the rowset meta in pending rowset manager if it exists
     // This is needed for partial update scenarios where rowset meta is modified during publish
     if (st.ok()) {
-        auto rowset_meta_ptr = std::make_shared<RowsetMeta>(rs_meta);
+        auto rowset_meta_ptr = std::make_shared<RowsetMeta>();
+        rowset_meta_ptr->init_from_pb(rs_meta.get_rowset_pb());
         auto update_st = ExecEnv::GetInstance()
                                  ->storage_engine()
                                  .to_cloud()
                                  .pending_rs_mgr()
-                                 .update_pending_rowset(rs_meta.txn_id(), rs_meta.tablet_id(),
-                                                        rowset_meta_ptr);
+                                 .update_committed_rowset(rs_meta.txn_id(), rs_meta.tablet_id(),
+                                                          rowset_meta_ptr);
         // It's OK if the rowset is not found in pending manager (may have been cleaned up)
         if (!update_st.ok() && !update_st.is<ErrorCode::NOT_FOUND>()) {
             LOG(WARNING) << "failed to update pending rowset, tablet_id=" << rs_meta.tablet_id()
-                         << ", txn_id=" << rs_meta.txn_id()
-                         << ", rowset_id=" << rs_meta.rowset_id() << ", st=" << update_st;
+                         << ", txn_id=" << rs_meta.txn_id() << ", rowset_id=" << rs_meta.rowset_id()
+                         << ", st=" << update_st;
         }
     }
 

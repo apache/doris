@@ -395,11 +395,9 @@ public:
         }
         return system_clock::from_time_t(newest_write_timestamp());
     }
-#ifdef BE_TEST
     void set_visible_ts_ms(int64_t visible_ts_ms) {
         _rowset_meta_pb.set_visible_ts_ms(visible_ts_ms);
     }
-#endif
 
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);

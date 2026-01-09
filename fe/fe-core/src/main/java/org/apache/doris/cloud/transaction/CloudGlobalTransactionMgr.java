@@ -2642,7 +2642,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     /**
      * Send agent tasks to notify BEs to make temporary cloud rowsets visible.
      * This is called after transaction commit to MS, to notify BEs to promote
-     * rowset metadata from CloudPendingRSMgr to tablet meta.
+     * rowset metadata from CloudCommittedRSMgr to tablet meta.
      *
      * @param txnId transaction id
      * @param commitInfos tablet commit infos containing backend and tablet mapping

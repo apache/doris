@@ -41,6 +41,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
+#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -1746,79 +1747,83 @@ void CloudTablet::add_visible_pending_rowset(int64_t version,
               << ", expiration_time=" << expiration_time;
 }
 
-Status CloudTablet::apply_visible_pending_rowsets() {
-    std::vector<RowsetSharedPtr> to_add;
-    {
-        std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
-        std::shared_lock<std::shared_mutex> meta_rlock(_meta_lock);
-
-        if (_visible_pending_rs_map.empty()) {
-            return Status::OK();
-        }
-
-        int64_t cur_max_version = _max_version;
-        int64_t next_version = cur_max_version + 1;
-
-        // Remove expired entries that are <= current max version
-        auto it = _visible_pending_rs_map.begin();
-        while (it != _visible_pending_rs_map.end()) {
-            if (it->first <= cur_max_version) {
-                LOG(INFO) << "remove expired visible pending rowset, tablet_id=" << tablet_id()
-                          << ", version=" << it->first << ", cur_max_version=" << cur_max_version;
-                it = _visible_pending_rs_map.erase(it);
-            } else {
-                break;
+void CloudTablet::apply_visible_pending_rowsets() {
+    Defer defer {[&] {
+        int64_t cur_max_version = max_version().second;
+        {
+            std::unique_lock<std::mutex> wlock(_visible_pending_rs_lock);
+            for (auto it = _visible_pending_rs_map.begin(); it != _visible_pending_rs_map.end();) {
+                if (int64_t version = it->first; version <= cur_max_version) {
+                    it = _visible_pending_rs_map.erase(it);
+                } else {
+                    ++it;
+                }
             }
         }
+    }};
 
-        // Find the longest continuous sequence of versions starting from next_version
-        std::vector<int64_t> continuous_versions;
-        for (auto& [version, pending_rs] : _visible_pending_rs_map) {
-            if (version == next_version) {
-                continuous_versions.push_back(version);
+    {
+        std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
+        if (_visible_pending_rs_map.empty()) {
+            return;
+        }
+        std::unique_lock lock(_sync_meta_lock);
+        std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
+        int64_t next_version = _max_version + 1;
+        std::vector<RowsetSharedPtr> to_add;
+        for (auto it = _visible_pending_rs_map.upper_bound(_max_version);
+             it != _visible_pending_rs_map.end(); ++it) {
+            if (int64_t version = it->first; version == next_version) {
+                auto& pending_rs = it->second;
+                RowsetSharedPtr rowset;
+                auto st =
+                        RowsetFactory::create_rowset(nullptr, "", pending_rs.rowset_meta, &rowset);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to create rowset from pending rowset meta, tablet_id="
+                                 << tablet_id() << ", version=" << version << ", rowset_id="
+                                 << pending_rs.rowset_meta->rowset_id().to_string()
+                                 << ", error=" << st;
+                    break;
+                }
+                to_add.push_back(std::move(rowset));
                 next_version++;
             } else {
                 break;
             }
         }
-
-        if (continuous_versions.empty()) {
-            return Status::OK();
-        }
-
-        // Create rowsets from pending rowset metas
-        for (int64_t version : continuous_versions) {
-            auto& pending_rs = _visible_pending_rs_map[version];
-            RowsetSharedPtr rowset;
-            auto st = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(),
-                                                   tablet_path(), pending_rs.rowset_meta, &rowset);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to create rowset from pending rowset meta, tablet_id="
-                             << tablet_id() << ", version=" << version
-                             << ", rowset_id=" << pending_rs.rowset_meta->rowset_id().to_string()
-                             << ", error=" << st;
-                return st;
+        if (!to_add.empty()) {
+            if (enable_unique_key_merge_on_write() &&
+                config::enable_sync_tablet_delete_bitmap_by_cache) {
+                // should only have one rowset to add for mow tablet
+                if (to_add.size() > 1) {
+                    LOG_WARNING(
+                            "found more than one pending rowset to make visible for MOW tablet, "
+                            "tablet_id={}, to_add={}",
+                            tablet_id(),
+                            fmt::join(to_add | std::views::transform([](const auto& rs) {
+                                          return fmt::format("{}{}", rs->rowset_id().to_string(),
+                                                             rs->version().to_string());
+                                      }),
+                                      ", "));
+                }
+                DeleteBitmap delete_bitmap(tablet_id());
+                std::vector<RowsetMetaPB> rs_metas;
+                for (const auto& rs : to_add) {
+                    rs_metas.push_back(rs->rowset_meta()->get_rowset_pb());
+                }
+                if (!_engine.meta_mgr().sync_tablet_delete_bitmap_by_cache(
+                            this, std::span(rs_metas), &delete_bitmap)) {
+                    return; // just return if failed to get related delete bitmap from memory
+                }
+                add_rowsets(to_add, false, meta_wlock, true);
+            } else {
+                add_rowsets(to_add, false, meta_wlock, true);
             }
-            to_add.push_back(std::move(rowset));
-        }
-
-        // Remove from pending map
-        for (int64_t version : continuous_versions) {
-            _visible_pending_rs_map.erase(version);
-            LOG(INFO) << "apply visible pending rowset, tablet_id=" << tablet_id()
-                      << ", version=" << version;
+            LOG(INFO) << "applied " << to_add.size()
+                      << " visible pending rowsets to tablet_id=" << tablet_id()
+                      << ", new max_version=" << _max_version;
         }
     }
-
-    // Add rowsets to tablet meta
-    if (!to_add.empty()) {
-        std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
-        add_rowsets(to_add, false, meta_wlock, false);
-        LOG(INFO) << "applied " << to_add.size() << " visible pending rowsets to tablet_id="
-                  << tablet_id() << ", new max_version=" << _max_version;
-    }
-
-    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

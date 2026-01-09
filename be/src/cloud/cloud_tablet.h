@@ -359,7 +359,7 @@ public:
     // Try to apply visible pending rowsets to tablet meta in version order
     // This should be called after receiving FE notification or when new rowsets are added
     // @return Status::OK() if successfully applied, error otherwise
-    Status apply_visible_pending_rowsets();
+    void apply_visible_pending_rowsets();
 
     std::string rowset_warmup_digest() const {
         std::string res;

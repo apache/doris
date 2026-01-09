@@ -15,66 +15,66 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cloud/cloud_pending_rs_mgr.h"
+#include "cloud/cloud_committed_rs_mgr.h"
 
 #include <chrono>
 
 #include "cloud/config.h"
 #include "common/logging.h"
+#include "olap/rowset/rowset_meta.h"
 #include "util/thread.h"
 
 namespace doris {
 
-CloudPendingRSMgr::CloudPendingRSMgr() : _stop_latch(1) {}
+CloudCommittedRSMgr::CloudCommittedRSMgr() : _stop_latch(1) {}
 
-CloudPendingRSMgr::~CloudPendingRSMgr() {
+CloudCommittedRSMgr::~CloudCommittedRSMgr() {
     _stop_latch.count_down();
     if (_clean_thread) {
         _clean_thread->join();
     }
 }
 
-Status CloudPendingRSMgr::init() {
+Status CloudCommittedRSMgr::init() {
     auto st = Thread::create(
-            "CloudPendingRSMgr", "clean_pending_rs_thread",
+            "CloudCommittedRSMgr", "clean_committed_rs_thread",
             [this]() { this->_clean_thread_callback(); }, &_clean_thread);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create thread for CloudPendingRSMgr, error: " << st;
+        LOG(WARNING) << "failed to create thread for CloudCommittedRSMgr, error: " << st;
     }
     return st;
 }
 
-void CloudPendingRSMgr::add_pending_rowset(int64_t txn_id, int64_t tablet_id,
-                                           const RowsetMetaSharedPtr& rowset_meta,
-                                           int64_t expiration_time) {
+void CloudCommittedRSMgr::add_committed_rowset(int64_t txn_id, int64_t tablet_id,
+                                               RowsetMetaSharedPtr rowset_meta,
+                                               int64_t expiration_time) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     TxnTabletKey key(txn_id, tablet_id);
-    _pending_rs_map[key] = PendingRowsetValue(rowset_meta, expiration_time);
+    _committed_rs_map.emplace(key, CommittedRowsetValue(rowset_meta, expiration_time));
     _expiration_map.emplace(expiration_time, key);
     LOG(INFO) << "add pending rowset, txn_id=" << txn_id << ", tablet_id=" << tablet_id
               << ", rowset_id=" << rowset_meta->rowset_id().to_string()
               << ", expiration_time=" << expiration_time;
 }
 
-Status CloudPendingRSMgr::get_pending_rowset(int64_t txn_id, int64_t tablet_id,
-                                             RowsetMetaSharedPtr* rowset_meta) {
+Result<std::pair<RowsetMetaSharedPtr, int64_t>> CloudCommittedRSMgr::get_committed_rowset(
+        int64_t txn_id, int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_rwlock);
     TxnTabletKey key(txn_id, tablet_id);
-    auto iter = _pending_rs_map.find(key);
-    if (iter == _pending_rs_map.end()) {
-        return Status::Error<ErrorCode::NOT_FOUND>(
-                "pending rowset not found, txn_id={}, tablet_id={}", txn_id, tablet_id);
+    auto iter = _committed_rs_map.find(key);
+    if (iter == _committed_rs_map.end()) {
+        return ResultError(Status::Error<ErrorCode::NOT_FOUND>(
+                "pending rowset not found, txn_id={}, tablet_id={}", txn_id, tablet_id));
     }
-    *rowset_meta = iter->second.rowset_meta;
-    return Status::OK();
+    return std::make_pair(iter->second.rowset_meta, iter->second.expiration_time);
 }
 
-Status CloudPendingRSMgr::update_pending_rowset(int64_t txn_id, int64_t tablet_id,
-                                                const RowsetMetaSharedPtr& rowset_meta) {
+Status CloudCommittedRSMgr::update_committed_rowset(int64_t txn_id, int64_t tablet_id,
+                                                    RowsetMetaSharedPtr rowset_meta) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     TxnTabletKey key(txn_id, tablet_id);
-    auto iter = _pending_rs_map.find(key);
-    if (iter == _pending_rs_map.end()) {
+    auto iter = _committed_rs_map.find(key);
+    if (iter == _committed_rs_map.end()) {
         return Status::Error<ErrorCode::NOT_FOUND>(
                 "pending rowset not found, txn_id={}, tablet_id={}", txn_id, tablet_id);
     }
@@ -84,17 +84,12 @@ Status CloudPendingRSMgr::update_pending_rowset(int64_t txn_id, int64_t tablet_i
     return Status::OK();
 }
 
-void CloudPendingRSMgr::remove_pending_rowset(int64_t txn_id, int64_t tablet_id) {
+void CloudCommittedRSMgr::remove_committed_rowset(int64_t txn_id, int64_t tablet_id) {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
-    TxnTabletKey key(txn_id, tablet_id);
-    auto iter = _pending_rs_map.find(key);
-    if (iter != _pending_rs_map.end()) {
-        LOG(INFO) << "remove pending rowset, txn_id=" << txn_id << ", tablet_id=" << tablet_id;
-        _pending_rs_map.erase(iter);
-    }
+    _committed_rs_map.erase({txn_id, tablet_id});
 }
 
-void CloudPendingRSMgr::remove_expired_pending_rowsets() {
+void CloudCommittedRSMgr::remove_expired_committed_rowsets() {
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     int64_t current_time = std::chrono::duration_cast<std::chrono::seconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
@@ -103,7 +98,7 @@ void CloudPendingRSMgr::remove_expired_pending_rowsets() {
     while (!_expiration_map.empty()) {
         auto iter = _expiration_map.begin();
         // Check if entry exists in main map
-        if (_pending_rs_map.find(iter->second) == _pending_rs_map.end()) {
+        if (!_committed_rs_map.contains(iter->second)) {
             _expiration_map.erase(iter);
             continue;
         }
@@ -113,21 +108,20 @@ void CloudPendingRSMgr::remove_expired_pending_rowsets() {
             break;
         }
 
-        auto rs_iter = _pending_rs_map.find(iter->second);
-        if (rs_iter != _pending_rs_map.end() &&
-            iter->first == rs_iter->second.expiration_time) {
-            LOG(INFO) << "clean expired pending rowset, txn_id=" << rs_iter->first.txn_id
+        auto rs_iter = _committed_rs_map.find(iter->second);
+        if (rs_iter != _committed_rs_map.end() && iter->first == rs_iter->second.expiration_time) {
+            LOG(INFO) << "clean expired pending cloud rowset, txn_id=" << rs_iter->first.txn_id
                       << ", tablet_id=" << rs_iter->first.tablet_id
                       << ", expiration_time=" << rs_iter->second.expiration_time;
-            _pending_rs_map.erase(iter->second);
+            _committed_rs_map.erase(iter->second);
         }
         _expiration_map.erase(iter);
     }
 }
 
-void CloudPendingRSMgr::_clean_thread_callback() {
+void CloudCommittedRSMgr::_clean_thread_callback() {
     do {
-        remove_expired_pending_rowsets();
+        remove_expired_committed_rowsets();
     } while (!_stop_latch.wait_for(
             std::chrono::seconds(config::remove_expired_tablet_txn_info_interval_seconds)));
 }

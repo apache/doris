@@ -26,7 +26,7 @@ import java.util.Map;
 /**
  * Task to notify BE to make temporary cloud rowsets visible.
  * After FE commits a transaction to MS, this task notifies BE to promote
- * the temporary rowsets from CloudPendingRSMgr to tablet meta.
+ * the temporary rowsets from CloudCommittedRSMgr to tablet meta.
  */
 public class MakeCloudTmpRsVisibleTask extends AgentTask {
     private final long txnId;
