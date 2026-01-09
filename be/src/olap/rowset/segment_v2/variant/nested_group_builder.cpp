@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/variant/nested_group_builder.h"
 
 #include <algorithm>
+#include <glog/logging.h>
 #include <string>
 
 #include "common/exception.h"
@@ -337,8 +338,8 @@ Status NestedGroupBuilder::_jsonb_to_field(const doris::JsonbValue* value,
 }
 
 bool NestedGroupBuilder::_handle_conflict(NestedGroup& group, bool is_array_object) const {
-    // English comment: conflict policy will be refined in a later phase.
-    // For now, if a group is already disabled, skip it.
+    // English comment: conflict handling with logging.
+    // Priority: array<object > scalar. Prefer nested data over flat data.
     if (group.is_disabled) {
         return true;
     }
@@ -349,10 +350,19 @@ bool NestedGroupBuilder::_handle_conflict(NestedGroup& group, bool is_array_obje
     }
     const bool expected_array = (group.expected_type == NestedGroup::StructureType::ARRAY);
     if (expected_array != is_array_object) {
+        // Conflict detected: same path has both array<object> and scalar data
+        LOG(WARNING) << "NestedGroup conflict at path '" << group.path.get_path()
+                     << "': expected_type=" << (expected_array ? "ARRAY" : "SCALAR")
+                     << ", current=" << (is_array_object ? "ARRAY" : "SCALAR")
+                     << ". Priority: array<object> > scalar, "
+                     << (is_array_object ? "discarding existing scalar data"
+                                        : "discarding current scalar data");
         // Prefer array<object> (keep nested) by default: discard scalars.
         if (!is_array_object) {
+            // Current is scalar, expected is array - discard current scalar
             return true;
         }
+        // Current is array, expected is scalar - discard existing scalar children
         group.children.clear();
         group.expected_type = NestedGroup::StructureType::ARRAY;
         return false;
