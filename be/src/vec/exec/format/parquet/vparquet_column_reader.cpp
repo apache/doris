@@ -520,13 +520,22 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             filtered_def_levels.reserve(_def_levels.size());
 
             const uint8_t* filter_map_data = current_filter_map->filter_map_data();
-
-            for (size_t i = 0; i < _rep_levels.size(); i++) {
-                if (filter_map_data[i]) {
-                    filtered_rep_levels.push_back(_rep_levels[i]);
-                    filtered_def_levels.push_back(_def_levels[i]);
+            if (_nested_filter_map_data) {
+                for (size_t i = 0; i < _rep_levels.size(); i++) {
+                    if (filter_map_data[i]) {
+                        filtered_rep_levels.push_back(_rep_levels[i]);
+                        filtered_def_levels.push_back(_def_levels[i]);
+                    }
+                }
+            } else {
+                for (size_t i = 0; i < _rep_levels.size(); i++) {
+                    if (filter_map_data[_filter_map_index - _rep_levels.size() + i]) {
+                        filtered_rep_levels.push_back(_rep_levels[i]);
+                        filtered_def_levels.push_back(_def_levels[i]);
+                    }
                 }
             }
+
 
             _rep_levels = std::move(filtered_rep_levels);
             _def_levels = std::move(filtered_def_levels);
