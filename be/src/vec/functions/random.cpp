@@ -74,7 +74,8 @@ public:
                 }
                 uint32_t seed = 0;
                 if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
-                    seed = (uint32_t)(*context->get_constant_col(0)->column_ptr)[0].get<TYPE_BIGINT>();
+                    seed = (uint32_t)(*context->get_constant_col(0)->column_ptr)[0]
+                                   .get<TYPE_BIGINT>();
                 }
                 generator->seed(seed);
             } else if (context->get_num_args() == 2) {

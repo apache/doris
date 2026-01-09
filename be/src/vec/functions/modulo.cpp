@@ -572,8 +572,9 @@ struct ModDecimalImpl {
 
     template <PrimitiveType ResultType>
         requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
-    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType
-            impl(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType impl(ArgNativeTypeA a,
+                                                                               ArgNativeTypeB b,
+                                                                               UInt8& is_null) {
         is_null = b == 0;
         b += is_null;
 
@@ -782,13 +783,13 @@ struct ModDecimalImpl {
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
-                c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<true, ResultType>(
-                        a[i].value, b[i].value, n[i], max_result_number));
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a[i].value, b[i].value, n[i], max_result_number));
             }
         } else {
             for (size_t i = 0; i < sz; ++i) {
-                c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<false, ResultType>(
-                        a[i].value, b[i].value, n[i], max_result_number));
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a[i].value, b[i].value, n[i], max_result_number));
             }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
@@ -817,13 +818,13 @@ struct ModDecimalImpl {
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
-                c[i] = DecimalV2Value(apply<true, TYPE_DECIMALV2>(a[i].value(), b[i].value(),
-                                                                  n[i], max_result_number));
+                c[i] = DecimalV2Value(apply<true, TYPE_DECIMALV2>(a[i].value(), b[i].value(), n[i],
+                                                                  max_result_number));
             }
         } else {
             for (size_t i = 0; i < sz; ++i) {
-                c[i] = DecimalV2Value(apply<false, TYPE_DECIMALV2>(a[i].value(), b[i].value(),
-                                                                   n[i], max_result_number));
+                c[i] = DecimalV2Value(apply<false, TYPE_DECIMALV2>(a[i].value(), b[i].value(), n[i],
+                                                                   max_result_number));
             }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
@@ -831,9 +832,9 @@ struct ModDecimalImpl {
 
     template <bool check_overflow_for_decimal, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType
-            apply(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
-                  const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
+            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
         if constexpr (DataTypeA::PType == TYPE_DECIMALV2) {
             DecimalV2Value l(a);
             DecimalV2Value r(b);

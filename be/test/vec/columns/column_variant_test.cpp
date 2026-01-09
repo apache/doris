@@ -2250,7 +2250,8 @@ TEST_F(ColumnVariantTest, array_field_operations) {
                     array_type
                             ->create_column(); // Nullable(Array(Nullable(Array(Nullable(TINYINT)))))
             Field array_field = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            array_field.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(1));
+            array_field.get<TYPE_ARRAY>().emplace_back(
+                    vectorized::Field::create_field<TYPE_TINYINT>(1));
             Field array_field_o = vectorized::Field::create_field<TYPE_ARRAY>(Array());
             array_field_o.get<TYPE_ARRAY>().emplace_back(array_field);
             column->insert(array_field_o);

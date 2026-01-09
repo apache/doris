@@ -204,7 +204,7 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
 
     Field actual_field;
     ans.get(0, actual_field);
-    const auto& actual_result = actual_field.get<TYPE_ARRAY>();;
+    const auto& actual_result = actual_field.get<TYPE_ARRAY>();
 
     Array expected_result = {
             vectorized::Field(),
@@ -301,7 +301,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
-    const auto& actual_result = actual_field.get<TYPE_ARRAY>();;
+    const auto& actual_result = actual_field.get<TYPE_ARRAY>();
 
     Array expected_result = {vectorized::Field::create_field<TYPE_STRING>("b"),
                              vectorized::Field::create_field<TYPE_STRING>("c")};
@@ -369,7 +369,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
-    const auto& actual_result = actual_field.get<TYPE_ARRAY>();;
+    const auto& actual_result = actual_field.get<TYPE_ARRAY>();
 
     Array expected_result = {vectorized::Field(),
                              vectorized::Field::create_field<TYPE_STRING>("c")};

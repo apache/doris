@@ -141,9 +141,7 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(value_type()); }
-    void insert(const Field& x) override {
-        data.push_back(x.template get<T>());
-    }
+    void insert(const Field& x) override { data.push_back(x.template get<T>()); }
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_many_defaults(size_t length) override {
