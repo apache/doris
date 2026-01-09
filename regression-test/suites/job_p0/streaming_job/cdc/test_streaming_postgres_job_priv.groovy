@@ -19,7 +19,7 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,external_docker_pg") {
+suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def tableName = "test_streaming_postgres_job_priv_tbl"
     def jobName = "test_streaming_postgres_job_priv_name"
     def currentDb = (sql "select database()")[0][0]
