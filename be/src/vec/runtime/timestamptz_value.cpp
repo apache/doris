@@ -101,8 +101,6 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
 
     auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
 
-    DateV2Value<DateTimeV2ValueType> utc_dt;
-
     return _utc_dt.check_range_and_set_time((uint16_t)utc_cs.year(), (uint8_t)utc_cs.month(),
                                             (uint8_t)utc_cs.day(), (uint8_t)utc_cs.hour(),
                                             (uint8_t)utc_cs.minute(), (uint8_t)utc_cs.second(),
