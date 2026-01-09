@@ -134,9 +134,13 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto calc_max_scanners = [&](int parallel_instance_num) -> int {
         int max_scanners = vectorized::ScannerScheduler::default_remote_scan_thread_num() /
                            parallel_instance_num;
-        if (should_run_serial()) {
-            max_scanners = 1;
-        }
+        // For external tables, each scanner is not bound to specific splits.
+        // Instead, when a scanner is scheduled, it dynamically fetches the next scan range
+        // from a unified split source for scanning.
+        // Therefore, the number of scanners only needs to match "max_scanners_concurrency"
+        // to ensure full-speed execution.
+        // For 32 core node, the default "max_scanners_concurrency" should be 16
+        max_scanners = std::min(max_scanners, max_scanners_concurrency(state));
         return max_scanners;
     };
 
