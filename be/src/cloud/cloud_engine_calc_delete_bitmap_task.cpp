@@ -222,6 +222,14 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
             std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
         }
     });
+
+    // Check if this is a known empty/skipped rowset
+    if (_engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
+        LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
+                  << " is empty rowset, skip delete bitmap calculation";
+        return Status::OK();
+    }
+
     Status status;
     if (_sub_txn_ids.empty()) {
         status = _handle_rowset(tablet, _version);
