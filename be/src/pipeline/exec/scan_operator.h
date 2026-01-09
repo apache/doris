@@ -68,7 +68,6 @@ public:
 
     virtual int64_t limit_per_scanner() = 0;
 
-    virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
@@ -122,7 +121,6 @@ protected:
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
     RuntimeFilterConsumerHelper _helper;
-    std::mutex _conjunct_lock;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
 };
@@ -152,7 +150,6 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t limit_per_scanner() override;
 
-    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
