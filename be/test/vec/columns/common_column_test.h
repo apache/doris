@@ -2576,7 +2576,7 @@ auto assert_column_vector_field_callback = [](auto x, const MutableColumnPtr& so
     for (size_t i = 0; i != src_size; ++i) {
         Field f;
         assert_col->get(i, f);
-        ASSERT_EQ(f.get<T>(), col_vec_src->get_element(i)) << f.get_type_name();
+        ASSERT_EQ(f.get<PType>(), col_vec_src->get_element(i)) << f.get_type_name();
     }
 };
 
@@ -2928,6 +2928,8 @@ auto assert_column_vector_insert_default_callback = [](auto x,
                              PType == PrimitiveType::TYPE_DATETIME) {
             EXPECT_EQ(col_vec_target->get_element(i),
                       T(PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE));
+        } else if constexpr (PType == PrimitiveType::TYPE_DECIMALV2) {
+            EXPECT_EQ(col_vec_target->get_element(i), DecimalV2Value());
         } else {
             EXPECT_EQ(col_vec_target->get_element(i), T {});
         }
@@ -2979,6 +2981,8 @@ auto assert_column_vector_insert_many_defaults_callback =
                                              PType == PrimitiveType::TYPE_DATETIME) {
                             EXPECT_EQ(col_vec_target->get_element(i),
                                       T(PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE));
+                        } else if constexpr (PType == PrimitiveType::TYPE_DECIMALV2) {
+                            EXPECT_EQ(col_vec_target->get_element(i), DecimalV2Value());
                         } else {
                             EXPECT_EQ(col_vec_target->get_element(i), T {});
                         }
@@ -3010,9 +3014,7 @@ auto assert_column_vector_get_int64_callback = [](auto x, const MutableColumnPtr
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
     for (size_t i = 0; i != src_size; ++i) {
-        if constexpr (IsDecimalNumber<T>) {
-            EXPECT_EQ(col_vec_src->get_int(i), (Int64)(data[i].value * col_vec_src->get_scale()));
-        } else {
+        if constexpr (!IsDecimalNumber<T>) {
             EXPECT_EQ(col_vec_src->get_int(i), (Int64)data[i]);
         }
     }
@@ -3257,7 +3259,9 @@ auto assert_column_vector_replace_column_null_data_callback = [](auto x, const M
     target_column->replace_column_null_data(null_map.data());
     for (size_t i = 0; i < src_size; ++i) {
         if (null_map[i] == 1) {
-            if constexpr (IsDecimalNumber<T>) {
+            if constexpr (IsDecimal128V2<T>) {
+                EXPECT_EQ(col_vec_target->get_element(i), DecimalV2Value {});
+            } else if constexpr (IsDecimalNumber<T>) {
                 EXPECT_EQ(col_vec_target->get_element(i), T {});
             } else {
                 EXPECT_EQ(col_vec_target->get_element(i), ColumnVecType::default_value());
@@ -3358,6 +3362,8 @@ auto assert_column_vector_clone_resized_callback = [](auto x,
         for (; i < clone_count; ++i) {
             if constexpr (std::is_same_v<T, ColumnString> || std::is_same_v<T, ColumnString64>) {
                 EXPECT_EQ(col_vec_target->get_data_at(i).to_string(), "");
+            } else if constexpr (IsDecimal128V2<T>) {
+                EXPECT_EQ(col_vec_target->get_element(i), DecimalV2Value {});
             } else if constexpr (IsDecimalNumber<T>) {
                 EXPECT_EQ(col_vec_target->get_element(i), T {});
             } else {

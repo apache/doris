@@ -345,7 +345,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         vectorized::Field field;
         dst->get(i, field);
         DCHECK(!field.is_null());
-        const auto v = field.get<int32_t>();
+        const auto v = field.get<TYPE_INT>();
         DCHECK_GE(v, min_v);
         DCHECK_LE(v, max_v);
     }

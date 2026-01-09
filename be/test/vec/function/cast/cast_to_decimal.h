@@ -1959,7 +1959,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 (*ofs_case) << "    sql \"set enable_decimal256 = true;\"\n";
             }
         }
-        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
+        if constexpr (IsDecimal128V2<FromT>) {
             between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
                     1, 0, to_precision, to_scale, table_index++, test_data_index, ofs_case,
                     ofs_expected_result, ofs_const_case, ofs_const_expected_result);

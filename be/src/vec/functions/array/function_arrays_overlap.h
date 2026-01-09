@@ -210,7 +210,7 @@ public:
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        const Array& query_val = param_value.get<Array>();
+        const Array& query_val = param_value.get<TYPE_ARRAY>();
 
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;

@@ -236,8 +236,9 @@ struct PlusMinusDecimalImpl {
                                     DecimalV2Value(b[i]).to_string(),
                                     DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
-                c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
-                if (c[i].value > max.value() || c[i].value < min.value()) {
+                c[i] = DecimalV2Value((i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION +
+                                      sgn[i]);
+                if (c[i].value() > max.value() || c[i].value() < min.value()) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                     "Arithmetic overflow: {} {} {} = {}, result type: {}",
                                     DecimalV2Value(a[i]).to_string(), "add",
@@ -245,9 +246,10 @@ struct PlusMinusDecimalImpl {
                                     DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
             } else {
-                c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
-                               DecimalV2Value::ONE_BILLION +
-                       sgn[i];
+                c[i] = DecimalV2Value(
+                        (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
+                                DecimalV2Value::ONE_BILLION +
+                        sgn[i]);
             }
         }
     }
@@ -298,7 +300,7 @@ struct PlusMinusDecimalImpl {
             // Now, Doris only support decimal +-*/ decimal.
             if constexpr (check_overflow) {
                 auto res = Impl::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
-                if (res > max_result_number.value || res < -max_result_number.value) {
+                if (res > max_result_number.value() || res < -max_result_number.value()) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                     "Arithmetic overflow: {} {} {} = {}, result type: {}",
                                     DecimalV2Value(a).to_string(), "add",

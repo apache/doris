@@ -44,8 +44,7 @@ void sort_numeric_array(Array& array) {
         if (a.is_null() || b.is_null()) {
             return a.is_null() && !b.is_null();
         }
-        return doris::vectorized::get<typename PrimitiveTypeTraits<T>::ColumnItemType>(a) <
-               doris::vectorized::get<typename PrimitiveTypeTraits<T>::ColumnItemType>(b);
+        return a.get<T>() < b.get<T>();
     });
 }
 
@@ -117,7 +116,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
-    const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
+    const auto& actual_result = actual_field.get<TYPE_ARRAY>();
 
     Array expected_result = {
             Field::create_field<T>((typename PrimitiveTypeTraits<T>::ColumnItemType)2),
@@ -205,7 +204,7 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
 
     Field actual_field;
     ans.get(0, actual_field);
-    const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
+    const auto& actual_result = actual_field.get<TYPE_ARRAY>();;
 
     Array expected_result = {
             vectorized::Field(),
@@ -302,7 +301,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
-    const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
+    const auto& actual_result = actual_field.get<TYPE_ARRAY>();;
 
     Array expected_result = {vectorized::Field::create_field<TYPE_STRING>("b"),
                              vectorized::Field::create_field<TYPE_STRING>("c")};
@@ -370,7 +369,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
-    const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
+    const auto& actual_result = actual_field.get<TYPE_ARRAY>();;
 
     Array expected_result = {vectorized::Field(),
                              vectorized::Field::create_field<TYPE_STRING>("c")};

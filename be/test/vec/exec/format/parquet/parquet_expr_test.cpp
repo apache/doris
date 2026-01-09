@@ -667,8 +667,8 @@ TEST_F(ParquetExprTest, test_min_max_p) {
 
         auto col = ColumnHelper::create_column_with_name<DataTypeFloat32>({1.1f, 3.1f});
 
-        std::cout << "min_field = " << min_field.get<float>() << "\n";
-        std::cout << "max_field = " << max_field.get<float>() << "\n";
+        std::cout << "min_field = " << min_field.get<TYPE_FLOAT>() << "\n";
+        std::cout << "max_field = " << max_field.get<TYPE_FLOAT>() << "\n";
 
         Field ans_min = col.column->operator[](0);
         Field ans_max = col.column->operator[](1);

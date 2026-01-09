@@ -2205,35 +2205,35 @@ TEST_F(FunctionCastToIntTest, test_from_decimal) {
     from_decimal_to_int_test_func<Decimal128V3, TYPE_TINYINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_TINYINT>();
 
-    from_decimal_to_int_test_func<Decimal128V2, TYPE_TINYINT>();
+    from_decimal_to_int_test_func<DecimalV2Value, TYPE_TINYINT>();
 
     from_decimal_to_int_test_func<Decimal32, TYPE_SMALLINT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_SMALLINT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_SMALLINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_SMALLINT>();
 
-    from_decimal_to_int_test_func<Decimal128V2, TYPE_SMALLINT>();
+    from_decimal_to_int_test_func<DecimalV2Value, TYPE_SMALLINT>();
 
     from_decimal_to_int_test_func<Decimal32, TYPE_INT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_INT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_INT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_INT>();
 
-    from_decimal_to_int_test_func<Decimal128V2, TYPE_INT>();
+    from_decimal_to_int_test_func<DecimalV2Value, TYPE_INT>();
 
     from_decimal_to_int_test_func<Decimal32, TYPE_BIGINT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_BIGINT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_BIGINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_BIGINT>();
 
-    from_decimal_to_int_test_func<Decimal128V2, TYPE_BIGINT>();
+    from_decimal_to_int_test_func<DecimalV2Value, TYPE_BIGINT>();
 
     from_decimal_to_int_test_func<Decimal32, TYPE_LARGEINT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_LARGEINT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_LARGEINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_LARGEINT>();
 
-    from_decimal_to_int_test_func<Decimal128V2, TYPE_LARGEINT>();
+    from_decimal_to_int_test_func<DecimalV2Value, TYPE_LARGEINT>();
 }
 TEST_F(FunctionCastToIntTest, DISABLE_test_from_decimal_overflow) {
     GTEST_SKIP();
@@ -2242,35 +2242,35 @@ TEST_F(FunctionCastToIntTest, DISABLE_test_from_decimal_overflow) {
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_TINYINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_TINYINT>();
 
-    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_TINYINT>();
+    from_decimal_to_int_overflow_test_func<DecimalV2Value, TYPE_TINYINT>();
 
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_SMALLINT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_SMALLINT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_SMALLINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_SMALLINT>();
 
-    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_SMALLINT>();
+    from_decimal_to_int_overflow_test_func<DecimalV2Value, TYPE_SMALLINT>();
 
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_INT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_INT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_INT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_INT>();
 
-    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_INT>();
+    from_decimal_to_int_overflow_test_func<DecimalV2Value, TYPE_INT>();
 
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_BIGINT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_BIGINT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_BIGINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_BIGINT>();
 
-    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_BIGINT>();
+    from_decimal_to_int_overflow_test_func<DecimalV2Value, TYPE_BIGINT>();
 
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_LARGEINT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_LARGEINT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_LARGEINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_LARGEINT>();
 
-    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_LARGEINT>();
+    from_decimal_to_int_overflow_test_func<DecimalV2Value, TYPE_LARGEINT>();
 }
 TEST_F(FunctionCastToIntTest, test_from_date) {
     from_date_test_func<TYPE_TINYINT>();

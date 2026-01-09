@@ -422,7 +422,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<uint8_t>();
+        auto v = (*ctn.column)[0].get<TYPE_BOOLEAN>();
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
 
@@ -437,7 +437,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<int16_t>();
+        auto v = (*ctn.column)[0].get<TYPE_SMALLINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -452,7 +452,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<int32_t>();
+        auto v = (*ctn.column)[0].get<TYPE_INT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -467,7 +467,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<int64_t>();
+        auto v = (*ctn.column)[0].get<TYPE_BIGINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -482,7 +482,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<__int128_t>();
+        auto v = (*ctn.column)[0].get<TYPE_LARGEINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -497,7 +497,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<float>();
+        auto v = (*ctn.column)[0].get<TYPE_FLOAT>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
         EXPECT_EQ("1024", literal.value());
 
@@ -512,7 +512,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<double>();
+        auto v = (*ctn.column)[0].get<TYPE_DOUBLE>();
         EXPECT_FLOAT_EQ(v, 1024.0) << ctn.column->get_name();
         EXPECT_EQ("1024", literal.value()) << ctn.column->get_name();
 
@@ -533,7 +533,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<__int64_t>();
+        auto v = (*ctn.column)[0].get<TYPE_DATETIME>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07 00:00:00", literal.value());
 
@@ -613,7 +613,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<__int64_t>();
+        auto v = (*ctn.column)[0].get<TYPE_DATE>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
 
@@ -633,7 +633,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<uint32_t>();
+        auto v = (*ctn.column)[0].get<TYPE_DATEV2>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
 
@@ -684,7 +684,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<String>();
+        auto v = (*ctn.column)[0].get<TYPE_STRING>();
         EXPECT_EQ(v, s);
         EXPECT_EQ(s, literal.value());
 
@@ -699,7 +699,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<Decimal128V2>();
+        auto v = (*ctn.column)[0].get<TYPE_DECIMALV2>();
         EXPECT_FLOAT_EQ(((double)v) / (std::pow(10, 9)), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
 
@@ -714,7 +714,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<Float64>();
+        auto v = (*ctn.column)[0].get<TYPE_TIMEV2>();
         EXPECT_FLOAT_EQ(v / 1000000, 12.1234);
         EXPECT_EQ("00:00:12.1234", literal.value());
 
