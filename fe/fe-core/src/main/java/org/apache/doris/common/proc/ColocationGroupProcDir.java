@@ -14,22 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 package org.apache.doris.common.proc;
-
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-
+import org.apache.doris.resource.Tag;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
-
 import java.util.List;
 import java.util.Map;
-
 /*
  * show proc "/colocation_group";
  */
@@ -38,19 +31,16 @@ public class ColocationGroupProcDir implements ProcDirInterface {
             .add("GroupId").add("GroupName").add("TableIds")
             .add("BucketsNum").add("ReplicaAllocation").add("DistCols").add("IsStable")
             .add("ErrorMsg").build();
-
     @Override
     public boolean register(String name, ProcNodeInterface node) {
         return false;
     }
-
     @Override
     public ProcNodeInterface lookup(String groupIdStr) throws AnalysisException {
         String[] parts = groupIdStr.split("\\.");
         if (parts.length != 2) {
             throw new AnalysisException("Invalid group id: " + groupIdStr);
         }
-
         long dbId = -1;
         long grpId = -1;
         try {
@@ -61,46 +51,53 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         }
 
         GroupId groupId = new GroupId(dbId, grpId);
-        
-        // Check if running in Cloud Mode
-        if (Config.isCloudMode()) {
-            return lookupForCloud(groupId);
-        } else {
-            return lookupForLocal(groupId);
-        }
-    }
-
-    private ProcNodeInterface lookupForCloud(GroupId groupId) {
-        // Logic for Cloud Mode: Get BE distribution from CloudSystemInfoService
-        CloudSystemInfoService infoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
-        
-        // Get the colocate index from cloud
-        ColocateTableIndex index = infoService.getColocateIndex();
-        
-        // 获取这个 group 的每个 bucket 对应的 backend 序列
-        // 注意：这里应该和 Local Mode 用相同的数据结构
-        Map<org.apache.doris.resource.Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
-        
-        // 如果没有找到数据，返回空的结果
-        if (beSeqs == null || beSeqs.isEmpty()) {
-            return new ColocationGroupBackendSeqsProcNode(Maps.newHashMap());
-        }
-        
-        return new ColocationGroupBackendSeqsProcNode(beSeqs);
-    }
-
-    private ProcNodeInterface lookupForLocal(GroupId groupId) {
-        // Original Logic for Local Mode
         ColocateTableIndex index = Env.getCurrentColocateIndex();
-        Map<org.apache.doris.resource.Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        Map<Tag, List<List<Long>>> beSeqs;
+
+         // ==========Core modification: Distinguish between cloud/non-cloud environments to obtain the BE sequence==========
+        if (CloudReplica.isCloudEnv()) {
+            // Cloud environment: Call CloudReplica to obtain the Colocated BE ID and construct the compatible beSeqs structure
+            beSeqs = buildCloudBeSeqs(dbId, grpId);
+        } else {
+            // Non-cloud environment: Maintain the original logic
+            beSeqs = index.getBackendsPerBucketSeq(groupId);
+        }
+
         return new ColocationGroupBackendSeqsProcNode(beSeqs);
     }
+
+    /**
+     * Construct the beSeqs data structure in the cloud environment and match it with the format of the non-cloud environment.
+     * @param dbId dbId of the Colocation Group
+     * @param grpId grpId of Colocation Group
+     * @return Compatible Map structure of type <Tag, List<List<Long>>>
+     */
+    private Map<Tag, List<List<Long>>> buildCloudBeSeqs(long dbId, long grpId) {
+        Map<Tag, List<List<Long>>> beSeqs = Maps.newHashMap();
+
+        // 1.Call the core function of the cloud environment to obtain the list of associated BE IDs
+        List<Long> colocatedBeIds = CloudReplica.getColocatedBeId(dbId, grpId);
+
+        // 2. Construct a structure that is compatible with the original format (the Tag is set to DEFAULT, and the Bucket sequence is organized according to the BE ID)
+        // Original format description:
+        // - Key: Tag(Resource Label)
+        // - Value: List<List<Long>> → The outer List corresponds to the Bucket sequence, and the inner List corresponds to the BE ID list of each Bucket.
+        Tag defaultTag = Tag.DEFAULT_TAG;
+        List<List<Long>> bucketSeqs = Lists.newArrayList();
+
+        // Simplified processing in the cloud environment: A single Bucket sequence contains all the associated BE IDs
+        bucketSeqs.add(colocatedBeIds);
+
+        beSeqs.put(defaultTag, bucketSeqs);
+        return beSeqs;
+    }
+
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-
         ColocateTableIndex index = Env.getCurrentColocateIndex();
         List<List<String>> infos = index.getInfos();
         result.setRows(infos);
