@@ -39,7 +39,7 @@ public class MakeCloudTmpRsVisibleTask extends AgentTask {
                                      Map<Long, Long> partitionVersionMap,
                                      long updateVersionVisibleTime) {
         super(null, backendId, TTaskType.MAKE_CLOUD_TMP_RS_VISIBLE,
-              -1L, -1L, -1L, -1L, -1L, txnId, System.currentTimeMillis());
+                -1L, -1L, -1L, -1L, -1L, txnId, System.currentTimeMillis());
         this.txnId = txnId;
         this.tabletIds = tabletIds;
         this.partitionVersionMap = partitionVersionMap;
