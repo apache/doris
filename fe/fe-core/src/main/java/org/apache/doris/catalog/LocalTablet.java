@@ -35,11 +35,33 @@ public class LocalTablet extends Tablet {
     private long cooldownTerm = -1;
     private final Object cooldownConfLock = new Object();
 
+    @SerializedName(value = "cv", alternate = {"checkedVersion"})
+    private long checkedVersion;
+    @SerializedName(value = "ic", alternate = {"isConsistent"})
+    private boolean isConsistent;
+
+    // last time that the tablet checker checks this tablet.
+    // no need to persist
+    private long lastStatusCheckTime = -1;
+
+    // last time for load data fail
+    private long lastLoadFailedTime = -1;
+
+    // if tablet want to add a new replica, but cann't found any backend to locate the new replica.
+    // then mark this tablet. For later repair, even try and try to repair this tablet, sched will always fail.
+    // For example, 1 tablet contains 3 replicas, if 1 backend is dead, then tablet's healthy status
+    // is REPLICA_MISSING. But since no other backend can held the new replica, then sched always fail.
+    // So don't increase this tablet's sched priority if it has no path for new replica.
+    private long lastTimeNoPathForNewReplica = -1;
+
     public LocalTablet() {
+        this(0);
     }
 
     public LocalTablet(long tabletId) {
         super(tabletId);
+        checkedVersion = -1L;
+        isConsistent = true;
     }
 
     @Override
@@ -65,7 +87,6 @@ public class LocalTablet extends Tablet {
     @Override
     public long getRemoteDataSize() {
         // if CooldownReplicaId is not init
-        // [fix](fe) move some variables from Tablet to LocalTablet which are not used in CloudTablet
         if (cooldownReplicaId <= 0) {
             return 0;
         }
@@ -76,5 +97,55 @@ public class LocalTablet extends Tablet {
         }
         // return replica with max remoteDataSize
         return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
+    }
+
+    @Override
+    public long getCheckedVersion() {
+        return this.checkedVersion;
+    }
+
+    @Override
+    public void setCheckedVersion(long checkedVersion) {
+        this.checkedVersion = checkedVersion;
+    }
+
+    @Override
+    public void setIsConsistent(boolean good) {
+        this.isConsistent = good;
+    }
+
+    @Override
+    public boolean isConsistent() {
+        return isConsistent;
+    }
+
+    @Override
+    protected long getLastStatusCheckTime() {
+        return lastStatusCheckTime;
+    }
+
+    @Override
+    public void setLastStatusCheckTime(long lastStatusCheckTime) {
+        this.lastStatusCheckTime = lastStatusCheckTime;
+    }
+
+    @Override
+    public long getLastLoadFailedTime() {
+        return lastLoadFailedTime;
+    }
+
+    @Override
+    public void setLastLoadFailedTime(long lastLoadFailedTime) {
+        this.lastLoadFailedTime = lastLoadFailedTime;
+    }
+
+    @Override
+    protected long getLastTimeNoPathForNewReplica() {
+        return lastTimeNoPathForNewReplica;
+    }
+
+    @Override
+    public void setLastTimeNoPathForNewReplica(long lastTimeNoPathForNewReplica) {
+        this.lastTimeNoPathForNewReplica = lastTimeNoPathForNewReplica;
     }
 }

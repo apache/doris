@@ -70,6 +70,9 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     @SerializedName(value = "idx")
     private long idx = -1;
 
+    private long segmentCount = 0L;
+    private long rowsetCount = 0L;
+
     private static final Random rand = new Random();
 
     private Map<String, List<Long>> memClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
@@ -625,17 +628,40 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return result;
     }
 
+    public long getSegmentCount() {
+        return segmentCount;
+    }
+
+    @Override
+    public void setSegmentCount(long segmentCount) {
+        this.segmentCount = segmentCount;
+    }
+
+    @Override
+    public long getRowsetCount() {
+        return rowsetCount;
+    }
+
+    @Override
+    public void setRowsetCount(long rowsetCount) {
+        this.rowsetCount = rowsetCount;
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("convert CloudReplica: {}, primaryClusterToBackend: {}, primaryClusterToBackends: {}",
-                    this.getId(), this.primaryClusterToBackend, this.primaryClusterToBackends);
+            LOG.debug("convert CloudReplica: {}, primaryClusterToBackends: {}, primaryClusterToBackend: {}",
+                    this.getId(), this.primaryClusterToBackends, this.primaryClusterToBackend);
         }
-        if (primaryClusterToBackend != null) {
-            for (Map.Entry<String, Long> entry : primaryClusterToBackend.entrySet()) {
-                primaryClusterToBackends.put(entry.getKey(), Lists.newArrayList(entry.getValue()));
+        if (primaryClusterToBackends != null) {
+            for (Map.Entry<String, List<Long>> entry : primaryClusterToBackends.entrySet()) {
+                String clusterId = entry.getKey();
+                List<Long> beIds = entry.getValue();
+                if (beIds != null && !beIds.isEmpty()) {
+                    primaryClusterToBackend.put(clusterId, beIds.get(0));
+                }
             }
-            this.primaryClusterToBackend = null;
+            this.primaryClusterToBackends = null;
         }
     }
 }
