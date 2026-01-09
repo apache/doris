@@ -25,6 +25,7 @@
 #include <memory> // for unique_ptr
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -34,6 +35,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
 
@@ -98,6 +100,14 @@ class PageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
 class VariantColumnWriterImpl;
+
+// English comment: NestedGroup writers for array<object> paths (offsets + child writers).
+struct NestedGroupWriter {
+    std::unique_ptr<ColumnWriter> offsets_writer;
+    std::unordered_map<std::string, std::unique_ptr<ColumnWriter>> child_writers;
+    ColumnWriterOptions offsets_opts;
+    std::unordered_map<std::string, ColumnWriterOptions> child_opts;
+};
 
 class ColumnWriter {
 public:
@@ -636,6 +646,9 @@ private:
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
     TabletIndexes _indexes;
+
+    std::unordered_map<std::string, NestedGroupWriter> _nested_group_writers;
+    VariantStatistics _statistics;
 };
 
 class VariantColumnWriter : public ColumnWriter {

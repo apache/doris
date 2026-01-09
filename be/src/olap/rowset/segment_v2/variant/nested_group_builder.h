@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -100,8 +101,8 @@ private:
     Status _process_object_as_paths(const doris::JsonbValue* obj_value,
                                    const vectorized::PathInData& current_prefix,
                                    NestedGroup& group, size_t element_flat_idx,
-                                   std::unordered_set<std::string_view>& seen_child_paths,
-                                   std::unordered_set<std::string_view>& seen_nested_paths,
+                                   std::unordered_set<std::string>& seen_child_paths,
+                                   std::unordered_set<std::string>& seen_nested_paths,
                                    size_t depth);
 
     Status _process_array_of_objects(const doris::JsonbValue* arr_value, NestedGroup& group,

@@ -172,8 +172,8 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
     for (int i = 0; i < n; ++i, ++flat_idx) {
         const auto* elem = arr->get(i);
 
-        std::unordered_set<std::string_view> seen_child;
-        std::unordered_set<std::string_view> seen_nested;
+        std::unordered_set<std::string> seen_child;
+        std::unordered_set<std::string> seen_nested;
 
         if (elem && !elem->isNull()) {
             if (!elem->isObject()) {
@@ -187,13 +187,13 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
 
         // Fill defaults for missing scalar children.
         for (auto& [p, sub] : group.children) {
-            if (!seen_child.contains(p.get_path())) {
+            if (seen_child.find(p.get_path()) == seen_child.end()) {
                 sub.insert_default();
             }
         }
         // Fill empty offsets for missing nested groups.
         for (auto& [p, ng] : group.nested_groups) {
-            if (!seen_nested.contains(p.get_path())) {
+            if (seen_nested.find(p.get_path()) == seen_nested.end()) {
                 ng->ensure_offsets();
                 auto* off =
                         vectorized::assert_cast<vectorized::ColumnOffset64*>(ng->offsets.get());
@@ -208,8 +208,8 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
 Status NestedGroupBuilder::_process_object_as_paths(
         const doris::JsonbValue* obj_value, const vectorized::PathInData& current_prefix,
         NestedGroup& group, size_t element_flat_idx,
-        std::unordered_set<std::string_view>& seen_child_paths,
-        std::unordered_set<std::string_view>& seen_nested_paths, size_t depth) {
+        std::unordered_set<std::string>& seen_child_paths,
+        std::unordered_set<std::string>& seen_nested_paths, size_t depth) {
     DCHECK(obj_value && obj_value->isObject());
     if (_max_depth > 0 && depth > _max_depth) {
         return Status::OK();

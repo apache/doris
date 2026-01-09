@@ -19,6 +19,8 @@
 
 #include <gen_cpp/segment_v2.pb.h>
 
+#include <unordered_set>
+
 #include "common/status.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
@@ -108,14 +110,6 @@ private:
     int _first_column_id = -1;
 };
 
-// NestedGroup writers for array<object> paths (offsets + child writers).
-struct NestedGroupWriter {
-    std::unique_ptr<ColumnWriter> offsets_writer;
-    std::unordered_map<std::string, std::unique_ptr<ColumnWriter>> child_writers;
-    ColumnWriterOptions offsets_opts;
-    std::unordered_map<std::string, ColumnWriterOptions> child_opts;
-};
-
 class VariantColumnWriterImpl {
 public:
     VariantColumnWriterImpl(const ColumnWriterOptions& opts, const TabletColumn* column);
@@ -172,6 +166,10 @@ private:
     // hold the references of subcolumns info
     std::unordered_map<std::string, TabletSchema::SubColumnInfo> _subcolumns_info;
     std::unordered_map<std::string, NestedGroupWriter> _nested_group_writers;
+
+    // English comment: JSONB subcolumns that are expanded into NestedGroup should not be written
+    // as physical subcolumns in the segment.
+    std::unordered_set<std::string> _skip_subcolumn_paths;
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
