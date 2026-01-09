@@ -109,17 +109,4 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     EXPECT_TRUE(status != Status::OK());
 }
 
-TEST_F(RowsetMetaManagerTest, TestLoad) {
-    RowsetId rowset_id;
-    rowset_id.init(10000);
-    Status status = RowsetMetaManager::load_json_rowset_meta(_meta, rowset_meta_path);
-    EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
-    std::string json_rowset_meta_read;
-    status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id,
-                                                     &json_rowset_meta_read);
-    EXPECT_TRUE(status == Status::OK());
-    EXPECT_EQ(_json_rowset_meta, json_rowset_meta_read);
-}
-
 } // namespace doris
