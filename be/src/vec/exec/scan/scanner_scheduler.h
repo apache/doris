@@ -54,15 +54,6 @@ struct SimplifiedScanTask {
         this->scan_func = scan_func;
         this->scanner_context = scanner_context;
         this->scan_task = scan_task;
-        if (scanner_context->task_exec_ctx()) {
-            scanner_context->task_exec_ctx()->ref_task_execution_ctx();
-        }
-    }
-
-    ~SimplifiedScanTask() {
-        if (scanner_context->task_exec_ctx()) {
-            scanner_context->task_exec_ctx()->unref_task_execution_ctx();
-        }
     }
 
     std::function<bool()> scan_func;
