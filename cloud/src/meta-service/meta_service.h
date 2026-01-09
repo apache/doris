@@ -363,13 +363,20 @@ public:
                                                               InstanceInfoPB* instance);
 
     MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
-                                               std::string table_id_str);
+                                               std::string table_id_str, std::string tablet_id_str);
+
+    std::pair<MetaServiceCode, std::string> fix_tablet_db_id(const std::string& instance_id,
+                                                             int64_t tablet_id, int64_t db_id);
 
     void get_delete_bitmap_lock_version(std::string& use_version, std::string& instance_id);
 
     void begin_snapshot(::google::protobuf::RpcController* controller,
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override;
+
+    void update_snapshot(::google::protobuf::RpcController* controller,
+                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override;
 
     void commit_snapshot(::google::protobuf::RpcController* controller,
                          const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
@@ -394,7 +401,8 @@ public:
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
-            std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+            std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
+                    action);
 
     bool get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
                                        const GetDeleteBitmapUpdateLockRequest* request,
@@ -470,6 +478,14 @@ private:
             const GetVersionRequest* request, GetVersionResponse* response,
             std::string_view instance_id, KVStats& stats);
 
+    void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
+                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   std::string& msg, KVStats& stats);
+
+    // Wait for all pending transactions before returning, and bump up the version to the latest.
+    std::pair<MetaServiceCode, std::string> wait_for_pending_txns(const std::string& instance_id,
+                                                                  std::vector<VersionPB>& versions);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
@@ -491,6 +507,12 @@ public:
     }
     [[nodiscard]] const std::shared_ptr<ResourceManager>& resource_mgr() const {
         return impl_->resource_mgr();
+    }
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return impl_->txn_lazy_committer();
+    }
+    [[nodiscard]] const std::shared_ptr<SnapshotManager>& snapshot_manager() const {
+        return impl_->snapshot_manager();
     }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
@@ -899,6 +921,12 @@ public:
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::begin_snapshot, controller, request, response, done);
+    }
+
+    void update_snapshot(::google::protobuf::RpcController* controller,
+                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_snapshot, controller, request, response, done);
     }
 
     void commit_snapshot(::google::protobuf::RpcController* controller,

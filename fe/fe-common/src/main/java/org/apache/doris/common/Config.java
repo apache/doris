@@ -3727,6 +3727,13 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 
     @ConfField(mutable = true)
+    public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
+    @ConfField(mutable = true)
+    public static int multi_part_upload_max_seconds = 3600; // 1 hour
+    @ConfField(mutable = true)
+    public static int multi_part_upload_pool_size = 10;
+
+    @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
 
     @ConfField(description = {
@@ -3741,4 +3748,19 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+
+    @ConfField(mutable = true, description = {
+            "存算分离模式下，计算删除位图时，是否批量获取分区版本信息，默认开启",
+            "In the compute-storage separation mode, whether to obtain partition version information in batches when "
+                    + "calculating the delete bitmap, which is enabled by default"
+    })
+    public static boolean calc_delete_bitmap_get_versions_in_batch = true;
+
+    @ConfField(mutable = true, description = {
+            "存算分离模式下，计算删除位图时，是否等待挂起的事务完成后再获取分区版本信息，默认开启",
+            "In the compute-storage separation mode, whether to wait for pending transactions to complete before "
+                    + "obtaining partition version information when calculating the delete bitmap, which is enabled "
+                    + "by default"
+    })
+    public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
 }

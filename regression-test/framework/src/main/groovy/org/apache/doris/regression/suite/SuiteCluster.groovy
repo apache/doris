@@ -388,7 +388,7 @@ class SuiteCluster {
 
         sqlModeNodeMgr = options.sqlModeNodeMgr
 
-        runCmd(cmd.join(' '), 180)
+        runCmdList(cmd, 180)
 
         // wait be report disk
         Thread.sleep(5000)
@@ -704,6 +704,46 @@ class SuiteCluster {
         runCmd(cmd)
     }
 
+    /**
+     * Rollback the cloud cluster to a snapshot.
+     * This will stop ALL FE/BE, clean metadata/data, and restart with new cloud_unique_id and instance_id.
+     * Only available for cloud mode clusters.
+     *
+     * @param clusterSnapshot Cluster snapshot JSON content (required)
+     * @param waitTimeout Wait seconds for nodes to be ready (default: 120)
+     */
+    void rollback(String clusterSnapshot, int waitTimeout = 120) {
+        assert clusterSnapshot != null && clusterSnapshot != '' : 'clusterSnapshot cannot be null or empty'
+
+        // Parse and validate cluster snapshot JSON
+        def parser = new JsonSlurper()
+        Map<String, Object> snapshotObj = null
+        try {
+            snapshotObj = (Map<String, Object>) parser.parseText(clusterSnapshot)
+        } catch (Exception e) {
+            throw new Exception("Failed to parse clusterSnapshot JSON: ${e.message}")
+        }
+
+        // Check is_successor field
+        def isSuccessor = snapshotObj.get('is_successor')
+        assert isSuccessor == true : "clusterSnapshot is_successor field must be true, but got: ${isSuccessor}"
+
+        // Extract instance_id from snapshot
+        String instanceId = (String) snapshotObj.get('instance_id')
+        assert instanceId != null && instanceId != '' : "instance_id not found in clusterSnapshot or is empty"
+
+        logger.info("Rollback cluster ${name} with instance_id: ${instanceId}")
+
+        List<String> cmd = ['rollback', name, '--cluster-snapshot', clusterSnapshot]
+        cmd += ['--instance-id', instanceId]
+        cmd += ['--wait-timeout', String.valueOf(waitTimeout)]
+
+        runCmdList(cmd, waitTimeout + 60)
+
+        // wait be report disk after rollback
+        Thread.sleep(5000)
+    }
+
     private void waitHbChanged() {
         // heart beat interval is 5s
         Thread.sleep(7000)
@@ -737,6 +777,32 @@ class SuiteCluster {
         def fullCmd = String.format('python -W ignore %s %s -v --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        Awaitility.await().atMost(timeoutSecond, SECONDS).until({
+            proc.waitForProcessOutput(outBuf, errBuf)
+            return true
+        })
+        if (proc.exitValue() != 0) {
+            throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
+                                              proc.exitValue(), outBuf.toString(), errBuf.toString()))
+        }
+        def parser = new JsonSlurper()
+        if (outBuf.toString().size() == 0) {
+            throw new Exception(String.format('doris compose output is empty, err: %s', errBuf.toString()))
+        }
+        def object = (Map<String, Object>) parser.parseText(outBuf.toString())
+        if (object.get('code') != 0) {
+            throw new Exception(String.format('Code: %s != 0, err: %s', object.get('code'), object.get('err')))
+        }
+        return object.get('data')
+    }
+
+    // Execute command with proper argument list to avoid shell escaping issues
+    private Object runCmdList(List<String> cmdList, int timeoutSecond = 60) throws Exception {
+        def fullCmdList = ['python', '-W', 'ignore', config.dorisComposePath] + cmdList + ['-v', '--output-json']
+        logger.info('Run doris compose cmd: {}', fullCmdList.join(' '))
+        def proc = fullCmdList.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
         Awaitility.await().atMost(timeoutSecond, SECONDS).until({

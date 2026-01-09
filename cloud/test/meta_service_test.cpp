@@ -198,7 +198,8 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
     req.set_db_id(db_id);
     req.set_txn_id(txn_id);
     meta_service->commit_txn(&cntl, &req, &res, nullptr);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+            << label << ", res=" << res.ShortDebugString();
 }
 
 doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id = 10,
@@ -2350,7 +2351,6 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
 
         ASSERT_EQ(res.table_ids()[0], t2);
@@ -9606,6 +9606,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     // try to use default vault
     {
         CreateTabletsRequest req;
+        req.set_db_id(1);
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_storage_vault_name("");
         req.add_tablet_metas();
@@ -11546,6 +11547,15 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         sp->disable_processing();
     }
 
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
     // Test case 1: Snapshot not ready (SNAPSHOT_SWITCH_DISABLED) - should fail
     {
         brpc::Controller cntl;
@@ -11553,12 +11563,13 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_TRUE(res.status().msg().find("Snapshot not ready") != std::string::npos);
+        ASSERT_TRUE(res.status().msg().find("Snapshot is not ready") != std::string::npos);
     }
 
     // Initialize snapshot switch status to OFF so we can test snapshot functionality
@@ -11573,6 +11584,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         InstanceInfoPB instance;
         instance.ParseFromString(val);
         instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
         val = instance.SerializeAsString();
         txn->put(key, val);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -11585,7 +11597,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11599,7 +11612,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "false";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "false";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11613,7 +11627,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "invalid";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "invalid";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11627,7 +11642,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "0";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "0";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11641,7 +11657,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "35";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "35";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11655,7 +11672,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11669,7 +11687,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "-1";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "-1";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11683,7 +11702,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "36";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "36";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11697,7 +11717,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "abc";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "abc";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11711,7 +11732,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "3600";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11725,7 +11747,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "14400";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "14400";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11739,7 +11762,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "3599";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3599";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11753,7 +11777,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "invalid";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "invalid";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11795,9 +11820,12 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
-        (*req.mutable_properties())["max_reserved_snapshots"] = "20";
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "12000";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "20";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11811,13 +11839,17 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
-        (*req.mutable_properties())["invalid_property"] = "value";
-        (*req.mutable_properties())["max_reserved_snapshots"] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
+        (*req.mutable_properties())["unsupported_property"] = "value";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.ShortDebugString();
     }
 
     // Test case 19: Non-existent instance ID
@@ -11827,11 +11859,293 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("non_existent_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::CLUSTER_NOT_FOUND);
+    }
+}
+
+TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_snapshot_config_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_snapshot_config_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest alter_req;
+        AlterInstanceResponse alter_res;
+        alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        alter_req.set_instance_id("test_snapshot_config_instance");
+        (*alter_req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &alter_req, &alter_res, nullptr);
+        ASSERT_EQ(alter_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(alter_res.status().msg().find("MULTI_VERSION_READ_WRITE") != std::string::npos);
+    }
+
+    // Set multi-version status to READ_WRITE
+    {
+        InstanceKeyInfo key_info {"test_snapshot_config_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Enable snapshot for this instance
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest alter_req;
+        AlterInstanceResponse alter_res;
+        alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        alter_req.set_instance_id("test_snapshot_config_instance");
+        (*alter_req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &alter_req, &alter_res, nullptr);
+        ASSERT_EQ(alter_res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Save original config values
+    int32_t orig_min_interval = config::snapshot_min_interval_seconds;
+    int32_t orig_max_reserved = config::snapshot_max_reserved_num;
+
+    // Temporarily modify config for testing
+    config::snapshot_min_interval_seconds = 1800; // 30 minutes
+    config::snapshot_max_reserved_num = 20;
+
+    // Test case 1: interval below minimum limit
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "1799"; // Below min limit
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("minimum is 1800") != std::string::npos);
+    }
+
+    // Test case 2: interval within limits should succeed
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600"; // Within limits
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: max_reserved_snapshots above maximum limit
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "21"; // Above max limit
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("maximum is 20") != std::string::npos);
+    }
+
+    // Test case 4: max_reserved_snapshots within limits should succeed
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10"; // Within limits
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 5: unknown property should fail
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())["unknown_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("unknown snapshot property: unknown_property") !=
+                    std::string::npos);
+    }
+
+    // Restore original config values
+    config::snapshot_min_interval_seconds = orig_min_interval;
+    config::snapshot_max_reserved_num = orig_max_reserved;
+}
+
+TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = "test_instance";
+            ret->second = true;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // First enable snapshot - should set default values
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify default values were set by checking instance
+    {
+        brpc::Controller cntl;
+        GetInstanceRequest req;
+        GetInstanceResponse res;
+        req.set_instance_id("test_instance");
+        req.set_cloud_unique_id("test_snapshot_defaults_unique_id");
+
+        meta_service->get_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                   &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        const auto& instance = res.instance();
+        ASSERT_EQ(instance.snapshot_switch_status(), SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON);
+        ASSERT_EQ(instance.snapshot_interval_seconds(), config::snapshot_min_interval_seconds);
+        ASSERT_EQ(instance.max_reserved_snapshot(), 0);
     }
 }
 
@@ -11936,4 +12250,415 @@ TEST(MetaServiceTest, RowsetVisibleTimeTest) {
                   << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
     }
 }
+
+// Test: In versioned write mode, clean_txn_label should skip txn when recycle_key not found
+TEST(MetaServiceTest, CleanTxnLabelVersionedWriteSkipWithoutRecycleKey) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "clean_txn_label_versioned_write_skip_test";
+    int64_t db_id = 19872001;
+    std::string label = "test_versioned_write_skip_label";
+
+    // 1. Create versioned write instance
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Mock get_instance_id to return versioned write instance
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    int64_t txn_id = -1;
+
+    // 2. begin_txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // 3. Create tablet and rowset, then commit_txn
+    int64_t tablet_id = 110001;
+    create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id);
+    {
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        CommitTxnResponse res;
+        meta_service->commit_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 4. Verify recycle_key does NOT exist (versioned write mode doesn't write it during commit)
+    std::string recycle_key_str = recycle_txn_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(recycle_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // 5. Call clean_txn_label
+    {
+        brpc::Controller cntl;
+        CleanTxnLabelRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.add_labels(label);
+        CleanTxnLabelResponse res;
+        meta_service->clean_txn_label(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 6. Verify txn_info still exists (should NOT be deleted because recycle_key not found)
+    std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_OK); // Still exists
+    }
+
+    // 7. Verify label still contains this txn_id (txn was skipped, added to survival_txn_ids)
+    std::string label_key_str = txn_label_key({instance_id, db_id, label});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_OK);
+        TxnLabelPB label_pb;
+        ASSERT_TRUE(label_pb.ParseFromArray(val.data(), val.size() - VERSION_STAMP_LEN));
+        ASSERT_EQ(label_pb.txn_ids_size(), 1);
+        ASSERT_EQ(label_pb.txn_ids(0), txn_id);
+    }
+}
+
+// Test: In versioned write mode, clean_txn_label should delete txn when recycle_key exists
+TEST(MetaServiceTest, CleanTxnLabelVersionedWriteDeleteWithRecycleKey) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "clean_txn_label_versioned_write_delete_test";
+    int64_t db_id = 19872002;
+    std::string label = "test_versioned_write_delete_label";
+
+    // 1. Create versioned write instance
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Mock get_instance_id
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    int64_t txn_id = -1;
+
+    // 2. begin_txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // 3. Create tablet and rowset, then commit_txn
+    int64_t tablet_id = 110002;
+    create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id);
+    {
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        CommitTxnResponse res;
+        meta_service->commit_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 4. Manually write recycle_txn_key (simulate recycler has processed commit_txn_log)
+    std::string recycle_key_str = recycle_txn_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        RecycleTxnPB recycle_pb;
+        recycle_pb.set_creation_time(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count());
+        recycle_pb.set_label(label);
+        txn->put(recycle_key_str, recycle_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Verify recycle_key exists now
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(recycle_key_str, &val), TxnErrorCode::TXN_OK);
+    }
+
+    // 5. Call clean_txn_label
+    {
+        brpc::Controller cntl;
+        CleanTxnLabelRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.add_labels(label);
+        CleanTxnLabelResponse res;
+        meta_service->clean_txn_label(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 6. Verify txn_info is deleted
+    std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    // 7. Verify txn_index is deleted
+    std::string index_key_str = txn_index_key({instance_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(index_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    // 8. Verify recycle_key is deleted
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(recycle_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    // 9. Verify label is deleted (all txns cleaned)
+    std::string label_key_str = txn_label_key({instance_id, db_id, label});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+}
+
+// Test: In versioned write mode with mixed txns, only txns with recycle_key are cleaned
+TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "clean_txn_label_versioned_write_mixed_test";
+    int64_t db_id = 19872003;
+    std::string label = "test_versioned_write_mixed_label";
+
+    // 1. Create versioned write instance
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Mock get_instance_id
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    // Create 3 txns with different labels
+    std::vector<int64_t> txn_ids;
+    std::vector<std::string> labels;
+    for (int i = 0; i < 3; ++i) {
+        int64_t txn_id = -1;
+        std::string txn_label = label + "_" + std::to_string(i);
+        labels.push_back(txn_label);
+
+        // begin_txn
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(txn_label);
+            txn_info_pb.add_table_ids(1234);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(&cntl, &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+        }
+
+        // Create tablet and commit
+        int64_t tablet_id = 110010 + i;
+        create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id);
+        {
+            CreateRowsetResponse res;
+            commit_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            CommitTxnResponse res;
+            meta_service->commit_txn(&cntl, &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        txn_ids.push_back(txn_id);
+    }
+
+    ASSERT_EQ(txn_ids.size(), 3);
+
+    // 2. Manually write recycle_key for txn_ids[0] and txn_ids[2] only (not txn_ids[1])
+    for (int i : {0, 2}) {
+        std::string recycle_key_str = recycle_txn_key({instance_id, db_id, txn_ids[i]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        RecycleTxnPB recycle_pb;
+        recycle_pb.set_creation_time(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count());
+        recycle_pb.set_label(labels[i]);
+        txn->put(recycle_key_str, recycle_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // 3. Call clean_txn_label for each label
+    for (int i = 0; i < 3; ++i) {
+        brpc::Controller cntl;
+        CleanTxnLabelRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.add_labels(labels[i]);
+        CleanTxnLabelResponse res;
+        meta_service->clean_txn_label(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 4. Verify txn_ids[0] and txn_ids[2] are deleted (have recycle_key)
+    for (int i : {0, 2}) {
+        std::string info_key = txn_info_key({instance_id, db_id, txn_ids[i]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // 5. Verify txn_ids[1] still exists (no recycle_key)
+    {
+        std::string info_key = txn_info_key({instance_id, db_id, txn_ids[1]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_OK); // Still exists
+    }
+
+    // 6. Verify labels[0] and labels[2] are deleted, labels[1] still exists
+    for (int i : {0, 2}) {
+        std::string label_key_str = txn_label_key({instance_id, db_id, labels[i]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    {
+        std::string label_key_str = txn_label_key({instance_id, db_id, labels[1]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_OK); // Still exists
+        TxnLabelPB label_pb;
+        ASSERT_TRUE(label_pb.ParseFromArray(val.data(), val.size() - VERSION_STAMP_LEN));
+        ASSERT_EQ(label_pb.txn_ids_size(), 1);
+        ASSERT_EQ(label_pb.txn_ids(0), txn_ids[1]);
+    }
+}
+
 } // namespace doris::cloud

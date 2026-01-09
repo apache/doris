@@ -66,6 +66,7 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-store/codec.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
@@ -207,7 +208,8 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
             RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
                                     std::move(group_recycle_function_pool));
 
-    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
+    auto resource_mgr = std::make_shared<ResourceManager>(txn_kv_);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_, std::move(resource_mgr));
     snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
 }
 
@@ -414,6 +416,27 @@ int Recycler::start(brpc::Server* server) {
 
     workers_.emplace_back(std::mem_fn(&Recycler::lease_recycle_jobs), this);
     workers_.emplace_back(std::mem_fn(&Recycler::check_recycle_tasks), this);
+
+    if (config::enable_snapshot_data_migrator) {
+        snapshot_data_migrator_ = std::make_shared<SnapshotDataMigrator>(txn_kv_);
+        int ret = snapshot_data_migrator_->start();
+        if (ret != 0) {
+            LOG(ERROR) << "failed to start snapshot data migrator";
+            return ret;
+        }
+        LOG(INFO) << "snapshot data migrator started";
+    }
+
+    if (config::enable_snapshot_chain_compactor) {
+        snapshot_chain_compactor_ = std::make_shared<SnapshotChainCompactor>(txn_kv_);
+        int ret = snapshot_chain_compactor_->start();
+        if (ret != 0) {
+            LOG(ERROR) << "failed to start snapshot chain compactor";
+            return ret;
+        }
+        LOG(INFO) << "snapshot chain compactor started";
+    }
+
     return 0;
 }
 
@@ -432,6 +455,12 @@ void Recycler::stop() {
     }
     if (checker_) {
         checker_->stop();
+    }
+    if (snapshot_data_migrator_) {
+        snapshot_data_migrator_->stop();
+    }
+    if (snapshot_chain_compactor_) {
+        snapshot_chain_compactor_->stop();
     }
 }
 
@@ -538,6 +567,10 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           _thread_pool_group(std::move(thread_pool_group)),
           txn_lazy_committer_(std::move(txn_lazy_committer)) {
     snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+
+    // Since the recycler's resource manager could not be notified when instance info changes,
+    // we need to refresh the instance info here to ensure the resource manager has the latest info.
+    txn_lazy_committer_->resource_manager()->refresh_instance(instance_id_, instance);
 };
 
 InstanceRecycler::~InstanceRecycler() = default;
@@ -768,26 +801,50 @@ int InstanceRecycler::recycle_deleted_instance() {
         return 0;
     }
 
-    // delete all remote data
-    for (auto& [_, accessor] : accessor_map_) {
-        if (stopped()) {
-            return ret;
-        }
-
-        LOG(INFO) << "begin to delete all objects in " << accessor->uri();
-        int del_ret = accessor->delete_all();
-        if (del_ret == 0) {
-            LOG(INFO) << "successfully delete all objects in " << accessor->uri();
-        } else if (del_ret != 1) { // no need to log, because S3Accessor has logged this error
-            // If `del_ret == 1`, it can be considered that the object data has been recycled by cloud platform,
-            // so the recycling has been successful.
-            ret = -1;
-        }
+    if (recycle_operation_logs() != 0) {
+        LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
+        return -1;
     }
 
-    if (ret != 0) {
-        LOG(WARNING) << "failed to delete all data of deleted instance=" << instance_id_;
-        return ret;
+    if (recycle_versioned_rowsets() != 0) {
+        LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
+        return -1;
+    }
+
+    bool snapshot_enabled = instance_info().has_snapshot_switch_status() &&
+                            instance_info().snapshot_switch_status() !=
+                                    SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
+    if (snapshot_enabled) {
+        bool has_unrecycled_rowsets = false;
+        if (recycle_ref_rowsets(&has_unrecycled_rowsets) != 0) {
+            LOG_WARNING("failed to recycle ref rowsets").tag("instance_id", instance_id_);
+            return -1;
+        } else if (has_unrecycled_rowsets) {
+            LOG_INFO("instance has referenced rowsets, skip recycling")
+                    .tag("instance_id", instance_id_);
+            return ret;
+        }
+    } else { // delete all remote data if snapshot is disabled
+        for (auto& [_, accessor] : accessor_map_) {
+            if (stopped()) {
+                return ret;
+            }
+
+            LOG(INFO) << "begin to delete all objects in " << accessor->uri();
+            int del_ret = accessor->delete_all();
+            if (del_ret == 0) {
+                LOG(INFO) << "successfully delete all objects in " << accessor->uri();
+            } else if (del_ret != 1) { // no need to log, because S3Accessor has logged this error
+                // If `del_ret == 1`, it can be considered that the object data has been recycled by cloud platform,
+                // so the recycling has been successful.
+                ret = -1;
+            }
+        }
+
+        if (ret != 0) {
+            LOG(WARNING) << "failed to delete all data of deleted instance=" << instance_id_;
+            return ret;
+        }
     }
 
     // delete all kv
@@ -828,9 +885,6 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string start_vault_key = storage_vault_key(key_info0);
     std::string end_vault_key = storage_vault_key(key_info1);
     txn->remove(start_vault_key, end_vault_key);
-    std::string dbm_start_key = versioned::meta_delete_bitmap_key({instance_id_, 0, ""});
-    std::string dbm_end_key = versioned::meta_delete_bitmap_key({instance_id_, INT64_MAX, ""});
-    txn->remove(dbm_start_key, dbm_end_key);
     std::string versioned_version_key_start = versioned::version_key_prefix(instance_id_);
     std::string versioned_version_key_end = versioned::version_key_prefix(instance_id_ + '\x00');
     txn->remove(versioned_version_key_start, versioned_version_key_end);
@@ -866,6 +920,7 @@ int InstanceRecycler::recycle_deleted_instance() {
         }
         std::string key;
         instance_key({instance_id_}, &key);
+        txn->atomic_add(system_meta_service_instance_update_key(), 1);
         txn->remove(key);
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -1070,6 +1125,180 @@ int64_t calculate_restore_job_expired_time(
         g_bvar_recycler_recycle_restore_job_earlest_ts.put(instance_id_, *earlest_ts);
     }
     return final_expiration;
+}
+
+int get_meta_rowset_key(Transaction* txn, const std::string& instance_id, int64_t tablet_id,
+                        const std::string& rowset_id, int64_t start_version, int64_t end_version,
+                        bool load_key, bool* exist) {
+    std::string key =
+            load_key ? versioned::meta_rowset_load_key({instance_id, tablet_id, end_version})
+                     : versioned::meta_rowset_compact_key({instance_id, tablet_id, end_version});
+    RowsetMetaCloudPB rowset_meta;
+    Versionstamp version;
+    TxnErrorCode err = versioned::document_get(txn, key, &rowset_meta, &version);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        VLOG_DEBUG << "not found load or compact meta_rowset_key."
+                   << " rowset_id=" << rowset_id << " start_version=" << start_version
+                   << " end_version=" << end_version << " key=" << hex(key);
+    } else if (err != TxnErrorCode::TXN_OK) {
+        LOG_INFO("failed to get load or compact meta_rowset_key.")
+                .tag("rowset_id", rowset_id)
+                .tag("start_version", start_version)
+                .tag("end_version", end_version)
+                .tag("key", hex(key))
+                .tag("error_code", err);
+        return -1;
+    } else if (rowset_meta.rowset_id_v2() == rowset_id) {
+        *exist = true;
+        VLOG_DEBUG << "found load or compact meta_rowset_key."
+                   << " rowset_id=" << rowset_id << " start_version=" << start_version
+                   << " end_version=" << end_version << " key=" << hex(key);
+    } else {
+        VLOG_DEBUG << "rowset_id does not match when find load or compact meta_rowset_key."
+                   << " rowset_id=" << rowset_id << " start_version=" << start_version
+                   << " end_version=" << end_version << " key=" << hex(key)
+                   << " found_rowset_id=" << rowset_meta.rowset_id_v2();
+    }
+    return 0;
+}
+
+int InstanceRecycler::recycle_ref_rowsets(bool* has_unrecycled_rowsets) {
+    const std::string task_name = "recycle_ref_rowsets";
+    int64_t num_scanned = 0;
+    int64_t num_recycled = 0;
+    RecyclerMetricsContext metrics_context(instance_id_, task_name);
+
+    std::string data_rowset_ref_count_key_start =
+            versioned::data_rowset_ref_count_key({instance_id_, 0, ""});
+    std::string data_rowset_ref_count_key_end =
+            versioned::data_rowset_ref_count_key({instance_id_, INT64_MAX, ""});
+
+    LOG_WARNING("begin to recycle ref rowsets").tag("instance_id", instance_id_);
+
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
+
+    DORIS_CLOUD_DEFER {
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
+        metrics_context.finish_report();
+        LOG_WARNING("recycle ref rowsets finished, cost={}s", cost)
+                .tag("instance_id", instance_id_)
+                .tag("num_scanned", num_scanned)
+                .tag("num_recycled", num_recycled);
+    };
+
+    auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
+        ++num_scanned;
+
+        int64_t tablet_id;
+        std::string rowset_id;
+        std::string_view key(k);
+        if (!versioned::decode_data_rowset_ref_count_key(&key, &tablet_id, &rowset_id)) {
+            LOG_WARNING("failed to decode data rowset ref count key").tag("key", hex(k));
+            return -1;
+        }
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return -1;
+        }
+
+        int64_t ref_count;
+        if (!txn->decode_atomic_int(v, &ref_count)) {
+            LOG_WARNING("failed to decode rowset data ref count").tag("value", hex(v));
+            return -1;
+        }
+        if (ref_count > 1) {
+            *has_unrecycled_rowsets = true;
+            LOG_INFO("skip recycle ref_count > 1 rowset")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("ref_count", ref_count);
+            return 0;
+        }
+
+        std::string meta_rowset_key =
+                versioned::meta_rowset_key({instance_id_, tablet_id, rowset_id});
+        ValueBuf val_buf;
+        err = blob_get(txn.get(), meta_rowset_key, &val_buf);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get meta_rowset_key")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("key", hex(meta_rowset_key))
+                    .tag("err", err);
+            return -1;
+        }
+        doris::RowsetMetaCloudPB rowset_meta;
+        if (!val_buf.to_pb(&rowset_meta)) {
+            LOG_WARNING("failed to parse RowsetMetaCloudPB")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("key", hex(meta_rowset_key));
+            return -1;
+        }
+        int64_t start_version = rowset_meta.start_version();
+        int64_t end_version = rowset_meta.end_version();
+
+        // Check if the meta_rowset_compact_key or meta_rowset_load_key exists:
+        // exists: means it's referenced by current instance, can recycle rowset;
+        // not exists: means it's referenced by other instances, cannot recycle;
+        //
+        // end_version = 1: the first rowset;
+        // end_version = 0: the rowset is committed by load, but not commit_txn;
+        // can recycle in these 2 situations
+        bool exist = false;
+        if (end_version > 1) {
+            if (start_version != end_version) {
+                if (get_meta_rowset_key(txn.get(), instance_id_, tablet_id, rowset_id,
+                                        start_version, end_version, false, &exist) != 0) {
+                    return -1;
+                }
+            } else {
+                if (get_meta_rowset_key(txn.get(), instance_id_, tablet_id, rowset_id,
+                                        start_version, end_version, true, &exist) != 0) {
+                    return -1;
+                }
+                if (!exist && get_meta_rowset_key(txn.get(), instance_id_, tablet_id, rowset_id,
+                                                  start_version, end_version, false, &exist) != 0) {
+                    return -1;
+                }
+            }
+        }
+
+        if (end_version > 1 && !exist) {
+            *has_unrecycled_rowsets = true;
+            LOG_INFO("skip recycle ref_count = 1 rowset")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("start_version", start_version)
+                    .tag("end_version", end_version)
+                    .tag("ref_count", ref_count);
+            return 0;
+        }
+
+        if (recycle_rowset_meta_and_data("", rowset_meta) != 0) {
+            LOG_WARNING("failed to recycle_rowset_meta_and_data")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id);
+            return -1;
+        }
+
+        ++num_recycled;
+        return 0;
+    };
+
+    // recycle_func and loop_done for scan and recycle
+    return scan_and_recycle(data_rowset_ref_count_key_start, data_rowset_ref_count_key_end,
+                            std::move(recycle_func));
 }
 
 int InstanceRecycler::recycle_indexes() {
@@ -1483,8 +1712,7 @@ int InstanceRecycler::recycle_partitions() {
 }
 
 int InstanceRecycler::recycle_versions() {
-    if (instance_info_.has_multi_version_status() &&
-        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
+    if (should_recycle_versioned_keys()) {
         return recycle_orphan_partitions();
     }
 
@@ -1610,8 +1838,8 @@ int InstanceRecycler::recycle_orphan_partitions() {
 
         std::string_view k1(k);
         int64_t db_id, table_id, partition_id;
-        if (versioned::decode_partition_inverted_index_key(&k1, &db_id, &table_id, &partition_id) !=
-            0) {
+        if (!versioned::decode_partition_inverted_index_key(&k1, &db_id, &table_id,
+                                                            &partition_id)) {
             LOG(WARNING) << "malformed partition inverted index key " << hex(k);
             return -1;
         } else if (table_id != current_table_id) {
@@ -1778,6 +2006,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
         restore_job_keys.push_back(job_restore_tablet_key({instance_id_, tablet_id}));
         if (is_multi_version) {
+            // The tablet index/inverted index are recycled in recycle_versioned_tablet.
             tablet_compact_stats_keys.push_back(
                     versioned::tablet_compact_stats_key({instance_id_, tablet_id}));
             tablet_load_stats_keys.push_back(
@@ -2377,9 +2606,15 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
             .tag("instance_id", instance_id_)
             .tag("tablet_id", tablet_id);
 
-    if (instance_info_.has_multi_version_status() &&
-        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
-        return recycle_versioned_tablet(tablet_id, metrics_context);
+    if (should_recycle_versioned_keys()) {
+        int ret = recycle_versioned_tablet(tablet_id, metrics_context);
+        if (ret != 0) {
+            return ret;
+        }
+        // Continue to recycle non-versioned rowsets, if multi-version is set to DISABLED
+        // during the recycle_versioned_tablet process.
+        //
+        // .. And remove restore job rowsets of this tablet too
     }
 
     int ret = 0;
@@ -2738,24 +2973,44 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
         max_rowset_expiration_time = std::max(max_rowset_expiration_time, rs_meta.txn_expiration());
     };
 
+    std::vector<RowsetDeleteTask> all_tasks;
+
+    auto create_delete_task = [this](const RowsetMetaCloudPB& rs_meta, std::string_view recycle_key,
+                                     std::string_view non_versioned_rowset_key =
+                                             "") -> RowsetDeleteTask {
+        RowsetDeleteTask task;
+        task.rowset_meta = rs_meta;
+        task.recycle_rowset_key = std::string(recycle_key);
+        task.non_versioned_rowset_key = std::string(non_versioned_rowset_key);
+        task.versioned_rowset_key = versioned::meta_rowset_key(
+                {instance_id_, rs_meta.tablet_id(), rs_meta.rowset_id_v2()});
+        return task;
+    };
+
     for (const auto& [rs_meta, versionstamp] : load_rowset_metas) {
         update_rowset_stats(rs_meta);
-        concurrent_delete_executor.add([tablet_id, versionstamp, rs_meta_pb = rs_meta, this]() {
-            std::string rowset_key = versioned::meta_rowset_load_key(
-                    {instance_id_, tablet_id, rs_meta_pb.end_version()});
-            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_key, versionstamp),
-                                                rs_meta_pb);
-        });
+        // Version 0-1 rowset has no resource_id and no actual data files,
+        // but still needs ref_count key cleanup, so we add it to all_tasks.
+        // It will be filtered out in Phase 2 when building rowsets_to_delete.
+        std::string rowset_load_key =
+                versioned::meta_rowset_load_key({instance_id_, tablet_id, rs_meta.end_version()});
+        std::string rowset_key = meta_rowset_key({instance_id_, tablet_id, rs_meta.end_version()});
+        RowsetDeleteTask task = create_delete_task(
+                rs_meta, encode_versioned_key(rowset_load_key, versionstamp), rowset_key);
+        all_tasks.push_back(std::move(task));
     }
 
     for (const auto& [rs_meta, versionstamp] : compact_rowset_metas) {
         update_rowset_stats(rs_meta);
-        concurrent_delete_executor.add([tablet_id, versionstamp, rs_meta_pb = rs_meta, this]() {
-            std::string rowset_key = versioned::meta_rowset_compact_key(
-                    {instance_id_, tablet_id, rs_meta_pb.end_version()});
-            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_key, versionstamp),
-                                                rs_meta_pb);
-        });
+        // Version 0-1 rowset has no resource_id and no actual data files,
+        // but still needs ref_count key cleanup, so we add it to all_tasks.
+        // It will be filtered out in Phase 2 when building rowsets_to_delete.
+        std::string rowset_compact_key = versioned::meta_rowset_compact_key(
+                {instance_id_, tablet_id, rs_meta.end_version()});
+        std::string rowset_key = meta_rowset_key({instance_id_, tablet_id, rs_meta.end_version()});
+        RowsetDeleteTask task = create_delete_task(
+                rs_meta, encode_versioned_key(rowset_compact_key, versionstamp), rowset_key);
+        all_tasks.push_back(std::move(task));
     }
 
     auto handle_recycle_rowset_kv = [&](std::string_view k, std::string_view v) {
@@ -2783,21 +3038,25 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
             decode_key(&k1, &out);
             // 0x01 "recycle" ${instance_id} "rowset" ${tablet_id} ${rowset_id} -> RecycleRowsetPB
             const auto& rowset_id = std::get<std::string>(std::get<0>(out[4]));
-            LOG_INFO("delete rowset data")
+            LOG_INFO("delete old-version rowset data")
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
                     .tag("rowset_id", rowset_id);
 
+            // Old version RecycleRowsetPB lacks full rowset_meta info (num_segments, schema, etc.),
+            // so we must use prefix deletion directly instead of batch delete.
             concurrent_delete_executor.add(
                     [tablet_id, resource_id = recycle_rowset.resource_id(), rowset_id, this]() {
                         // delete by prefix, the recycle rowset key will be deleted by range later.
                         return delete_rowset_data(resource_id, tablet_id, rowset_id);
                     });
         } else {
-            concurrent_delete_executor.add(
-                    [k = std::string(k), recycle_rowset = std::move(recycle_rowset), this]() {
-                        return recycle_rowset_meta_and_data(k, recycle_rowset.rowset_meta());
-                    });
+            const auto& rowset_meta = recycle_rowset.rowset_meta();
+            // Version 0-1 rowset has no resource_id and no actual data files,
+            // but still needs ref_count key cleanup, so we add it to all_tasks.
+            // It will be filtered out in Phase 2 when building rowsets_to_delete.
+            RowsetDeleteTask task = create_delete_task(rowset_meta, k);
+            all_tasks.push_back(std::move(task));
         }
         return 0;
     };
@@ -2810,6 +3069,75 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
         ret = -1;
     }
 
+    // Phase 1: Classify tasks by ref_count
+    std::vector<RowsetDeleteTask> batch_delete_tasks;
+    for (auto& task : all_tasks) {
+        int classify_ret = classify_rowset_task_by_ref_count(task, batch_delete_tasks);
+        if (classify_ret < 0) {
+            LOG_WARNING("failed to classify rowset task, fallback to old logic")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", task.rowset_meta.rowset_id_v2());
+            concurrent_delete_executor.add([this, t = std::move(task)]() mutable {
+                return recycle_rowset_meta_and_data(t.recycle_rowset_key, t.rowset_meta,
+                                                    t.non_versioned_rowset_key);
+            });
+        }
+    }
+
+    g_bvar_recycler_batch_delete_rowset_plan_count.put(instance_id_, batch_delete_tasks.size());
+
+    LOG_INFO("batch delete plan created")
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", tablet_id)
+            .tag("plan_count", batch_delete_tasks.size());
+
+    // Phase 2: Execute batch delete using existing delete_rowset_data
+    if (!batch_delete_tasks.empty()) {
+        std::map<std::string, RowsetMetaCloudPB> rowsets_to_delete;
+        for (const auto& task : batch_delete_tasks) {
+            // Version 0-1 rowset has no resource_id and no actual data files, skip it
+            if (task.rowset_meta.resource_id().empty()) {
+                LOG_INFO("skip rowset with empty resource_id in batch delete")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", task.rowset_meta.rowset_id_v2());
+                continue;
+            }
+            rowsets_to_delete[task.rowset_meta.rowset_id_v2()] = task.rowset_meta;
+        }
+
+        // Only call delete_rowset_data if there are rowsets with actual data to delete
+        bool delete_success = true;
+        if (!rowsets_to_delete.empty()) {
+            RecyclerMetricsContext batch_metrics_context(instance_id_,
+                                                         "batch_delete_versioned_tablet");
+            int delete_ret = delete_rowset_data(
+                    rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET, batch_metrics_context);
+            if (delete_ret != 0) {
+                LOG_WARNING("batch delete execution failed")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id);
+                g_bvar_recycler_batch_delete_failures.put(instance_id_, 1);
+                ret = -1;
+                delete_success = false;
+            }
+        }
+
+        // Phase 3: Only cleanup metadata if data deletion succeeded.
+        // If deletion failed, keep recycle_rowset_key so next round will retry.
+        if (delete_success) {
+            int cleanup_ret = cleanup_rowset_metadata(batch_delete_tasks);
+            if (cleanup_ret != 0) {
+                LOG_WARNING("batch delete cleanup failed")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id);
+                ret = -1;
+            }
+        }
+    }
+
+    // Always wait for fallback tasks to complete before returning
     bool finished = true;
     std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
     for (int r : rets) {
@@ -2821,7 +3149,7 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
     ret = finished ? ret : -1;
 
     if (ret != 0) { // failed recycle tablet data
-        LOG_WARNING("ret!=0")
+        LOG_WARNING("recycle versioned tablet failed")
                 .tag("finished", finished)
                 .tag("ret", ret)
                 .tag("instance_id", instance_id_)
@@ -2908,8 +3236,7 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
 }
 
 int InstanceRecycler::recycle_rowsets() {
-    if (instance_info_.has_multi_version_status() &&
-        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
+    if (should_recycle_versioned_keys()) {
         return recycle_versioned_rowsets();
     }
 
@@ -3572,7 +3899,8 @@ int InstanceRecycler::recycle_versioned_rowsets() {
 }
 
 int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                                   const RowsetMetaCloudPB& rowset_meta) {
+                                                   const RowsetMetaCloudPB& rowset_meta,
+                                                   std::string_view non_versioned_rowset_key) {
     constexpr int MAX_RETRY = 10;
     int64_t tablet_id = rowset_meta.tablet_id();
     const std::string& rowset_id = rowset_meta.rowset_id_v2();
@@ -3629,6 +3957,32 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
             LOG_INFO("delete rowset data ref count key")
                     .tag("txn_id", rowset_meta.txn_id())
                     .tag("ref_count_key", hex(rowset_ref_count_key));
+
+            std::string dbm_start_key =
+                    meta_delete_bitmap_key({reference_instance_id, tablet_id, rowset_id, 0, 0});
+            std::string dbm_end_key = meta_delete_bitmap_key(
+                    {reference_instance_id, tablet_id, rowset_id,
+                     std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()});
+            txn->remove(dbm_start_key, dbm_end_key);
+            LOG_INFO("remove delete bitmap kv")
+                    .tag("begin", hex(dbm_start_key))
+                    .tag("end", hex(dbm_end_key));
+
+            std::string versioned_dbm_start_key = versioned::meta_delete_bitmap_key(
+                    {reference_instance_id, tablet_id, rowset_id});
+            std::string versioned_dbm_end_key = versioned_dbm_start_key;
+            encode_int64(INT64_MAX, &versioned_dbm_end_key);
+            txn->remove(versioned_dbm_start_key, versioned_dbm_end_key);
+            LOG_INFO("remove versioned delete bitmap kv")
+                    .tag("begin", hex(versioned_dbm_start_key))
+                    .tag("end", hex(versioned_dbm_end_key));
+
+            std::string meta_rowset_key_begin =
+                    versioned::meta_rowset_key({reference_instance_id, tablet_id, rowset_id});
+            std::string meta_rowset_key_end = meta_rowset_key_begin;
+            encode_int64(INT64_MAX, &meta_rowset_key_end);
+            txn->remove(meta_rowset_key_begin, meta_rowset_key_end);
+            LOG_INFO("remove meta rowset key").tag("key", hex(meta_rowset_key_begin));
         } else {
             // Decrease the rowset ref count.
             //
@@ -3641,7 +3995,15 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
                     .tag("ref_count_key", hex(rowset_ref_count_key));
         }
 
-        txn->remove(recycle_rowset_key);
+        if (!recycle_rowset_key.empty()) { // empty when recycle ref rowsets for deleted instance
+            txn->remove(recycle_rowset_key);
+            LOG_INFO("remove recycle rowset key").tag("key", hex(recycle_rowset_key));
+        }
+        if (!non_versioned_rowset_key.empty()) {
+            txn->remove(non_versioned_rowset_key);
+            LOG_INFO("remove non versioned rowset key").tag("key", hex(non_versioned_rowset_key));
+        }
+
         err = txn->commit();
         if (err == TxnErrorCode::TXN_CONFLICT) { // unlikely
             // The rowset ref count key has been changed, we need to retry.
@@ -5437,6 +5799,228 @@ int InstanceRecycler::scan_and_statistics_restore_jobs() {
 
     int ret = scan_and_recycle(restore_job_key0, restore_job_key1, std::move(scan_and_statistics));
     metrics_context.report(true);
+    return ret;
+}
+
+int InstanceRecycler::classify_rowset_task_by_ref_count(
+        RowsetDeleteTask& task, std::vector<RowsetDeleteTask>& batch_delete_tasks) {
+    constexpr int MAX_RETRY = 10;
+    const auto& rowset_meta = task.rowset_meta;
+    int64_t tablet_id = rowset_meta.tablet_id();
+    const std::string& rowset_id = rowset_meta.rowset_id_v2();
+    std::string_view reference_instance_id = instance_id_;
+    if (rowset_meta.has_reference_instance_id()) {
+        reference_instance_id = rowset_meta.reference_instance_id();
+    }
+
+    for (int i = 0; i < MAX_RETRY; ++i) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn when classifying rowset task")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("err", err);
+            return -1;
+        }
+
+        std::string rowset_ref_count_key =
+                versioned::data_rowset_ref_count_key({reference_instance_id, tablet_id, rowset_id});
+        task.rowset_ref_count_key = rowset_ref_count_key;
+
+        int64_t ref_count = 0;
+        {
+            std::string value;
+            TxnErrorCode err = txn->get(rowset_ref_count_key, &value);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                ref_count = 1;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to get rowset ref count key when classifying")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rowset_id)
+                        .tag("err", err);
+                return -1;
+            } else if (!txn->decode_atomic_int(value, &ref_count)) {
+                LOG_WARNING("failed to decode rowset data ref count when classifying")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rowset_id)
+                        .tag("value", hex(value));
+                return -1;
+            }
+        }
+
+        if (ref_count > 1) {
+            // ref_count > 1: decrement count, remove recycle keys, don't add to batch delete
+            txn->atomic_add(rowset_ref_count_key, -1);
+            LOG_INFO("decrease rowset data ref count in classification phase")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("ref_count", ref_count - 1)
+                    .tag("ref_count_key", hex(rowset_ref_count_key));
+
+            if (!task.recycle_rowset_key.empty()) {
+                txn->remove(task.recycle_rowset_key);
+                LOG_INFO("remove recycle rowset key in classification phase")
+                        .tag("key", hex(task.recycle_rowset_key));
+            }
+            if (!task.non_versioned_rowset_key.empty()) {
+                txn->remove(task.non_versioned_rowset_key);
+                LOG_INFO("remove non versioned rowset key in classification phase")
+                        .tag("key", hex(task.non_versioned_rowset_key));
+            }
+
+            err = txn->commit();
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                VLOG_DEBUG << "decrease rowset ref count but txn conflict in classification, retry"
+                           << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id
+                           << ", ref_count=" << ref_count << ", retry=" << i;
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                continue;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to commit txn when classifying rowset task")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rowset_id)
+                        .tag("err", err);
+                return -1;
+            }
+            return 1; // handled, not added to batch delete
+        } else {
+            // ref_count == 1: Add to batch delete plan without modifying any KV.
+            // Keep recycle_rowset_key as "pending recycle" marker until data is actually deleted.
+            LOG_INFO("add rowset to batch delete plan")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("resource_id", rowset_meta.resource_id())
+                    .tag("ref_count", ref_count);
+
+            batch_delete_tasks.push_back(std::move(task));
+            return 0; // added to batch delete
+        }
+    }
+
+    LOG_WARNING("failed to classify rowset task after retry")
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", tablet_id)
+            .tag("rowset_id", rowset_id)
+            .tag("retry", MAX_RETRY);
+    return -1;
+}
+
+int InstanceRecycler::cleanup_rowset_metadata(const std::vector<RowsetDeleteTask>& tasks) {
+    int ret = 0;
+    for (const auto& task : tasks) {
+        int64_t tablet_id = task.rowset_meta.tablet_id();
+        const std::string& rowset_id = task.rowset_meta.rowset_id_v2();
+
+        // Note: decrement_packed_file_ref_counts is already called in delete_rowset_data,
+        // so we don't need to call it again here.
+
+        // Remove all metadata keys in one transaction
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn when cleaning up metadata")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("err", err);
+            ret = -1;
+            continue;
+        }
+
+        std::string_view reference_instance_id = instance_id_;
+        if (task.rowset_meta.has_reference_instance_id()) {
+            reference_instance_id = task.rowset_meta.reference_instance_id();
+        }
+
+        txn->remove(task.rowset_ref_count_key);
+        LOG_INFO("delete rowset data ref count key in cleanup phase")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("ref_count_key", hex(task.rowset_ref_count_key));
+
+        std::string dbm_start_key =
+                meta_delete_bitmap_key({reference_instance_id, tablet_id, rowset_id, 0, 0});
+        std::string dbm_end_key = meta_delete_bitmap_key(
+                {reference_instance_id, tablet_id, rowset_id,
+                 std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()});
+        txn->remove(dbm_start_key, dbm_end_key);
+        LOG_INFO("remove delete bitmap kv in cleanup phase")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("begin", hex(dbm_start_key))
+                .tag("end", hex(dbm_end_key));
+
+        std::string versioned_dbm_start_key =
+                versioned::meta_delete_bitmap_key({reference_instance_id, tablet_id, rowset_id});
+        std::string versioned_dbm_end_key = versioned_dbm_start_key;
+        encode_int64(INT64_MAX, &versioned_dbm_end_key);
+        txn->remove(versioned_dbm_start_key, versioned_dbm_end_key);
+        LOG_INFO("remove versioned delete bitmap kv in cleanup phase")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("begin", hex(versioned_dbm_start_key))
+                .tag("end", hex(versioned_dbm_end_key));
+
+        // Remove versioned meta rowset key
+        if (!task.versioned_rowset_key.empty()) {
+            std::string versioned_rowset_key_end = task.versioned_rowset_key;
+            encode_int64(INT64_MAX, &versioned_rowset_key_end);
+            txn->remove(task.versioned_rowset_key, versioned_rowset_key_end);
+            LOG_INFO("remove versioned meta rowset key in cleanup phase")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("begin", hex(task.versioned_rowset_key))
+                    .tag("end", hex(versioned_rowset_key_end));
+        }
+
+        if (!task.non_versioned_rowset_key.empty()) {
+            txn->remove(task.non_versioned_rowset_key);
+            LOG_INFO("remove non versioned rowset key in cleanup phase")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("key", hex(task.non_versioned_rowset_key));
+        }
+
+        // Remove recycle_rowset_key last to ensure retry safety:
+        // if cleanup fails, this key remains and triggers next round retry.
+        if (!task.recycle_rowset_key.empty()) {
+            txn->remove(task.recycle_rowset_key);
+            LOG_INFO("remove recycle rowset key in cleanup phase")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("key", hex(task.recycle_rowset_key));
+        }
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            // Metadata cleanup failed. recycle_rowset_key remains, next round will retry.
+            LOG_WARNING("failed to commit cleanup metadata txn, will retry next round")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("err", err);
+            ret = -1;
+            continue;
+        }
+
+        LOG_INFO("cleanup rowset metadata success")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+    }
     return ret;
 }
 

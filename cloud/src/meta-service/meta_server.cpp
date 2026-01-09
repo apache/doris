@@ -28,9 +28,12 @@
 #include <random>
 #include <thread>
 
+#include "common/bvars.h"
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/metric.h"
 #include "common/network_util.h"
+#include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
@@ -63,6 +66,17 @@ int MetaServer::start(brpc::Server* server) {
         return -1;
     }
 
+    // Add instance watcher
+    if (config::enable_instance_update_watcher) {
+        instance_watcher_.reset(new MetaServerInstanceWatcher(txn_kv_, rc_mgr));
+        ret = instance_watcher_->start();
+        TEST_SYNC_POINT_CALLBACK("MetaServer::start:3", &ret);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to start instance watcher";
+            return -1;
+        }
+    }
+
     auto rate_limiter = std::make_shared<RateLimiter>();
     auto snapshot_mgr = std::make_shared<SnapshotManager>(txn_kv_);
 
@@ -85,6 +99,9 @@ int MetaServer::start(brpc::Server* server) {
 
 void MetaServer::stop() {
     server_register_->stop();
+    if (config::enable_instance_update_watcher) {
+        instance_watcher_->stop();
+    }
 }
 
 void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
@@ -194,6 +211,177 @@ void MetaServerRegister::stop() {
         register_thread_->join();
         register_thread_.reset();
     }
+}
+
+MetaServerInstanceWatcher::~MetaServerInstanceWatcher() {
+    stop();
+}
+
+int MetaServerInstanceWatcher::start() {
+    if (txn_kv_ == nullptr) return -1;
+    std::unique_lock<std::mutex> lock(mtx_);
+    if (running_.load() != 0) {
+        LOG(INFO) << "instance watcher already started";
+        return -2;
+    }
+    running_.store(1);
+    instance_watch_thread_ = std::thread(&MetaServerInstanceWatcher::watch_instance_loop, this);
+    return 0;
+}
+
+void MetaServerInstanceWatcher::stop() {
+    {
+        std::unique_lock<std::mutex> lock(mtx_);
+        if (running_.load() == 2) {
+            LOG(INFO) << "instance watcher already stopped";
+            return;
+        }
+        running_.store(2);
+        cv_.notify_all();
+    }
+    if (instance_watch_thread_.joinable()) {
+        TxnErrorCode err = trigger_instance_watch();
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to trigger instance watch when stopping instance watcher";
+        }
+        instance_watch_thread_.join();
+    }
+}
+
+void MetaServerInstanceWatcher::watch_instance_loop() {
+    pthread_setname_np(pthread_self(), "ms_instance_watcher");
+
+    LOG(INFO) << "instance watch thread begins to run";
+
+    constexpr int64_t MIN_SLEEP_INTERVAL_MS = 100;   // 100 microsecond
+    constexpr int64_t MAX_SLEEP_INTERVAL_MS = 10000; // 10 second
+
+    std::string original_value;
+    std::unordered_map<std::string, std::string> instance_kvs_;
+
+    int64_t sleep_intervals_ms = MIN_SLEEP_INTERVAL_MS;
+    while (running_.load() == 1) {
+        TxnErrorCode err = watch_instance(instance_kvs_, original_value);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to watch instance, err=" << err;
+            std::unique_lock l(mtx_);
+            cv_.wait_for(l, std::chrono::milliseconds(sleep_intervals_ms));
+            sleep_intervals_ms = std::min(sleep_intervals_ms * 2, MAX_SLEEP_INTERVAL_MS);
+            continue;
+        }
+        sleep_intervals_ms = MIN_SLEEP_INTERVAL_MS;
+    }
+    LOG(INFO) << "instance watch thread quits";
+}
+
+TxnErrorCode MetaServerInstanceWatcher::watch_instance(
+        std::unordered_map<std::string, std::string>& instance_kvs_, std::string& original_value) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn in watch_instance, err=" << err;
+        return err;
+    }
+
+    std::string key = system_meta_service_instance_update_key();
+    std::string new_value;
+    err = txn->get(key, &new_value);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG(WARNING) << "failed to get instance update key in watch_instance, err=" << err;
+        return err;
+    } else if (err == TxnErrorCode::TXN_OK && new_value != original_value) {
+        LOG(INFO) << "instance update key changed, old_value=" << hex(original_value)
+                  << " new_value=" << hex(new_value);
+        err = scan_and_notify_instance_updates(instance_kvs_);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to scan and notify instance updates in watch_instance, err="
+                         << err;
+            return err;
+        }
+
+        // The instance update key is changed, update the original value, and continue to watch
+        original_value = new_value;
+        return TxnErrorCode::TXN_OK;
+    }
+
+    err = txn->watch_key(key);
+    if (err == TxnErrorCode::TXN_TOO_MANY_WATCHES) {
+        LOG(ERROR) << "too many watches registered in watch_instance, you may need to increase "
+                      "the limitation";
+        return err;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to watch instance update key in watch_instance, err=" << err;
+        return err;
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaServerInstanceWatcher::scan_and_notify_instance_updates(
+        std::unordered_map<std::string, std::string>& instance_kvs_) {
+    StopWatch sw;
+    DORIS_CLOUD_DEFER {
+        g_bvar_ms_scan_instance_update << sw.elapsed_us();
+    };
+
+    std::string begin_key = instance_key({""});
+    std::string end_key = instance_key({"\xff"}); // instance id are human readable strings
+
+    FullRangeGetOptions opts;
+    opts.txn_kv = txn_kv_;
+    opts.prefetch = true;
+    auto it = txn_kv_->full_range_get(begin_key, end_key, opts);
+
+    std::unordered_map<std::string, std::string> new_instance_kvs;
+    for (auto&& kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+        std::string_view key = kvp->first;
+        std::string instance_id;
+        if (!decode_instance_key(&key, &instance_id)) {
+            LOG(WARNING) << "failed to decode instance key in watch_instance, key="
+                         << hex(kvp->first);
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        new_instance_kvs.emplace(std::move(instance_id), kvp->second);
+    }
+    if (!it->is_valid()) {
+        return it->error_code();
+    }
+
+    for (auto&& [id, v] : new_instance_kvs) {
+        auto it = instance_kvs_.find(id);
+        if (it == instance_kvs_.end() || it->second != v) {
+            // New instance or updated instance info, notify resource manager to refresh
+            //
+            // The ResourceManager::refresh_instance() will new txn to get instance info,
+            // in order to avoid refreshing instance info with stale data.
+            auto&& [code, msg] = resource_manager_->refresh_instance(id);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "failed to refresh instance in watch_instance, instance_id=" << id
+                             << " code=" << code << " msg=" << msg;
+                return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+            }
+        }
+    }
+
+    instance_kvs_.swap(new_instance_kvs);
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaServerInstanceWatcher::trigger_instance_watch() {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn to trigger instance watch";
+        return err;
+    }
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to commit txn to trigger instance watch";
+        return err;
+    }
+    return TxnErrorCode::TXN_OK;
 }
 
 } // namespace doris::cloud

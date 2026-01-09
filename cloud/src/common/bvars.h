@@ -613,6 +613,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_snapshot;
+extern BvarLatencyRecorderWithTag g_bvar_ms_update_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_commit_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot;
@@ -624,6 +625,12 @@ extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count;
 extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_count;
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count;
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count;
+extern bvar::LatencyRecorder g_bvar_ms_scan_instance_update;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_commit_partition_duration;
+extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted;
+extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
@@ -654,11 +661,15 @@ extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
 
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures;
+
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
 extern bvar::LatencyRecorder g_bvar_txn_kv_range_get;
 extern bvar::LatencyRecorder g_bvar_txn_kv_put;
 extern bvar::LatencyRecorder g_bvar_txn_kv_commit;
+extern bvar::LatencyRecorder g_bvar_txn_kv_watch_key;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_key;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_value;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_add;
@@ -857,6 +868,9 @@ extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_del_counter;
@@ -992,6 +1006,9 @@ extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_del_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_del_bytes;

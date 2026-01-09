@@ -36,6 +36,10 @@
 
 int main(int argc, char** argv) {
     doris::cloud::config::init(nullptr, true);
+    if (!doris::cloud::init_glog("rate_limiter_test")) {
+        std::cerr << "failed to init glog" << std::endl;
+        return -1;
+    }
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

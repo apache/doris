@@ -248,6 +248,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_mvcc_meta_key_check) {
+                if (int ret = checker->do_mvcc_meta_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
@@ -423,7 +429,9 @@ int key_exist(TxnKv* txn_kv, std::string_view key) {
 
 InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id)
         : txn_kv_(txn_kv), instance_id_(instance_id) {
-    snapshot_manager_ = std::make_shared<SnapshotManager>(std::move(txn_kv));
+    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv);
+    resource_mgr_ = std::make_shared<ResourceManager>(std::move(txn_kv));
+    resource_mgr_->init();
 }
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {

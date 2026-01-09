@@ -1494,3 +1494,291 @@ TEST(TxnMemKvTest, GetVersionstampTest) {
     versionstamp_test(mem_txn_kv);
     versionstamp_test(fdb_txn_kv);
 }
+
+static void watch_key_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
+    using namespace doris::cloud;
+    std::string txn_kv_class = dynamic_cast<MemTxnKv*>(txn_kv.get()) != nullptr ? " memkv" : " fdb";
+
+    // Test 1: Watch a key that gets modified
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key1";
+        std::string initial_val = "initial_value";
+        std::string new_val = "new_value";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the key
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> read_success {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(val, initial_val);
+
+            read_success = true;
+
+            // This will block until the key is modified
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        // Wait a bit to ensure the watch is registered
+        while (!read_success) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Modify the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Wait for the watch to be triggered
+        watcher.join();
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+    }
+
+    // Test 2: Watch a key that gets deleted
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key2";
+        std::string initial_val = "value_to_delete";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the key
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> read_success {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            read_success = true;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        while (!read_success) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Delete the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher.join();
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+    }
+
+    // Test 3: Watch a non-existent key that gets created
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key3_nonexistent";
+        std::string new_val = "newly_created";
+
+        // Ensure the key doesn't exist
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->remove(key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create a watch on the non-existent key
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> read_success {false};
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            auto ret = watch_txn->get(key, &val);
+            ASSERT_EQ(ret, TxnErrorCode::TXN_KEY_NOT_FOUND);
+            read_success = true;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        while (!read_success) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Create the key
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher.join();
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+    }
+
+    // Test 4: Multiple watches on the same key
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_test_key4_multiple";
+        std::string initial_val = "multi_watch_initial";
+        std::string new_val = "multi_watch_new";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create multiple watches on the same key
+        std::atomic<int> watch_count {0};
+        std::atomic<int> read_count {0};
+        std::thread watcher1([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+
+            read_count++;
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_count++;
+        });
+
+        std::thread watcher2([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            read_count++;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_count++;
+        });
+
+        std::thread watcher3([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            read_count++;
+
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_count++;
+        });
+
+        while (read_count.load() < 3) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        // Modify the key - all watches should be triggered
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, new_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        watcher1.join();
+        watcher2.join();
+        watcher3.join();
+
+        ASSERT_EQ(watch_count.load(), 3) << txn_kv_class;
+    }
+}
+
+TEST(TxnMemKvTest, WatchKeyTest) {
+    using namespace doris::cloud;
+
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(mem_txn_kv.get(), nullptr);
+
+    watch_key_test(mem_txn_kv);
+    watch_key_test(fdb_txn_kv);
+}
+
+static void watch_key_race_condition_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
+    using namespace doris::cloud;
+    std::string txn_kv_class = dynamic_cast<MemTxnKv*>(txn_kv.get()) != nullptr ? " memkv" : " fdb";
+
+    // Test race condition: txn2 modifies the key after txn1 commits but before watch is registered
+    {
+        std::unique_ptr<Transaction> txn;
+        std::string key = "watch_race_key_" + std::to_string(time(nullptr));
+        std::string initial_val = "initial";
+        std::string new_val = "modified";
+
+        // Set initial value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, initial_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        std::atomic<bool> watch_triggered {false};
+        std::atomic<bool> txn1_committed {false};
+        std::atomic<bool> txn2_can_proceed {false};
+
+        // Thread 1: Watch the key
+        std::thread watcher([&]() {
+            std::unique_ptr<Transaction> watch_txn;
+            ASSERT_EQ(txn_kv->create_txn(&watch_txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(watch_txn->get(key, &val), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(val, initial_val);
+
+            // Signal that we've read the value and are about to commit
+            txn2_can_proceed = true;
+
+            // Small delay to increase the chance of race condition
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+
+            // This will commit and then try to register watch
+            // During this time, txn2 might modify the key
+            txn1_committed = true;
+            ASSERT_EQ(watch_txn->watch_key(key), TxnErrorCode::TXN_OK) << txn_kv_class;
+            watch_triggered = true;
+        });
+
+        // Thread 2: Modify the key right after txn1 commits
+        std::thread modifier([&]() {
+            // Wait for watcher to read the value
+            while (!txn2_can_proceed) {
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+
+            // Wait for txn1 to commit but try to modify before watch is registered
+            while (!txn1_committed) {
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+
+            // Modify the key - this should trigger the watch even if it happens
+            // between commit and watch registration
+            std::unique_ptr<Transaction> modify_txn;
+            ASSERT_EQ(txn_kv->create_txn(&modify_txn), TxnErrorCode::TXN_OK);
+            modify_txn->put(key, new_val);
+            ASSERT_EQ(modify_txn->commit(), TxnErrorCode::TXN_OK);
+        });
+
+        watcher.join();
+        modifier.join();
+
+        // The watch should have been triggered (or returned immediately if change was detected)
+        ASSERT_TRUE(watch_triggered) << txn_kv_class;
+
+        // Verify the final value
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string final_val;
+        ASSERT_EQ(txn->get(key, &final_val), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(final_val, new_val) << txn_kv_class;
+    }
+}
+
+TEST(TxnMemKvTest, WatchKeyRaceConditionTest) {
+    using namespace doris::cloud;
+
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(mem_txn_kv.get(), nullptr);
+
+    // Run the test multiple times to increase the chance of catching race conditions
+    for (int i = 0; i < 10; ++i) {
+        watch_key_race_condition_test(mem_txn_kv);
+    }
+    watch_key_race_condition_test(fdb_txn_kv);
+}
