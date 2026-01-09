@@ -1000,18 +1000,6 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) {
-    if (!_conjuncts.empty()) {
-        std::unique_lock l(_conjunct_lock);
-        conjuncts.resize(_conjuncts.size());
-        for (size_t i = 0; i != _conjuncts.size(); ++i) {
-            RETURN_IF_ERROR(_conjuncts[i]->clone(state(), conjuncts[i]));
-        }
-    }
-    return Status::OK();
-}
-
-template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
     _rows_read_counter = ADD_COUNTER(custom_profile(), "RowsRead", TUnit::UNIT);
