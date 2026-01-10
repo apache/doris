@@ -118,8 +118,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     if (ctx->status.ok()) {
         ctx->status = _handle(ctx, req);
         if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
-            LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
-                         << ", errmsg=" << ctx->status;
             _send_reply(ctx, req);
         }
     }
@@ -171,6 +169,10 @@ void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRe
 
 void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
     std::unique_lock<std::mutex> lock1(ctx->_send_reply_lock);
+    // 1. _can_send_reply: ensure `send_reply` is invoked only after on_header/handle complete, 
+    //    avoid client errors (e.g., broken pipe).
+    // 2. _finish_send_reply: Prevent duplicate reply sending; skip reply if HTTP request is canceled 
+    //    due to long import execution time.
     while (!ctx->_finish_send_reply && !ctx->_can_send_reply) {
         ctx->_can_send_reply_cv.wait(lock1);
     }

@@ -108,7 +108,7 @@ private:
 
     // ensure send_reply finished
     std::promise<bool> _http_reply_promise;
-    std::future<bool> _http_reply_futrue = _http_reply_promise.get_future();
+    std::future<bool> _http_reply_future = _http_reply_promise.get_future();
 };
 
 } // namespace doris

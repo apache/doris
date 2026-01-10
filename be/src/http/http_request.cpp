@@ -153,8 +153,6 @@ void HttpRequest::finish_send_reply() {
     if (_handler_ctx != nullptr) {
         infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
     }
-    VLOG_NOTICE << "finish send reply, infos=" << infos
-                << ", stack=" << get_stack_trace(); // temp locate problem
     _http_reply_promise.set_value(true);
 }
 
@@ -172,7 +170,7 @@ void HttpRequest::wait_finish_send_reply() {
     }
 
     VLOG_NOTICE << "start to wait send reply, infos=" << infos;
-    auto status = _http_reply_futrue.wait_for(std::chrono::seconds(3));
+    auto status = _http_reply_future.wait_for(std::chrono::seconds(config::async_reply_timeout_s));
     // if request is timeout and can't cancel fragment in time, it will cause some new request block
     // so we will free cancelled request in time.
     if (status != std::future_status::ready) {
