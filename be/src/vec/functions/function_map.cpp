@@ -801,6 +801,11 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.empty()) {
+            return std::make_shared<DataTypeMap>(
+                    make_nullable(std::make_shared<DataTypeNothing>()),
+                    make_nullable(std::make_shared<DataTypeNothing>()));
+        }
         DCHECK(arguments.size() > 0)
                 << "function: " << get_name() << ", arguments should not be empty";
         return arguments[0];
