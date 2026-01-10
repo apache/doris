@@ -285,13 +285,24 @@ private:
     UInt32 scale;
 };
 
+constexpr PrimitiveType result_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else {
+        return T;
+    }
+}
+
 // TODO: use result type from FE plan
 template <PrimitiveType T>
 struct SumSimple {
     static_assert(!is_decimalv3(T));
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    static constexpr PrimitiveType ResultType =
-            T == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : PrimitiveTypeTraits<T>::NearestPrimitiveType;
+    static constexpr PrimitiveType ResultType = result_type(T);
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };

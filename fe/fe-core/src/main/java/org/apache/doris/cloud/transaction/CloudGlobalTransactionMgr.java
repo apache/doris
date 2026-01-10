@@ -1347,7 +1347,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 AgentTaskQueue.addTask(task);
                 batchTask.addTask(task);
                 LOG.info("send calculate delete bitmap task to be {}, txn_id {}, signature {}, partitionInfos={}",
-                        entry.getKey(), transactionId, signature, entry.getValue());
+                        entry.getKey(), transactionId, signature,
+                        StringUtils.abbreviate(entry.getValue().toString(), 200));
             }
             AgentTaskExecutor.submit(batchTask);
 

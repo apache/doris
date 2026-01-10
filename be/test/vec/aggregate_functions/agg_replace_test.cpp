@@ -164,11 +164,12 @@ public:
                     array[j] = Field::create_field<TYPE_STRING>(item);
                 } else if constexpr (IsDecimalNumber<FieldType>) {
                     auto item = FieldType(static_cast<uint64_t>(j));
-                    array[j] =
-                            Field::create_field<TYPE_DECIMALV2>(DecimalField<FieldType>(item, 20));
+                    array[j] = Field::create_field<TYPE_DECIMALV2>(
+                            *(typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType*)&item);
                 } else {
+                    auto v = static_cast<uint64_t>(j);
                     array[j] = Field::create_field<TYPE_DATETIMEV2>(
-                            FieldType(static_cast<uint64_t>(j)));
+                            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
                 }
             }
             input_col->insert(Field::create_field<TYPE_ARRAY>(array));

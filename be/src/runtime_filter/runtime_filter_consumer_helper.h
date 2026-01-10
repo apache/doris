@@ -48,6 +48,10 @@ public:
                                                   vectorized::VExprContextSPtrs& conjuncts,
                                                   const RowDescriptor& row_descriptor);
 
+    Status clone_conjunct_ctxs(RuntimeState* state,
+                               vectorized::VExprContextSPtrs& scanner_conjuncts,
+                               vectorized::VExprContextSPtrs& local_state_conjuncts);
+
     // Called by XXXLocalState::close()
     // parent_operator_profile is owned by LocalState so update it is safe at here.
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);

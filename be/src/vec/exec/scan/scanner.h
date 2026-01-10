@@ -103,6 +103,16 @@ protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
+    Status _merge_padding_block() {
+        if (_padding_block.empty()) {
+            _padding_block.swap(_origin_block);
+        } else if (_origin_block.rows()) {
+            RETURN_IF_ERROR(
+                    MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block));
+        }
+        return Status::OK();
+    }
+
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
 
@@ -217,6 +227,8 @@ protected:
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
     vectorized::Block _origin_block;
+    vectorized::Block _padding_block;
+    bool _alreay_eos = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
     // Late arriving runtime filters will update _conjuncts.

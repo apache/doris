@@ -143,6 +143,8 @@ io::FileSystemSPtr RowsetMeta::fs() {
             index.packed_file_path = index_pb.packed_file_path();
             index.offset = index_pb.offset();
             index.size = index_pb.size();
+            index.packed_file_size =
+                    index_pb.has_packed_file_size() ? index_pb.packed_file_size() : -1;
             index.tablet_id = tablet_id();
             index.rowset_id = _rowset_id.to_string();
             index.resource_id = wrapped->id();

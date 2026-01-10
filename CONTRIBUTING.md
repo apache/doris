@@ -33,7 +33,7 @@ For the first time in Doris community, you can:
 
 * Follow [Doris GitHub](https://github.com/apache/doris)
 * Subscribe to our [mailing list](./docs/en/community/subscribe-mail-list.md);
-* Join Doris [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
+* Join Doris [Slack](https://doris.apache.org/slack)
 
 Learn the development trends of Doris project in time and give your opinions on the topics you are concerned about.
 

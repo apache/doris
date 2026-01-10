@@ -2213,7 +2213,7 @@ public:
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
 
     template <PrimitiveType T>
-    Field apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+    Field apply(const typename PrimitiveTypeTraits<T>::CppType& x) const {
         if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;

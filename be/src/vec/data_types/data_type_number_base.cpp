@@ -67,7 +67,7 @@ std::string DataTypeNumberBase<T>::to_string(
 
 template <PrimitiveType T>
 Field DataTypeNumberBase<T>::get_default() const {
-    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::NearestFieldType());
+    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType());
 }
 
 template <PrimitiveType T>
@@ -88,11 +88,11 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     }
     if constexpr (is_int(T)) {
         return Field::create_field<T>(
-                typename PrimitiveTypeTraits<T>::NearestFieldType(node.int_literal.value));
+                typename PrimitiveTypeTraits<T>::CppType(node.int_literal.value));
     }
     if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
         return Field::create_field<T>(
-                typename PrimitiveTypeTraits<T>::NearestFieldType(node.float_literal.value));
+                typename PrimitiveTypeTraits<T>::CppType(node.float_literal.value));
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
 }

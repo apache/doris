@@ -740,7 +740,7 @@ public class Env {
         this.feSessionMgr = new FESessionMgr();
         this.temporaryTableMgr = new TemporaryTableMgr();
         this.aliveSessionSet = Sets.newConcurrentHashSet();
-        this.tabletInvertedIndex = new TabletInvertedIndex();
+        this.tabletInvertedIndex = EnvFactory.getInstance().createTabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
         this.functionSet = new FunctionSet();
@@ -861,7 +861,8 @@ public class Env {
     }
 
     private void refreshSession(String sessionId) {
-        sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
+        // TODO: do nothing now until we fix memory link on Env#sessionReportTimeMap and Env#aliveSessionSet
+        // sessionReportTimeMap.put(sessionId, System.currentTimeMillis());
     }
 
     public void checkAndRefreshSession(String sessionId) {
@@ -3479,14 +3480,17 @@ public class Env {
      * @param isCreateTable this call is for creating table
      * @param generatedPartitionId the preset partition id for the partition to add
      * @param writeEditLog whether to write an edit log for this addition
-     * @return PartitionPersistInfo to be written to editlog. It may be null if no partitions added.
+     * @batchPartitions output parameter, used to batch write edit log outside this function, can be null.
+     * first is editlog PartitionPersistInfo, second is the added Partition
      * @throws DdlException
      */
-    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
+    public void addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
                                              boolean isCreateTable, long generatedPartitionId,
-                                             boolean writeEditLog) throws DdlException {
-        return getInternalCatalog().addPartition(db, tableName, addPartitionOp,
-            isCreateTable, generatedPartitionId, writeEditLog);
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
+            throws DdlException {
+        getInternalCatalog().addPartition(db, tableName, addPartitionOp,
+                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions);
     }
 
     public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionOp multiPartitionOp)
@@ -7365,7 +7369,8 @@ public class Env {
     }
 
     public void registerSessionInfo(String sessionId) {
-        this.aliveSessionSet.add(sessionId);
+        // TODO: do nothing now until we fix memory link on Env#sessionReportTimeMap and Env#aliveSessionSet
+        // this.aliveSessionSet.add(sessionId);
     }
 
     public void unregisterSessionInfo(String sessionId) {

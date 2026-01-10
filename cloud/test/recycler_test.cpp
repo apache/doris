@@ -1353,6 +1353,7 @@ TEST(RecyclerTest, recycle_rowsets) {
     check_delete_bitmap_file_size(accessor, tablet_id, 1000);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
 
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
@@ -1529,6 +1530,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     check_delete_bitmap_file_size(accessor, tablet_id, 1000);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
     ASSERT_EQ(recycler.check_recycle_tasks(), false);
 
     // check rowset does not exist on obj store
@@ -1618,6 +1620,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
 
     auto start = std::chrono::steady_clock::now();
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     auto finish = std::chrono::steady_clock::now();
     std::cout << "recycle tmp rowsets cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
@@ -1701,6 +1704,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
     check_delete_bitmap_file_size(accessor, tablet_id, 10);
 
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
@@ -2002,8 +2006,9 @@ TEST(RecyclerTest, recycle_indexes) {
         check_delete_bitmap_file_size(accessor, tablet_id, 10);
     }
     ASSERT_EQ(recycler.recycle_indexes(), 0);
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0); // Recycle tmp rowsets too, since
-                                                  // recycle_indexes does not recycle tmp rowsets
+    // recycle_indexes does not recycle tmp rowsets
 
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
