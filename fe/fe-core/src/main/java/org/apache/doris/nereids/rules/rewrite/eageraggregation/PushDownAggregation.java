@@ -35,6 +35,7 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -85,11 +87,13 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             Min.class);
 
     private final Set<Class> acceptNodeType = Sets.newHashSet(
+            LogicalUnion.class,
             LogicalProject.class,
             LogicalFilter.class,
             LogicalRelation.class,
             LogicalJoin.class);
 
+    private CheckAfterRewrite checker = new CheckAfterRewrite();
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         int mode = SessionVariable.getEagerAggregationMode();
@@ -214,6 +218,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 }
                 LogicalAggregate<Plan> eagerAgg =
                         agg.withAggOutputChild(newOutputExpressions, child);
+                checker.checkTreeAllSlotReferenceFromChildren(eagerAgg);
                 NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
                 LogicalPlan normalized = normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
                         context.getCascadesContext());
