@@ -34,7 +34,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -246,6 +248,85 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     @Override
+    public Plan visitLogicalUnion(LogicalUnion union, PushDownAggContext context) {
+        if (!union.getConstantExprsList().isEmpty()) {
+            return union;
+        }
+
+        if (!union.getOutputs().stream().allMatch(e -> e instanceof SlotReference)) {
+            return union;
+        }
+        List<Plan> newChildren = Lists.newArrayList();
+        List<PushDownAggContext> childrenContext = new ArrayList<>();
+        boolean changed = false;
+        for (int idx = 0; idx < union.children().size(); idx++) {
+            Plan child = union.children().get(idx);
+            final int childIdx = idx;
+            List<AggregateFunction> aggFunctionsForChild = new ArrayList<>();
+            Map<AggregateFunction, Alias> aliasMapForChild = new HashMap<>();
+            for (AggregateFunction func : context.getAggFunctions()) {
+                AggregateFunction newFunc = (AggregateFunction) union.pushDownExpressionPastSetOperator(func, childIdx);
+                aggFunctionsForChild.add(newFunc);
+                Alias alias = context.getAliasMap().get(func);
+                // aliasForChild should have its own ExprId
+                Alias aliasForChild = new Alias(newFunc, alias.getName(), alias.getQualifier());
+                aliasMapForChild.put(newFunc, aliasForChild);
+            }
+
+            List<SlotReference> groupKeysForChild = context.getGroupKeys().stream()
+                    .map(slot -> (SlotReference) union.pushDownExpressionPastSetOperator(slot, childIdx))
+                    .collect(Collectors.toList());
+            PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
+                    aliasMapForChild, context.getCascadesContext(), context.isPassThroughBigJoin());
+            childrenContext.add(contextForChild);
+            Plan newChild = child.accept(this, contextForChild);
+            if (newChild != child) {
+                changed = true;
+            }
+            newChildren.add(newChild);
+        }
+        if (changed) {
+            List<List<SlotReference>> newRegularChildrenOutputs = Lists.newArrayList();
+            for (int i = 0; i < newChildren.size(); i++) {
+                List<SlotReference> childOutput = new ArrayList<>();
+                for (SlotReference slot : union.getRegularChildOutput(i)) {
+                    boolean found = false;
+                    for (Slot c : newChildren.get(i).getOutput()) {
+                        if (slot.equals(c)) {
+                            childOutput.add((SlotReference) c);
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        for (AggregateFunction func: childrenContext.get(i).getAliasMap().keySet()) {
+                            if (func.getInputSlots().contains(slot)) {
+                                childOutput.add((SlotReference) childrenContext.get(i).getAliasMap().get(func).toSlot());
+                            }
+                        }
+                    }
+                }
+                newRegularChildrenOutputs.add(childOutput);
+            }
+            List<NamedExpression> newOutputs = new ArrayList<>();
+            for (int i = 0; i < union.getOutput().size(); i++) {
+                SlotReference originSlot = (SlotReference) union.getOutput().get(i);
+                for (AggregateFunction func: context.getAliasMap().keySet()) {
+                    if (func.getInputSlots().contains(originSlot)) {
+                        originSlot = (SlotReference) context.getAliasMap().get(func).toSlot();
+                    }
+                }
+                DataType dataType = newRegularChildrenOutputs.get(0).get(i).getDataType();
+                newOutputs.add(originSlot.withNullableAndDataType(originSlot.nullable(), dataType));
+            }
+            LogicalUnion newUnion = (LogicalUnion) union.withChildrenAndOutputs(newChildren, newOutputs, newRegularChildrenOutputs);
+            checker.checkTreeAllSlotReferenceFromChildren(newUnion);
+            return newUnion;
+        } else {
+            return union;
+        }
+    }
+
+    @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
         if (project.child() instanceof LogicalCatalogRelation
                 || (project.child() instanceof LogicalFilter
@@ -305,8 +386,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             for (Alias alias : context.getAliasMap().values()) {
                 newProjections.add(alias.toSlot());
             }
+            Set<SlotReference> newProjectionSlots = newProjections.stream().map(ne -> (SlotReference) ne.toSlot())
+                    .collect(Collectors.toSet());
             for (SlotReference key : context.getGroupKeys()) {
-                if (!newProjections.contains(key)) {
+                if (!newProjectionSlots.contains(key)) {
                     newProjections.add(key);
                 }
             }
