@@ -242,9 +242,7 @@ public class ExpressionUtils {
                     if (expr instanceof BoundFunction) {
                         BoundFunction fn = (BoundFunction) expr;
                         BoundFunction rebuilt = (BoundFunction) fn.withChildren(newChildren);
-                        if (!fn.getDataType().equals(rebuilt.getDataType())) {
-                            return new Cast(rebuilt, fn.getDataType());
-                        }
+                        rebuilt = (BoundFunction) TypeCoercionUtils.processBoundFunction(rebuilt);
                         return rebuilt;
                     }
 
