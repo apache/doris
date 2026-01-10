@@ -82,10 +82,10 @@ public class MapConcat extends ScalarFunction
      */
     private List<FunctionSignature> computeNonEmptySignatures() {
         List<Expression> children = children();
-        
+
         List<DataType> keyTypes = new ArrayList<>();
         List<DataType> valueTypes = new ArrayList<>();
-        
+
         for (Expression child : children) {
             DataType argType = child.getDataType();
             if (argType instanceof MapType) {
@@ -98,23 +98,22 @@ public class MapConcat extends ScalarFunction
                         + "Invalid SQL: " + toSql());
             }
         }
-        
         Optional<DataType> commonKeyType = TypeCoercionUtils.findWiderCommonType(
                 keyTypes, true, true);
         Optional<DataType> commonValueType = TypeCoercionUtils.findWiderCommonType(
                 valueTypes, true, true);
-        
+
         if (!commonKeyType.isPresent()) {
             throw new AnalysisException("mapconcat cannot find the common key type of " + toSql());
         }
         if (!commonValueType.isPresent()) {
             throw new AnalysisException("mapconcat cannot find the common value type of " + toSql());
         }
-        
+
         // Build result map type and signatures
         DataType retMapType = MapType.of(commonKeyType.get(), commonValueType.get());
         List<DataType> retArgTypes = buildArgTypes(children, retMapType);
-        
+
         return ImmutableList.of(FunctionSignature.of(retMapType, retArgTypes));
     }
 
@@ -124,7 +123,7 @@ public class MapConcat extends ScalarFunction
      */
     private List<DataType> buildArgTypes(List<Expression> children, DataType retMapType) {
         ImmutableList.Builder<DataType> retArgTypes = ImmutableList.builder();
-        
+
         for (int i = 0; i < children.size(); i++) {
             DataType argType = children.get(i).getDataType();
             if (argType instanceof MapType) {
@@ -133,7 +132,7 @@ public class MapConcat extends ScalarFunction
                 retArgTypes.add(argType);
             }
         }
-        
+
         return retArgTypes.build();
     }
 }

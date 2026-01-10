@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.MapConcat;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -707,10 +706,8 @@ public class TypeCoercionUtils {
             return processCreateMap((CreateMap) boundFunction);
         }
 
-        // type coercion
         return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
     }
-
 
     private static Expression processCreateMap(CreateMap createMap) {
         if (createMap.arity() == 0) {
