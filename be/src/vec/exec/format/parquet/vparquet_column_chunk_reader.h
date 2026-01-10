@@ -243,6 +243,8 @@ public:
     Status load_page_nested_rows(std::vector<level_t>& rep_levels, size_t max_rows,
                                  size_t* result_rows, bool* cross_page);
     Status load_cross_page_nested_row(std::vector<level_t>& rep_levels, bool* cross_page);
+    // for check dict page.
+    Status parse_first_page_header();
 
     // Test helpers / accessors
     Slice get_page_data() const { return _page_data; }
@@ -253,8 +255,6 @@ public:
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
-    // for check dict page.
-    Status _parse_first_page_header();
     Status _decode_dict_page();
 
     void _reserve_decompress_buf(size_t size);
@@ -305,6 +305,7 @@ private:
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     ColumnChunkReaderStatistics _chunk_statistics;
+    bool _first_page_loaded = false;
 };
 #include "common/compile_check_end.h"
 

@@ -76,7 +76,6 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     _state = INITIALIZED;
-    RETURN_IF_ERROR(_parse_first_page_header());
     return Status::OK();
 }
 
@@ -103,7 +102,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_nested_values(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header() {
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_first_page_header() {
+    if (_first_page_loaded) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(parse_page_header());
 
     const tparquet::PageHeader* header = nullptr;
@@ -116,6 +118,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header(
         RETURN_IF_ERROR(_page_reader->dict_next_page());
         _state = INITIALIZED;
     }
+    _first_page_loaded = true;
 
     return Status::OK();
 }

@@ -536,6 +536,7 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_try_load_dict_page(bool* loaded,
                                                                             bool* has_dict) {
     // _chunk_reader init will load first page header to check whether has dict page
+    RETURN_IF_ERROR(_chunk_reader->parse_first_page_header());
     *loaded = true;
     *has_dict = _chunk_reader->has_dict();
     return Status::OK();
@@ -548,6 +549,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
         int64_t real_column_size) {
     if (_converter == nullptr) {
+        RETURN_IF_ERROR(_chunk_reader->parse_first_page_header());
         _converter = parquet::PhysicalToLogicalConverter::get_converter(
                 _field_schema, _field_schema->data_type, type, _ctz, is_dict_filter);
         if (!_converter->support()) {
