@@ -613,7 +613,7 @@ DECLARE_Int32(webserver_num_workers);
 
 // Async replies: stream load only now
 // reply wait timeout only happens if:
-// 1. Stream load fragment execution times out 
+// 1. Stream load fragment execution times out
 //    HTTP request freed → stream load canceled
 // 2. Client disconnects
 DECLARE_mInt32(async_reply_timeout_s);

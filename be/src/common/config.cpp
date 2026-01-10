@@ -569,12 +569,11 @@ DEFINE_Int32(webserver_num_workers, "128");
 
 // Async replies: stream load only now
 // reply wait timeout only happens if:
-// 1. Stream load fragment execution times out 
+// 1. Stream load fragment execution times out
 //    HTTP request freed → stream load canceled
 // 2. Client disconnects
 DEFINE_mInt32(async_reply_timeout_s, "60");
-DEFINE_Validator(async_reply_timeout_s,
-                 [](const int config) -> bool { return config >= 3; });
+DEFINE_Validator(async_reply_timeout_s, [](const int config) -> bool { return config >= 3; });
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load

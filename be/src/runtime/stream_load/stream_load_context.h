@@ -257,9 +257,9 @@ public:
     std::string qualified_user;
     std::string cloud_cluster;
 
-    // 1. _can_send_reply: ensure `send_reply` is invoked only after on_header/handle complete, 
+    // 1. _can_send_reply: Ensure `send_reply` is invoked only after on_header/handle complete,
     //    avoid client errors (e.g., broken pipe).
-    // 2. _finish_send_reply: Prevent duplicate reply sending; skip reply if HTTP request is canceled 
+    // 2. _finish_send_reply: Prevent duplicate reply sending; skip reply if HTTP request is canceled
     //    due to long import execution time.
     std::mutex _send_reply_lock;
     std::condition_variable _can_send_reply_cv;
