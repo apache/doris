@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
+#include "olap/rowset/segment_v2/variant/nested_group_builder.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
 #include "olap/tablet_schema.h"
@@ -51,7 +52,7 @@ namespace doris::segment_v2 {
 
 namespace {
 
-// English comment: read offsets in range [start, start+count) and also return previous offset.
+// read offsets in range [start, start+count) and also return previous offset.
 Status _read_offsets_with_prev(ColumnIterator* offsets_iter, ordinal_t start, size_t count,
                                uint64_t* prev, std::vector<uint64_t>* out) {
     *prev = 0;
@@ -167,7 +168,7 @@ private:
         return Status::OK();
     }
 
-    // English comment: output selector:
+    // output selector:
     // - If dst is Nullable(JSONB) (ColumnNullable(ColumnString)), append JSONB blobs.
     // - Otherwise append Nullable(Variant(root_type=JSONB)).
     Status _append_group_as_any(GroupState& state, ordinal_t row_ord, size_t row_cnt,
@@ -182,7 +183,7 @@ private:
         return _append_group_as_jsonb(state, row_ord, row_cnt, dst);
     }
 
-    // English comment: build a JSONB blob column (Nullable(JSONB)) for rows [row_ord, row_ord+row_cnt).
+    // build a JSONB blob column (Nullable(JSONB)) for rows [row_ord, row_ord+row_cnt).
     // This is used for nested groups inside an element object.
     Status _append_group_as_jsonb_blob(GroupState& state, ordinal_t row_ord, size_t row_cnt,
                                        vectorized::MutableColumnPtr& dst) {
@@ -229,7 +230,7 @@ private:
         return Status::OK();
     }
 
-    // English comment: build a Variant(root_type=JSONB) column for rows [row_ord, row_ord+row_cnt)
+    // build a Variant(root_type=JSONB) column for rows [row_ord, row_ord+row_cnt)
     // and append into dst (expected Nullable(Variant) or Variant).
     Status _append_group_as_jsonb(GroupState& state, ordinal_t row_ord, size_t row_cnt,
                                  vectorized::MutableColumnPtr& dst) {
@@ -327,14 +328,14 @@ private:
             json.push_back(']');
 
             RETURN_IF_ERROR(jsonb_value.from_json_string(json.data(), json.size()));
-            vectorized::Field jsonb_field = vectorized::Field::create_field<TYPE_JSONB>(
+            vectorized::Field jsonb_field = vectorized::Field::create_field<PrimitiveType::TYPE_JSONB>(
                     vectorized::JsonbField(jsonb_value.value(), jsonb_value.size()));
 
             vectorized::VariantMap object;
             object.try_emplace(vectorized::PathInData {},
                                vectorized::FieldWithDataType(jsonb_field));
             vectorized::Field variant_field =
-                    vectorized::Field::create_field<TYPE_VARIANT>(std::move(object));
+                    vectorized::Field::create_field<PrimitiveType::TYPE_VARIANT>(std::move(object));
             dst_variant.insert(variant_field);
             if (dst_nullable) {
                 dst_nullable->get_null_map_column().get_data().push_back(0);
@@ -353,7 +354,7 @@ private:
 
 namespace {
 
-// English comment: when reading the whole Variant column, merge top-level NestedGroups back
+// when reading the whole Variant column, merge top-level NestedGroups back
 // into ColumnVariant as subcolumns (path = array path). This enables discarding JSONB
 // subcolumns physically while keeping query results correct.
 class VariantRootWithNestedGroupsIterator : public ColumnIterator {
@@ -399,6 +400,15 @@ public:
                         : assert_cast<vectorized::ColumnVariant&>(*dst);
         auto most_common_type = obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
 
+        // Check if we have a top-level NestedGroup ($root path)
+        bool has_root_nested_group = false;
+        for (const auto& [path, _] : _nested_group_readers) {
+            if (path == std::string(kRootNestedGroupPath)) {
+                has_root_nested_group = true;
+                break;
+            }
+        }
+
         auto root_column = most_common_type->create_column();
         RETURN_IF_ERROR(_root_iter->next_batch(n, root_column, has_null));
 
@@ -414,7 +424,12 @@ public:
         // Build a tmp ColumnVariant for this batch: root + nested-group subcolumns.
         auto tmp = vectorized::ColumnVariant::create(0, root_column->size());
         auto& tmp_obj = assert_cast<vectorized::ColumnVariant&>(*tmp);
-        tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
+        
+        // If we have a $root NestedGroup, it will replace the root JSONB.
+        // Otherwise, add the root column as usual.
+        if (!has_root_nested_group) {
+            tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
+        }
 
         auto ng_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>());
         for (auto& [path, it] : _nested_group_iters) {
@@ -422,7 +437,15 @@ public:
             size_t m = *n;
             bool tmp_has_null = false;
             RETURN_IF_ERROR(it->next_batch(&m, col, &tmp_has_null));
-            tmp_obj.add_sub_column(vectorized::PathInData(path), std::move(col), ng_type);
+            
+            // Special handling for top-level NestedGroup ($root path):
+            // Use NestedGroup data as root instead of adding as subcolumn
+            if (path == std::string(kRootNestedGroupPath)) {
+                tmp_obj.add_sub_column(vectorized::PathInData(), std::move(col), ng_type);
+            } else {
+                // Normal subcolumn handling
+                tmp_obj.add_sub_column(vectorized::PathInData(path), std::move(col), ng_type);
+            }
         }
 
         obj.insert_range_from(*tmp, 0, tmp_obj.rows());
@@ -445,6 +468,15 @@ public:
                         : assert_cast<vectorized::ColumnVariant&>(*dst);
         auto most_common_type = obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
 
+        // Check if we have a top-level NestedGroup ($root path)
+        bool has_root_nested_group = false;
+        for (const auto& [path, _] : _nested_group_readers) {
+            if (path == std::string(kRootNestedGroupPath)) {
+                has_root_nested_group = true;
+                break;
+            }
+        }
+
         auto root_column = most_common_type->create_column();
         RETURN_IF_ERROR(_root_iter->read_by_rowids(rowids, count, root_column));
 
@@ -458,13 +490,26 @@ public:
 
         auto tmp = vectorized::ColumnVariant::create(0, root_column->size());
         auto& tmp_obj = assert_cast<vectorized::ColumnVariant&>(*tmp);
-        tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
+        
+        // If we have a $root NestedGroup, it will replace the root JSONB.
+        // Otherwise, add the root column as usual.
+        if (!has_root_nested_group) {
+            tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
+        }
 
         auto ng_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>());
         for (auto& [path, it] : _nested_group_iters) {
             auto col = ng_type->create_column();
             RETURN_IF_ERROR(it->read_by_rowids(rowids, count, col));
-            tmp_obj.add_sub_column(vectorized::PathInData(path), std::move(col), ng_type);
+            
+            // Special handling for top-level NestedGroup ($root path):
+            // Use NestedGroup data as root instead of adding as subcolumn
+            if (path == std::string(kRootNestedGroupPath)) {
+                tmp_obj.add_sub_column(vectorized::PathInData(), std::move(col), ng_type);
+            } else {
+                // Normal subcolumn handling
+                tmp_obj.add_sub_column(vectorized::PathInData(path), std::move(col), ng_type);
+            }
         }
 
         obj.insert_range_from(*tmp, 0, tmp_obj.rows());
@@ -1741,22 +1786,14 @@ Status VariantColumnReader::_init_nested_group_readers(
         info.depth = path_info.has_nested_group_depth() ? path_info.nested_group_depth() : 1;
 
         if (!info.is_offsets) {
-            // Extract relative path
+            // Extract relative path by removing the NestedGroup prefix from column path.
+            // Column path format: v1.__ng.<full_ng_path>.<relative_path>
+            // We need to find the relative_path which comes after full_ng_path.
             std::string path_str = path_info.path();
-            size_t last_ng_pos = path_str.rfind(ng_prefix);
-            if (last_ng_pos != std::string::npos) {
-                size_t after_ng = last_ng_pos + ng_prefix.length();
-                // Find the end of the array path part
-                size_t dot_pos = path_str.find('.', after_ng);
-                while (dot_pos != std::string::npos) {
-                    std::string potential_child = path_str.substr(dot_pos + 1);
-                    // Check if this is still part of the nested group path
-                    if (!potential_child.starts_with("__ng.")) {
-                        info.relative_path = potential_child;
-                        break;
-                    }
-                    dot_pos = path_str.find('.', dot_pos + 1);
-                }
+            std::string full_ng_prefix = ng_prefix + info.full_ng_path + ".";
+            size_t prefix_pos = path_str.find(full_ng_prefix);
+            if (prefix_pos != std::string::npos) {
+                info.relative_path = path_str.substr(prefix_pos + full_ng_prefix.length());
             }
         }
 

@@ -44,7 +44,7 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
         return {};
     }
     ParseContext context;
-    // English comment: enable_flatten_nested controls nested path traversal
+    // enable_flatten_nested controls nested path traversal
     // NestedGroup expansion is now handled at storage layer
     context.enable_flatten_nested = config.enable_flatten_nested;
     context.is_top_array = document.isArray();
@@ -64,7 +64,7 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
-        // English comment: allow nested arrays (multi-level) for NestedGroup; deeper levels are
+        // allow nested arrays (multi-level) for NestedGroup; deeper levels are
         // handled by VariantNestedBuilder with a max-depth guard.
         has_nested = false;
         check_has_nested_object(element);
@@ -224,7 +224,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
         }
     }
 
-    // English comment: always fill missed values to keep element-level association between keys.
+    // always fill missed values to keep element-level association between keys.
     if (keys_to_update) {
         fillMissedValuesInArrays(ctx);
     }
@@ -254,7 +254,7 @@ void JSONDataParser<ParserImpl>::handleExistingPath(std::pair<PathInData::Parts,
                                                     ParseArrayContext& ctx,
                                                     size_t& keys_to_update) {
     auto& path_array = path_data.second;
-    // English comment: keep arrays aligned for all keys (including top-level arrays).
+    // keep arrays aligned for all keys (including top-level arrays).
     assert(path_array.size() == ctx.current_size);
     // If current element of array is part of Nested,
     // collect its size or check it if the size of
@@ -282,7 +282,7 @@ void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::P
     Array path_array;
     path_array.reserve(ctx.total_size);
 
-    // English comment: always resize to keep alignment.
+    // always resize to keep alignment.
     path_array.resize(ctx.current_size);
 
     auto nested_key = getNameOfNested(path, value);

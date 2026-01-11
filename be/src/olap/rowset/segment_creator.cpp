@@ -105,7 +105,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
     }
 
     vectorized::ParseConfig parse_config;
-    // English comment: enable_flatten_nested controls whether to flatten nested array<object> paths
+    // enable_flatten_nested controls whether to flatten nested array<object> paths
     // NestedGroup expansion is handled at storage layer, not at parse time
     parse_config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
     RETURN_IF_ERROR(

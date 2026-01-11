@@ -100,8 +100,9 @@ class PageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
 class VariantColumnWriterImpl;
+class ColumnWriter;
 
-// English comment: NestedGroup writers for array<object> paths (offsets + child writers).
+// NestedGroup writers for array<object> paths (offsets + child writers).
 struct NestedGroupWriter {
     std::unique_ptr<ColumnWriter> offsets_writer;
     std::unordered_map<std::string, std::unique_ptr<ColumnWriter>> child_writers;

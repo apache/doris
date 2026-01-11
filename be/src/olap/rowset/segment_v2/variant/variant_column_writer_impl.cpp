@@ -52,9 +52,9 @@ namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
 
-// English comment: forward declaration for NestedGroup write helper used by both
+// forward declaration for NestedGroup write helper used by both
 // VariantColumnWriterImpl and VariantSubcolumnWriter.
-static Status write_nested_groups_to_segment_from_jsonb(
+static Status write_nested_groups_to_storage(
         const doris::segment_v2::NestedGroupsMap& nested_groups, const TabletColumn* tablet_column,
         const ColumnWriterOptions& opts, vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
         int& column_id, std::unordered_map<std::string, NestedGroupWriter>& writers,
@@ -602,8 +602,9 @@ Status VariantColumnWriterImpl::finalize() {
     _skip_subcolumn_paths.clear();
 
     if (ptr->get_root_type() &&
-        vectorized::remove_nullable(ptr->get_root_type())->get_type_id() == TypeIndex::JSONB &&
-        ptr->get_root() != nullptr) {
+        vectorized::remove_nullable(ptr->get_root_type())->get_primitive_type() ==
+                PrimitiveType::TYPE_JSONB &&
+        ptr->get_root()) {
         RETURN_IF_ERROR(ng_builder.build_from_jsonb(ptr->get_root()->get_ptr(), nested_groups,
                                                    ptr->rows()));
     }
@@ -612,7 +613,7 @@ Status VariantColumnWriterImpl::finalize() {
             continue;
         }
         const auto& t = entry->data.get_least_common_type();
-        if (!t || vectorized::remove_nullable(t)->get_type_id() != TypeIndex::JSONB) {
+        if (!t || vectorized::remove_nullable(t)->get_primitive_type() != PrimitiveType::TYPE_JSONB) {
             continue;
         }
         RETURN_IF_ERROR(ng_builder.build_from_jsonb(entry->data.get_finalized_column_ptr()->get_ptr(),
@@ -642,7 +643,7 @@ Status VariantColumnWriterImpl::finalize() {
                 _process_sparse_column(ptr, olap_data_convertor.get(), num_rows, column_id));
 
         // Write NestedGroups to segment and persist stats to root meta.
-        RETURN_IF_ERROR(write_nested_groups_to_segment_from_jsonb(
+        RETURN_IF_ERROR(write_nested_groups_to_storage(
                 nested_groups, _tablet_column, _opts, olap_data_convertor.get(), num_rows, column_id,
                 _nested_group_writers, _statistics));
         _statistics.to_pb(_opts.meta->mutable_variant_statistics());
@@ -953,17 +954,18 @@ Status VariantSubcolumnWriter::finalize() {
     _opts.meta->set_num_rows(ptr->rows());
     ++column_id;
 
-    // English comment: also expand array<object> JSONB into NestedGroup for compaction sub-variant writer.
+    // also expand array<object> JSONB into NestedGroup for compaction sub-variant writer.
     doris::segment_v2::NestedGroupsMap nested_groups;
     doris::segment_v2::NestedGroupBuilder ng_builder;
     ng_builder.set_max_depth(static_cast<size_t>(config::variant_nested_group_max_depth));
     if (ptr->get_root_type() &&
-        vectorized::remove_nullable(ptr->get_root_type())->get_type_id() == TypeIndex::JSONB &&
-        ptr->get_root() != nullptr) {
+        vectorized::remove_nullable(ptr->get_root_type())->get_primitive_type() ==
+                PrimitiveType::TYPE_JSONB &&
+        ptr->get_root()) {
         RETURN_IF_ERROR(ng_builder.build_from_jsonb(ptr->get_root()->get_ptr(), nested_groups,
                                                    ptr->rows()));
     }
-    RETURN_IF_ERROR(write_nested_groups_to_segment_from_jsonb(
+    RETURN_IF_ERROR(write_nested_groups_to_storage(
             nested_groups, &flush_column, _opts, olap_data_convertor.get(), ptr->rows(), column_id,
             /*writers=*/_nested_group_writers, /*statistics=*/_statistics));
     _statistics.to_pb(_opts.meta->mutable_variant_statistics());
@@ -1097,8 +1099,8 @@ Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const ui
     return Status::OK();
 }
 
-// English comment: recursively write NestedGroup built from JSONB at finalize stage.
-static Status write_nested_group_recursive_from_jsonb(
+// recursively write NestedGroup built from JSONB at finalize stage.
+static Status write_nested_group_recursive(
         const doris::segment_v2::NestedGroup* group, const std::string& path_prefix,
         const TabletColumn* tablet_column, const ColumnWriterOptions& base_opts,
         vectorized::OlapBlockDataConvertor* converter, size_t parent_num_rows, int& column_id,
@@ -1118,7 +1120,8 @@ static Status write_nested_group_recursive_from_jsonb(
 
     TabletColumn offsets_column;
     offsets_column.set_name(offsets_col_name);
-    offsets_column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    // ColumnOffset64 is UInt64, keep offsets as unsigned bigint.
+    offsets_column.set_type(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
     offsets_column.set_is_nullable(false);
     offsets_column.set_length(sizeof(uint64_t));
     offsets_column.set_index_length(sizeof(uint64_t));
@@ -1158,6 +1161,7 @@ static Status write_nested_group_recursive_from_jsonb(
                                      "." + relative_path.get_path();
 
         const auto& child_type = subcolumn.get_least_common_type();
+        assert(child_type->is_nullable());
         TabletColumn child_column = vectorized::schema_util::get_column_by_type(
                 child_type, child_col_name,
                 vectorized::schema_util::ExtraInfo {.unique_id = -1,
@@ -1178,6 +1182,10 @@ static Status write_nested_group_recursive_from_jsonb(
                                              &child_writer));
         RETURN_IF_ERROR(child_writer->init());
 
+        // Finalize the subcolumn before getting finalized column pointer
+        if (!subcolumn.is_finalized()) {
+            const_cast<vectorized::ColumnVariant::Subcolumn&>(subcolumn).finalize();
+        }
         auto child_col = subcolumn.get_finalized_column_ptr();
         size_t child_num_rows = child_col->size();
 
@@ -1198,7 +1206,7 @@ static Status write_nested_group_recursive_from_jsonb(
 
     // 3. Recursively write nested groups within this group
     for (const auto& [nested_path, nested_group] : group->nested_groups) {
-        RETURN_IF_ERROR(write_nested_group_recursive_from_jsonb(
+        RETURN_IF_ERROR(write_nested_group_recursive(
                 nested_group.get(), full_path, tablet_column, base_opts, converter,
                 group->current_flat_size, column_id, writers, statistics, depth + 1));
     }
@@ -1212,7 +1220,7 @@ static Status write_nested_group_recursive_from_jsonb(
     return Status::OK();
 }
 
-static Status write_nested_groups_to_segment_from_jsonb(
+static Status write_nested_groups_to_storage(
         const doris::segment_v2::NestedGroupsMap& nested_groups, const TabletColumn* tablet_column,
         const ColumnWriterOptions& opts, vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
         int& column_id, std::unordered_map<std::string, NestedGroupWriter>& writers,
@@ -1231,7 +1239,7 @@ static Status write_nested_groups_to_segment_from_jsonb(
     std::sort(groups.begin(), groups.end(),
               [](const auto& a, const auto& b) { return a->path.get_path() < b->path.get_path(); });
     for (const auto& g : groups) {
-        RETURN_IF_ERROR(write_nested_group_recursive_from_jsonb(
+        RETURN_IF_ERROR(write_nested_group_recursive(
                 g.get(), "", tablet_column, opts, converter, num_rows, column_id, writers, statistics, 1));
     }
     return Status::OK();
@@ -1264,7 +1272,8 @@ static Status write_nested_group_recursive(
 
     TabletColumn offsets_column;
     offsets_column.set_name(offsets_col_name);
-    offsets_column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    // ColumnOffset64 is UInt64, keep offsets as unsigned bigint.
+    offsets_column.set_type(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
     offsets_column.set_is_nullable(false);
     offsets_column.set_length(sizeof(uint64_t));
     offsets_column.set_index_length(sizeof(uint64_t));
@@ -1286,7 +1295,7 @@ static Status write_nested_group_recursive(
     RETURN_IF_ERROR(group_writer.offsets_writer->init());
 
     // Write offsets data
-    // English comment: avoid implicit conversion from MutablePtr to immutable ColumnPtr.
+    // avoid implicit conversion from MutablePtr to immutable ColumnPtr.
     vectorized::ColumnPtr offsets_col =
             static_cast<const vectorized::IColumn&>(*group->offsets).get_ptr();
     size_t offsets_num_rows = offsets_col->size();

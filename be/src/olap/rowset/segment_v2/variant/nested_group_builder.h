@@ -71,6 +71,9 @@ using NestedGroupsMap =
         std::unordered_map<vectorized::PathInData, std::shared_ptr<NestedGroup>,
                            vectorized::PathInData::Hash>;
 
+// Special path marker for top-level array<object> NestedGroup
+inline constexpr std::string_view kRootNestedGroupPath = "$root";
+
 /**
  * English comment: Build NestedGroup(s) from JSONB columns at storage finalize stage.
  * The builder scans JSONB values and only expands array<object>.

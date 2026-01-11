@@ -78,7 +78,7 @@ private:
             const Field& value, const FieldInfo& info,
             size_t parent_flat_offset);
 
-    // English comment: split complex recursive logic into smaller helpers for readability and linting.
+    // split complex recursive logic into smaller helpers for readability and linting.
     void _write_to_nested_group_exceed_depth(ColumnVariant::NestedGroup* parent_group,
                                             const std::vector<std::pair<PathInData, size_t>>& levels,
                                             size_t current_level_idx,

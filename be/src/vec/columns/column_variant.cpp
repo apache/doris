@@ -79,7 +79,7 @@ namespace {
 
 #include "common/compile_check_begin.h"
 
-// English comment: deep clone nested group tree (offsets + nested groups).
+// deep clone nested group tree (offsets + nested groups).
 std::shared_ptr<ColumnVariant::NestedGroup> clone_nested_group_tree(
         const ColumnVariant::NestedGroup& src) {
     auto dst = std::make_shared<ColumnVariant::NestedGroup>();

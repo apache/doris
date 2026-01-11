@@ -53,7 +53,7 @@ namespace doris::vectorized {
 
 namespace {
 
-// English comment: parse JSON into (paths, values). If invalid JSON and strict mode is disabled,
+// parse JSON into (paths, values). If invalid JSON and strict mode is disabled,
 // fall back to treating it as a plain string field at root.
 template <typename ParserImpl>
 std::optional<ParseResult> parse_json_or_fallback_as_string(const char* src, size_t length,
