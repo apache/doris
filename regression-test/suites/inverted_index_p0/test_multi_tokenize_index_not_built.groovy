@@ -101,48 +101,50 @@ suite("test_multi_tokenize_index_not_built", "p0") {
         ORDER BY id
     """
 
-    // BUILD INDEX with specific index name is not supported in cloud mode
-    // In cloud mode, we can only test the "index not built" scenario above
-    if (!isCloudMode()) {
-        // Now build the keyword index
+    // Now build the keyword index
+    // Cloud mode: BUILD INDEX ON table (builds all indexes)
+    // Non-cloud mode: BUILD INDEX idx_name ON table (builds specific index)
+    if (isCloudMode()) {
+        sql "BUILD INDEX ON ${tableName}"
+    } else {
         sql "BUILD INDEX idx_title_keyword ON ${tableName}"
-
-        // Wait for build index to complete
-        def waitBuildIndex = { tbl, idxName ->
-            int maxRetry = 60
-            for (int i = 0; i < maxRetry; i++) {
-                def result = sql "SHOW BUILD INDEX WHERE TableName='${tbl}' ORDER BY CreateTime DESC LIMIT 1"
-                if (result.size() > 0 && result[0][7] == "FINISHED") {
-                    return true
-                }
-                sleep(1000)
-            }
-            return false
-        }
-        assertTrue(waitBuildIndex(tableName, "idx_title_keyword"), "Build index did not finish in time")
-
-        // Query using keyword analyzer after build - should use idx_title_keyword
-        // 'hello' exact match only matches row 2
-        qt_keyword_after_build """
-            SELECT id FROM ${tableName}
-            WHERE title MATCH 'hello' USING ANALYZER none
-            ORDER BY id
-        """
-
-        // Additional test: search for full string with keyword analyzer
-        qt_full_string_keyword """
-            SELECT id FROM ${tableName}
-            WHERE title MATCH 'hello world' USING ANALYZER none
-            ORDER BY id
-        """
-
-        // Same search with standard analyzer (tokenizes, so matches 'hello' AND 'world')
-        qt_full_string_standard """
-            SELECT id FROM ${tableName}
-            WHERE title MATCH 'hello world' USING ANALYZER standard
-            ORDER BY id
-        """
     }
+
+    // Wait for build index to complete
+    def waitBuildIndex = { tbl ->
+        int maxRetry = 60
+        for (int i = 0; i < maxRetry; i++) {
+            def result = sql "SHOW BUILD INDEX WHERE TableName='${tbl}' ORDER BY CreateTime DESC LIMIT 1"
+            if (result.size() > 0 && result[0][7] == "FINISHED") {
+                return true
+            }
+            sleep(1000)
+        }
+        return false
+    }
+    assertTrue(waitBuildIndex(tableName), "Build index did not finish in time")
+
+    // Query using keyword analyzer after build - should use idx_title_keyword
+    // 'hello' exact match only matches row 2
+    qt_keyword_after_build """
+        SELECT id FROM ${tableName}
+        WHERE title MATCH 'hello' USING ANALYZER none
+        ORDER BY id
+    """
+
+    // Additional test: search for full string with keyword analyzer
+    qt_full_string_keyword """
+        SELECT id FROM ${tableName}
+        WHERE title MATCH 'hello world' USING ANALYZER none
+        ORDER BY id
+    """
+
+    // Same search with standard analyzer (tokenizes, so matches 'hello' AND 'world')
+    qt_full_string_standard """
+        SELECT id FROM ${tableName}
+        WHERE title MATCH 'hello world' USING ANALYZER standard
+        ORDER BY id
+    """
 
     // Clean up
     sql "DROP TABLE IF EXISTS ${tableName}"
