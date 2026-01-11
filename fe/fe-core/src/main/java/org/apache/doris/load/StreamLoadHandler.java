@@ -34,6 +34,8 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.authenticate.CertificateAuthVerifier;
+import org.apache.doris.mysql.authenticate.CertificateAuthVerifierFactory;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -41,6 +43,7 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
+import org.apache.doris.thrift.TCertBasedAuth;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -130,15 +133,63 @@ public class StreamLoadHandler {
         ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
         String userName = ClusterNamespace.getNameFromFullName(request.getUser());
         if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
-            List<UserIdentity> currentUser = Lists.newArrayList();
-            try {
-                Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
-                        request.getUserIp(), request.getPasswd(), currentUser);
-            } catch (AuthenticationException e) {
-                throw new UserException(e.formatErrMsg());
+            // Check if certificate-based authentication is provided and can be used
+            boolean certAuthSucceeded = false;
+            UserIdentity certAuthUser = null;
+
+            if (request.isSetCertBasedAuth() && request.getCertBasedAuth().isSetSan()) {
+                CertificateAuthVerifier certVerifier = CertificateAuthVerifierFactory.getInstance();
+                if (certVerifier.isEnabled()) {
+                    // Get user identity without checking password
+                    List<UserIdentity> userIdentities = Env.getCurrentEnv().getAuth()
+                            .getUserIdentityUncheckPasswd(userName, request.getUserIp());
+
+                    if (userIdentities != null && !userIdentities.isEmpty()) {
+                        UserIdentity userIdentity = userIdentities.get(0);
+                        TCertBasedAuth certAuth = request.getCertBasedAuth();
+
+                        // Verify certificate against user's TLS requirements
+                        CertificateAuthVerifier.VerificationResult verifyResult =
+                                certVerifier.verifyWithExtractedCertInfo(
+                                        userIdentity,
+                                        certAuth.isSetSan() ? certAuth.getSan() : null,
+                                        certAuth.isSetSubject() ? certAuth.getSubject() : null,
+                                        certAuth.isSetIssuer() ? certAuth.getIssuer() : null,
+                                        certAuth.isSetCipher() ? certAuth.getCipher() : null);
+
+                        if (!verifyResult.isSuccess()) {
+                            throw new UserException("TLS certificate verification failed: "
+                                    + verifyResult.getErrorMessage());
+                        }
+
+                        // Certificate verification succeeded
+                        certAuthSucceeded = true;
+                        certAuthUser = userIdentity;
+
+                        if (certVerifier.shouldSkipPasswordVerification()) {
+                            // Skip password verification, use cert-authenticated user
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Certificate-based auth succeeded for user {}, "
+                                        + "skipping password verification", userIdentity);
+                            }
+                            ctx.setCurrentUserIdentity(certAuthUser);
+                        }
+                    }
+                }
             }
-            Preconditions.checkState(currentUser.size() == 1);
-            ctx.setCurrentUserIdentity(currentUser.get(0));
+
+            // If cert auth did not succeed or password verification is still required
+            if (!certAuthSucceeded || !CertificateAuthVerifierFactory.getInstance().shouldSkipPasswordVerification()) {
+                List<UserIdentity> currentUser = Lists.newArrayList();
+                try {
+                    Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
+                            request.getUserIp(), request.getPasswd(), currentUser);
+                } catch (AuthenticationException e) {
+                    throw new UserException(e.formatErrMsg());
+                }
+                Preconditions.checkState(currentUser.size() == 1);
+                ctx.setCurrentUserIdentity(currentUser.get(0));
+            }
         }
         if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
             long backendId = request.getBackendId();

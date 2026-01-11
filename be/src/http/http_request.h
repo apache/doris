@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 
+#include "common/client_cert_utils.h"
 #include "http/http_method.h"
 #include "util/string_util.h"
 
@@ -81,6 +82,11 @@ public:
 
     const char* remote_host() const;
 
+    // Client certificate information for TLS authentication
+    void set_client_cert_info(const ClientCertInfo& info) { _client_cert_info = info; }
+    const ClientCertInfo& client_cert_info() const { return _client_cert_info; }
+    bool has_client_cert() const { return !_client_cert_info.is_empty(); }
+
 private:
     HttpMethod _method;
     std::string _uri;
@@ -95,6 +101,9 @@ private:
 
     std::shared_ptr<void> _handler_ctx;
     std::string _request_body;
+
+    // Client TLS certificate info (populated when TLS is enabled)
+    ClientCertInfo _client_cert_info;
 };
 
 } // namespace doris

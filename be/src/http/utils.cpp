@@ -119,6 +119,11 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     // set user ip
     auth->user_ip.assign(req.remote_host() != nullptr ? req.remote_host() : "");
 
+    // Copy client certificate info if present (for TLS certificate-based authentication)
+    if (req.has_client_cert()) {
+        auth->cert_info = req.client_cert_info();
+    }
+
     return true;
 }
 

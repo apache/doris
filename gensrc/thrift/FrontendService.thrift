@@ -645,6 +645,17 @@ struct TUpdateExportTaskStatusRequest {
     3: required PaloInternalService.TExportStatusResult taskStatus
 }
 
+// Certificate-based authentication info forwarded from BE to FE
+struct TCertBasedAuth {
+    1: optional string cert_pem            // Client certificate in PEM format (for debugging)
+    2: optional string subject             // Certificate Subject DN
+    3: optional string san                 // Subject Alternative Names (formatted string)
+    4: optional string issuer              // Issuer DN
+    5: optional string cipher              // SSL cipher suite used
+    6: optional string validity_not_before // Certificate validity start time
+    7: optional string validity_not_after  // Certificate validity end time
+}
+
 struct TLoadTxnBeginRequest {
     1: optional string cluster
     2: required string user
@@ -662,6 +673,7 @@ struct TLoadTxnBeginRequest {
     13: optional string auth_code_uuid // deprecated, use token instead
     14: optional i64 table_id
     15: optional i64 backend_id
+    16: optional TCertBasedAuth cert_based_auth
 }
 
 struct TLoadTxnBeginResult {
@@ -772,6 +784,7 @@ struct TStreamLoadPutRequest {
     56: optional string group_commit_mode
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
+    59: optional TCertBasedAuth cert_based_auth
 
     // For cloud
     1000: optional string cloud_cluster
@@ -852,7 +865,8 @@ struct TLoadTxnCommitRequest {
     17: optional string auth_code_uuid // deprecated, use token instead
     18: optional bool groupCommit
     19: optional i64 receiveBytes
-    20: optional i64 backendId 
+    20: optional i64 backendId
+    21: optional TCertBasedAuth cert_based_auth
 }
 
 struct TLoadTxnCommitResult {
@@ -895,6 +909,7 @@ struct TLoadTxn2PCRequest {
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string label
+    12: optional TCertBasedAuth cert_based_auth
 
     // For cloud
     1000: optional string auth_code_uuid // deprecated, use token instead
@@ -939,6 +954,7 @@ struct TLoadTxnRollbackRequest {
     13: optional list<string> tbls
     14: optional string auth_code_uuid // deprecated, use token instead
     15: optional string label
+    16: optional TCertBasedAuth cert_based_auth
 }
 
 struct TLoadTxnRollbackResult {

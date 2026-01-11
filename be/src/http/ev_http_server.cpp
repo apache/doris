@@ -42,6 +42,7 @@
 #include <thread>
 
 #include "common/certificate_manager.h"
+#include "common/client_cert_utils.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "http/http_channel.h"
@@ -509,6 +510,21 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     if (res < 0) {
         return -1;
     }
+
+    // Extract client certificate info when TLS is enabled
+    if (config::enable_tls) {
+        struct evhttp_connection* conn = evhttp_request_get_connection(ev_req);
+        if (conn) {
+            struct bufferevent* bev = evhttp_connection_get_bufferevent(conn);
+            if (bev) {
+                SSL* ssl = bufferevent_openssl_get_ssl(bev);
+                if (ssl) {
+                    request->set_client_cert_info(extract_client_cert_info(ssl));
+                }
+            }
+        }
+    }
+
     auto handler = _find_handler(request.get());
     if (handler == nullptr) {
         evhttp_remove_header(evhttp_request_get_input_headers(ev_req), HttpHeaders::EXPECT);

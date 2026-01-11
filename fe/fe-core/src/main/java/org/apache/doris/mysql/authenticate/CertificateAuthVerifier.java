@@ -70,6 +70,28 @@ public interface CertificateAuthVerifier {
     VerificationResult verify(UserIdentity userIdentity, X509Certificate clientCert);
 
     /**
+     * Verifies the user's TLS requirements using pre-extracted certificate information.
+     * This method is used for Stream Load authentication where BE extracts certificate
+     * info and sends it via Thrift (TCertBasedAuth).
+     *
+     * <p>The default implementation returns success (no-op for open-source version).
+     * The enterprise version provides actual verification logic.
+     *
+     * @param userIdentity The user identity containing TLS requirements.
+     * @param certSan      The pre-extracted SAN string from the certificate (may be null or empty).
+     * @param certSubject  The pre-extracted Subject DN (for future use, may be null).
+     * @param certIssuer   The pre-extracted Issuer DN (for future use, may be null).
+     * @param certCipher   The cipher suite used (for future use, may be null).
+     * @return VerificationResult indicating success or failure with an error message.
+     */
+    default VerificationResult verifyWithExtractedCertInfo(UserIdentity userIdentity,
+            String certSan, String certSubject, String certIssuer, String certCipher) {
+        // Default no-op implementation for open-source version
+        // Enterprise version overrides this with actual verification
+        return VerificationResult.success();
+    }
+
+    /**
      * Determines whether password verification should be skipped after successful
      * certificate verification. This is controlled by the configuration
      * `tls_cert_based_auth_ignore_password`.

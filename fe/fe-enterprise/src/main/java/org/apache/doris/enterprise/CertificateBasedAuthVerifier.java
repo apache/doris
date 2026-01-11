@@ -90,12 +90,82 @@ public class CertificateBasedAuthVerifier implements CertificateAuthVerifier {
     }
 
     /**
+     * Verifies the user's TLS requirements using pre-extracted certificate information.
+     * This method is used for Stream Load authentication where BE extracts certificate
+     * info and sends it via Thrift (TCertBasedAuth).
+     *
+     * @param userIdentity The user identity containing TLS requirements.
+     * @param certSan      The pre-extracted SAN string from the certificate (may be null or empty).
+     * @param certSubject  The pre-extracted Subject DN (for future use, may be null).
+     * @param certIssuer   The pre-extracted Issuer DN (for future use, may be null).
+     * @param certCipher   The cipher suite used (for future use, may be null).
+     * @return VerificationResult indicating success or failure with an error message.
+     */
+    public VerificationResult verifyWithExtractedCertInfo(UserIdentity userIdentity,
+            String certSan, String certSubject, String certIssuer, String certCipher) {
+        if (userIdentity == null) {
+            return VerificationResult.failure("UserIdentity is null");
+        }
+
+        // Check if user has any TLS requirements
+        if (!userIdentity.hasTlsRequirements()) {
+            // No TLS requirements - verification passes by default
+            return VerificationResult.success();
+        }
+
+        // Verify SAN if required
+        String requiredSan = userIdentity.getSan();
+        if (requiredSan != null && !requiredSan.isEmpty()) {
+            VerificationResult sanResult = verifySanString(userIdentity, certSan, requiredSan);
+            if (!sanResult.isSuccess()) {
+                return sanResult;
+            }
+        }
+
+        // TODO: Verify ISSUER if required (future enhancement)
+        String requiredIssuer = userIdentity.getIssuer();
+        if (requiredIssuer != null && !requiredIssuer.isEmpty()) {
+            LOG.debug("ISSUER verification is not yet implemented, skipping for user {}", userIdentity);
+            // Future: verify certIssuer matches requiredIssuer
+        }
+
+        // TODO: Verify SUBJECT if required (future enhancement)
+        String requiredSubject = userIdentity.getSubject();
+        if (requiredSubject != null && !requiredSubject.isEmpty()) {
+            LOG.debug("SUBJECT verification is not yet implemented, skipping for user {}", userIdentity);
+            // Future: verify certSubject matches requiredSubject
+        }
+
+        // TODO: Verify CIPHER if required (future enhancement)
+        String requiredCipher = userIdentity.getCipher();
+        if (requiredCipher != null && !requiredCipher.isEmpty()) {
+            LOG.debug("CIPHER verification is not yet implemented, skipping for user {}", userIdentity);
+            // Future: verify certCipher matches requiredCipher
+        }
+
+        LOG.info("TLS certificate verification (from extracted info) succeeded for user {}", userIdentity);
+        return VerificationResult.success();
+    }
+
+    /**
      * Verifies that the certificate's SAN string exactly matches the required SAN.
      * This is a full string comparison - the entire SAN extension content must match.
      */
     private VerificationResult verifySan(UserIdentity userIdentity, X509Certificate clientCert, String requiredSan) {
         String certSanString = TlsCertificateUtils.extractSubjectAlternativeNames(clientCert);
+        return verifySanString(userIdentity, certSanString, requiredSan);
+    }
 
+    /**
+     * Verifies that the provided SAN string exactly matches the required SAN.
+     * This is a full string comparison - the entire SAN string must match.
+     *
+     * @param userIdentity The user identity (for error messages).
+     * @param certSanString The SAN string from the certificate.
+     * @param requiredSan The required SAN string from user configuration.
+     * @return VerificationResult indicating success or failure.
+     */
+    private VerificationResult verifySanString(UserIdentity userIdentity, String certSanString, String requiredSan) {
         if (certSanString == null || certSanString.isEmpty()) {
             String errorMsg = String.format(
                     "User %s requires SAN '%s' but the client certificate has no Subject Alternative Names",
