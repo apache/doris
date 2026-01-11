@@ -138,7 +138,7 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     InvertedIndexIterator iterator;
     auto reader1 = create_mock_reader("chinese");
     auto reader2 = create_mock_reader("english");
-    auto reader3 = create_mock_reader("");  // empty key normalizes to __default__
+    auto reader3 = create_mock_reader(""); // empty key normalizes to __default__
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader1);
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader2);
@@ -162,8 +162,8 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
 // Test that "none" is treated as a distinct analyzer key
 TEST_F(InvertedIndexIteratorTest, AddReader_NoneAnalyzerIsDistinct) {
     InvertedIndexIterator iterator;
-    auto default_reader = create_mock_reader("");       // normalizes to __default__
-    auto none_reader = create_mock_reader("none");      // stays as "none"
+    auto default_reader = create_mock_reader("");  // normalizes to __default__
+    auto none_reader = create_mock_reader("none"); // stays as "none"
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, default_reader);
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, none_reader);
