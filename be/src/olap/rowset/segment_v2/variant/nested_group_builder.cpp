@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "olap/rowset/segment_v2/variant/offset_manager.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
@@ -56,41 +57,23 @@ Status NestedGroupBuilder::build_from_jsonb(const vectorized::ColumnPtr& jsonb_c
                                        data_col->get_name());
     }
 
-    // helper lambda to pad all existing NestedGroups so they have offsets
-    // for rows [0, target_row]. This ensures each row has a corresponding offset entry.
-    auto pad_all_groups_to_row = [&nested_groups](size_t target_row) {
-        for (auto& [path, group] : nested_groups) {
-            if (!group || group->is_disabled) {
-                continue;
-            }
-            group->ensure_offsets();
-            auto* offsets_col =
-                    assert_cast<vectorized::ColumnOffset64*>(group->offsets.get());
-            // if offsets.size() <= target_row, this group is missing entries
-            // for some rows. Pad with the same offset (indicating empty arrays).
-            while (offsets_col->size() <= target_row) {
-                offsets_col->get_data().push_back(static_cast<uint64_t>(group->current_flat_size));
-            }
-        }
-    };
-
     const size_t rows = std::min(num_rows, str_col->size());
     for (size_t r = 0; r < rows; ++r) {
         if (null_map && (*null_map).get_data()[r]) {
             // for null rows, pad all existing groups with empty arrays
-            pad_all_groups_to_row(r);
+            OffsetManager::pad_all_groups_to_row(nested_groups, r);
             continue;
         }
         const auto val = str_col->get_data_at(r);
         if (val.size == 0) {
             // empty JSONB, pad all existing groups with empty arrays
-            pad_all_groups_to_row(r);
+            OffsetManager::pad_all_groups_to_row(nested_groups, r);
             continue;
         }
 
         const doris::JsonbValue* root = doris::JsonbDocument::createValue(val.data, val.size);
         if (!root) {
-            pad_all_groups_to_row(r);
+            OffsetManager::pad_all_groups_to_row(nested_groups, r);
             continue;
         }
 
@@ -102,7 +85,7 @@ Status NestedGroupBuilder::build_from_jsonb(const vectorized::ColumnPtr& jsonb_c
         // after processing this row, pad any groups that weren't updated.
         // If a row doesn't contain a field that corresponds to a NestedGroup, we need to
         // add an empty array entry for that row.
-        pad_all_groups_to_row(r);
+        OffsetManager::pad_all_groups_to_row(nested_groups, r);
     }
 
     return Status::OK();
@@ -186,23 +169,18 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
                                                     NestedGroup& group, size_t parent_row_idx,
                                                     size_t depth) {
     DCHECK(arr_value && arr_value->isArray());
-    group.ensure_offsets();
-    auto* offsets_col = assert_cast<vectorized::ColumnOffset64*>(group.offsets.get());
 
     // Back-fill missing rows with empty arrays before processing current row.
     // This handles the case when a NestedGroup is created mid-batch (e.g., when
     // mixing top-level arrays and objects), ensuring earlier rows have proper offsets.
-    while (offsets_col->size() < parent_row_idx) {
-        offsets_col->get_data().push_back(static_cast<uint64_t>(group.current_flat_size));
-    }
+    OffsetManager::backfill_to_element(group, parent_row_idx);
 
     const auto* arr = arr_value->unpack<doris::ArrayVal>();
     const int n = arr->numElem();
 
     const size_t prev_total = group.current_flat_size;
-    const size_t new_total = prev_total + static_cast<size_t>(std::max(0, n));
-    offsets_col->get_data().push_back(static_cast<uint64_t>(new_total));
-    group.current_flat_size = new_total;
+    // Append offset entry for this array
+    OffsetManager::append_offset(group, static_cast<size_t>(std::max(0, n)));
 
     // Process each element (flat index in [prev_total, new_total)).
     size_t flat_idx = prev_total;
@@ -231,9 +209,7 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
         // Fill empty offsets for missing nested groups.
         for (auto& [p, ng] : group.nested_groups) {
             if (!seen_nested.contains(p.get_path())) {
-                ng->ensure_offsets();
-                auto* off = assert_cast<vectorized::ColumnOffset64*>(ng->offsets.get());
-                off->get_data().push_back(static_cast<uint64_t>(ng->current_flat_size));
+                OffsetManager::append_offset(*ng, 0);
             }
         }
     }
@@ -293,15 +269,8 @@ Status NestedGroupBuilder::_process_object_as_paths(
             }
 
             // Ensure offsets size up to current parent element.
-            ng->ensure_offsets();
-            auto* off = assert_cast<vectorized::ColumnOffset64*>(ng->offsets.get());
-            if (off->size() < element_flat_idx) {
-                // fill missing parent elements with empty arrays.
-                const size_t gap = element_flat_idx - off->size();
-                for (size_t i = 0; i < gap; ++i) {
-                    off->get_data().push_back(static_cast<uint64_t>(ng->current_flat_size));
-                }
-            }
+            // Fill missing parent elements with empty arrays.
+            OffsetManager::backfill_to_element(*ng, element_flat_idx);
 
             // Process nested group for this parent element (one offsets entry appended inside).
             RETURN_IF_ERROR(_process_array_of_objects(v, *ng, element_flat_idx, depth + 1));

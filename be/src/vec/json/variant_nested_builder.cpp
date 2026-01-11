@@ -21,6 +21,7 @@
 
 #include <unordered_map>
 
+#include "olap/rowset/segment_v2/variant/offset_manager.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
@@ -92,11 +93,7 @@ void VariantNestedBuilder::build(const std::vector<PathInData>& paths,
         }
 
         // Update first-level offsets
-        group->ensure_offsets();
-        auto& offsets_col = assert_cast<ColumnOffset64&>(*group->offsets);
-        size_t prev_offset = offsets_col.empty() ? 0 : offsets_col.get_data().back();
-        offsets_col.insert_value(prev_offset + first_level_array_size);
-        group->current_flat_size = prev_offset + first_level_array_size;
+        segment_v2::OffsetManager::append_offset(*group, first_level_array_size);
 
         // Set expected type
         if (group->expected_type == ColumnVariant::NestedGroup::StructureType::UNKNOWN) {
@@ -244,11 +241,8 @@ void VariantNestedBuilder::_write_to_nested_group_non_last_level(
             continue;
         }
         const auto& inner_arr = elem.get<Array>();
-        nested_group->ensure_offsets();
-        auto& nested_offsets = assert_cast<ColumnOffset64&>(*nested_group->offsets);
-        size_t prev_nested_offset = nested_offsets.empty() ? 0 : nested_offsets.get_data().back();
-        nested_offsets.insert_value(prev_nested_offset + inner_arr.size());
-        nested_group->current_flat_size = prev_nested_offset + inner_arr.size();
+        const size_t prev_nested_offset = nested_group->current_flat_size;
+        segment_v2::OffsetManager::append_offset(*nested_group, inner_arr.size());
         FieldInfo inner_info;
         schema_util::get_field_info(elem, &inner_info);
         write_to_nested_group_recursive(nested_group, levels, current_level_idx + 1, leaf_path, elem,
