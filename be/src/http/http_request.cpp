@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "http/http_handler.h"
+#include "http/http_headers.h"
 
 namespace doris {
 
@@ -84,7 +85,12 @@ std::string HttpRequest::debug_string() const {
        << "raw_path:" << _raw_path << "\n"
        << "headers: \n";
     for (auto& iter : _headers) {
-        ss << "key=" << iter.first << ", value=" << iter.second << "\n";
+        if (iequal(iter.first, HttpHeaders::AUTHORIZATION) ||
+            iequal(iter.first, HttpHeaders::PROXY_AUTHORIZATION)) {
+            ss << "key=" << iter.first << ", value=***MASKED***\n";
+        } else {
+            ss << "key=" << iter.first << ", value=" << iter.second << "\n";
+        }
     }
     ss << "params: \n";
     for (auto& iter : _params) {
@@ -113,7 +119,13 @@ const std::string& HttpRequest::param(const std::string& key) const {
 std::string HttpRequest::get_all_headers() const {
     std::stringstream headers;
     for (const auto& header : _headers) {
-        headers << header.first << ":" << header.second + ", ";
+        // Mask sensitive headers
+        if (iequal(header.first, HttpHeaders::AUTHORIZATION) ||
+            iequal(header.first, HttpHeaders::PROXY_AUTHORIZATION)) {
+            headers << header.first << ":***MASKED***, ";
+        } else {
+            headers << header.first << ":" << header.second + ", ";
+        }
     }
     return headers.str();
 }
