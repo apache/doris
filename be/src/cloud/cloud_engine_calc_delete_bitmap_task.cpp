@@ -222,7 +222,6 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
             std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
         }
     });
-
     Status status;
     if (_sub_txn_ids.empty()) {
         // Check empty rowset for non-sub_txn case
