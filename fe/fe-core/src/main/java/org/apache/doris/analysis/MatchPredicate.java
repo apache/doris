@@ -124,19 +124,8 @@ public class MatchPredicate extends Predicate {
 
         // Set parser and analyzer fields
         this.invertedIndexParser = selection.parser();
-        // When table has no inverted index (invertedIndex == null), and analyzer is not explicitly
-        // specified, we should pass "__default__" to BE to let it use default tokenization.
-        // This enables match functions to work on tables without inverted index.
-        // When user explicitly specifies "using analyzer xxx", we use that explicit analyzer.
-        if (invertedIndex == null && !selection.explicit()) {
-            // Table has no index, use default tokenization
-            this.invertedIndexAnalyzerName = "__default__";
-        } else {
-            this.invertedIndexAnalyzerName = selection.analyzer();
-            if (Strings.isNullOrEmpty(this.invertedIndexAnalyzerName)) {
-                this.invertedIndexAnalyzerName = this.invertedIndexParser;
-            }
-        }
+        this.invertedIndexAnalyzerName = selection.effectiveAnalyzerName(
+                invertedIndex != null, this.invertedIndexParser);
 
         // Extract additional index properties for thrift serialization
         this.invertedIndexParserMode = InvertedIndexUtil.getInvertedIndexParserMode(properties);
@@ -205,12 +194,6 @@ public class MatchPredicate extends Predicate {
     }
 
     private String analyzerSqlFragment() {
-        if (explicitAnalyzer == null || explicitAnalyzer.isEmpty()) {
-            return "";
-        }
-        if (explicitAnalyzer.matches("[A-Za-z_][A-Za-z0-9_]*")) {
-            return " USING ANALYZER " + explicitAnalyzer;
-        }
-        return " USING ANALYZER '" + explicitAnalyzer.replace("'", "''") + "'";
+        return InvertedIndexUtil.buildAnalyzerSqlFragment(explicitAnalyzer);
     }
 }

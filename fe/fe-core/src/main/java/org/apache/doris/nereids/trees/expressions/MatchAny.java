@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -36,18 +35,13 @@ public class MatchAny extends Match {
         super(ImmutableList.of(left, right), "MATCH_ANY", analyzer);
     }
 
-    private MatchAny(List<Expression> children) {
-        this(children, null);
-    }
-
     private MatchAny(List<Expression> children, String analyzer) {
         super(children, "MATCH_ANY", analyzer);
     }
 
     @Override
-    public MatchAny withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new MatchAny(children, analyzer().orElse(null));
+    protected MatchAny createInstance(List<Expression> children, String analyzer) {
+        return new MatchAny(children, analyzer);
     }
 
     @Override

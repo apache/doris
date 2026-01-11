@@ -96,6 +96,18 @@ public final class AnalyzerSelector {
         public boolean explicit() {
             return explicit;
         }
+
+        /**
+         * Computes the effective analyzer name for BE execution.
+         * - If no index exists and analyzer wasn't explicitly specified: use "__default__"
+         * - Otherwise: use the resolved analyzer, falling back to parser if empty
+         */
+        public String effectiveAnalyzerName(boolean hasIndex, String fallbackParser) {
+            if (!hasIndex && !explicit) {
+                return "__default__";
+            }
+            return Strings.isNullOrEmpty(analyzer) ? fallbackParser : analyzer;
+        }
     }
 }
 

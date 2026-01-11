@@ -28,6 +28,8 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -38,6 +40,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 public class InvertedIndexUtil {
+    private static final Logger LOG = LogManager.getLogger(InvertedIndexUtil.class);
 
     public static String INVERTED_INDEX_PARSER_KEY = "parser";
     public static String INVERTED_INDEX_PARSER_KEY_ALIAS = "built_in_analyzer";
@@ -479,19 +482,24 @@ public class InvertedIndexUtil {
         try {
             IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(analyzerName);
             if (policy == null) {
-                // Policy not found, fall back to using name
+                // Policy not found - this is expected for custom analyzers not yet registered
+                LOG.debug("Analyzer/normalizer policy not found for '{}', using name as identity", analyzerName);
                 return analyzerName;
             }
 
             Map<String, String> policyProps = policy.getProperties();
             if (policyProps == null || policyProps.isEmpty()) {
+                LOG.debug("Policy '{}' has no properties, using name as identity", analyzerName);
                 return analyzerName;
             }
 
             // Build identity from underlying config using sorted keys for consistent ordering
             return buildIdentityFromPolicyProperties(policy.getType(), policyProps);
         } catch (Exception e) {
-            // If any error occurs, fall back to using name
+            // Log the error at WARN level since silent failure could cause identity conflicts
+            LOG.warn("Failed to resolve analyzer identity for '{}', using name as identity. "
+                    + "This may cause incorrect duplicate detection. Error: {}",
+                    analyzerName, e.getMessage());
             return analyzerName;
         }
     }
@@ -634,5 +642,24 @@ public class InvertedIndexUtil {
                     || normalizedAnalyzer.equalsIgnoreCase(INVERTED_INDEX_PARSER_NONE);
         }
         return normalizedAnalyzer.equalsIgnoreCase(parser);
+    }
+
+    /**
+     * Builds the SQL fragment for USING ANALYZER clause.
+     * Returns empty string if analyzer is null or empty.
+     * Otherwise returns " USING ANALYZER <analyzer>" with proper quoting.
+     */
+    public static String buildAnalyzerSqlFragment(String analyzer) {
+        if (Strings.isNullOrEmpty(analyzer)) {
+            return "";
+        }
+        String trimmed = analyzer.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (trimmed.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            return " USING ANALYZER " + trimmed;
+        }
+        return " USING ANALYZER '" + trimmed.replace("'", "''") + "'";
     }
 }

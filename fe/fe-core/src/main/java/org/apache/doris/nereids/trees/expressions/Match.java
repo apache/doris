@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.MatchPredicate.Operator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
@@ -25,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
@@ -44,6 +47,18 @@ public abstract class Match extends BinaryOperator implements PropagateNullable 
     public Match(List<Expression> children, String symbol, String analyzer) {
         super(children, symbol);
         this.analyzer = Optional.ofNullable(analyzer).map(String::trim).filter(s -> !s.isEmpty());
+    }
+
+    /**
+     * Template method for creating a new instance with the given children and analyzer.
+     * Each subclass must implement this to return a new instance of itself.
+     */
+    protected abstract Match createInstance(List<Expression> children, String analyzer);
+
+    @Override
+    public final Match withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return createInstance(children, analyzer.orElse(null));
     }
 
     /**
@@ -109,12 +124,7 @@ public abstract class Match extends BinaryOperator implements PropagateNullable 
     }
 
     protected String analyzerSqlFragment() {
-        return analyzer.map(value -> {
-            if (value.matches("[A-Za-z_][A-Za-z0-9_]*")) {
-                return " USING ANALYZER " + value;
-            }
-            return " USING ANALYZER '" + value.replace("'", "''") + "'";
-        }).orElse("");
+        return InvertedIndexUtil.buildAnalyzerSqlFragment(analyzer.orElse(null));
     }
 
     @Override

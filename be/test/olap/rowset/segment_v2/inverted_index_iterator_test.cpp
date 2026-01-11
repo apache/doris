@@ -138,7 +138,7 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     InvertedIndexIterator iterator;
     auto reader1 = create_mock_reader("chinese");
     auto reader2 = create_mock_reader("english");
-    auto reader3 = create_mock_reader("");
+    auto reader3 = create_mock_reader("");  // empty key normalizes to __default__
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader1);
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader2);
@@ -152,9 +152,31 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     EXPECT_TRUE(result2.has_value());
     EXPECT_EQ(result2.value(), reader2);
 
-    auto result3 = iterator.select_best_reader(INVERTED_INDEX_PARSER_NONE);
+    // Empty key normalizes to __default__, so use __default__ to look it up
+    // Note: "none" is a distinct analyzer key, different from __default__
+    auto result3 = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
     EXPECT_TRUE(result3.has_value());
     EXPECT_EQ(result3.value(), reader3);
+}
+
+// Test that "none" is treated as a distinct analyzer key
+TEST_F(InvertedIndexIteratorTest, AddReader_NoneAnalyzerIsDistinct) {
+    InvertedIndexIterator iterator;
+    auto default_reader = create_mock_reader("");       // normalizes to __default__
+    auto none_reader = create_mock_reader("none");      // stays as "none"
+
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, default_reader);
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, none_reader);
+
+    // Query for __default__ should return default_reader
+    auto result_default = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    EXPECT_TRUE(result_default.has_value());
+    EXPECT_EQ(result_default.value(), default_reader);
+
+    // Query for "none" should return none_reader (not default_reader)
+    auto result_none = iterator.select_best_reader(INVERTED_INDEX_PARSER_NONE);
+    EXPECT_TRUE(result_none.has_value());
+    EXPECT_EQ(result_none.value(), none_reader);
 }
 
 // find_reader_candidates tests (via select_best_reader)

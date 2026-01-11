@@ -134,11 +134,7 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
     DCHECK(config != nullptr);
     const std::string& analyzer_name = config->analyzer_name;
 
-    // Handle empty analyzer_name or "__default__": use parser_type to create builtin analyzer.
-    // This is used when:
-    // 1. analyzer_name is not specified (empty)
-    // 2. analyzer_name is "__default__" (e.g., table has no index, use default tokenization)
-    if (analyzer_name.empty() || analyzer_name == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+    if (analyzer_name.empty()) {
         return create_builtin_analyzer(config->parser_type, config->parser_mode, config->lower_case,
                                        config->stop_words);
     }

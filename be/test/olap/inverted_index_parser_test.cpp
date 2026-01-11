@@ -328,7 +328,8 @@ TEST_F(InvertedIndexParserTest, TestConstants) {
 // ============================================================================
 
 TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_EmptyInput) {
-    EXPECT_EQ(normalize_analyzer_key(""), "");
+    // Empty string normalizes to __default__ for consistent handling
+    EXPECT_EQ(normalize_analyzer_key(""), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
 }
 
 TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_UppercaseToLowercase) {
@@ -359,7 +360,8 @@ TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_AlreadyLowercase) {
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_EmptyProperties) {
     std::map<std::string, std::string> properties;
-    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_PARSER_NONE);
+    // Empty properties defaults to "none" parser, which normalizes to __default__
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
 }
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomAnalyzer) {
@@ -389,7 +391,9 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserKeyAlias) {
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserNone) {
     std::map<std::string, std::string> properties;
     properties[INVERTED_INDEX_PARSER_KEY] = "none";
-    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_PARSER_NONE);
+    // "none" is a distinct analyzer key - it means no tokenization (keyword analyzer)
+    // This is different from __default__ which means use default behavior
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "none");
 }
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomOverridesParser) {
