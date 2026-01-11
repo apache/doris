@@ -137,4 +137,26 @@ public class DateTimeCheckerTest {
         literal = "2024-01-01  ";
         Assertions.assertTrue(DateTimeChecker.isValidDateTime(literal));
     }
+
+    @Test
+    public void testCompactDateTimeWithTimeZone() {
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("20241012010203Z"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("20241012010203z"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("20241012010203.1145141Zulu"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("20241012010203zulu"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("20241012010203+08:00"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("241012010203+08:00"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("2024-01-01 12:00:00 uTc"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("2024-01-01 12:00:00     Gmt"));
+
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("20251010111213.123456+08:00"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("20251010111213.123Z"));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone("241010111213.123+08:00"));
+
+        Assertions.assertFalse(DateTimeChecker.hasTimeZone("20241012010203"));
+        Assertions.assertFalse(DateTimeChecker.hasTimeZone("2024-01-01 12:00:00"));
+        Assertions.assertFalse(DateTimeChecker.hasTimeZone("20241012"));
+        Assertions.assertFalse(DateTimeChecker.hasTimeZone("2024-10-12"));
+        Assertions.assertFalse(DateTimeChecker.hasTimeZone("25-10-12"));
+    }
 }

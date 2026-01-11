@@ -130,10 +130,12 @@ public:
     }
 
     // Convert UTC time to local time based on the given timezone
-    void convert_utc_to_local(const cctz::time_zone& local_time_zone);
+    void convert_utc_to_local(const cctz::time_zone& local_time_zone,
+                              DateV2Value<DateTimeV2ValueType>& dt) const;
 
     // Convert local time to UTC time based on the given timezone
-    void convert_local_to_utc(const cctz::time_zone& local_time_zone);
+    void convert_local_to_utc(const cctz::time_zone& local_time_zone,
+                              const DateV2Value<DateTimeV2ValueType>& dt);
 
     TimestampTzValue& operator++() {
         ++_utc_dt;

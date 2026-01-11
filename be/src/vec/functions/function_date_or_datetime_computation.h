@@ -1846,7 +1846,7 @@ public:
             const auto& arg1 = left_data[index_check_const(i, cols_info[0].is_const)];
             const auto& arg2 = right_data[index_check_const(i, cols_info[1].is_const)];
 
-            if constexpr (PType == TYPE_DATETIMEV2) {
+            if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
                 DateV2Value<DateTimeV2ValueType> dtv1 = arg1;
                 auto tv2 = static_cast<TimeValue::TimeType>(arg2);
                 TimeInterval interval(TimeUnit::MICROSECOND, tv2, IsNegative);

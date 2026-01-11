@@ -106,10 +106,6 @@ public class DateTimeChecker extends FormatChecker {
             return false;
         }
 
-        if (str.endsWith("Z")) {
-            return true;
-        }
-
         // Find the separator between date and time parts (' ' or 'T')
         int timeSeparatorIndex = -1;
         for (int i = 0; i < str.length(); i++) {
@@ -119,41 +115,33 @@ public class DateTimeChecker extends FormatChecker {
             }
         }
 
-        // no time part found
-        if (timeSeparatorIndex == -1) {
-            return false;
-        }
-
-        // Find the end of time part (after seconds or nanoseconds)
-        int timeEndIndex = timeSeparatorIndex + 1;
-        // Skip time part
-        while (timeEndIndex < str.length() && (Character.isDigit(str.charAt(timeEndIndex))
+        int timeEndIndex;
+        if (timeSeparatorIndex != -1) {
+            // Skip time part
+            timeEndIndex = timeSeparatorIndex + 1;
+            while (timeEndIndex < str.length() && (Character.isDigit(str.charAt(timeEndIndex))
                 || str.charAt(timeEndIndex) == ':' || str.charAt(timeEndIndex) == '.'
                 || str.charAt(timeEndIndex) == ' ')) {
-            timeEndIndex++;
+                timeEndIndex++;
+            }
+        } else {
+            // maybe compact mode, like YYDDMMHHMMSS
+            timeEndIndex = 0;
+            while (timeEndIndex < str.length()
+                    && (Character.isDigit(str.charAt(timeEndIndex)) || str.charAt(timeEndIndex) == '.')) {
+                timeEndIndex++;
+            }
         }
 
-        // Check if there's any content after the time part
-        if (timeEndIndex >= str.length()) {
+        // The minimum start of offset is 12： `YY-M-DTH:M:S<offset>`
+        if (timeEndIndex >= str.length() || timeEndIndex < 12) {
             return false;
         }
 
-        // Check for offset timezone like +08:00 or -05:00
-        for (int i = timeEndIndex; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (c == '+' || c == '-') {
-                if (i + 1 < str.length() && Character.isDigit(str.charAt(i + 1))) {
-                    return true;
-                }
-            }
-        }
-
-        // Check for named timezone like Europe/London, America/New_York, UTC, GMT
-        for (int i = timeEndIndex; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (Character.isLetter(c) || c == '/' || c == '_') {
-                return true;
-            }
+        char c = str.charAt(timeEndIndex);
+        if ((c == '+' || c == '-')
+                || (Character.isLetter(c) || c == '/' || c == '_')) {
+            return true;
         }
 
         return false;
