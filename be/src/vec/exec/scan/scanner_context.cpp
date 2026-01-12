@@ -62,7 +62,7 @@ ScannerContext::ScannerContext(
         int num_parallel_instances
 #endif
         )
-        : HasTaskExecutionCtx(state, true),
+        : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
           _output_tuple_desc(output_row_descriptor
@@ -98,6 +98,9 @@ ScannerContext::ScannerContext(
     }
     _dependency = dependency;
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
+    if (task_exec_ctx()) {
+        task_exec_ctx()->ref_task_execution_ctx();
+    }
 }
 
 // After init function call, should not access _parent
@@ -191,6 +194,9 @@ ScannerContext::~ScannerContext() {
             static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
         }
         _task_handle = nullptr;
+    }
+    if (task_exec_ctx()) {
+        task_exec_ctx()->unref_task_execution_ctx();
     }
 }
 

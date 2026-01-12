@@ -173,9 +173,9 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
-    if (_scanner_ctx) {
+    if (auto ctx = _scanner_ctx.load()) {
         DCHECK(!_eos && _num_scanners->value() > 0);
-        RETURN_IF_ERROR(_scanner_ctx->init());
+        RETURN_IF_ERROR(ctx->init());
     }
     _opened = true;
     return status;
@@ -565,9 +565,9 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     fmt::format_to(debug_string_buffer, "{}, _eos = {} , _opened = {}",
                    PipelineXLocalState<>::debug_string(indentation_level), _eos.load(),
                    _opened.load());
-    if (_scanner_ctx) {
+    if (auto ctx = _scanner_ctx.load()) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
+        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", ctx->debug_string());
     } else {
         fmt::format_to(debug_string_buffer, "");
         fmt::format_to(debug_string_buffer, ", Scanner Context: NULL");
@@ -1223,9 +1223,11 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
 
     SCOPED_TIMER(exec_time_counter());
-    if (_scanner_ctx) {
-        _scanner_ctx->stop_scanners(state);
-        _scanner_ctx.reset();
+    if (auto ctx = _scanner_ctx.load()) {
+        ctx->stop_scanners(state);
+        // _scanner_ctx may be accessed in debug_string concurrently
+        // so use atomic shared ptr to avoid use after free
+        _scanner_ctx.store(nullptr);
     }
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
@@ -1241,8 +1243,8 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     SCOPED_TIMER(local_state.exec_time_counter());
 
     if (state->is_cancelled()) {
-        if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->stop_scanners(state);
+        if (auto ctx = local_state._scanner_ctx.load()) {
+            ctx->stop_scanners(state);
         }
         return state->cancel_reason();
     }
@@ -1252,13 +1254,15 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
-    DCHECK(local_state._scanner_ctx != nullptr);
-    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
+    auto ctx = local_state._scanner_ctx.load();
+
+    DCHECK(ctx != nullptr);
+    RETURN_IF_ERROR(ctx->get_block_from_queue(state, block, eos, 0));
 
     local_state.reached_limit(block, eos);
     if (*eos) {
         // reach limit, stop the scanners.
-        local_state._scanner_ctx->stop_scanners(state);
+        ctx->stop_scanners(state);
         local_state._scanner_profile->add_info_string("EOS", "True");
     }
 
@@ -1268,16 +1272,16 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
 template <typename LocalStateType>
 size_t ScanOperatorX<LocalStateType>::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    if (!local_state._opened || local_state._closed || !local_state._scanner_ctx) {
+    auto ctx = local_state._scanner_ctx.load();
+    if (!local_state._opened || local_state._closed || !ctx) {
         return config::doris_scanner_row_bytes;
     }
 
     if (local_state.low_memory_mode()) {
-        return local_state._scanner_ctx->low_memory_mode_scan_bytes_per_scanner() *
-               local_state._scanner_ctx->low_memory_mode_scanners();
+        return ctx->low_memory_mode_scan_bytes_per_scanner() * ctx->low_memory_mode_scanners();
     } else {
         const auto peak_usage = local_state._memory_used_counter->value();
-        const auto block_usage = local_state._scanner_ctx->block_memory_usage();
+        const auto block_usage = ctx->block_memory_usage();
         if (peak_usage > 0) {
             // It is only a safty check, to avoid some counter not right.
             if (peak_usage > block_usage) {

@@ -63,7 +63,16 @@ void ThriftRpcHelper::setup(ExecEnv* exec_env) {
 template <typename T>
 Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
                             std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
-    TNetworkAddress address = make_network_address(ip, port);
+    return rpc<T>([ip, port]() { return make_network_address(ip, port); }, callback, timeout_ms);
+}
+
+template <typename T>
+Status ThriftRpcHelper::rpc(std::function<TNetworkAddress()> address_provider,
+                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
+    TNetworkAddress address = address_provider();
+    if (address.hostname.empty() || address.port == 0) {
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("FE address is not available");
+    }
     Status status;
     DBUG_EXECUTE_IF("thriftRpcHelper.rpc.error", { timeout_ms = 30000; });
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
@@ -85,15 +94,36 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
 #endif
             std::this_thread::sleep_for(
                     std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
-            status = client.reopen(timeout_ms);
-            if (!status.ok()) {
-#ifndef ADDRESS_SANITIZER
-                LOG(WARNING) << "client reopen failed. address=" << address
-                             << ", status=" << status;
-#endif
-                return status;
+            TNetworkAddress retry_address = address_provider();
+            if (retry_address.hostname.empty() || retry_address.port == 0) {
+                return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("FE address is not available");
             }
-            callback(client);
+            if (retry_address.hostname != address.hostname || retry_address.port != address.port) {
+#ifndef ADDRESS_SANITIZER
+                LOG(INFO) << "retrying call frontend service with new address=" << retry_address;
+#endif
+                Status retry_status;
+                ClientConnection<T> retry_client(_s_exec_env->get_client_cache<T>(), retry_address,
+                                                 timeout_ms, &retry_status);
+                if (!retry_status.ok()) {
+#ifndef ADDRESS_SANITIZER
+                    LOG(WARNING) << "Connect frontend failed, address=" << retry_address
+                                 << ", status=" << retry_status;
+#endif
+                    return retry_status;
+                }
+                callback(retry_client);
+            } else {
+                status = client.reopen(timeout_ms);
+                if (!status.ok()) {
+#ifndef ADDRESS_SANITIZER
+                    LOG(WARNING) << "client reopen failed. address=" << address
+                                 << ", status=" << status;
+#endif
+                    return status;
+                }
+                callback(client);
+            }
         }
     } catch (apache::thrift::TException& e) {
 #ifndef ADDRESS_SANITIZER
@@ -104,14 +134,18 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
         static_cast<void>(client.reopen(timeout_ms));
-        return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}", ip,
-                                port, e.what());
+        return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}",
+                                address.hostname, address.port, e.what());
     }
     return Status::OK();
 }
 
 template Status ThriftRpcHelper::rpc<FrontendServiceClient>(
         const std::string& ip, const int32_t port,
+        std::function<void(ClientConnection<FrontendServiceClient>&)> callback, int timeout_ms);
+
+template Status ThriftRpcHelper::rpc<FrontendServiceClient>(
+        std::function<TNetworkAddress()> address_provider,
         std::function<void(ClientConnection<FrontendServiceClient>&)> callback, int timeout_ms);
 
 template Status ThriftRpcHelper::rpc<BackendServiceClient>(

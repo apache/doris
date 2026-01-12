@@ -2072,9 +2072,12 @@ Status PipelineFragmentContext::wait_close(bool close) {
 
     {
         std::unique_lock<std::mutex> lock(_task_mutex);
-        _notify_cv.wait(lock, [this] {
-            return _is_fragment_instance_closed.load() && !_has_task_execution_ctx_ref_count;
-        });
+        while (!(_is_fragment_instance_closed.load() && !_has_task_execution_ctx_ref_count)) {
+            if (_query_ctx->is_cancelled()) {
+                return Status::Cancelled("Query has been cancelled");
+            }
+            _notify_cv.wait_for(lock, std::chrono::seconds(1));
+        }
     }
 
     if (close) {
