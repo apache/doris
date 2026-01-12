@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.common.util;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.MasterDaemon;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,10 +36,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.stream.Collectors;
 
-public class TabletAccessStats {
-    private static final Logger LOG = LogManager.getLogger(TabletAccessStats.class);
+public class SlidingWindowAccessStats {
+    private static final Logger LOG = LogManager.getLogger(SlidingWindowAccessStats.class);
 
-    private static volatile TabletAccessStats instance;
+    private static volatile SlidingWindowAccessStats instance;
 
     // Sort active tablets by accessCount desc, then lastAccessTime desc
     private static final Comparator<AccessStatsResult> TOPN_ACTIVE_TABLET_COMPARATOR =
@@ -189,7 +189,7 @@ public class TabletAccessStats {
     // Default cleanup interval: 5 minutes
     private static final long DEFAULT_CLEANUP_INTERVAL_SECOND = 300L;
 
-    private TabletAccessStats() {
+    private SlidingWindowAccessStats() {
         this.timeWindowMs = DEFAULT_TIME_WINDOW_SECOND * 1000L;
         this.bucketSizeMs = DEFAULT_BUCKET_SIZE_SECOND * 1000L;
         this.numBuckets = (int) (DEFAULT_TIME_WINDOW_SECOND / DEFAULT_BUCKET_SIZE_SECOND); // 60 buckets
@@ -226,11 +226,11 @@ public class TabletAccessStats {
         }
     }
 
-    public static TabletAccessStats getInstance() {
+    public static SlidingWindowAccessStats getInstance() {
         if (instance == null) {
-            synchronized (TabletAccessStats.class) {
+            synchronized (SlidingWindowAccessStats.class) {
                 if (instance == null) {
-                    instance = new TabletAccessStats();
+                    instance = new SlidingWindowAccessStats();
                 }
             }
         }
@@ -249,25 +249,25 @@ public class TabletAccessStats {
      * This method is non-blocking and should be used in high-frequency call paths
      * to avoid blocking the caller thread.
      */
-    public void recordAccessAsync(long replicaId) {
-        if (!Config.enable_cloud_active_tablet_priority_scheduling || asyncExecutor == null) {
+    public void recordAccessAsync(long id) {
+        if (asyncExecutor == null) {
             return;
         }
 
         try {
             asyncExecutor.execute(() -> {
                 try {
-                    recordAccess(replicaId);
+                    recordAccess(id);
                 } catch (Exception e) {
                     // Log but don't propagate exception to avoid affecting caller
-                    LOG.debug("Failed to record access asynchronously for replicaId={}", replicaId, e);
+                    LOG.debug("Failed to record access asynchronously for replicaId={}", id, e);
                 }
             });
         } catch (Exception e) {
             // If executor is shutdown or queue is full, silently ignore
             // Statistics can tolerate some loss
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to submit async recordAccess task for replicaId={}", replicaId, e);
+                LOG.debug("Failed to submit async recordAccess task for replicaId={}", id, e);
             }
         }
     }
@@ -275,23 +275,16 @@ public class TabletAccessStats {
     /**
      * Record an access to a replica
      */
-    public void recordAccess(long replicaId) {
+    public void recordAccess(long id) {
         if (!Config.enable_cloud_active_tablet_priority_scheduling) {
             return;
         }
 
         long currentTime = System.currentTimeMillis();
-        // Record tablet access
-        // Get real tabletId from TabletInvertedIndex instead of calculating it
-        long tabletId = Env.getCurrentInvertedIndex().getTabletIdByReplicaId(replicaId);
-        if (tabletId == TabletInvertedIndex.NOT_EXIST_VALUE) {
-            LOG.warn("cant find replicaId={} in getCurrentInvertedIndex, skip it", replicaId);
-            return;
-        }
-        int tabletShardIndex = getShardIndex(tabletId);
+        int tabletShardIndex = getShardIndex(id);
         AccessStatsShard tabletShard = shards[tabletShardIndex];
 
-        SlidingWindowCounter tabletCounter = tabletShard.tabletCounters.computeIfAbsent(tabletId,
+        SlidingWindowCounter tabletCounter = tabletShard.tabletCounters.computeIfAbsent(id,
                 k -> new SlidingWindowCounter(numBuckets));
         tabletCounter.add(currentTime, bucketSizeMs, numBuckets);
 
@@ -434,7 +427,7 @@ public class TabletAccessStats {
         }
 
         return String.format(
-                "TabletAccessStats{timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
+                "SlidingWindowAccessStats{timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
                 + "shardSize=%d, activeTablets=%d, "
                 + "totalTabletAccess=%d, totalAccessCount=%d}",
                 timeWindowMs / 1000, bucketSizeMs / 1000, numBuckets, SHARD_SIZE,
@@ -446,7 +439,7 @@ public class TabletAccessStats {
      */
     private class AccessStatsCleanupDaemon extends MasterDaemon {
         public AccessStatsCleanupDaemon() {
-            super("cloud-tablet-access-stats-cleanup", cleanupIntervalMs);
+            super("sliding-window-access-stats-cleanup", cleanupIntervalMs);
         }
 
         @Override

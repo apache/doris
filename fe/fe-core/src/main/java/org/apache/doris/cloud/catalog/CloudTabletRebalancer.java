@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -39,6 +38,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.SlidingWindowAccessStats;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -1708,13 +1708,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private Set<Long> getActiveTabletIds() {
         try {
             // get topN active tablets
-            List<TabletAccessStats.AccessStatsResult> active =
-                    TabletAccessStats.getInstance().getTopNActiveTablets(10000);
+            List<SlidingWindowAccessStats.AccessStatsResult> active =
+                    SlidingWindowAccessStats.getInstance().getTopNActiveTablets(10000);
             if (active == null || active.isEmpty()) {
                 return Collections.emptySet();
             }
             Set<Long> ids = new HashSet<>(active.size() * 2);
-            for (TabletAccessStats.AccessStatsResult r : active) {
+            for (SlidingWindowAccessStats.AccessStatsResult r : active) {
                 ids.add(r.id);
             }
             return ids;

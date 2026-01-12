@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.common.util;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -29,12 +29,12 @@ import java.util.List;
 
 
 /**
- * Unit tests for CloudTabletAccessStats sliding window logic.
+ * Unit tests for CloudSlidingWindowAccessStats sliding window logic.
  *
  * <p>We use reflection to test the private static inner class SlidingWindowCounter,
  * focusing on time-window counting, bucket expiration, cleanup and cache invalidation.
  */
-public class TabletAccessStatsTest {
+public class SlidingWindowAccessStatsTest {
 
     private static class CounterHarness {
         private final Object counter;
@@ -46,7 +46,7 @@ public class TabletAccessStatsTest {
 
         CounterHarness(int numBuckets) throws Exception {
             Class<?> clazz = Class.forName(
-                    "org.apache.doris.catalog.TabletAccessStats$SlidingWindowCounter");
+                    "org.apache.doris.common.util.SlidingWindowAccessStats$SlidingWindowCounter");
             Constructor<?> ctor = clazz.getDeclaredConstructor(int.class);
             ctor.setAccessible(true);
             this.counter = ctor.newInstance(numBuckets);
@@ -176,17 +176,17 @@ public class TabletAccessStatsTest {
 
     @Test
     public void testTopNComparatorOrdersByAccessCountThenLastAccessTimeDesc() throws Exception {
-        Field f = TabletAccessStats.class.getDeclaredField("TOPN_ACTIVE_TABLET_COMPARATOR");
+        Field f = SlidingWindowAccessStats.class.getDeclaredField("TOPN_ACTIVE_TABLET_COMPARATOR");
         f.setAccessible(true);
         @SuppressWarnings("unchecked")
-        Comparator<TabletAccessStats.AccessStatsResult> cmp =
-                (Comparator<TabletAccessStats.AccessStatsResult>) f.get(null);
+        Comparator<SlidingWindowAccessStats.AccessStatsResult> cmp =
+                (Comparator<SlidingWindowAccessStats.AccessStatsResult>) f.get(null);
 
-        List<TabletAccessStats.AccessStatsResult> results = new ArrayList<>();
-        results.add(new TabletAccessStats.AccessStatsResult(1L, 1L, 200L));
-        results.add(new TabletAccessStats.AccessStatsResult(2L, 10L, 100L));
-        results.add(new TabletAccessStats.AccessStatsResult(3L, 10L, 300L));
-        results.add(new TabletAccessStats.AccessStatsResult(4L, 2L, 400L));
+        List<SlidingWindowAccessStats.AccessStatsResult> results = new ArrayList<>();
+        results.add(new SlidingWindowAccessStats.AccessStatsResult(1L, 1L, 200L));
+        results.add(new SlidingWindowAccessStats.AccessStatsResult(2L, 10L, 100L));
+        results.add(new SlidingWindowAccessStats.AccessStatsResult(3L, 10L, 300L));
+        results.add(new SlidingWindowAccessStats.AccessStatsResult(4L, 2L, 400L));
 
         results.sort(cmp);
 

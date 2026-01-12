@@ -22,7 +22,6 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -30,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.SlidingWindowAccessStats;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
@@ -304,7 +304,7 @@ public class CloudReplica extends Replica {
             return -1L;
         }
         // Use async version to avoid blocking getBackendIdImpl which is called frequently
-        TabletAccessStats.getInstance().recordAccessAsync(getId());
+        SlidingWindowAccessStats.getInstance().recordAccessAsync(getId());
 
         if (isColocated()) {
             return getColocatedBeId(clusterId);

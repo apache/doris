@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SlidingWindowAccessStats;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Multimap;
@@ -60,13 +61,19 @@ public class CloudTablet extends Tablet {
 
     @Override
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+        // Use async version to avoid blocking getBackendIdImpl which is called frequently
+        SlidingWindowAccessStats.getInstance().recordAccessAsync(getId());
         Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMap();
         return backendPathMapReprocess(pathMap);
     }
 
     public Multimap<Long, Long> getNormalReplicaBackendPathMap(String beEndpoint) throws UserException {
-        Multimap<Long, Long> pathMap = getNormalReplicaBackendPathMapImpl(beEndpoint,
-                (rep, be) -> ((CloudReplica) rep).getBackendId(be));
+        Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMapImpl(beEndpoint,
+                (rep, be) -> {
+                    // Use async version to avoid blocking getBackendIdImpl which is called frequently
+                    SlidingWindowAccessStats.getInstance().recordAccessAsync(getId());
+                    return ((CloudReplica) rep).getBackendId(be);
+                });
         return backendPathMapReprocess(pathMap);
     }
 

@@ -22,12 +22,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.SlidingWindowAccessStats;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
@@ -92,7 +92,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
         }
 
         for (Replica replica : replicas) {
-            TabletAccessStats.AccessStatsResult asr = TabletAccessStats.getInstance()
+            SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStats.getInstance()
                     .getTabletAccessInfo(tabletId);
             long accessCount1H = 0;
             long lastAccessTime = 0;

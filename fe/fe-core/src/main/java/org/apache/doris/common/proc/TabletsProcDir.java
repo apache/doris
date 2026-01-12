@@ -23,13 +23,13 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletAccessStats;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.SlidingWindowAccessStats;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
@@ -144,7 +144,7 @@ public class TabletsProcDir implements ProcDirInterface {
 
                     tabletInfos.add(tabletInfo);
                 } else {
-                    TabletAccessStats.AccessStatsResult asr = TabletAccessStats.getInstance()
+                    SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStats.getInstance()
                             .getTabletAccessInfo(tabletId);
                     long accessCount1H = 0;
                     long lastAccessTime = 0;

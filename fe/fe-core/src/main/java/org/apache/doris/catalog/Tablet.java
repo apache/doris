@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SlidingWindowAccessStats;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -246,7 +247,11 @@ public class Tablet {
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
-        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendIdAndRecordAccessInfo());
+        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> {
+            // Use async version to avoid blocking getBackendIdImpl which is called frequently
+            SlidingWindowAccessStats.getInstance().recordAccessAsync(getId());
+            return rep.getBackendId();
+        });
     }
 
     // When a BE reports a missing version, lastFailedVersion is set. When a write fails on a replica,
@@ -260,6 +265,8 @@ public class Tablet {
         List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
+        // Use async version to avoid blocking getBackendIdImpl which is called frequently
+        SlidingWindowAccessStats.getInstance().recordAccessAsync(getId());
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {
@@ -274,15 +281,7 @@ public class Tablet {
                 continue;
             }
 
-            long beId = -1;
-            try {
-                beId = replica.getBackendIdAndRecordAccessInfo();
-            } catch (UserException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("getBackendIdWithoutException: ", e);
-                }
-            }
-            Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(beId);
+            Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(replica.getBackendIdWithoutException());
             ReplicaState state = replica.getState();
             // if thisBeAlivePaths contains pathHash = 0, it mean this be hadn't report disks state.
             // should ignore this case.
