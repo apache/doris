@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Kontaktirajte nas preko naslednjega poštnega seznama.
 
 * Uradno spletno mesto Apache Doris - [Spletno mesto](https://doris.apache.org)
 * Poštni seznam razvijalcev - <dev@doris.apache.org>. Pošljite e-pošto na <dev-subscribe@doris.apache.org>, sledite odgovoru za naročanje na poštni seznam.
-* Slack kanal - [Pridružite se Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slack kanal - [Pridružite se Slack](https://doris.apache.org/slack)
 * Twitter - [Sledite @doris_apache](https://twitter.com/doris_apache)
 
 

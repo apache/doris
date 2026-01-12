@@ -34,9 +34,11 @@ template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
-    using T = typename PrimitiveTypeTraits<Type>::CppType;
-    ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, Type, opposite), _value(value) {}
+    using T = std::conditional_t<is_string_type(Type), StringRef,
+                                 typename PrimitiveTypeTraits<Type>::CppType>;
+    ComparisonPredicateBase(uint32_t column_id, std::string col_name, const T& value,
+                            bool opposite = false)
+            : ColumnPredicate(column_id, col_name, Type, opposite), _value(value) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
             : ColumnPredicate(other, col_id), _value(other._value) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other) = delete;
@@ -168,16 +170,14 @@ public:
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         T min_value;
         T max_value;
-        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
-            min_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-            max_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        if constexpr (is_string_type(Type)) {
+            auto& tmp_min = min_field.template get<std::string>();
+            auto& tmp_max = max_field.template get<std::string>();
+            min_value = StringRef(tmp_min.data(), tmp_min.size());
+            max_value = StringRef(tmp_max.data(), tmp_max.size());
         } else {
-            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            min_value = min_field.template get<T>();
+            max_value = max_field.template get<T>();
         }
 
         if constexpr (PT == PredicateType::EQ) {

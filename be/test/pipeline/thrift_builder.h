@@ -96,6 +96,11 @@ public:
         return *this;
     }
 
+    TQueryOptionsBuilder& set_enable_spill(int64_t enable_spill) {
+        _query_options.__set_enable_spill(enable_spill);
+        return *this;
+    }
+
     TQueryOptions& build() { return _query_options; }
 
     TQueryOptionsBuilder(const TQueryOptionsBuilder&) = delete;

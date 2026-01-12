@@ -195,7 +195,7 @@ public:
 
     virtual bool is_literal() const { return false; }
 
-    MOCK_FUNCTION TExprNodeType::type node_type() const { return _node_type; }
+    virtual TExprNodeType::type node_type() const { return _node_type; }
 
     TExprOpcode::type op() const { return _opcode; }
 

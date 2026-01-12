@@ -54,7 +54,7 @@ TEST(VFieldTest, field_string) {
 
 TEST(VFieldTest, field_timestamptz) {
     Field f;
-    f = Field::create_field<TYPE_TIMESTAMPTZ>(MIN_DATETIME_V2);
+    f = Field::create_field<TYPE_TIMESTAMPTZ>(*(TimestampTzValue*)&MIN_DATETIME_V2);
     ASSERT_EQ(f.get_type(), TYPE_TIMESTAMPTZ);
     ASSERT_EQ(f.get<UInt64>(), MIN_DATETIME_V2);
 }

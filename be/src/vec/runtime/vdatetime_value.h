@@ -817,6 +817,8 @@ inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETI
 
 template <typename T>
 class DateV2Value {
+    friend class DatetimeValueUtil;
+
 public:
     static constexpr bool is_datetime = std::is_same_v<T, DateTimeV2ValueType>;
     using underlying_value = std::conditional_t<is_datetime, uint64_t, uint32_t>;
@@ -1750,6 +1752,25 @@ inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
     // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
     return delsum + y / 4 - y / 100 + y / 400;
 }
+
+class DatetimeValueUtil {
+public:
+    template <bool only_time>
+    static bool to_format_string_without_check(const char* format, size_t len, char* to,
+                                               size_t max_valid_length, int16_t year, int8_t month,
+                                               int8_t day, int hour, int minute, int second,
+                                               int ms);
+
+private:
+    static uint8_t week(int16_t year, int8_t month, int8_t day, uint8_t mode);
+
+    static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
+                             const uint8_t& day, uint8_t mode, uint16_t* to_year,
+                             bool disable_lut = false) {
+        return DateV2Value<DateTimeV2ValueType>::calc_week(day_nr, year, month, day, mode, to_year,
+                                                           disable_lut);
+    }
+};
 
 template <typename T>
 struct DateTraits {};

@@ -281,7 +281,8 @@ public:
                                                 &ctz, nullptr, nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
-        static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {},
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+        static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
                                                 tuple_desc, nullptr, &colname_to_slot_id, nullptr,
                                                 nullptr));
 
@@ -401,126 +402,6 @@ TEST_F(ParquetExprTest, test_min_max) {
     }
 }
 
-TEST_F(ParquetExprTest, test_ne) {
-    auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
-    auto fn_eq = MockFnCall::create("ne");
-    auto const_val = std::make_shared<MockLiteral>(
-            ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
-
-    slot_ref->set_expr_name("int32_all_null_col");
-    fn_eq->add_child(slot_ref);
-    fn_eq->add_child(const_val);
-    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
-    fn_eq->_opcode = TExprOpcode::NE;
-    slot_ref->_slot_id = 1;
-    EXPECT_FALSE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    ASSERT_FALSE(p_reader->check_expr_can_push_down(ctx->root()));
-}
-
-TEST_F(ParquetExprTest, test_eq) {
-    auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt32>());
-    auto fn_eq = MockFnCall::create("eq");
-    auto const_val = std::make_shared<MockLiteral>(
-            ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-    slot_ref->set_expr_name("int32_all_null_col");
-    fn_eq->add_child(slot_ref);
-    fn_eq->add_child(const_val);
-    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
-    fn_eq->_opcode = TExprOpcode::EQ;
-    slot_ref->_slot_id = 1;
-    slot_ref->_column_id = 1;
-    EXPECT_FALSE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
-}
-
-TEST_F(ParquetExprTest, test_le) {
-    auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt32>());
-    auto fn_eq = MockFnCall::create("le");
-    auto const_val = std::make_shared<MockLiteral>(
-            ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-    slot_ref->set_expr_name("int32_all_null_col");
-    fn_eq->add_child(slot_ref);
-    fn_eq->add_child(const_val);
-    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
-    fn_eq->_opcode = TExprOpcode::LE;
-    slot_ref->_slot_id = 1;
-    slot_ref->_column_id = 1;
-    EXPECT_FALSE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
-}
-
-TEST_F(ParquetExprTest, test_ge) {
-    auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt32>());
-    auto fn_eq = MockFnCall::create("ge");
-    auto const_val = std::make_shared<MockLiteral>(
-            ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-    slot_ref->set_expr_name("int32_all_null_col");
-    fn_eq->add_child(slot_ref);
-    fn_eq->add_child(const_val);
-    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
-    fn_eq->_opcode = TExprOpcode::GE;
-    slot_ref->_slot_id = 1;
-    slot_ref->_column_id = 1;
-    EXPECT_FALSE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
-}
-
-TEST_F(ParquetExprTest, test_gt) {
-    auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt32>());
-    auto fn_eq = MockFnCall::create("gt");
-    auto const_val = std::make_shared<MockLiteral>(
-            ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-    slot_ref->set_expr_name("int32_all_null_col");
-    fn_eq->add_child(slot_ref);
-    fn_eq->add_child(const_val);
-    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
-    fn_eq->_opcode = TExprOpcode::GT;
-    slot_ref->_slot_id = 1;
-    slot_ref->_column_id = 1;
-    EXPECT_FALSE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
-}
-
-TEST_F(ParquetExprTest, test_lt) {
-    auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt32>());
-    auto fn_eq = MockFnCall::create("lt");
-    auto const_val = std::make_shared<MockLiteral>(
-            ColumnHelper::create_column_with_name<DataTypeInt32>({100}));
-    slot_ref->set_expr_name("int32_all_null_col");
-    fn_eq->add_child(slot_ref);
-    fn_eq->add_child(const_val);
-    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
-    fn_eq->_opcode = TExprOpcode::LT;
-    slot_ref->_slot_id = 1;
-    slot_ref->_column_id = 1;
-    EXPECT_FALSE(fn_eq->is_constant());
-
-    auto ctx = VExprContext::create_shared(fn_eq);
-    ctx->_prepared = true;
-    ctx->_opened = true;
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
-}
-
 TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 , 10000000000+3)
                                      // int64_col = 10000000001   [10000000000 , 10000000000+3)
     int loc = 2;
@@ -540,7 +421,6 @@ TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 ,
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -592,7 +472,6 @@ TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -635,8 +514,6 @@ TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -687,8 +564,6 @@ TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
     ctx->_prepared = true;
     ctx->_opened = true;
 
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
-
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
                 get_stat_func =
@@ -737,8 +612,6 @@ TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -792,13 +665,10 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(3, 0, &min_field, &max_field);
 
-        auto col = ColumnHelper::create_column_with_name<DataTypeFloat64>({1.1f, 3.1f});
+        auto col = ColumnHelper::create_column_with_name<DataTypeFloat32>({1.1f, 3.1f});
 
         std::cout << "min_field = " << min_field.get<float>() << "\n";
         std::cout << "max_field = " << max_field.get<float>() << "\n";
-
-        std::cout << "min_field = " << min_field.get<double>() << "\n";
-        std::cout << "max_field = " << max_field.get<double>() << "\n";
 
         Field ans_min = col.column->operator[](0);
         Field ans_max = col.column->operator[](1);
@@ -811,7 +681,7 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(6, 0, &min_field, &max_field);
 
-        auto col = ColumnHelper::create_column_with_name<DataTypeInt64>({0, 1});
+        auto col = ColumnHelper::create_column_with_name<DataTypeBool>({0, 1});
 
         Field ans_min = col.column->operator[](0);
         Field ans_max = col.column->operator[](1);
@@ -878,8 +748,8 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(9, 0, &min_field, &max_field);
 
-        Field ans_min = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(10000, 2));
-        Field ans_max = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(10200, 2));
+        Field ans_min = Field::create_field<TYPE_DECIMAL64>(Decimal64(10000));
+        Field ans_max = Field::create_field<TYPE_DECIMAL64>(Decimal64(10200));
         ASSERT_EQ(ans_min, min_field);
         ASSERT_EQ(ans_max, max_field);
     }
@@ -888,8 +758,8 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         Field max_field;
         f(10, 1, &min_field, &max_field);
 
-        Field ans_min = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(1030000, 6));
-        Field ans_max = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(1050000, 6));
+        Field ans_min = Field::create_field<TYPE_DECIMAL64>(Decimal64(1030000));
+        Field ans_max = Field::create_field<TYPE_DECIMAL64>(Decimal64(1050000));
         ASSERT_EQ(ans_min, min_field);
         ASSERT_EQ(ans_max, max_field);
     }
@@ -1174,69 +1044,28 @@ TEST_F(ParquetExprTest, test_expr_push_down_eq_bool) {
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_and) {
+    std::unique_ptr<MutilColumnBlockPredicate> pred = AndBlockColumnPredicate::create_unique();
     auto and_expr = std::make_shared<VCompoundPred>();
     and_expr->_op = TExprOpcode::COMPOUND_AND;
     and_expr->_opcode = TExprOpcode::COMPOUND_AND;
     and_expr->_node_type = TExprNodeType::COMPOUND_PRED;
     // x <= 10000000002
     {
-        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
-        auto fn_le = MockFnCall::create("le");
-        auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeInt64>({10000000002}));
-        slot_ref->set_expr_name("int64_col");
-        fn_le->add_child(slot_ref);
-        fn_le->add_child(const_val);
-        fn_le->_node_type = TExprNodeType::BINARY_PRED;
-        fn_le->_opcode = TExprOpcode::LE;
-        slot_ref->_slot_id = 2;
-        slot_ref->_column_id = 2;
-        EXPECT_FALSE(fn_le->is_constant());
-
-        auto ctx = VExprContext::create_shared(fn_le);
-        ctx->_prepared = true;
-        ctx->_opened = true;
-        and_expr->add_child(ctx->root());
+        pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+                ComparisonPredicateBase<TYPE_BIGINT, PredicateType::LE>::create_shared(
+                        2, "", 10000000002)));
     }
 
     { // x > 100
-        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
-        auto fn_le = MockFnCall::create("gt");
-        auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
-        slot_ref->set_expr_name("int64_col");
-        fn_le->add_child(slot_ref);
-        fn_le->add_child(const_val);
-        fn_le->_node_type = TExprNodeType::BINARY_PRED;
-        fn_le->_opcode = TExprOpcode::GT;
-        slot_ref->_slot_id = 2;
-        slot_ref->_column_id = 2;
-        EXPECT_FALSE(fn_le->is_constant());
-
-        auto ctx = VExprContext::create_shared(fn_le);
-        ctx->_prepared = true;
-        ctx->_opened = true;
-        and_expr->add_child(ctx->root());
+        pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+                ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>::create_shared(2, "",
+                                                                                       100)));
     }
 
     { // x >= 900
-        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
-        auto fn_le = MockFnCall::create("ge");
-        auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeInt64>({900}));
-        slot_ref->set_expr_name("int64_col");
-        fn_le->add_child(slot_ref);
-        fn_le->add_child(const_val);
-        fn_le->_node_type = TExprNodeType::BINARY_PRED;
-        fn_le->_opcode = TExprOpcode::GE;
-        slot_ref->_slot_id = 2;
-        slot_ref->_column_id = 2;
-        EXPECT_FALSE(fn_le->is_constant());
-
-        auto ctx = VExprContext::create_shared(fn_le);
-        ctx->_prepared = true;
-        ctx->_opened = true;
-        and_expr->add_child(ctx->root());
+        pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+                ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GE>::create_shared(2, "",
+                                                                                       900)));
     }
 
     const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
@@ -1250,15 +1079,8 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
         }
         return true;
     };
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(and_expr));
-
     p_reader->_enable_filter_by_min_max = true;
-    std::map<int, std::vector<std::shared_ptr<ColumnPredicate>>> push_down_simple_predicates;
-    push_down_simple_predicates.emplace(2, std::vector<std::shared_ptr<ColumnPredicate>> {});
-    p_reader->_push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
-    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, p_reader->_push_down_predicates.back(),
-                                             p_reader->_arena)
-                        .ok());
+    p_reader->_push_down_predicates.push_back(std::move(pred));
 
     bool filter_group = false;
     bool filtered_by_min_max = false;
@@ -1333,13 +1155,12 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
         }
         return true;
     };
-    ASSERT_TRUE(p_reader->check_expr_can_push_down(or_expr));
 }
 
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1381,7 +1202,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
 TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1432,7 +1253,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
 TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1483,7 +1304,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
 TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1526,7 +1347,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) 
 TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1577,7 +1398,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
 TEST_F(ParquetExprTest, test_bloom_filter_loader_not_called_when_missing_metadata) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1619,7 +1440,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_not_called_when_missing_metadat
 TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1666,7 +1487,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
 TEST_F(ParquetExprTest, test_bloom_filter_not_supported_type) {
     const int col_idx = 6; // bool column
     const bool predicate_value = true;
-    ComparisonPredicateBase<TYPE_BOOLEAN, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BOOLEAN, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1706,7 +1527,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_not_supported_type) {
 TEST_F(ParquetExprTest, test_bloom_filter_min_max_overlap_but_no_loader) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1748,7 +1569,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_uses_bloom_filter) {
         set->insert(&v);
     }
 
-    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 3> in_pred(col_idx, set, false);
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 3> in_pred(col_idx, "", set, false);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1801,7 +1622,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_no_loader_on_range_miss) {
         set->insert(&v);
     }
 
-    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 2> in_pred(col_idx, set, false);
+    InListPredicateBase<TYPE_BIGINT, PredicateType::IN_LIST, 2> in_pred(col_idx, "", set, false);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1843,7 +1664,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_no_loader_on_range_miss) {
 TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
-    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, predicate_value);
+    ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(col_idx, "", predicate_value);
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;

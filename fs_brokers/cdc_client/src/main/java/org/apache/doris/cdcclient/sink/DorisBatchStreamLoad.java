@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -80,6 +81,7 @@ public class DorisBatchStreamLoad implements Serializable {
     private BlockingQueue<BatchRecordBuffer> flushQueue;
     private final AtomicBoolean started;
     private volatile boolean loadThreadAlive = false;
+    private final CountDownLatch loadThreadStarted = new CountDownLatch(1);
     private AtomicReference<Throwable> exception = new AtomicReference<>(null);
     private long maxBlockedBytes;
     private final AtomicLong currentCacheBytes = new AtomicLong(0L);
@@ -110,6 +112,16 @@ public class DorisBatchStreamLoad implements Serializable {
         this.loadExecutorService.execute(loadAsyncExecutor);
         this.targetDb = targetDb;
         this.jobId = jobId;
+        // Wait for the load thread to start
+        try {
+            if (!loadThreadStarted.await(10, TimeUnit.SECONDS)) {
+                throw new RuntimeException("LoadAsyncExecutor thread startup timed out");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(
+                    "Thread interrupted while waiting for load thread to start", e);
+        }
     }
 
     /**
@@ -310,6 +322,7 @@ public class DorisBatchStreamLoad implements Serializable {
         public void run() {
             LOG.info("LoadAsyncExecutor start for jobId {}", jobId);
             loadThreadAlive = true;
+            loadThreadStarted.countDown();
             List<BatchRecordBuffer> recordList = new ArrayList<>(flushQueueSize);
             while (started.get()) {
                 recordList.clear();
@@ -504,6 +517,9 @@ public class DorisBatchStreamLoad implements Serializable {
                         LOG.info("commit result {}", responseBody);
                         if (statusCode == 200) {
                             LOG.info("commit offset for jobId {} taskId {}", jobId, currentTaskId);
+                            // A 200 response indicates that the request was successful, and
+                            // information such as offset and statistics may have already been
+                            // updated. Retrying may result in repeated updates.
                             return;
                         }
                         LOG.error(

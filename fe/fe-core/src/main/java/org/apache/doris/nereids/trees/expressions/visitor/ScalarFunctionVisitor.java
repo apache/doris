@@ -246,6 +246,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HllToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
@@ -255,6 +256,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Interval;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InttoUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
@@ -342,12 +344,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsA
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicrosecondFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
@@ -392,6 +396,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
@@ -424,6 +430,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
@@ -490,6 +497,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64Binary;
@@ -1441,6 +1449,22 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(hourFloor, context);
     }
 
+    default R visitHourFromUnixtime(HourFromUnixtime hourFromUnixtime, C context) {
+        return visitScalarFunction(hourFromUnixtime, context);
+    }
+
+    default R visitMinuteFromUnixtime(MinuteFromUnixtime minuteFromUnixtime, C context) {
+        return visitScalarFunction(minuteFromUnixtime, context);
+    }
+
+    default R visitSecondFromUnixtime(SecondFromUnixtime secondFromUnixtime, C context) {
+        return visitScalarFunction(secondFromUnixtime, context);
+    }
+
+    default R visitMicrosecondFromUnixtime(MicrosecondFromUnixtime microsecondFromUnixtime, C context) {
+        return visitScalarFunction(microsecondFromUnixtime, context);
+    }
+
     default R visitHoursDiff(HoursDiff hoursDiff, C context) {
         return visitScalarFunction(hoursDiff, context);
     }
@@ -1467,6 +1491,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitInstr(Instr instr, C context) {
         return visitScalarFunction(instr, context);
+    }
+
+    default R visitInterval(Interval interval, C context) {
+        return visitScalarFunction(interval, context);
     }
 
     default R visitIpv4NumToString(Ipv4NumToString ipv4NumToString, C context) {
@@ -1949,6 +1977,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(quantileEmpty, context);
     }
 
+    default R visitQuantileStateFromBase64(QuantileStateFromBase64 quantileStateFromBase64, C context) {
+        return visitScalarFunction(quantileStateFromBase64, context);
+    }
+
+    default R visitQuantileStateToBase64(QuantileStateToBase64 quantileStateToBase64, C context) {
+        return visitScalarFunction(quantileStateToBase64, context);
+    }
+
     default R visitQuarter(Quarter quarter, C context) {
         return visitScalarFunction(quarter, context);
     }
@@ -2323,6 +2359,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTimeDiff(TimeDiff timeDiff, C context) {
         return visitScalarFunction(timeDiff, context);
+    }
+
+    default R visitTimeFormat(TimeFormat timeFormat, C context) {
+        return visitScalarFunction(timeFormat, context);
     }
 
     default R visitTimestamp(Timestamp timestamp, C context) {
