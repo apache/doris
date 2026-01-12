@@ -102,8 +102,7 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (local_state._output_block == nullptr) {
-        local_state._output_block =
-                local_state._shared_state->data_queue.get_free_block(_cur_child_id);
+        local_state._output_block = vectorized::Block::create_unique();
     }
     if (_cur_child_id < _get_first_materialized_child_idx()) { //pass_through
         if (in_block->rows() > 0) {

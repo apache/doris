@@ -1010,8 +1010,6 @@ Status ScanLocalState<Derived>::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("Scanner"));
     custom_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    _newly_create_free_blocks_num =
-            ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");

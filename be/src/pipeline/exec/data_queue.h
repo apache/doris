@@ -42,11 +42,7 @@ public:
 
     Status push_block(std::unique_ptr<vectorized::Block> block, int child_idx = 0);
 
-    std::unique_ptr<vectorized::Block> get_free_block(int child_idx = 0);
-
     void push_free_block(std::unique_ptr<vectorized::Block> output_block, int child_idx = 0);
-
-    void clear_free_blocks();
 
     void set_finish(int child_idx = 0);
     void set_canceled(int child_idx = 0); // should set before finish
@@ -76,7 +72,6 @@ public:
     void set_low_memory_mode() {
         _is_low_memory_mode = true;
         _max_blocks_in_sub_queue = 1;
-        clear_free_blocks();
     }
 
     void terminate();
@@ -84,9 +79,6 @@ public:
 private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
-
-    std::vector<std::unique_ptr<std::mutex>> _free_blocks_lock;
-    std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _free_blocks;
 
     //how many deque will be init, always will be one
     int _child_count = 0;

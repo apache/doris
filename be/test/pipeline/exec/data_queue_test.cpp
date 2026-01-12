@@ -113,10 +113,6 @@ TEST_F(DataQueueTest, MultiTest) {
         EXPECT_TRUE(data_queue->is_finish(i));
     }
     EXPECT_TRUE(data_queue->is_all_finish());
-    data_queue->clear_free_blocks();
-    for (int i = 0; i < 3; i++) {
-        EXPECT_TRUE(data_queue->_free_blocks[i].empty());
-    }
 }
 
 // ./run-be-ut.sh --run --filter=DataQueueTest.*

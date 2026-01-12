@@ -99,8 +99,6 @@ protected:
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
-    // Num of newly created free blocks when running query
-    RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scan_concurrency = nullptr;
     RuntimeProfile::Counter* _min_scan_concurrency = nullptr;
@@ -368,13 +366,7 @@ public:
         return {ExchangeType::BUCKET_HASH_SHUFFLE};
     }
 
-    void set_low_memory_mode(RuntimeState* state) override {
-        auto& local_state = get_local_state(state);
-
-        if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->clear_free_blocks();
-        }
-    }
+    void set_low_memory_mode(RuntimeState* state) override {}
 
     using OperatorX<LocalStateType>::node_id;
     using OperatorX<LocalStateType>::operator_id;
