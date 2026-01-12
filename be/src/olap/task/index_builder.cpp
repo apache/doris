@@ -118,6 +118,11 @@ Status IndexBuilder::update_inverted_index_info() {
                 // inverted index
                 auto index_metas = output_rs_tablet_schema->inverted_indexs(column);
                 for (const auto& index_meta : index_metas) {
+                    // Only drop the index that matches the requested index_id,
+                    // not all indexes on this column
+                    if (index_meta->index_id() != t_inverted_index.index_id) {
+                        continue;
+                    }
                     if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
                         InvertedIndexStorageFormatPB::V1) {
                         const auto& fs = io::global_local_filesystem();
@@ -145,6 +150,10 @@ Status IndexBuilder::update_inverted_index_info() {
                 // ann index
                 const auto* ann_index = output_rs_tablet_schema->ann_index(column);
                 if (!ann_index) {
+                    continue;
+                }
+                // Only drop the ann index that matches the requested index_id
+                if (ann_index->index_id() != t_inverted_index.index_id) {
                     continue;
                 }
                 DCHECK(output_rs_tablet_schema->get_inverted_index_storage_format() !=
@@ -368,12 +377,19 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 _index_file_writers.emplace(seg_ptr->id(), std::move(index_file_writer));
             }
             for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-                auto st = index_file_writer->close();
+                auto st = index_file_writer->begin_close();
                 if (!st.ok()) {
                     LOG(ERROR) << "close index_file_writer error:" << st;
                     return st;
                 }
                 inverted_index_size += index_file_writer->get_index_file_total_size();
+            }
+            for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
+                auto st = index_file_writer->finish_close();
+                if (!st.ok()) {
+                    LOG(ERROR) << "wait close index_file_writer error:" << st;
+                    return st;
+                }
             }
             _index_file_writers.clear();
             output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size());
@@ -610,7 +626,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             _olap_data_convertor->reset();
         }
         for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
-            auto st = index_file_writer->close();
+            auto st = index_file_writer->begin_close();
             DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_file_writer_close_error", {
                 st = Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "debug point: handle_single_rowset_file_writer_close_error");
@@ -620,6 +636,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 return st;
             }
             inverted_index_size += index_file_writer->get_index_file_total_size();
+        }
+        for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
+            auto st = index_file_writer->finish_close();
+            if (!st.ok()) {
+                LOG(ERROR) << "wait close index_file_writer error:" << st;
+                return st;
+            }
         }
         _index_column_writers.clear();
         _index_file_writers.clear();

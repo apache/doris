@@ -129,7 +129,7 @@ public:
                 block.get_by_position(arguments.back()).column.get());
         float compression = 2048;
         if (compression_arg) {
-            auto compression_arg_val = compression_arg->get_value<Float32>();
+            auto compression_arg_val = compression_arg->get_value<TYPE_FLOAT>();
             if (compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
                 compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
                 compression = compression_arg_val;
@@ -187,7 +187,7 @@ public:
             return Status::InvalidArgument(
                     "Second argument to {} must be a constant float describing type", get_name());
         }
-        auto percent_arg_value = percent_arg->get_value<Float32>();
+        auto percent_arg_value = percent_arg->get_value<TYPE_FLOAT>();
         if (percent_arg_value < 0 || percent_arg_value > 1) {
             return Status::InvalidArgument(
                     "the input argument of percentage: {} is not valid, must be in range [0,1] ",

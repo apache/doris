@@ -120,6 +120,43 @@ inline std::string type_to_string(PredicateType type) {
     return "";
 }
 
+inline std::string type_to_op_str(PredicateType type) {
+    switch (type) {
+    case PredicateType::EQ:
+        return "=";
+
+    case PredicateType::NE:
+        return "!=";
+
+    case PredicateType::LT:
+        return "<<";
+
+    case PredicateType::LE:
+        return "<=";
+
+    case PredicateType::GT:
+        return ">>";
+
+    case PredicateType::GE:
+        return ">=";
+
+    case PredicateType::IN_LIST:
+        return "*=";
+
+    case PredicateType::NOT_IN_LIST:
+        return "!*=";
+
+    case PredicateType::IS_NULL:
+    case PredicateType::IS_NOT_NULL:
+        return "is";
+
+    default:
+        break;
+    };
+
+    return "";
+}
+
 struct PredicateTypeTraits {
     static constexpr bool is_range(PredicateType type) {
         return (type == PredicateType::LT || type == PredicateType::LE ||
@@ -158,11 +195,14 @@ struct PredicateTypeTraits {
         }                                                                                 \
     }
 
-class ColumnPredicate {
+class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
-    explicit ColumnPredicate(uint32_t column_id, PrimitiveType primitive_type,
+    explicit ColumnPredicate(uint32_t column_id, std::string col_name, PrimitiveType primitive_type,
                              bool opposite = false)
-            : _column_id(column_id), _primitive_type(primitive_type), _opposite(opposite) {
+            : _column_id(column_id),
+              _col_name(col_name),
+              _primitive_type(primitive_type),
+              _opposite(opposite) {
         reset_judge_selectivity();
     }
     ColumnPredicate(const ColumnPredicate& other, uint32_t col_id) : ColumnPredicate(other) {
@@ -279,6 +319,7 @@ public:
         DCHECK(false) << "should not reach here";
     }
     uint32_t column_id() const { return _column_id; }
+    std::string col_name() const { return _col_name; }
 
     bool opposite() const { return _opposite; }
 
@@ -384,6 +425,7 @@ protected:
     }
 
     uint32_t _column_id;
+    const std::string _col_name;
     PrimitiveType _primitive_type;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;

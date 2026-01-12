@@ -65,14 +65,15 @@ public:
         switch (sort_type) {
         case SortType::FULL_SORT:
             sorter = FullSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, nullptr, nullptr);
+                                               nulls_first, *row_desc, &_state, nullptr);
             break;
         case SortType::TOPN_SORT:
             sorter = TopNSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, nullptr, nullptr);
+                                               nulls_first, *row_desc, &_state, nullptr);
+            break;
         case SortType::HEAP_SORT:
-            sorter = HeapSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc);
+            sorter = HeapSorter::create_unique(sort_exec_exprs, &_state, limit, offset, &pool,
+                                               is_asc_order, nulls_first, *row_desc);
             break;
         default:
             break;
@@ -120,6 +121,8 @@ public:
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
+
+    MockRuntimeState _state;
 
     std::unique_ptr<vectorized::Sorter> sorter;
 }; // class SortTestParam
@@ -196,8 +199,9 @@ TEST_F(SortTest, test_sorter) {
 
     sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
+    MockRuntimeState _state;
     sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
 
     {
         Block src_block = ColumnHelper::create_block<DataTypeInt64>({4, 1, 2}, {10, 1, 3});

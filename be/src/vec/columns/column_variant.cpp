@@ -2120,6 +2120,19 @@ void ColumnVariant::update_crc_with_value(size_t start, size_t end, uint32_t& ha
     });
 }
 
+void ColumnVariant::update_crc32c_batch(uint32_t* __restrict hashes,
+                                        const uint8_t* __restrict null_map) const {
+    for_each_imutable_column(
+            [&](const ColumnPtr column) { column->update_crc32c_batch(hashes, nullptr); });
+}
+
+void ColumnVariant::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_map) const {
+    for_each_imutable_column([&](const ColumnPtr column) {
+        column->update_crc32c_single(start, end, hash, nullptr);
+    });
+}
+
 std::string ColumnVariant::debug_string() const {
     std::stringstream res;
     res << get_name() << "(num_row = " << num_rows;
@@ -2200,7 +2213,7 @@ public:
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
 
     template <PrimitiveType T>
-    Field apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+    Field apply(const typename PrimitiveTypeTraits<T>::CppType& x) const {
         if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;

@@ -105,6 +105,12 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -177,6 +183,12 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
@@ -259,6 +271,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -330,6 +348,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     auto* slice_locations = out->mutable_packed_slice_locations();
     slice_locations->clear();
     slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB& in) {
@@ -377,6 +401,16 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_integer_type_default_use_plain_encoding()) {
+        out->set_integer_type_default_use_plain_encoding(
+                in.integer_type_default_use_plain_encoding());
+    }
+    if (in.has_binary_plain_encoding_default_impl()) {
+        out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());
+    }
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -414,6 +448,16 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_integer_type_default_use_plain_encoding()) {
+        out->set_integer_type_default_use_plain_encoding(
+                in.integer_type_default_use_plain_encoding());
+    }
+    if (in.has_binary_plain_encoding_default_impl()) {
+        out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());
+    }
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -464,6 +508,16 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_integer_type_default_use_plain_encoding()) {
+        out->set_integer_type_default_use_plain_encoding(
+                in.integer_type_default_use_plain_encoding());
+    }
+    if (in.has_binary_plain_encoding_default_impl()) {
+        out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());
+    }
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -502,6 +556,16 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+    if (in.has_integer_type_default_use_plain_encoding()) {
+        out->set_integer_type_default_use_plain_encoding(
+                in.integer_type_default_use_plain_encoding());
+    }
+    if (in.has_binary_plain_encoding_default_impl()) {
+        out->set_binary_plain_encoding_default_impl(in.binary_plain_encoding_default_impl());
+    }
+    if (in.has_seq_map()) {
+        out->mutable_seq_map()->CopyFrom(in.seq_map());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());

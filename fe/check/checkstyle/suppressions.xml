@@ -69,6 +69,11 @@ under the License.
     <!-- ignore hudi disk map copied from hudi/common/util/collection/DiskMap.java -->
     <suppress files="org[\\/]apache[\\/]hudi[\\/]common[\\/]util[\\/]collection[\\/]DiskMap\.java" checks="[a-zA-Z0-9]*"/>
 
+    <!-- ignore iceberg delete file index copied from iceberg/DeleteFileIndex.java -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]DeleteFileIndex\.java" checks="[a-zA-Z0-9]*"/>
+
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>
+    <suppress files="software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java" checks=".*"/>
+    <suppress files="software/amazon/awssdk/core/client/builder/UncloseableScheduledExecutorService.java" checks=".*"/>
 </suppressions>

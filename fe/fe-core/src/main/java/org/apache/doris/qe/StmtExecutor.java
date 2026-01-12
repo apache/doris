@@ -543,6 +543,12 @@ public class StmtExecutor {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                 }
+                // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    LOG.debug("planner failed with cloud compute group error, need retry. {}",
+                            context.getQueryIdentifier(), e);
+                    throw new UserException(e.getMessage());
+                }
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 return;
@@ -862,9 +868,6 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
-        if (parsedStmt != null && statementContext.getParsedStatement() == null) {
-            statementContext.setParsedStatement(parsedStmt);
-        }
     }
 
     public void finalizeQuery() {
@@ -927,10 +930,9 @@ public class StmtExecutor {
                 LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
 
-                boolean isNeedRetry = false;
+                boolean isNeedRetry = e instanceof RpcException;
                 if (Config.isCloudMode()) {
                     // cloud mode retry
-                    isNeedRetry = false;
                     // errCode = 2, detailMessage = No backend available as scan node,
                     // please check the status of your backends. [10003: not alive]
                     List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
@@ -960,8 +962,6 @@ public class StmtExecutor {
                             }
                         }
                     }
-                } else {
-                    isNeedRetry = e instanceof RpcException;
                 }
                 if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {

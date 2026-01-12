@@ -65,7 +65,7 @@ TEST(TEST_VEXPR, ABSTEST) {
     doris::DescriptorTbl* desc_tbl = builder.build();
 
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    doris::RowDescriptor row_desc(tuple_desc, false);
+    doris::RowDescriptor row_desc(tuple_desc);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     doris::TExpr exprx = apache::thrift::from_json_string<doris::TExpr>(expr_json);
@@ -156,7 +156,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
             {"k1", TYPE_INT, sizeof(int32_t), false}};
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
-    RowDescriptor row_desc(tuple_desc, false);
+    RowDescriptor row_desc(tuple_desc);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     TExpr exprx = apache::thrift::from_json_string<TExpr>(expr_json);
@@ -223,7 +223,7 @@ struct literal_traits<TYPE_FLOAT> {
 
 template <>
 struct literal_traits<TYPE_DOUBLE> {
-    const static TPrimitiveType::type ttype = TPrimitiveType::FLOAT;
+    const static TPrimitiveType::type ttype = TPrimitiveType::DOUBLE;
     const static TExprNodeType::type tnode_type = TExprNodeType::FLOAT_LITERAL;
     using CXXType = float;
 };
@@ -497,7 +497,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<double>();
+        auto v = (*ctn.column)[0].get<float>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
         EXPECT_EQ("1024", literal.value());
 
@@ -513,8 +513,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
-        EXPECT_FLOAT_EQ(v, 1024.0);
-        EXPECT_EQ("1024", literal.value());
+        EXPECT_FLOAT_EQ(v, 1024.0) << ctn.column->get_name();
+        EXPECT_EQ("1024", literal.value()) << ctn.column->get_name();
 
         auto node = std::make_shared<VLiteral>(
                 create_texpr_node_from((*ctn.column)[0], TYPE_DOUBLE, 0, 0), true);
@@ -699,8 +699,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
-        EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        auto v = (*ctn.column)[0].get<Decimal128V2>();
+        EXPECT_FLOAT_EQ(((double)v) / (std::pow(10, 9)), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
 
         auto node = std::make_shared<VLiteral>(

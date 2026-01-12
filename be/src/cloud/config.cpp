@@ -70,6 +70,8 @@ DEFINE_mBool(use_public_endpoint_for_error_log, "true");
 
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
+DEFINE_Int32(warmup_cache_async_thread, "16");
+
 DEFINE_mBool(enable_new_tablet_do_compaction, "true");
 
 // Empty rowset compaction strategy configurations
@@ -139,8 +141,7 @@ DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
 DEFINE_mInt64(packed_file_small_file_count_threshold, "100");
 DEFINE_mInt64(small_file_threshold_bytes, "1048576");      // 1MB
-DEFINE_mInt64(uploaded_file_retention_seconds, "60");      // 1 minute
-DEFINE_mInt64(index_retention_seconds, "60");              // 1 minute
+DEFINE_mInt64(uploaded_file_retention_seconds, "1800");    // 1 minute
 DEFINE_mInt64(packed_file_cleanup_interval_seconds, "60"); // 1 minute
 
 DEFINE_mBool(enable_standby_passive_compaction, "true");

@@ -85,24 +85,24 @@ Status append_packed_info_trailer(FileWriter* writer, const std::string& packed_
                                      packed_file_path);
     }
 
-    cloud::PackedFileDebugInfoPB debug_pb;
-    debug_pb.mutable_packed_file_info()->CopyFrom(packed_file_info);
+    cloud::PackedFileFooterPB footer_pb;
+    footer_pb.mutable_packed_file_info()->CopyFrom(packed_file_info);
 
-    std::string serialized_debug_info;
-    if (!debug_pb.SerializeToString(&serialized_debug_info)) {
-        return Status::InternalError("Failed to serialize packed file debug info for {}",
+    std::string serialized_footer;
+    if (!footer_pb.SerializeToString(&serialized_footer)) {
+        return Status::InternalError("Failed to serialize packed file footer info for {}",
                                      packed_file_path);
     }
 
-    if (serialized_debug_info.size() >
+    if (serialized_footer.size() >
         std::numeric_limits<uint32_t>::max() - kPackedFileTrailerSuffixSize) {
-        return Status::InternalError("PackedFileDebugInfoPB too large for {}", packed_file_path);
+        return Status::InternalError("PackedFileFooterPB too large for {}", packed_file_path);
     }
 
     std::string trailer;
-    trailer.reserve(serialized_debug_info.size() + kPackedFileTrailerSuffixSize);
-    trailer.append(serialized_debug_info);
-    put_fixed32_le(&trailer, static_cast<uint32_t>(serialized_debug_info.size()));
+    trailer.reserve(serialized_footer.size() + kPackedFileTrailerSuffixSize);
+    trailer.append(serialized_footer);
+    put_fixed32_le(&trailer, static_cast<uint32_t>(serialized_footer.size()));
     put_fixed32_le(&trailer, kPackedFileTrailerVersion);
 
     return writer->append(Slice(trailer));
@@ -150,6 +150,8 @@ Status PackedFileManager::create_new_packed_file_context(
     // Create file writer for the packed file
     FileWriterPtr new_writer;
     FileWriterOptions opts;
+    // enable write file cache for packed file
+    opts.write_file_cache = true;
     RETURN_IF_ERROR(
             packed_file_ctx->file_system->create_file(Path(relative_path), &new_writer, &opts));
     packed_file_ctx->writer = std::move(new_writer);
@@ -256,6 +258,7 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
     location.packed_file_path = active_state->packed_file_path;
     location.offset = active_state->current_offset;
     location.size = data.get_size();
+    location.create_time = std::time(nullptr);
     location.tablet_id = info.tablet_id;
     location.rowset_id = info.rowset_id;
     location.resource_id = info.resource_id;
@@ -609,6 +612,15 @@ void PackedFileManager::process_uploading_packed_files() {
             first_slice = false;
             slices_stream << small_file_path << "(txn=" << index.txn_id
                           << ", offset=" << index.offset << ", size=" << index.size << ")";
+
+            // Update packed_file_size in global index
+            {
+                std::lock_guard<std::mutex> global_lock(_global_index_mutex);
+                auto it = _global_slice_locations.find(small_file_path);
+                if (it != _global_slice_locations.end()) {
+                    it->second.packed_file_size = packed_file->total_size;
+                }
+            }
         }
         LOG(INFO) << "Packed file " << packed_file->packed_file_path
                   << " uploaded; slices=" << packed_file->slice_locations.size()
@@ -809,30 +821,12 @@ void PackedFileManager::cleanup_expired_data() {
 
     // Clean up expired global index entries
     {
-        std::unordered_set<std::string> active_packed_files;
-        {
-            std::lock_guard<std::timed_mutex> current_lock(_current_packed_file_mutex);
-            for (const auto& [resource_id, state] : _current_packed_files) {
-                if (state) {
-                    active_packed_files.insert(state->packed_file_path);
-                }
-            }
-        }
-        {
-            std::lock_guard<std::mutex> merge_lock(_packed_files_mutex);
-            for (const auto& [path, state] : _uploading_packed_files) {
-                active_packed_files.insert(path);
-            }
-            for (const auto& [path, state] : _uploaded_packed_files) {
-                active_packed_files.insert(path);
-            }
-        }
-
         std::lock_guard<std::mutex> global_lock(_global_index_mutex);
         auto it = _global_slice_locations.begin();
         while (it != _global_slice_locations.end()) {
             const auto& index = it->second;
-            if (active_packed_files.find(index.packed_file_path) == active_packed_files.end()) {
+            if (index.create_time > 0 &&
+                current_time - index.create_time > config::uploaded_file_retention_seconds) {
                 it = _global_slice_locations.erase(it);
             } else {
                 ++it;

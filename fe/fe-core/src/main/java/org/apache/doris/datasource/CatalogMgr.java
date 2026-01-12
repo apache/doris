@@ -726,7 +726,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
-        hmsTable.setEventUpdateTime(updateTime);
+        hmsTable.setUpdateTime(updateTime);
     }
 
     public void dropExternalPartitions(String catalogName, String dbName, String tableName,
@@ -757,18 +757,31 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr().dropPartitionsCache(catalog.getId(), hmsTable, partitionNames);
-        hmsTable.setEventUpdateTime(updateTime);
+        hmsTable.setUpdateTime(updateTime);
     }
 
     public void registerCatalogRefreshListener(Env env) {
+        int registeredCount = 0;
         for (CatalogIf catalog : idToCatalog.values()) {
             Map<String, String> properties = catalog.getProperties();
             if (properties.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(METADATA_REFRESH_INTERVAL_SEC));
-                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
-                env.getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+                try {
+                    Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(METADATA_REFRESH_INTERVAL_SEC));
+                    LOG.info("Registering scheduled refresh for catalog {} (id={}), type={}, interval={}s",
+                            catalog.getName(), catalog.getId(), catalog.getType(), metadataRefreshIntervalSec);
+                    Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                    env.getRefreshManager().addToRefreshMap(catalog.getId(), sec);
+                    registeredCount++;
+                } catch (Exception e) {
+                    LOG.warn("Failed to register scheduled refresh for catalog {} (id={}), "
+                            + "invalid {} value: {}",
+                            catalog.getName(), catalog.getId(), METADATA_REFRESH_INTERVAL_SEC,
+                            properties.get(METADATA_REFRESH_INTERVAL_SEC), e);
+                }
             }
         }
+        LOG.info("Finished registering catalog refresh listeners, {} catalogs with scheduled refresh enabled",
+                registeredCount);
     }
 
     @Override

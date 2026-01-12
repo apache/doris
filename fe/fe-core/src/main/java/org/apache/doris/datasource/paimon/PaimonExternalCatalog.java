@@ -173,7 +173,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     protected Catalog createCatalog() {
         try {
             return paimonProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
-                    .getStoragePropertiesMap().values()));
+                    .getOrderedStoragePropertiesList()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to create catalog, catalog name: " + getName() + ", exception: "
                     + ExceptionUtils.getRootCauseMessage(e), e);
@@ -189,5 +189,17 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != catalog) {
+            try {
+                catalog.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close paimon catalog: {}", getName(), e);
+            }
+        }
     }
 }

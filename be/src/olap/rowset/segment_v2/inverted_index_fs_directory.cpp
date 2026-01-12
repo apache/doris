@@ -433,7 +433,7 @@ void DorisFSDirectory::FSIndexOutputV2::close() {
         _index_v2_file_writer = nullptr;
     })
     if (_index_v2_file_writer) {
-        auto ret = _index_v2_file_writer->close();
+        auto ret = _index_v2_file_writer->close(true);
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {
@@ -452,6 +452,26 @@ int64_t DorisFSDirectory::FSIndexOutputV2::length() const {
         _CLTHROWA(CL_ERR_IO, "file is not open, index_v2_file_writer is nullptr");
     }
     return _index_v2_file_writer->bytes_appended();
+}
+
+std::unique_ptr<lucene::store::IndexOutput> DorisFSDirectory::FSIndexOutputV2::create(
+        io::FileWriter* file_writer) {
+    auto ret = std::make_unique<FSIndexOutputV2>();
+    ErrorContext error_context;
+    try {
+        ret->init(file_writer);
+    } catch (CLuceneError& err) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg.append("FSIndexOutputV2::create init error: ");
+        error_context.err_msg.append(err.what());
+        LOG(ERROR) << error_context.err_msg;
+    }
+    FINALLY_EXCEPTION({
+        if (error_context.eptr) {
+            FINALLY_CLOSE(ret);
+        }
+    })
+    return ret;
 }
 
 DorisFSDirectory::DorisFSDirectory() {
@@ -905,28 +925,25 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(const io::FileSystemSPtr
     if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
         dir = _CLNEW DorisRAMFSDirectory();
     } else {
-        // cloud mode does not need to create directory
-        if (!config::is_cloud_mode()) {
-            bool exists = false;
-            auto st = _fs->exists(file, &exists);
-            DBUG_EXECUTE_IF("DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok", {
-                st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "debug point: "
-                        "DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok");
-            })
-            LOG_AND_THROW_IF_ERROR(st, "Get directory exists IO error");
-            if (!exists) {
-                st = _fs->create_directory(file);
-                DBUG_EXECUTE_IF(
-                        "DorisFSDirectoryFactory::getDirectory_create_directory_status_is_not_ok", {
-                            st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                    "debug point: "
-                                    "DorisFSDirectoryFactory::getDirectory_create_directory_status_"
-                                    "is_"
-                                    "not_ok");
-                        })
-                LOG_AND_THROW_IF_ERROR(st, "Get directory create directory IO error");
-            }
+        bool exists = false;
+        auto st = _fs->exists(file, &exists);
+        DBUG_EXECUTE_IF("DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok", {
+            st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "debug point: "
+                    "DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok");
+        })
+        LOG_AND_THROW_IF_ERROR(st, "Get directory exists IO error");
+        if (!exists) {
+            st = _fs->create_directory(file);
+            DBUG_EXECUTE_IF(
+                    "DorisFSDirectoryFactory::getDirectory_create_directory_status_is_not_ok", {
+                        st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                "debug point: "
+                                "DorisFSDirectoryFactory::getDirectory_create_directory_status_"
+                                "is_"
+                                "not_ok");
+                    })
+            LOG_AND_THROW_IF_ERROR(st, "Get directory create directory IO error");
         }
         dir = _CLNEW DorisFSDirectory();
     }

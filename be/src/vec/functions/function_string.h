@@ -4601,7 +4601,7 @@ private:
 
     uint32_t sub_str_hash(const char* data, int32_t length) const {
         constexpr static uint32_t seed = 0;
-        return HashUtil::crc32c_hash(data, length, seed);
+        return crc32c::Extend(seed, (const uint8_t*)data, length);
     }
 
     template <bool column_const>
@@ -5099,7 +5099,7 @@ public:
         bool col_const[5];
         ColumnPtr arg_cols[5];
         bool all_const = true;
-        for (int i = 0; i < arg_size; ++i) {
+        for (int i = 1; i < arg_size; ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
             all_const = all_const && col_const[i];
         }

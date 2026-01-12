@@ -627,6 +627,11 @@ extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_cou
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count;
 extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count;
 extern bvar::LatencyRecorder g_bvar_ms_scan_instance_update;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration;
+extern bvar::LatencyRecorder g_bvar_txn_lazy_committer_commit_partition_duration;
+extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted;
+extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
@@ -662,6 +667,9 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycle_cost_ms;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_scanned_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_corrected_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_object_num;
+
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num;
 
@@ -722,19 +730,9 @@ extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_conflict_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_location_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_keys_read_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_read_bytes_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_read_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_write_rate_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
-extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
-extern mBvarStatus<int64_t> g_bvar_fdb_process_status_int;
-extern mBvarStatus<double> g_bvar_fdb_process_status_float;
+extern mBvarStatus<double> g_bvar_fdb_cluster_processes;
+extern mBvarStatus<double> g_bvar_fdb_cluster_workload;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
