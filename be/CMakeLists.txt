@@ -146,6 +146,15 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
+if (DEFINED ENV{ENABLE_PAIMON_CPP})
+    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}")
+endif()
+option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" OFF)
+set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+if (NOT PAIMON_HOME AND DEFINED ENV{PAIMON_HOME})
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}")
+endif()
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -544,6 +553,25 @@ set(COMMON_THIRDPARTY
     Boost::container
     ${COMMON_THIRDPARTY}
 )
+
+if (ENABLE_PAIMON_CPP)
+    if (NOT PAIMON_HOME)
+        message(FATAL_ERROR "ENABLE_PAIMON_CPP=ON but PAIMON_HOME is not set")
+    endif()
+    set(Paimon_DIR "${PAIMON_HOME}/lib/cmake/Paimon")
+    find_package(Paimon CONFIG REQUIRED)
+    include_directories("${PAIMON_HOME}/include")
+    set(PAIMON_CPP_TARGETS
+        paimon_static
+        paimon_orc_file_format_static
+        paimon_parquet_file_format_static
+        paimon_file_index_static
+        paimon_global_index_static
+        paimon_local_file_system_static
+    )
+    list(APPEND COMMON_THIRDPARTY ${PAIMON_CPP_TARGETS})
+    message(STATUS "Paimon C++ enabled: ${PAIMON_HOME}")
+endif()
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
