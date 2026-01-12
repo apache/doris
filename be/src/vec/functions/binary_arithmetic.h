@@ -135,15 +135,30 @@ struct PlusMinusDecimalImpl {
         auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
 
         if (check_overflow_for_decimal) {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<true>(a, b, *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+            if constexpr (ResultType == TYPE_DECIMALV2) {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(apply<true>(
+                                a.value(), b.value(), *type_left, *type_right, res_data_type,
+                                max_result_number, scale_diff_multiplier));
+            } else {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                                apply<true>(a, b, *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+            }
+
         } else {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<false>(a, b, *type_left, *type_right, res_data_type,
-                                         max_result_number, scale_diff_multiplier));
+            if constexpr (ResultType == TYPE_DECIMALV2) {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(apply<false>(
+                                a.value(), b.value(), *type_left, *type_right, res_data_type,
+                                max_result_number, scale_diff_multiplier));
+            } else {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                                apply<false>(a, b, *type_left, *type_right, res_data_type,
+                                             max_result_number, scale_diff_multiplier));
+            }
         }
         return column_result;
     }
@@ -165,10 +180,18 @@ struct PlusMinusDecimalImpl {
         std::visit(
                 [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < column_left->size(); ++i) {
-                        c[i] = typename DataTypeDecimal<ResultType>::FieldType(
-                                apply<check_overflow_for_decimal>(a[i], b, *type_left, *type_right,
-                                                                  res_data_type, max_result_number,
-                                                                  scale_diff_multiplier));
+                        if constexpr (ResultType == TYPE_DECIMALV2) {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i].value(), b.value(), *type_left, *type_right,
+                                            res_data_type, max_result_number,
+                                            scale_diff_multiplier));
+                        } else {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i], b, *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+                        }
                     }
                 },
                 make_bool_variant(check_overflow_for_decimal));
@@ -192,10 +215,18 @@ struct PlusMinusDecimalImpl {
         std::visit(
                 [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < column_right->size(); ++i) {
-                        c[i] = typename DataTypeDecimal<ResultType>::FieldType(
-                                apply<check_overflow_for_decimal>(a, b[i], *type_left, *type_right,
-                                                                  res_data_type, max_result_number,
-                                                                  scale_diff_multiplier));
+                        if constexpr (ResultType == TYPE_DECIMALV2) {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a.value(), b[i].value(), *type_left, *type_right,
+                                            res_data_type, max_result_number,
+                                            scale_diff_multiplier));
+                        } else {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a, b[i], *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+                        }
                     }
                 },
                 make_bool_variant(check_overflow_for_decimal));
@@ -279,10 +310,18 @@ struct PlusMinusDecimalImpl {
         std::visit(
                 [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < sz; i++) {
-                        c[i] = typename ColumnDecimal<ResultType>::value_type(
-                                apply<check_overflow_for_decimal>(
-                                        a[i], b[i], *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+                        if constexpr (ResultType == TYPE_DECIMALV2) {
+                            c[i] = typename ColumnDecimal<ResultType>::value_type(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i].value(), b[i].value(), *type_left, *type_right,
+                                            res_data_type, max_result_number,
+                                            scale_diff_multiplier));
+                        } else {
+                            c[i] = typename ColumnDecimal<ResultType>::value_type(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i], b[i], *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+                        }
                     }
                 },
                 make_bool_variant(check_overflow_for_decimal));

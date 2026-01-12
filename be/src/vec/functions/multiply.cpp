@@ -132,9 +132,9 @@ struct MultiplyDecimalImpl {
     }
 
     template <PrimitiveType Result>
-        requires(is_decimal(Result))
-    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
-                                                                            ArgNativeTypeB b) {
+        requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType
+            apply(ArgNativeTypeA a, ArgNativeTypeB b) {
         return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(
                 static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) * b);
     }
@@ -155,7 +155,7 @@ struct MultiplyDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr constant_constant(
             ArgA a, ArgB b, const DataTypeA* type_left, const DataTypeB* type_right,
             const typename PrimitiveTypeTraits<ResultType>::ColumnItemType& max_result_number,
@@ -173,6 +173,30 @@ struct MultiplyDecimalImpl {
                     typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
                             apply<true, false>(a, b, *type_left, *type_right, res_data_type,
                                                max_result_number, scale_diff_multiplier));
+        }
+
+        return column_result;
+    }
+
+    template <PrimitiveType ResultType>
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr constant_constant(
+            ArgA a, ArgB b, const DataTypeA* type_left, const DataTypeB* type_right,
+            const typename PrimitiveTypeTraits<ResultType>::ColumnItemType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::ColumnItemType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
+
+        if (check_overflow_for_decimal) {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(apply<true, true>(
+                            a.value(), b.value(), *type_left, *type_right, res_data_type,
+                            max_result_number, scale_diff_multiplier));
+        } else {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(apply<true, false>(
+                            a.value(), b.value(), *type_left, *type_right, res_data_type,
+                            max_result_number, scale_diff_multiplier));
         }
 
         return column_result;
@@ -228,8 +252,8 @@ struct MultiplyDecimalImpl {
                     for (size_t i = 0; i < column_left->size(); ++i) {
                         c[i] = typename DataTypeDecimal<ResultType>::FieldType(
                                 apply<need_adjust_scale, check_overflow_for_decimal>(
-                                        a[i], b, *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+                                        a[i].value(), b.value(), *type_left, *type_right,
+                                        res_data_type, max_result_number, scale_diff_multiplier));
                     }
                 },
                 make_bool_variant(need_adjust_scale),
@@ -285,8 +309,8 @@ struct MultiplyDecimalImpl {
                     for (size_t i = 0; i < column_right->size(); ++i) {
                         c[i] = typename DataTypeDecimal<ResultType>::FieldType(
                                 apply<need_adjust_scale, check_overflow_for_decimal>(
-                                        a, b[i], *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+                                        a.value(), b[i].value(), *type_left, *type_right,
+                                        res_data_type, max_result_number, scale_diff_multiplier));
                     }
                 },
                 make_bool_variant(need_adjust_scale),

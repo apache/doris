@@ -438,9 +438,8 @@ struct DivideDecimalImpl {
 
     template <PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType impl(ArgNativeTypeA a,
-                                                                               ArgNativeTypeB b,
-                                                                               UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType
+            impl(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
         is_null = b == 0;
         return static_cast<typename PrimitiveTypeTraits<ResultType>::CppNativeType>(a) /
                (b + is_null);
@@ -497,7 +496,7 @@ struct DivideDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr vector_constant(
             ColumnPtr column_left, ArgB b,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -529,7 +528,39 @@ struct DivideDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr vector_constant(
+            ColumnPtr column_left, ArgB b,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_left_ptr = assert_cast<const ColumnTypeA*>(column_left.get());
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_left->size(), res_data_type.get_scale());
+        DCHECK(column_left_ptr != nullptr);
+
+        auto null_map = ColumnUInt8::create(column_left->size(), 0);
+        const auto& a = column_left_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_left->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a[i].value(), b.value(), n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a[i].value(), b.value(), n[i], max_result_number));
+            }
+        }
+
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr constant_vector(
             ArgA a, ColumnPtr column_right,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -561,6 +592,38 @@ struct DivideDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr constant_vector(
+            ArgA a, ColumnPtr column_right,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_right_ptr = assert_cast<const ColumnTypeB*>(column_right.get());
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_right->size(), res_data_type.get_scale());
+        DCHECK(column_right_ptr != nullptr);
+
+        auto null_map = ColumnUInt8::create(column_right->size(), 0);
+        const auto& b = column_right_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_right->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a.value(), b[i].value(), n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<false, ResultType>(
+                        a.value(), b[i].value(), n[i], max_result_number));
+            }
+        }
+
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
         requires(is_decimal(ResultType))
     static ColumnPtr vector_vector(
             ColumnPtr column_left, ColumnPtr column_right,
@@ -584,8 +647,8 @@ struct DivideDecimalImpl {
         if constexpr (TypeA == TYPE_DECIMALV2) {
             if (check_overflow_for_decimal) {
                 for (size_t i = 0; i < sz; ++i) {
-                    c[i] = DecimalV2Value(
-                            apply<true, TYPE_DECIMALV2>(a[i], b[i], n[i], max_result_number));
+                    c[i] = DecimalV2Value(apply<true, TYPE_DECIMALV2>(a[i].value(), b[i].value(),
+                                                                      n[i], max_result_number));
                 }
             } else {
                 for (size_t i = 0; i < sz; ++i) {
@@ -611,9 +674,9 @@ struct DivideDecimalImpl {
 
     template <bool check_overflow_for_decimal, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
-            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
-            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType
+            apply(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
+                  const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
         if constexpr (TypeA == TYPE_DECIMALV2) {
             DecimalV2Value l(a);
             DecimalV2Value r(b);
