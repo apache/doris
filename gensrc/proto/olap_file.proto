@@ -65,6 +65,13 @@ message SplitSchemaPB {
     optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
 }
 
+message PackedSliceLocationPB {
+    optional string packed_file_path = 1;
+    optional int64 offset = 2;
+    optional int64 size = 3;
+    optional int64 packed_file_size = 4;  // Total size of the packed file
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -151,6 +158,7 @@ message RowsetMetaPB {
 
     optional int64 visible_ts_ms = 1010;
     optional string reference_instance_id = 1011;  // For cluster snapshot
+    map<string, PackedSliceLocationPB> packed_slice_locations = 1012;
 }
 
 message SchemaDictKeyList {
@@ -249,6 +257,7 @@ message RowsetMetaCloudPB {
 
     optional int64 visible_ts_ms = 109;
     optional string reference_instance_id = 110;  // For cluster snapshot
+    map<string, PackedSliceLocationPB> packed_slice_locations = 111;
 }
 
 message SegmentStatisticsPB {
