@@ -306,8 +306,12 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
     } else if (logicalType.__isset.JSON) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.UUID) {
-        ans.first =
-                DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1, -1, 16);
+        if (_enable_mapping_varbinary) {
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1,
+                                                                     -1, 16);
+        } else {
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
+        }
     } else {
         throw Exception(Status::InternalError("Not supported parquet logicalType"));
     }
