@@ -103,8 +103,9 @@ Status GroupCommitBlockSinkLocalState::close(RuntimeState* state, Status close_s
 std::string GroupCommitBlockSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
+    auto load_block_queue = _load_block_queue;
     fmt::format_to(debug_string_buffer, ", _load_block_queue: ({}), _base_schema_version: {}",
-                   _load_block_queue ? _load_block_queue->debug_string() : "NULL",
+                   load_block_queue ? load_block_queue->debug_string() : "NULL",
                    _parent->cast<GroupCommitBlockSinkOperatorX>()._base_schema_version);
     return fmt::to_string(debug_string_buffer);
 }
