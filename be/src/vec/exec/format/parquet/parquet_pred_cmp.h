@@ -27,10 +27,12 @@
 #include "exec/olap_common.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "parquet_common.h"
+#include "runtime/primitive_type.h"
 #include "util/timezone_utils.h"
 #include "vec/common/endian.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/format/format_common.h"
+#include "vec/exec/format/parquet/parquet_block_split_bloom_filter.h"
 #include "vec/exec/format/parquet/parquet_column_convert.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 
@@ -152,6 +154,7 @@ private:
     }
 
 public:
+    static constexpr int BLOOM_FILTER_MAX_HEADER_LENGTH = 64;
     struct ColumnStat {
         std::string encoded_min_value;
         std::string encoded_max_value;
@@ -159,8 +162,33 @@ public:
         bool is_all_null;
         const FieldSchema* col_schema;
         const cctz::time_zone* ctz;
-        std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_stat_func;
+        std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter> bloom_filter;
+        std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_stat_func = nullptr;
+        std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_bloom_filter_func =
+                nullptr;
     };
+
+    static bool bloom_filter_supported(PrimitiveType type) {
+        // Only support types where physical type == logical type (no conversion needed)
+        // For types like DATEV2, DATETIMEV2, DECIMAL, Parquet stores them in physical format
+        // (INT32, INT64, etc.) but Doris uses different internal representations.
+        // Bloom filter works with physical bytes, but we only have logical type values,
+        // and there's no reverse conversion (logical -> physical) available.
+        // TINYINT/SMALLINT also need conversion via LittleIntPhysicalConverter.
+        switch (type) {
+        case TYPE_BOOLEAN:
+        case TYPE_INT:
+        case TYPE_BIGINT:
+        case TYPE_FLOAT:
+        case TYPE_DOUBLE:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING:
+            return true;
+        default:
+            return false;
+        }
+    }
 
     struct PageIndexStat {
         // Indicates whether the page index information in this column can be used.
@@ -407,6 +435,52 @@ public:
         } else {
             return Status::DataQualityError("This parquet file not set min/max value");
         }
+
+        return Status::OK();
+    }
+
+    static Status read_bloom_filter(const tparquet::ColumnMetaData& column_meta_data,
+                                    io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
+                                    ColumnStat* ans_stat) {
+        size_t size;
+        if (!column_meta_data.__isset.bloom_filter_offset) {
+            return Status::NotSupported("Can not use this parquet bloom filter.");
+        }
+
+        if (column_meta_data.__isset.bloom_filter_length &&
+            column_meta_data.bloom_filter_length > 0) {
+            size = column_meta_data.bloom_filter_length;
+        } else {
+            size = BLOOM_FILTER_MAX_HEADER_LENGTH;
+        }
+        size_t bytes_read = 0;
+        std::vector<uint8_t> header_buffer(size);
+        RETURN_IF_ERROR(file_reader->read_at(column_meta_data.bloom_filter_offset,
+                                             Slice(header_buffer.data(), size), &bytes_read,
+                                             io_ctx));
+
+        tparquet::BloomFilterHeader t_bloom_filter_header;
+        uint32_t t_bloom_filter_header_size = static_cast<uint32_t>(bytes_read);
+        RETURN_IF_ERROR(deserialize_thrift_msg(header_buffer.data(), &t_bloom_filter_header_size,
+                                               true, &t_bloom_filter_header));
+
+        // TODO the bloom filter could be encrypted, too, so need to double check that this is NOT the case
+        if (!t_bloom_filter_header.algorithm.__isset.BLOCK ||
+            !t_bloom_filter_header.compression.__isset.UNCOMPRESSED ||
+            !t_bloom_filter_header.hash.__isset.XXHASH) {
+            return Status::NotSupported("Can not use this parquet bloom filter.");
+        }
+
+        ans_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
+
+        std::vector<uint8_t> data_buffer(t_bloom_filter_header.numBytes);
+        RETURN_IF_ERROR(file_reader->read_at(
+                column_meta_data.bloom_filter_offset + t_bloom_filter_header_size,
+                Slice(data_buffer.data(), t_bloom_filter_header.numBytes), &bytes_read, io_ctx));
+
+        RETURN_IF_ERROR(ans_stat->bloom_filter->init(
+                reinterpret_cast<const char*>(data_buffer.data()), t_bloom_filter_header.numBytes,
+                segment_v2::HashStrategyPB::XX_HASH_64));
 
         return Status::OK();
     }
