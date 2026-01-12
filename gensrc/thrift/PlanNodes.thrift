@@ -288,8 +288,12 @@ struct TIcebergDeleteFileDesc {
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
     4: optional list<i32> field_ids;
-    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete, 3: deletion vector. 
     5: optional i32 content;
+    // 6 & 7 : iceberg v3 deletion vector.
+    // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
+    6: optional i32 content_offset;
+    7: optional i32 content_size_in_bytes;
 }
 
 struct TIcebergFileDesc {
