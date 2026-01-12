@@ -173,7 +173,8 @@ public:
     }
     Status query(const segment_v2::IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, segment_v2::InvertedIndexQueryType query_type,
-                 std::shared_ptr<roaring::Roaring>& bit_map) override {
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
         return Status::OK();
     }
     Status try_query(const segment_v2::IndexQueryContextPtr& context,
@@ -239,7 +240,7 @@ TEST(FunctionIpTest, evaluate_inverted_index) {
 
         segment_v2::InvertedIndexResultBitmap bitmap_result;
         auto status = func.evaluate_inverted_index(arguments, data_type_with_names, iterators, 100,
-                                                   bitmap_result);
+                                                   nullptr, bitmap_result);
         ASSERT_TRUE(status.ok());
 
         // min_param: [10, 20), max_param: [15, 25)
@@ -269,7 +270,7 @@ TEST(FunctionIpTest, evaluate_inverted_index) {
 
         segment_v2::InvertedIndexResultBitmap bitmap_result;
         auto status = func.evaluate_inverted_index(arguments, data_type_with_names, iterators, 100,
-                                                   bitmap_result);
+                                                   nullptr, bitmap_result);
         ASSERT_TRUE(status.ok());
 
         ASSERT_EQ(bitmap_result.get_data_bitmap()->cardinality(), 5);
