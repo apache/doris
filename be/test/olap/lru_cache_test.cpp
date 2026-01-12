@@ -93,14 +93,14 @@ public:
     public:
         CacheTestSizePolicy(size_t capacity)
                 : LRUCachePolicy(CachePolicy::CacheType::FOR_UT_CACHE_SIZE, capacity,
-                                 LRUCacheType::SIZE, -1) {}
+                                 LRUCacheType::SIZE, -1, 32, 0, true, false) {}
     };
 
     class CacheTestNumberPolicy : public LRUCachePolicy {
     public:
         CacheTestNumberPolicy(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::FOR_UT_CACHE_NUMBER, capacity,
-                                 LRUCacheType::NUMBER, -1, num_shards) {}
+                                 LRUCacheType::NUMBER, -1, num_shards, 0, true, false) {}
     };
 
     // there is 16 shards in ShardedLRUCache
