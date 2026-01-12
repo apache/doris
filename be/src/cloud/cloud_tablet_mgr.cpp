@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
+#include "util/debug_points.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -165,6 +166,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                                                 SyncRowsetStats* sync_stats,
                                                                 bool force_use_only_cached,
                                                                 bool cache_on_miss) {
+    DBUG_EXECUTE_IF("CloudTabletMgr::get_tablet.block", DBUG_BLOCK);
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
