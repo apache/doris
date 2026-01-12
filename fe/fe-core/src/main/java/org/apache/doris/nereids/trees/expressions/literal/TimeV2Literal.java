@@ -391,4 +391,8 @@ public class TimeV2Literal extends Literal {
     public String computeToSql() {
         return "'" + getStringValue() + "'";
     }
+
+    public boolean isNegative() {
+        return negative;
+    }
 }
