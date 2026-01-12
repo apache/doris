@@ -1194,6 +1194,22 @@ public class VectorColumn {
         return TypeNativeBytes.convertToJavaDateTimeV2(time);
     }
 
+    public void appendTimeStampTz(LocalDateTime[] batch, boolean isNullable) {
+        if (!isNullable) {
+            checkNullable(batch, batch.length);
+        }
+        reserve(appendIndex + batch.length);
+        for (LocalDateTime v : batch) {
+            if (v == null) {
+                putNull(appendIndex);
+                putTimeStampTz(appendIndex, LocalDateTime.MIN);
+            } else {
+                putTimeStampTz(appendIndex, v);
+            }
+            appendIndex++;
+        }
+    }
+
     private void putBytes(int rowId, byte[] src, int offset, int length) {
         OffHeap.copyMemory(src, OffHeap.BYTE_ARRAY_OFFSET + offset, null, data + rowId, length);
     }
@@ -1733,7 +1749,7 @@ public class VectorColumn {
                 break;
             case TIMESTAMPTZ:
                 // MAYBE use LocalDateTime is not appropriate
-                appendDateTime((LocalDateTime[]) batch, isNullable);
+                appendTimeStampTz((LocalDateTime[]) batch, isNullable);
                 break;
             case CHAR:
             case VARCHAR:
