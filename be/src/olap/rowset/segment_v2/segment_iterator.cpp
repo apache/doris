@@ -810,9 +810,18 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     vectorized::IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
-    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
-                                                                  rows_of_segment, result_column,
-                                                                  result_row_ids, ann_index_stats));
+    auto st = _ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
+                                                            rows_of_segment, result_column,
+                                                            result_row_ids, ann_index_stats);
+    // If ANN index is not available (empty or missing), fallback to brute force search
+    // This can happen when skip_write_index_on_load=true skips index during data loading
+    if (st.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+        st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+        VLOG_DEBUG << "ANN index not available, fallback to brute force search: " << st.to_string();
+        _need_read_data_indices[src_cid] = true;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(st);
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
