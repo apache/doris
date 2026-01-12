@@ -44,7 +44,7 @@ public class FileCacheAdmissionManagerTest {
     @Test
     public void testEmptyUserIdentity() {
         AtomicReference<String> reason = new AtomicReference<>();
-        boolean result = manager.isAllowed("", "catalog", "database", "table", reason);
+        boolean result = manager.isAdmittedAtTableLevel("", "catalog", "database", "table", reason);
         Assert.assertFalse(result);
         Assert.assertEquals("empty user_identity", reason.get());
     }
@@ -52,7 +52,7 @@ public class FileCacheAdmissionManagerTest {
     @Test
     public void testInvalidUserIdentity() {
         AtomicReference<String> reason = new AtomicReference<>();
-        boolean result = manager.isAllowed("123user", "catalog", "database", "table", reason);
+        boolean result = manager.isAdmittedAtTableLevel("123user", "catalog", "database", "table", reason);
         Assert.assertFalse(result);
         Assert.assertEquals("invalid user_identity", reason.get());
     }
@@ -61,13 +61,13 @@ public class FileCacheAdmissionManagerTest {
     public void testDefaultAllow() {
         Config.file_cache_admission_control_default_allow = true;
         AtomicReference<String> reason1 = new AtomicReference<>();
-        boolean result1 = manager.isAllowed("user", "catalog", "database", "table", reason1);
+        boolean result1 = manager.isAdmittedAtTableLevel("user", "catalog", "database", "table", reason1);
         Assert.assertTrue(result1);
         Assert.assertEquals("default rule", reason1.get());
 
         Config.file_cache_admission_control_default_allow = false;
         AtomicReference<String> reason2 = new AtomicReference<>();
-        boolean result2 = manager.isAllowed("user", "catalog", "database", "table", reason2);
+        boolean result2 = manager.isAdmittedAtTableLevel("user", "catalog", "database", "table", reason2);
         Assert.assertFalse(result2);
         Assert.assertEquals("default rule", reason2.get());
     }
@@ -99,17 +99,17 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
-        boolean result1 = manager.isAllowed("user", "catalog_1", "database", "table", reason1);
+        boolean result1 = manager.isAdmittedAtTableLevel("user", "catalog_1", "database", "table", reason1);
         Assert.assertTrue(result1);
         Assert.assertEquals("common catalog-level whitelist rule", reason1.get());
 
         AtomicReference<String> reason2 = new AtomicReference<>();
-        boolean result2 = manager.isAllowed("user", "catalog_2", "database_1", "table", reason2);
+        boolean result2 = manager.isAdmittedAtTableLevel("user", "catalog_2", "database_1", "table", reason2);
         Assert.assertTrue(result2);
         Assert.assertEquals("common database-level whitelist rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
-        boolean result3 = manager.isAllowed("user", "catalog_3", "database_2", "table_1", reason3);
+        boolean result3 = manager.isAdmittedAtTableLevel("user", "catalog_3", "database_2", "table_1", reason3);
         Assert.assertTrue(result3);
         Assert.assertEquals("common table-level whitelist rule", reason3.get());
     }
@@ -141,17 +141,17 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
-        boolean result1 = manager.isAllowed("user", "catalog_1", "database", "table", reason1);
+        boolean result1 = manager.isAdmittedAtTableLevel("user", "catalog_1", "database", "table", reason1);
         Assert.assertFalse(result1);
         Assert.assertEquals("default rule", reason1.get());
 
         AtomicReference<String> reason2 = new AtomicReference<>();
-        boolean result2 = manager.isAllowed("user", "catalog_2", "database_1", "table", reason2);
+        boolean result2 = manager.isAdmittedAtTableLevel("user", "catalog_2", "database_1", "table", reason2);
         Assert.assertFalse(result2);
         Assert.assertEquals("default rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
-        boolean result3 = manager.isAllowed("user", "catalog_3", "database_2", "table_1", reason3);
+        boolean result3 = manager.isAdmittedAtTableLevel("user", "catalog_3", "database_2", "table_1", reason3);
         Assert.assertFalse(result3);
         Assert.assertEquals("default rule", reason3.get());
     }
@@ -183,29 +183,29 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
-        boolean result1 = manager.isAllowed("user_1", "catalog_4", "database", "table", reason1);
+        boolean result1 = manager.isAdmittedAtTableLevel("user_1", "catalog_4", "database", "table", reason1);
         Assert.assertTrue(result1);
         Assert.assertEquals("user catalog-level whitelist rule", reason1.get());
         AtomicReference<String> reason2 = new AtomicReference<>();
-        boolean result2 = manager.isAllowed("user_2", "catalog_4", "database", "table", reason2);
+        boolean result2 = manager.isAdmittedAtTableLevel("user_2", "catalog_4", "database", "table", reason2);
         Assert.assertFalse(result2);
         Assert.assertEquals("default rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
-        boolean result3 = manager.isAllowed("user_1", "catalog_5", "database_4", "table", reason3);
+        boolean result3 = manager.isAdmittedAtTableLevel("user_1", "catalog_5", "database_4", "table", reason3);
         Assert.assertTrue(result3);
         Assert.assertEquals("user database-level whitelist rule", reason3.get());
         AtomicReference<String> reason4 = new AtomicReference<>();
-        boolean result4 = manager.isAllowed("user_2", "catalog_5", "database_4", "table", reason4);
+        boolean result4 = manager.isAdmittedAtTableLevel("user_2", "catalog_5", "database_4", "table", reason4);
         Assert.assertFalse(result4);
         Assert.assertEquals("default rule", reason4.get());
 
         AtomicReference<String> reason5 = new AtomicReference<>();
-        boolean result5 = manager.isAllowed("user_1", "catalog_6", "database_5", "table_4", reason5);
+        boolean result5 = manager.isAdmittedAtTableLevel("user_1", "catalog_6", "database_5", "table_4", reason5);
         Assert.assertTrue(result5);
         Assert.assertEquals("user table-level whitelist rule", reason5.get());
         AtomicReference<String> reason6 = new AtomicReference<>();
-        boolean result6 = manager.isAllowed("user_2", "catalog_6", "database_5", "table_4", reason6);
+        boolean result6 = manager.isAdmittedAtTableLevel("user_2", "catalog_6", "database_5", "table_4", reason6);
         Assert.assertFalse(result6);
         Assert.assertEquals("default rule", reason6.get());
     }
@@ -229,7 +229,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
-        boolean result1 = manager.isAllowed("user_3", "catalog", "database", "table", reason1);
+        boolean result1 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason1);
         Assert.assertTrue(result1);
         Assert.assertEquals("user global-level whitelist rule", reason1.get());
 
@@ -243,7 +243,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason2 = new AtomicReference<>();
-        boolean result2 = manager.isAllowed("user_3", "catalog", "database", "table", reason2);
+        boolean result2 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason2);
         Assert.assertTrue(result2);
         Assert.assertEquals("user catalog-level whitelist rule", reason2.get());
 
@@ -257,7 +257,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason3 = new AtomicReference<>();
-        boolean result3 = manager.isAllowed("user_3", "catalog", "database", "table", reason3);
+        boolean result3 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason3);
         Assert.assertTrue(result3);
         Assert.assertEquals("user database-level whitelist rule", reason3.get());
 
@@ -271,7 +271,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason4 = new AtomicReference<>();
-        boolean result4 = manager.isAllowed("user_3", "catalog", "database", "table", reason4);
+        boolean result4 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason4);
         Assert.assertTrue(result4);
         Assert.assertEquals("user table-level whitelist rule", reason4.get());
     }
@@ -299,7 +299,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
-        boolean result1 = manager.isAllowed("user_4", "catalog", "database", "table", reason1);
+        boolean result1 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason1);
         Assert.assertFalse(result1);
         Assert.assertEquals("user global-level blacklist rule", reason1.get());
 
@@ -317,7 +317,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason2 = new AtomicReference<>();
-        boolean result2 = manager.isAllowed("user_4", "catalog", "database", "table", reason2);
+        boolean result2 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason2);
         Assert.assertFalse(result2);
         Assert.assertEquals("user catalog-level blacklist rule", reason2.get());
 
@@ -335,7 +335,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason3 = new AtomicReference<>();
-        boolean result3 = manager.isAllowed("user_4", "catalog", "database", "table", reason3);
+        boolean result3 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason3);
         Assert.assertFalse(result3);
         Assert.assertEquals("user database-level blacklist rule", reason3.get());
 
@@ -353,7 +353,7 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason4 = new AtomicReference<>();
-        boolean result4 = manager.isAllowed("user_4", "catalog", "database", "table", reason4);
+        boolean result4 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason4);
         Assert.assertFalse(result4);
         Assert.assertEquals("user table-level blacklist rule", reason4.get());
     }
@@ -408,38 +408,38 @@ public class FileCacheAdmissionManagerTest {
         manager.loadRules("rules.json");
 
         AtomicReference<String> reason1 = new AtomicReference<>();
-        boolean result1 = manager.isAllowed("user_5", "catalog", "database", "table", reason1);
+        boolean result1 = manager.isAdmittedAtTableLevel("user_5", "catalog", "database", "table", reason1);
         Assert.assertTrue(result1);
         Assert.assertEquals("user database-level whitelist rule", reason1.get());
         AtomicReference<String> reason2 = new AtomicReference<>();
-        boolean result2 = manager.isAllowed("user_5", "catalog", "otherDatabase", "table", reason2);
+        boolean result2 = manager.isAdmittedAtTableLevel("user_5", "catalog", "otherDatabase", "table", reason2);
         Assert.assertFalse(result2);
         Assert.assertEquals("user catalog-level blacklist rule", reason2.get());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
-        boolean result3 = manager.isAllowed("user_6", "catalog", "database", "table", reason3);
+        boolean result3 = manager.isAdmittedAtTableLevel("user_6", "catalog", "database", "table", reason3);
         Assert.assertFalse(result3);
         Assert.assertEquals("user database-level blacklist rule", reason3.get());
         AtomicReference<String> reason4 = new AtomicReference<>();
-        boolean result4 = manager.isAllowed("user_6", "catalog", "otherDatabase", "table", reason4);
+        boolean result4 = manager.isAdmittedAtTableLevel("user_6", "catalog", "otherDatabase", "table", reason4);
         Assert.assertTrue(result4);
         Assert.assertEquals("user catalog-level whitelist rule", reason4.get());
 
         AtomicReference<String> reason5 = new AtomicReference<>();
-        boolean result5 = manager.isAllowed("user_7", "catalog", "database", "table", reason5);
+        boolean result5 = manager.isAdmittedAtTableLevel("user_7", "catalog", "database", "table", reason5);
         Assert.assertTrue(result5);
         Assert.assertEquals("user table-level whitelist rule", reason5.get());
         AtomicReference<String> reason6 = new AtomicReference<>();
-        boolean result6 = manager.isAllowed("user_7", "catalog", "database", "otherTable", reason6);
+        boolean result6 = manager.isAdmittedAtTableLevel("user_7", "catalog", "database", "otherTable", reason6);
         Assert.assertFalse(result6);
         Assert.assertEquals("user database-level blacklist rule", reason6.get());
 
         AtomicReference<String> reason7 = new AtomicReference<>();
-        boolean result7 = manager.isAllowed("user_8", "catalog", "database", "table", reason7);
+        boolean result7 = manager.isAdmittedAtTableLevel("user_8", "catalog", "database", "table", reason7);
         Assert.assertFalse(result7);
         Assert.assertEquals("user table-level blacklist rule", reason7.get());
         AtomicReference<String> reason8 = new AtomicReference<>();
-        boolean result8 = manager.isAllowed("user_8", "catalog", "database", "otherTable", reason8);
+        boolean result8 = manager.isAdmittedAtTableLevel("user_8", "catalog", "database", "otherTable", reason8);
         Assert.assertTrue(result8);
         Assert.assertEquals("user database-level whitelist rule", reason8.get());
     }

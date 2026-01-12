@@ -245,8 +245,8 @@ public class FileCacheAdmissionManager {
                 "default rule"                              // 14
         ));
 
-        public boolean isAllowed(String userIdentity, String catalog, String database, String table,
-                                 AtomicReference<String> reason) {
+        public boolean isAdmittedAtTableLevel(String userIdentity, String catalog, String database, String table,
+                                              AtomicReference<String> reason) {
 
             String catalogDatabase = catalog + "." + database;
 
@@ -281,16 +281,15 @@ public class FileCacheAdmissionManager {
                 return true;
             }
 
-            // TODO: Implementing partition-level rules
-
             reason.set(reasons.get(14));
             logAdmission(Config.file_cache_admission_control_default_allow,
                     userIdentity, catalog, database, table, reason.get());
             return Config.file_cache_admission_control_default_allow;
         }
 
-        public boolean isAllowed(ConcurrentRuleCollection userCollection, String userIdentity, String catalog,
-                                 String database, String table, AtomicReference<String> reason) {
+        public boolean isAdmittedAtTableLevel(ConcurrentRuleCollection userCollection, String userIdentity,
+                                              String catalog, String database, String table,
+                                              AtomicReference<String> reason) {
 
             String catalogDatabase = catalog + "." + database;
 
@@ -365,8 +364,6 @@ public class FileCacheAdmissionManager {
                 return true;
             }
 
-            // TODO: Implementing partition-level rules
-
             reason.set(reasons.get(14));
             logAdmission(Config.file_cache_admission_control_default_allow,
                     userIdentity, catalog, database, table, reason.get());
@@ -378,10 +375,9 @@ public class FileCacheAdmissionManager {
             return set != null && set.contains(value);
         }
 
-        private void logAdmission(boolean allowed, String userIdentity,
-                                  String catalog, String database,
+        private void logAdmission(boolean admitted, String userIdentity, String catalog, String database,
                                   String table, String reason) {
-            String status = allowed ? "allowed" : "denied";
+            String status = admitted ? "admitted" : "denied";
 
             String logMessage = String.format(
                     "File cache request %s by %s, user_identity: %s, "
@@ -517,8 +513,8 @@ public class FileCacheAdmissionManager {
             }
         }
 
-        public boolean isAllowed(String userIdentity, String catalog, String database, String table,
-                                 AtomicReference<String> reason) {
+        public boolean isAdmittedAtTableLevel(String userIdentity, String catalog, String database, String table,
+                                              AtomicReference<String> reason) {
             if (userIdentity.isEmpty()) {
                 reason.set(otherReasons.get(0));
                 logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
@@ -535,16 +531,17 @@ public class FileCacheAdmissionManager {
             int index = getIndex(firstChar);
             ConcurrentRuleCollection collection = maps.get(index).get(userIdentity);
             if (collection == null) {
-                return commonCollection.isAllowed(userIdentity, catalog, database, table, reason);
+                return commonCollection.isAdmittedAtTableLevel(userIdentity, catalog, database, table, reason);
             } else {
-                return commonCollection.isAllowed(collection, userIdentity, catalog, database, table, reason);
+                return commonCollection.isAdmittedAtTableLevel(
+                        collection, userIdentity, catalog, database, table, reason);
             }
         }
 
-        private void logDefaultAdmission(String userIdentity, String catalog,
-                                         String database, String table, String reason) {
-            boolean allowed = Config.file_cache_admission_control_default_allow;
-            String decision = allowed ? "allowed" : "denied";
+        private void logDefaultAdmission(String userIdentity, String catalog, String database, String table,
+                                         String reason) {
+            boolean admitted = Config.file_cache_admission_control_default_allow;
+            String decision = admitted ? "admitted" : "denied";
 
             String logMessage = String.format(
                     "File cache request %s by file_cache_admission_control_default_allow, "
@@ -580,13 +577,13 @@ public class FileCacheAdmissionManager {
         ruleManager.initialize(rules);
     }
 
-    public boolean isAllowed(String userIdentity, String catalog, String database, String table,
-                             AtomicReference<String> reason) {
+    public boolean isAdmittedAtTableLevel(String userIdentity, String catalog, String database, String table,
+                                          AtomicReference<String> reason) {
         readLock.lock();
-        boolean isAllowed = ruleManager.isAllowed(userIdentity, catalog, database, table, reason);
+        boolean admissionResult = ruleManager.isAdmittedAtTableLevel(userIdentity, catalog, database, table, reason);
         readLock.unlock();
 
-        return isAllowed;
+        return admissionResult;
     }
 
     public void loadOnStartup() {

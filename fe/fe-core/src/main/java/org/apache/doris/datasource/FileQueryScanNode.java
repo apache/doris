@@ -310,7 +310,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
 
-        Boolean fileCacheAdmission = true;
+        Boolean admissionResultAtTableLevel = true;
         if (Config.enable_file_cache_admission_control) {
             TableIf tableIf = getTargetTable();
             if (tableIf instanceof ExternalTable) {
@@ -325,15 +325,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
                 long startTime = System.nanoTime();
 
-                fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
-                        database, table, reason);
+                admissionResultAtTableLevel = FileCacheAdmissionManager.getInstance().isAdmittedAtTableLevel(
+                        userIdentity, catalog, database, table, reason);
 
                 long endTime = System.nanoTime();
                 double durationMs = (double) (endTime - startTime) / 1_000_000;
 
                 LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
 
-                addFileCacheAdmissionLog(userIdentity, fileCacheAdmission, reason.get(), durationMs);
+                addFileCacheAdmissionLog(userIdentity, admissionResultAtTableLevel, reason.get(), durationMs);
             } else {
                 LOG.info("Skip file cache admission control for non-external table: {}.{}",
                         tableIf.getDatabase().getFullName(), tableIf.getName());
@@ -344,7 +344,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
-                    locationProperties, pathPartitionKeys, fileCacheAdmission);
+                    locationProperties, pathPartitionKeys, admissionResultAtTableLevel);
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -399,7 +399,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
                     scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys,
-                            fileCacheAdmission));
+                            admissionResultAtTableLevel));
                     totalFileSize += split.getLength();
                 }
                 scanBackendIds.add(backend.getId());
@@ -425,7 +425,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Map<String, String> locationProperties,
             Split split,
             List<String> pathPartitionKeys,
-            Boolean fileCacheAdmission) throws UserException {
+            Boolean admissionResultAtTableLevel) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
@@ -445,7 +445,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // set file format type, and the type might fall back to native format in setScanParams
         rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
-        rangeDesc.setFileCacheAdmission(fileCacheAdmission);
+        rangeDesc.setFileCacheAdmission(admissionResultAtTableLevel);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();

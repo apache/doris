@@ -8924,15 +8924,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
                 long startTime = System.nanoTime();
 
-                boolean fileCacheAdmission = FileCacheAdmissionManager.getInstance().isAllowed(userIdentity, catalog,
-                        database, table, reason);
+                boolean admissionResultAtTableLevel = FileCacheAdmissionManager.getInstance().isAdmittedAtTableLevel(
+                        userIdentity, catalog, database, table, reason);
 
                 long endTime = System.nanoTime();
                 double durationMs = (double) (endTime - startTime) / 1_000_000;
 
                 LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
 
-                if (!fileCacheAdmission) {
+                if (!admissionResultAtTableLevel) {
                     throw new AnalysisException("WARM UP SELECT denied by file cache admission control, reason: "
                             + reason);
                 }
