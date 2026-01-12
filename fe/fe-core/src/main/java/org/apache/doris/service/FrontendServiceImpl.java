@@ -3708,7 +3708,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     try {
                         if (Config.isCloudMode() && request.isSetBeEndpoint()) {
                             bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -3969,7 +3969,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     try {
                         if (Config.isCloudMode() && request.isSetBeEndpoint()) {
                             bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }

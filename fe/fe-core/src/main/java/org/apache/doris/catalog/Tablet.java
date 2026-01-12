@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
-import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -215,11 +214,11 @@ public class Tablet extends MetaObject {
     }
 
     @FunctionalInterface
-    interface BackendIdGetter {
+    protected interface BackendIdGetter {
         long get(Replica rep, String be) throws UserException;
     }
 
-    private Multimap<Long, Long> getNormalReplicaBackendPathMapImpl(String beEndpoint, BackendIdGetter idGetter)
+    protected Multimap<Long, Long> getNormalReplicaBackendPathMapImpl(String beEndpoint, BackendIdGetter idGetter)
             throws UserException {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
@@ -248,12 +247,6 @@ public class Tablet extends MetaObject {
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
         return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
-    }
-
-    // for cloud mode without ConnectContext. use BE IP to find replica
-    protected Multimap<Long, Long> getNormalReplicaBackendPathMapCloud(String beEndpoint) throws UserException {
-        return getNormalReplicaBackendPathMapImpl(beEndpoint,
-                (rep, be) -> ((CloudReplica) rep).getBackendId(be));
     }
 
     // When a BE reports a missing version, lastFailedVersion is set. When a write fails on a replica,
