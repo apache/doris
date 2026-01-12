@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_cache_ttl_external_modification", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_docker_doris") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -27,8 +27,8 @@ suite("test_iceberg_cache_ttl_external_modification", "p0,external,doris,externa
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-    String catalogWithCache = "test_iceberg_cache_ttl_with_cache"
-    String catalogNoCache = "test_iceberg_cache_ttl_no_cache"
+    String catalogWithCache = "test_iceberg_table_cache_with_cache"
+    String catalogNoCache = "test_iceberg_table_cache_no_cache"
     String testDb = "cache_test_db"
 
     // Create catalogs
@@ -343,10 +343,10 @@ suite("test_iceberg_cache_ttl_external_modification", "p0,external,doris,externa
         spark_iceberg "CREATE TABLE demo.${testDb}.test_add_partition (id INT, dt DATE, value INT) USING iceberg"
         spark_iceberg "INSERT INTO demo.${testDb}.test_add_partition VALUES (1, DATE'2024-01-15', 100)"
 
-        // Cache the partition spec
+        // Cache the partition spec by querying data (show partitions is not supported for Iceberg tables)
         sql """switch ${catalogWithCache}"""
-        def add_part_show1 = sql """show partitions from ${testDb}.test_add_partition"""
-        logger.info("Initial partitions (with cache): ${add_part_show1}")
+        def add_part_result_initial = sql """select count(*) from ${testDb}.test_add_partition"""
+        logger.info("Initial data count (with cache): ${add_part_result_initial}")
 
         // External ADD PARTITION FIELD via Spark
         spark_iceberg "ALTER TABLE demo.${testDb}.test_add_partition ADD PARTITION FIELD month(dt)"
@@ -439,25 +439,5 @@ suite("test_iceberg_cache_ttl_external_modification", "p0,external,doris,externa
         logger.info("All tests passed!")
 
     } finally {
-        // Cleanup
-        try {
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_insert"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_delete"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_update"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_overwrite"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_add_column"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_drop_column"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_rename_column"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_alter_type"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_add_partition"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_drop_partition"
-            spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_replace_partition"
-            spark_iceberg "DROP DATABASE IF EXISTS demo.${testDb}"
-        } catch (Exception e) {
-            logger.warn("Cleanup failed: ${e.message}")
-        }
-
-        sql """drop catalog if exists ${catalogWithCache}"""
-        sql """drop catalog if exists ${catalogNoCache}"""
     }
 }
