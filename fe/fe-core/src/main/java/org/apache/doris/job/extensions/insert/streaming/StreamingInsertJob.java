@@ -524,6 +524,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 this.setFailureReason(
                         new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                                 "Failed to fetch meta, " + ex.getMessage()));
+                // If fetching meta fails, the job is paused
+                // and auto resume will automatically wake it up.
                 this.updateJobStatus(JobStatus.PAUSED);
             }
         }
