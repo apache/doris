@@ -34,9 +34,9 @@ public class LocalReplica extends Replica {
     @SerializedName(value = "rds", alternate = {"remoteDataSize"})
     private volatile long remoteDataSize = 0;
     @SerializedName(value = "ris", alternate = {"remoteInvertedIndexSize"})
-    private Long remoteInvertedIndexSize = 0L;
+    private long remoteInvertedIndexSize = 0L;
     @SerializedName(value = "rss", alternate = {"remoteSegmentSize"})
-    private Long remoteSegmentSize = 0L;
+    private long remoteSegmentSize = 0L;
 
     // the last load failed version
     @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
@@ -207,7 +207,7 @@ public class LocalReplica extends Replica {
     }
 
     @Override
-    public Long getRemoteInvertedIndexSize() {
+    public long getRemoteInvertedIndexSize() {
         return remoteInvertedIndexSize;
     }
 
@@ -217,7 +217,7 @@ public class LocalReplica extends Replica {
     }
 
     @Override
-    public Long getRemoteSegmentSize() {
+    public long getRemoteSegmentSize() {
         return remoteSegmentSize;
     }
 
