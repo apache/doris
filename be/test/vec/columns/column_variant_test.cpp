@@ -332,7 +332,7 @@ TEST_F(ColumnVariantTest, basic_inset_range_from) {
                 EXPECT_TRUE(column->data.data[0]->is_null_at(row));
             }
             for (size_t row = 5; row != 10; ++row) {
-                EXPECT_EQ((*column->data.data[0])[row].get<TYPE_TINYINT>(), 30);
+                EXPECT_EQ((*column->data.data[0])[row].get<TYPE_INT>(), 30);
             }
         }
     }
@@ -919,7 +919,7 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
         auto data2 = path->get_data_at(start);
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
-        EXPECT_EQ(pair2.first.get<TYPE_BIGINT>(), 30);
+        EXPECT_EQ(pair2.first.get<TYPE_INT>(), 30);
 
         auto data3 = path->get_data_at(start);
         auto pair3 = dst->deserialize_from_sparse_column(value, start++);

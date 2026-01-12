@@ -100,7 +100,7 @@ struct ValidFloatingRange<int128_t, FloatingType> {
 // 2. from float/double to int
 // 3. from time to tinyint, smallint and int
 template <typename FromCppT, typename ToCppT>
-constexpr bool CastToIntFromWiderInt = IsCppTypeInt<FromCppT> && IsCppTypeInt<ToCppT> &&
+constexpr bool CastToIntFromWiderInt = IsCppTypeInt<FromCppT>&& IsCppTypeInt<ToCppT> &&
                                        sizeof(FromCppT) > sizeof(ToCppT);
 
 template <typename FromCppT, typename ToCppT>
@@ -151,7 +151,8 @@ struct CastToInt {
 
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeInt<ToCppT> &&
-                 std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType>)
+                 (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType> ||
+                  std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>))
     static inline bool from_bool(FromCppT from, ToCppT& to, CastParameters& params) {
         CastUtil::static_cast_set(to, from);
         return true;
@@ -318,7 +319,8 @@ struct CastToFloat {
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> &&
-                 std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType>)
+                 (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType> ||
+                  std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>))
     static inline bool from_bool(const FromCppT& from, ToCppT& to, CastParameters& params) {
         CastUtil::static_cast_set(to, from);
         return true;

@@ -398,12 +398,16 @@ void ColumnVector<T>::insert(const Field& x) {
     case TYPE_TIMEV2:
         tmp = (value_type)x.get<TYPE_TIMEV2>();
         break;
-    case TYPE_DATE:
-        tmp = (value_type)x.get<TYPE_DATE>();
+    case TYPE_DATE: {
+        auto dt = x.get<TYPE_DATE>();
+        tmp = *(value_type*)&dt;
         break;
-    case TYPE_DATETIME:
-        tmp = (value_type)x.get<TYPE_DATETIME>();
+    }
+    case TYPE_DATETIME: {
+        auto dt2 = x.get<TYPE_DATETIME>();
+        tmp = *(value_type*)&dt2;
         break;
+    }
     case TYPE_DATEV2:
         tmp = (value_type)x.get<TYPE_DATEV2>().to_date_int_val();
         break;
