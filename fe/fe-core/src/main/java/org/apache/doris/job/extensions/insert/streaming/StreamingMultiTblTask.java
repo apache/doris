@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
@@ -47,7 +48,6 @@ import org.apache.doris.thrift.TStatusCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 
@@ -119,7 +119,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         WriteRecordRequest params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/writeRecords")
-                .setParams(new Gson().toJson(params)).build();
+                .setParams(Gsons.gson.toJson(params)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -318,7 +318,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         Map<String, Object> statistic = new HashMap<>();
         statistic.put("scannedRows", scannedRows);
         statistic.put("loadBytes", scannedBytes);
-        trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(statistic)));
+        trow.addToColumnValue(new TCell().setStringVal(Gsons.gson.toJson(statistic)));
 
         if (this.getUserIdentity() == null) {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));

@@ -17,8 +17,9 @@
 
 package org.apache.doris.job.cdc.split;
 
+import org.apache.doris.common.Gsons;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.gson.Gson;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -57,6 +58,6 @@ public class SnapshotSplit extends AbstractSourceSplit {
 
     @Override
     public String toString() {
-        return new Gson().toJson(this);
+        return Gsons.gson.toJson(this);
     }
 }

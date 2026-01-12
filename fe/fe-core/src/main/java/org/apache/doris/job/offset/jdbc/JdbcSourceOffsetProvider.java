@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -45,7 +46,6 @@ import org.apache.doris.thrift.TStatusCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
@@ -123,7 +123,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (this.currentOffset != null) {
             AbstractSourceSplit split = this.currentOffset.getSplit();
             if (split.snapshotSplit()) {
-                return new Gson().toJson(split);
+                return Gsons.gson.toJson(split);
             } else {
                 BinlogSplit binlogSplit = (BinlogSplit) split;
                 HashMap<String, Object> showMap = new HashMap<>();
@@ -131,7 +131,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (binlogSplit.getStartingOffset() != null) {
                     showMap.putAll(binlogSplit.getStartingOffset());
                 }
-                return new Gson().toJson(showMap);
+                return Gsons.gson.toJson(showMap);
             }
         }
         return null;
@@ -140,7 +140,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public String getShowMaxOffset() {
         if (endBinlogOffset != null) {
-            return new Gson().toJson(endBinlogOffset);
+            return Gsons.gson.toJson(endBinlogOffset);
         }
         return null;
     }
@@ -188,7 +188,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
-                .setParams(new Gson().toJson(requestParams)).build();
+                .setParams(Gsons.gson.toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -264,7 +264,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties, offsetFirst, offsetSecond);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/compareOffset")
-                .setParams(new Gson().toJson(requestParams)).build();
+                .setParams(Gsons.gson.toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -454,7 +454,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 new FetchTableSplitsRequest(getJobId(), sourceType.name(), sourceProperties, table);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchSplits")
-                .setParams(new Gson().toJson(requestParams)).build();
+                .setParams(Gsons.gson.toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
@@ -552,7 +552,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/close")
-                .setParams(new Gson().toJson(requestParams)).build();
+                .setParams(Gsons.gson.toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {

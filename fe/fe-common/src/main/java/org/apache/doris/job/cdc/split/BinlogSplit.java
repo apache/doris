@@ -17,7 +17,8 @@
 
 package org.apache.doris.job.cdc.split;
 
-import com.google.gson.Gson;
+import org.apache.doris.common.Gsons;
+
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
@@ -47,7 +48,7 @@ public class BinlogSplit extends AbstractSourceSplit {
 
     @Override
     public String toString() {
-        return new Gson().toJson(this);
+        return Gsons.gson.toJson(this);
     }
 
 }

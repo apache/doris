@@ -17,11 +17,11 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.offset.Offset;
 
-import com.google.gson.Gson;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -58,7 +58,7 @@ public class JdbcOffset implements Offset {
     public String showRange() {
         if (split.snapshotSplit()) {
             // need to show hw
-            return new Gson().toJson(split);
+            return Gsons.gson.toJson(split);
         } else {
             BinlogSplit binlogSplit = (BinlogSplit) split;
             HashMap<String, Object> showMap = new HashMap<>();
@@ -71,7 +71,7 @@ public class JdbcOffset implements Offset {
             if (MapUtils.isNotEmpty(binlogSplit.getEndingOffset())) {
                 showMap.put("endOffset", binlogSplit.getEndingOffset());
             }
-            return new Gson().toJson(showMap);
+            return Gsons.gson.toJson(showMap);
         }
     }
 
