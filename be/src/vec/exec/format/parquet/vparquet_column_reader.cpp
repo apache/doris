@@ -362,9 +362,9 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                     return Status::InternalError("Failed to decode definition level.");
                 }
 
-                for (int i = 0; i < loop_read; i++) {
-                    _def_levels.emplace_back(def_level);
-                }
+//                for (int i = 0; i < loop_read; i++) {
+//                    _def_levels.emplace_back(def_level);
+//                }
                 bool is_null = def_level < _field_schema->definition_level;
                 if (!(prev_is_null ^ is_null)) {
                     null_map.emplace_back(0);
@@ -379,14 +379,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                 prev_is_null = is_null;
                 has_read += loop_read;
             }
-        } else {
-            _def_levels.resize(_def_levels.size() + num_values, 0);
         }
+//        else {
+//            _def_levels.resize(_def_levels.size() + num_values, 0);
+//        }
     } else {
         if (_chunk_reader->max_def_level() > 0) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        _def_levels.resize(_def_levels.size() + num_values, 0);
+//        _def_levels.resize(_def_levels.size() + num_values, 0);
         data_column = doris_column->assume_mutable();
     }
     if (null_map.size() == 0) {
@@ -651,17 +652,17 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         }
     }
 
-    if (filter_map.has_filter()) {
-        size_t new_rep_sz = 0;
-        for (size_t idx = before_filter_map_index; idx < _filter_map_index; idx++) {
-            if (filter_map.filter_map_data()[idx]) {
-                _def_levels[new_rep_sz] = _def_levels[idx - before_filter_map_index];
-                new_rep_sz++;
-            }
-        }
-        _def_levels.resize(new_rep_sz);
-    }
-    _rep_levels.resize(_def_levels.size(), 0);
+//    if (filter_map.has_filter()) {
+//        size_t new_rep_sz = 0;
+//        for (size_t idx = before_filter_map_index; idx < _filter_map_index; idx++) {
+//            if (filter_map.filter_map_data()[idx]) {
+//                _def_levels[new_rep_sz] = _def_levels[idx - before_filter_map_index];
+//                new_rep_sz++;
+//            }
+//        }
+//        _def_levels.resize(new_rep_sz);
+//    }
+//    _rep_levels.resize(_def_levels.size(), 0);
 
     return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
                                is_dict_filter);
