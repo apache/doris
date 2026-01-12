@@ -113,7 +113,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     private void sendWriteRequest() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         this.runningBackendId = backend.getId();
         WriteRecordRequest params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()

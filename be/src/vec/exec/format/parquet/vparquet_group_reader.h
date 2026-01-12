@@ -91,6 +91,8 @@ public:
                 fill_partition_columns;
         std::unordered_map<std::string, VExprContextSPtr> fill_missing_columns;
 
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>
+                slot_id_to_predicates;
         bool can_lazy_read = false;
         // block->rows() returns the number of rows of the first column,
         // so we should check and resize the first column

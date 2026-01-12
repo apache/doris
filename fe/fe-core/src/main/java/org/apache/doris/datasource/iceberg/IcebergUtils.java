@@ -117,7 +117,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -686,16 +685,8 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
-            case FIXED:
-            case BINARY:
-                if (value == null) {
-                    return null;
-                }
-                // Fixed and binary types are stored as ByteBuffer
-                ByteBuffer buffer = (ByteBuffer) value;
-                byte[] res = new byte[buffer.limit()];
-                buffer.get(res);
-                return new String(res, StandardCharsets.UTF_8);
+            // case binary, fixed should not supported, because if return string with utf8,
+            // the data maybe be corrupted
             case DATE:
                 if (value == null) {
                     return null;

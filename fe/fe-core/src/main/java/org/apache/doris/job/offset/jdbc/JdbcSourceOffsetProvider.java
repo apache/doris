@@ -183,7 +183,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
@@ -258,7 +258,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         CompareOffsetRequest requestParams =
                 new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties, offsetFirst, offsetSecond);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -444,7 +444,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         FetchTableSplitsRequest requestParams =
                 new FetchTableSplitsRequest(getJobId(), sourceType.name(), sourceProperties, table);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -493,7 +493,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public void cleanMeta(Long jobId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/close")

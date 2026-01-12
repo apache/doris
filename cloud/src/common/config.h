@@ -87,7 +87,7 @@ CONF_mInt64(packed_file_correction_delay_seconds,
             "259200"); // seconds to wait before correcting packed files
 CONF_Int32(recycle_concurrency, "16");
 CONF_mInt32(recycle_job_lease_expired_ms, "60000");
-CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
+CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
@@ -272,6 +272,10 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 CONF_mBool(enable_load_txn_status_check, "true");
 
 CONF_mBool(enable_tablet_job_check, "true");
+
+CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
