@@ -32,6 +32,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/nested_group_builder.h"
+#include "olap/rowset/segment_v2/variant/nested_group_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
 #include "olap/tablet_schema.h"
@@ -49,488 +50,6 @@
 namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
-
-namespace {
-
-// read offsets in range [start, start+count) and also return previous offset.
-Status _read_offsets_with_prev(ColumnIterator* offsets_iter, ordinal_t start, size_t count,
-                               uint64_t* prev, std::vector<uint64_t>* out) {
-    *prev = 0;
-    out->clear();
-    if (count == 0) {
-        return Status::OK();
-    }
-    if (start > 0) {
-        RETURN_IF_ERROR(offsets_iter->seek_to_ordinal(start - 1));
-        vectorized::MutableColumnPtr prev_col = vectorized::ColumnOffset64::create();
-        size_t one = 1;
-        bool has_null = false;
-        RETURN_IF_ERROR(offsets_iter->next_batch(&one, prev_col, &has_null));
-        auto* prev_data = assert_cast<vectorized::ColumnOffset64*>(prev_col.get());
-        if (!prev_data->get_data().empty()) {
-            *prev = prev_data->get_data()[0];
-        }
-    }
-    RETURN_IF_ERROR(offsets_iter->seek_to_ordinal(start));
-    vectorized::MutableColumnPtr off_col = vectorized::ColumnOffset64::create();
-    bool has_null = false;
-    RETURN_IF_ERROR(offsets_iter->next_batch(&count, off_col, &has_null));
-    auto* off_data = assert_cast<vectorized::ColumnOffset64*>(off_col.get());
-    out->assign(off_data->get_data().begin(), off_data->get_data().end());
-    return Status::OK();
-}
-
-// Iterator for reading the whole NestedGroup as Nullable(Variant(root_type=JSONB)).
-class NestedGroupWholeIterator : public ColumnIterator {
-public:
-    explicit NestedGroupWholeIterator(const NestedGroupReader* group_reader)
-            : _group_reader(group_reader) {}
-
-    Status init(const ColumnIteratorOptions& opts) override {
-        DCHECK(_group_reader && _group_reader->is_valid());
-        _iter_opts = opts;
-
-        // Build iterators for this group recursively.
-        RETURN_IF_ERROR(_build_group_state(_root_state, _group_reader));
-        return Status::OK();
-    }
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_ordinal = ord_idx;
-        RETURN_IF_ERROR(_seek_group_state(_root_state, ord_idx));
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
-        RETURN_IF_ERROR(_append_group_as_any(_root_state, _current_ordinal, *n, dst));
-        _current_ordinal += *n;
-        *has_null = false;
-        return Status::OK();
-    }
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override {
-        bool has_null = false;
-        for (size_t i = 0; i < count; ++i) {
-            RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
-            size_t one = 1;
-            RETURN_IF_ERROR(next_batch(&one, dst, &has_null));
-        }
-        return Status::OK();
-    }
-
-    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
-
-private:
-    struct GroupState {
-        const NestedGroupReader* reader = nullptr;
-        ColumnIteratorUPtr offsets_iter;
-        std::unordered_map<std::string, ColumnIteratorUPtr> child_iters;
-        std::unordered_map<std::string, std::unique_ptr<GroupState>> nested_groups;
-    };
-
-    Status _build_group_state(GroupState& state, const NestedGroupReader* reader) {
-        state.reader = reader;
-        RETURN_IF_ERROR(reader->offsets_reader->new_iterator(&state.offsets_iter, nullptr));
-        RETURN_IF_ERROR(state.offsets_iter->init(_iter_opts));
-        for (const auto& [name, cr] : reader->child_readers) {
-            ColumnIteratorUPtr it;
-            RETURN_IF_ERROR(cr->new_iterator(&it, nullptr));
-            RETURN_IF_ERROR(it->init(_iter_opts));
-            state.child_iters.emplace(name, std::move(it));
-        }
-        for (const auto& [name, nested] : reader->nested_group_readers) {
-            auto st = std::make_unique<GroupState>();
-            RETURN_IF_ERROR(_build_group_state(*st, nested.get()));
-            state.nested_groups.emplace(name, std::move(st));
-        }
-        return Status::OK();
-    }
-
-    Status _seek_group_state(GroupState& state, ordinal_t row_ord) {
-        RETURN_IF_ERROR(state.offsets_iter->seek_to_ordinal(row_ord));
-        uint64_t start_off = 0;
-        if (row_ord > 0) {
-            std::vector<uint64_t> prev;
-            RETURN_IF_ERROR(_read_offsets_with_prev(state.offsets_iter.get(), row_ord, 1, &start_off,
-                                                   &prev));
-            if (!prev.empty()) {
-                start_off = prev[0];
-            }
-        }
-        for (auto& [_, it] : state.child_iters) {
-            RETURN_IF_ERROR(it->seek_to_ordinal(start_off));
-        }
-        for (auto& [_, nested] : state.nested_groups) {
-            // nested groups are indexed by parent element ordinal (flat index)
-            RETURN_IF_ERROR(_seek_group_state(*nested, start_off));
-        }
-        return Status::OK();
-    }
-
-    // output selector:
-    // - If dst is Nullable(JSONB) (ColumnNullable(ColumnString)), append JSONB blobs.
-    // - Otherwise append Nullable(Variant(root_type=JSONB)).
-    Status _append_group_as_any(GroupState& state, ordinal_t row_ord, size_t row_cnt,
-                               vectorized::MutableColumnPtr& dst) {
-        if (auto* dst_nullable = vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
-            dst_nullable != nullptr) {
-            if (vectorized::check_and_get_column<vectorized::ColumnString>(
-                        &dst_nullable->get_nested_column()) != nullptr) {
-                return _append_group_as_jsonb_blob(state, row_ord, row_cnt, dst);
-            }
-        }
-        return _append_group_as_jsonb(state, row_ord, row_cnt, dst);
-    }
-
-    // build a JSONB blob column (Nullable(JSONB)) for rows [row_ord, row_ord+row_cnt).
-    // This is used for nested groups inside an element object.
-    Status _append_group_as_jsonb_blob(GroupState& state, ordinal_t row_ord, size_t row_cnt,
-                                       vectorized::MutableColumnPtr& dst) {
-        auto* dst_nullable = assert_cast<vectorized::ColumnNullable*>(dst.get());
-        auto& dst_str = assert_cast<vectorized::ColumnString&>(dst_nullable->get_nested_column());
-        auto& dst_nullmap = dst_nullable->get_null_map_column().get_data();
-
-        uint64_t start_off = 0;
-        std::vector<uint64_t> offsets;
-        RETURN_IF_ERROR(_read_offsets_with_prev(state.offsets_iter.get(), row_ord, row_cnt, &start_off,
-                                               &offsets));
-        uint64_t end_off = offsets.empty() ? start_off : offsets.back();
-        auto elem_count = static_cast<size_t>(end_off - start_off);
-
-        RETURN_IF_ERROR(_seek_child_iters(state, start_off));
-
-        vectorized::MutableColumnPtr elem_obj = vectorized::ColumnVariant::create(0, elem_count);
-        auto* elem_obj_ptr = assert_cast<vectorized::ColumnVariant*>(elem_obj.get());
-        RETURN_IF_ERROR(
-                _fill_elem_object_with_scalar_children(state, start_off, elem_count, elem_obj_ptr));
-        RETURN_IF_ERROR(_fill_elem_object_with_nested_groups(state, start_off, elem_count, elem_obj_ptr));
-
-        doris::JsonBinaryValue jsonb_value;
-        for (size_t r = 0; r < offsets.size(); ++r) {
-            uint64_t off = offsets[r];
-            uint64_t prev = (r == 0) ? start_off : offsets[r - 1];
-
-            std::string json;
-            json.push_back('[');
-            for (uint64_t i = prev; i < off; ++i) {
-                if (i > prev) {
-                    json.push_back(',');
-                }
-                std::string obj;
-                elem_obj_ptr->serialize_one_row_to_string(static_cast<int64_t>(i), &obj);
-                json.append(obj);
-            }
-            json.push_back(']');
-
-            RETURN_IF_ERROR(jsonb_value.from_json_string(json.data(), json.size()));
-            dst_str.insert_data(jsonb_value.value(), jsonb_value.size());
-            dst_nullmap.push_back(0);
-        }
-        return Status::OK();
-    }
-
-    // build a Variant(root_type=JSONB) column for rows [row_ord, row_ord+row_cnt)
-    // and append into dst (expected Nullable(Variant) or Variant).
-    Status _append_group_as_jsonb(GroupState& state, ordinal_t row_ord, size_t row_cnt,
-                                 vectorized::MutableColumnPtr& dst) {
-        uint64_t start_off = 0;
-        std::vector<uint64_t> offsets;
-        RETURN_IF_ERROR(_read_offsets_with_prev(state.offsets_iter.get(), row_ord, row_cnt, &start_off,
-                                               &offsets));
-        uint64_t end_off = offsets.empty() ? start_off : offsets.back();
-        auto elem_count = static_cast<size_t>(end_off - start_off);
-
-        // Seek all child iterators to start offset (safe for both sequential/random usage).
-        RETURN_IF_ERROR(_seek_child_iters(state, start_off));
-
-        vectorized::MutableColumnPtr elem_obj = vectorized::ColumnVariant::create(0, elem_count);
-        auto* elem_obj_ptr = assert_cast<vectorized::ColumnVariant*>(elem_obj.get());
-        RETURN_IF_ERROR(_fill_elem_object_with_scalar_children(state, start_off, elem_count, elem_obj_ptr));
-        RETURN_IF_ERROR(_fill_elem_object_with_nested_groups(state, start_off, elem_count, elem_obj_ptr));
-        return _append_variant_jsonb_rows_from_elem_object(*elem_obj_ptr, start_off, offsets, dst);
-    }
-
-    Status _seek_child_iters(GroupState& state, uint64_t start_off) {
-        for (auto& [_, it] : state.child_iters) {
-            RETURN_IF_ERROR(it->seek_to_ordinal(start_off));
-        }
-        return Status::OK();
-    }
-
-    Status _fill_elem_object_with_scalar_children(GroupState& state, uint64_t start_off,
-                                                  size_t elem_count,
-                                                  vectorized::ColumnVariant* elem_obj_ptr) {
-        for (auto& [name, it] : state.child_iters) {
-            auto type = state.reader->child_readers.at(name)->get_vec_data_type();
-            auto col = type->create_column();
-            if (elem_count > 0) {
-                size_t to_read = elem_count;
-                bool child_has_null = false;
-                RETURN_IF_ERROR(it->next_batch(&to_read, col, &child_has_null));
-            }
-            vectorized::PathInData p(name);
-            bool ok = elem_obj_ptr->add_sub_column(p, col->assume_mutable(), type);
-            if (!ok) {
-                return Status::InternalError("Duplicated NestedGroup child field {}", name);
-            }
-        }
-        return Status::OK();
-    }
-
-    Status _fill_elem_object_with_nested_groups(GroupState& state, uint64_t start_off, size_t elem_count,
-                                                vectorized::ColumnVariant* elem_obj_ptr) {
-        auto jsonb_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>());
-        for (auto& [name, nested_state] : state.nested_groups) {
-            auto nested_jsonb = vectorized::ColumnString::create();
-            auto nested_nullable = vectorized::ColumnNullable::create(
-                    std::move(nested_jsonb), vectorized::ColumnUInt8::create());
-            auto nested_mut = nested_nullable->assume_mutable();
-            if (elem_count > 0) {
-                size_t tmp_n = elem_count;
-                RETURN_IF_ERROR(_append_group_as_jsonb_blob(*nested_state, start_off, tmp_n, nested_mut));
-            } else {
-                nested_mut->insert_many_defaults(elem_count);
-            }
-            vectorized::PathInData p(name);
-            bool ok = elem_obj_ptr->add_sub_column(p, std::move(nested_mut), jsonb_type);
-            if (!ok) {
-                return Status::InternalError("Duplicated NestedGroup nested field {}", name);
-            }
-        }
-        return Status::OK();
-    }
-
-    Status _append_variant_jsonb_rows_from_elem_object(const vectorized::ColumnVariant& elem_obj,
-                                                       uint64_t start_off,
-                                                       const std::vector<uint64_t>& offsets,
-                                                       vectorized::MutableColumnPtr& dst) {
-        auto* dst_nullable = vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
-        auto& dst_variant =
-                dst_nullable ? assert_cast<vectorized::ColumnVariant&>(dst_nullable->get_nested_column())
-                             : assert_cast<vectorized::ColumnVariant&>(*dst);
-
-        doris::JsonBinaryValue jsonb_value;
-        for (size_t r = 0; r < offsets.size(); ++r) {
-            uint64_t off = offsets[r];
-            uint64_t prev = (r == 0) ? start_off : offsets[r - 1];
-
-            std::string json;
-            json.push_back('[');
-            for (uint64_t i = prev; i < off; ++i) {
-                if (i > prev) {
-                    json.push_back(',');
-                }
-                std::string obj;
-                elem_obj.serialize_one_row_to_string(static_cast<int64_t>(i), &obj);
-                json.append(obj);
-            }
-            json.push_back(']');
-
-            RETURN_IF_ERROR(jsonb_value.from_json_string(json.data(), json.size()));
-            vectorized::Field jsonb_field = vectorized::Field::create_field<PrimitiveType::TYPE_JSONB>(
-                    vectorized::JsonbField(jsonb_value.value(), jsonb_value.size()));
-
-            vectorized::VariantMap object;
-            object.try_emplace(vectorized::PathInData {},
-                               vectorized::FieldWithDataType(jsonb_field));
-            vectorized::Field variant_field =
-                    vectorized::Field::create_field<PrimitiveType::TYPE_VARIANT>(std::move(object));
-            dst_variant.insert(variant_field);
-            if (dst_nullable) {
-                dst_nullable->get_null_map_column().get_data().push_back(0);
-            }
-        }
-        return Status::OK();
-    }
-
-    const NestedGroupReader* _group_reader;
-    ColumnIteratorOptions _iter_opts;
-    GroupState _root_state;
-    ordinal_t _current_ordinal = 0;
-};
-
-} // namespace
-
-namespace {
-
-// when reading the whole Variant column, merge top-level NestedGroups back
-// into ColumnVariant as subcolumns (path = array path). This enables discarding JSONB
-// subcolumns physically while keeping query results correct.
-class VariantRootWithNestedGroupsIterator : public ColumnIterator {
-public:
-    VariantRootWithNestedGroupsIterator(ColumnIteratorUPtr root_iter,
-                                        const NestedGroupReaders* nested_group_readers)
-            : _root_iter(std::move(root_iter)) {
-        if (!nested_group_readers) {
-            return;
-        }
-        for (const auto& [path, reader] : *nested_group_readers) {
-            if (reader && reader->is_valid()) {
-                _nested_group_readers.emplace_back(path, reader.get());
-            }
-        }
-    }
-
-    Status init(const ColumnIteratorOptions& opts) override {
-        RETURN_IF_ERROR(_root_iter->init(opts));
-        _nested_group_iters.clear();
-        _nested_group_iters.reserve(_nested_group_readers.size());
-        for (const auto& [path, reader] : _nested_group_readers) {
-            auto it = std::make_unique<NestedGroupWholeIterator>(reader);
-            RETURN_IF_ERROR(it->init(opts));
-            _nested_group_iters.emplace_back(path, std::move(it));
-        }
-        return Status::OK();
-    }
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        RETURN_IF_ERROR(_root_iter->seek_to_ordinal(ord_idx));
-        for (auto& [_, it] : _nested_group_iters) {
-            RETURN_IF_ERROR(it->seek_to_ordinal(ord_idx));
-        }
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
-        auto& obj =
-                dst->is_nullable()
-                        ? assert_cast<vectorized::ColumnVariant&>(
-                                  assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                        : assert_cast<vectorized::ColumnVariant&>(*dst);
-        auto most_common_type = obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
-
-        // Check if we have a top-level NestedGroup ($root path)
-        bool has_root_nested_group = false;
-        for (const auto& [path, _] : _nested_group_readers) {
-            if (path == std::string(kRootNestedGroupPath)) {
-                has_root_nested_group = true;
-                break;
-            }
-        }
-
-        auto root_column = most_common_type->create_column();
-        RETURN_IF_ERROR(_root_iter->next_batch(n, root_column, has_null));
-
-        // Fill dst nullmap from root.
-        if (root_column->is_nullable() && dst->is_nullable()) {
-            auto& dst_null_map =
-                    assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-            auto& src_null_map =
-                    assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
-            dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
-        }
-
-        // Build a tmp ColumnVariant for this batch: root + nested-group subcolumns.
-        auto tmp = vectorized::ColumnVariant::create(0, root_column->size());
-        auto& tmp_obj = assert_cast<vectorized::ColumnVariant&>(*tmp);
-        
-        // If we have a $root NestedGroup, it will replace the root JSONB.
-        // Otherwise, add the root column as usual.
-        if (!has_root_nested_group) {
-            tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
-        }
-
-        auto ng_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>());
-        for (auto& [path, it] : _nested_group_iters) {
-            auto col = ng_type->create_column();
-            size_t m = *n;
-            bool tmp_has_null = false;
-            RETURN_IF_ERROR(it->next_batch(&m, col, &tmp_has_null));
-            
-            // Special handling for top-level NestedGroup ($root path):
-            // Use NestedGroup data as root instead of adding as subcolumn
-            if (path == std::string(kRootNestedGroupPath)) {
-                tmp_obj.add_sub_column(vectorized::PathInData(), std::move(col), ng_type);
-            } else {
-                // Normal subcolumn handling
-                tmp_obj.add_sub_column(vectorized::PathInData(path), std::move(col), ng_type);
-            }
-        }
-
-        obj.insert_range_from(*tmp, 0, tmp_obj.rows());
-        if (!obj.is_finalized()) {
-            obj.finalize();
-        }
-#ifndef NDEBUG
-        obj.check_consistency();
-#endif
-        *has_null = false;
-        return Status::OK();
-    }
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override {
-        auto& obj =
-                dst->is_nullable()
-                        ? assert_cast<vectorized::ColumnVariant&>(
-                                  assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                        : assert_cast<vectorized::ColumnVariant&>(*dst);
-        auto most_common_type = obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
-
-        // Check if we have a top-level NestedGroup ($root path)
-        bool has_root_nested_group = false;
-        for (const auto& [path, _] : _nested_group_readers) {
-            if (path == std::string(kRootNestedGroupPath)) {
-                has_root_nested_group = true;
-                break;
-            }
-        }
-
-        auto root_column = most_common_type->create_column();
-        RETURN_IF_ERROR(_root_iter->read_by_rowids(rowids, count, root_column));
-
-        if (root_column->is_nullable() && dst->is_nullable()) {
-            auto& dst_null_map =
-                    assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-            auto& src_null_map =
-                    assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
-            dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
-        }
-
-        auto tmp = vectorized::ColumnVariant::create(0, root_column->size());
-        auto& tmp_obj = assert_cast<vectorized::ColumnVariant&>(*tmp);
-        
-        // If we have a $root NestedGroup, it will replace the root JSONB.
-        // Otherwise, add the root column as usual.
-        if (!has_root_nested_group) {
-            tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
-        }
-
-        auto ng_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeJsonb>());
-        for (auto& [path, it] : _nested_group_iters) {
-            auto col = ng_type->create_column();
-            RETURN_IF_ERROR(it->read_by_rowids(rowids, count, col));
-            
-            // Special handling for top-level NestedGroup ($root path):
-            // Use NestedGroup data as root instead of adding as subcolumn
-            if (path == std::string(kRootNestedGroupPath)) {
-                tmp_obj.add_sub_column(vectorized::PathInData(), std::move(col), ng_type);
-            } else {
-                // Normal subcolumn handling
-                tmp_obj.add_sub_column(vectorized::PathInData(path), std::move(col), ng_type);
-            }
-        }
-
-        obj.insert_range_from(*tmp, 0, tmp_obj.rows());
-        if (!obj.is_finalized()) {
-            obj.finalize();
-        }
-#ifndef NDEBUG
-        obj.check_consistency();
-#endif
-        return Status::OK();
-    }
-
-    ordinal_t get_current_ordinal() const override { return _root_iter->get_current_ordinal(); }
-
-private:
-    ColumnIteratorUPtr _root_iter;
-    std::vector<std::pair<std::string, const NestedGroupReader*>> _nested_group_readers;
-    std::vector<std::pair<std::string, std::unique_ptr<NestedGroupWholeIterator>>> _nested_group_iters;
-};
-
-} // namespace
 
 const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_path(
         const vectorized::PathInData& relative_path) const {
@@ -973,13 +492,8 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(
         return Status::OK();
     }
     if (relative_path.empty()) {
-        // root path: merge NestedGroup JSONB back as subcolumns if present
-        if (!_nested_group_readers.empty()) {
-            *iterator = std::make_unique<VariantRootWithNestedGroupsIterator>(
-                    std::make_unique<FileColumnIterator>(_root_column_reader), &_nested_group_readers);
-            return Status::OK();
-        }
-        // root path, use VariantRootColumnIterator
+        // root path in flat-leaf mode: use VariantRootColumnIterator for simple root read.
+        // In flat-leaf compaction, we read individual columns directly without hierarchical merge.
         *iterator = std::make_unique<VariantRootColumnIterator>(
                 std::make_unique<FileColumnIterator>(_root_column_reader));
         return Status::OK();
@@ -1059,10 +573,29 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     }
 
     // Whole NestedGroup access: reading $.nested should return the array<object> itself.
+    // With redundant storage, try to use JSONB subcolumn directly (WHOLE mode),
+    // falling back to NestedGroup columnar storage (PRUNED mode) if JSONB not available.
     if (!relative_path.empty()) {
         const NestedGroupReader* gr = get_nested_group_reader(relative_path.get_path());
         if (gr && gr->is_valid()) {
-            *iterator = std::make_unique<NestedGroupWholeIterator>(gr);
+            // Try to get JSONB subcolumn iterator for WHOLE mode
+            const auto* leaf_node = _subcolumns_meta_info->find_leaf(relative_path);
+            if (leaf_node != nullptr) {
+                // JSONB subcolumn exists, use WHOLE mode for direct read
+                std::shared_ptr<ColumnReader> jsonb_reader;
+                Status st = column_reader_cache->get_path_column_reader(
+                        col_uid, relative_path, &jsonb_reader, opt->stats, leaf_node);
+                if (st.ok() && jsonb_reader) {
+                    ColumnIteratorUPtr jsonb_iter;
+                    RETURN_IF_ERROR(jsonb_reader->new_iterator(&jsonb_iter, nullptr));
+                    *iterator = std::make_unique<NestedGroupWholeIterator>(
+                            gr, NestedGroupReadMode::WHOLE, std::move(jsonb_iter));
+                    return Status::OK();
+                }
+            }
+            // JSONB subcolumn not available, fallback to PRUNED mode
+            *iterator = std::make_unique<NestedGroupWholeIterator>(
+                    gr, NestedGroupReadMode::PRUNED, nullptr);
             return Status::OK();
         }
     }
@@ -1137,20 +670,12 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                 column_reader_cache, sparse_column_cache_ptr);
     }
 
-    // Whole Variant read: merge NestedGroup JSONB back as subcolumns if present.
-    if (relative_path.empty()) {
-        if (!_nested_group_readers.empty()) {
-            *iterator = std::make_unique<VariantRootWithNestedGroupsIterator>(
-                    std::make_unique<FileColumnIterator>(_root_column_reader), &_nested_group_readers);
-            return Status::OK();
-        }
-        *iterator = std::make_unique<VariantRootColumnIterator>(
-                std::make_unique<FileColumnIterator>(_root_column_reader));
-        return Status::OK();
-    }
-
-    // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
-    // Or access root path
+    // Check if path is prefix or root path (empty).
+    // has_prefix_path returns true for empty path, so this covers whole Variant reads.
+    // With redundant storage (JSONB subcolumns + NestedGroup), we read from JSONB subcolumns
+    // directly via hierarchical reader, which preserves complete data including structure conflicts.
+    // NestedGroup is stored for future column pruning optimization but not used here.
+    // Example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
     if (has_prefix_path(relative_path)) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and subcolumn

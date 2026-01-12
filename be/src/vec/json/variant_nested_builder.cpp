@@ -324,20 +324,4 @@ size_t VariantNestedBuilder::get_array_size(const Field& value, const FieldInfo&
     return 1;
 }
 
-void VariantNestedBuilder::flatten_array_values(const Field& value, size_t target_depth,
-                                                 std::vector<Field>& flat_values,
-                                                 std::vector<size_t>& level_sizes) {
-    if (target_depth == 0 || value.get_type() != PrimitiveType::TYPE_ARRAY) {
-        flat_values.push_back(value);
-        return;
-    }
-
-    const auto& arr = value.get<Array>();
-    level_sizes.push_back(arr.size());
-
-    for (const auto& elem : arr) {
-        flatten_array_values(elem, target_depth - 1, flat_values, level_sizes);
-    }
-}
-
 } // namespace doris::vectorized

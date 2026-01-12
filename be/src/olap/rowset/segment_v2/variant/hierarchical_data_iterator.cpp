@@ -59,6 +59,14 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                 // use set_root to share instead
                 continue;
             }
+            // Skip NestedGroup subcolumns (columns with __ng. prefix in path).
+            // NestedGroup columns only contain rows that have the nested array, not all rows.
+            // They need special handling via NestedGroupWholeIterator, not regular hierarchical merge.
+            const auto& leaf_path = leaves_paths[i].get_path();
+            if (leaf_path.find("__ng.") != std::string::npos) {
+                VLOG_DEBUG << "Skipping NestedGroup subcolumn: " << leaf_path;
+                continue;
+            }
             RETURN_IF_ERROR(
                     stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats));
         }
@@ -274,7 +282,13 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
         MutableColumnPtr column = node.data.column->get_ptr();
         PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
-        DCHECK(column->size() == nrows);
+        VLOG_DEBUG << "HierarchicalDataIterator::_init_container: node.path=" << node.path.get_path()
+                  << ", relative_path=" << relative_path.get_path()
+                  << ", column_size=" << column->size() << ", nrows=" << nrows
+                  << ", has_nested_part=" << node.path.has_nested_part()
+                  << ", type=" << (node.data.type ? node.data.type->get_name() : "null");
+        CHECK(column->size() == nrows) << "column->size()=" << column->size() << ", nrows=" << nrows
+                                       << ", path=" << node.path.get_path();
         if (node.path.has_nested_part()) {
             if (node.data.type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
                 return Status::InternalError(

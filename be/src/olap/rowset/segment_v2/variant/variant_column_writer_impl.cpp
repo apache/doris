@@ -485,9 +485,6 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
             // already handled
             continue;
         }
-        if (_skip_subcolumn_paths.find(entry->path.get_path()) != _skip_subcolumn_paths.end()) {
-            continue;
-        }
         CHECK(entry->data.is_finalized());
 
         // create subcolumn writer if under limit; otherwise externalize ColumnMetaPB via IndexedColumn
@@ -594,12 +591,11 @@ Status VariantColumnWriterImpl::finalize() {
     ptr->check_consistency();
 #endif
 
-    // Build NestedGroups from JSONB columns before writing subcolumns, so we can skip
-    // JSONB subcolumns that are expanded into NestedGroup.
+    // Build NestedGroups from JSONB columns. Both JSONB and NestedGroup are stored
+    // for redundancy: JSONB for Whole reads, NestedGroup for column pruning.
     doris::segment_v2::NestedGroupsMap nested_groups;
     doris::segment_v2::NestedGroupBuilder ng_builder;
     ng_builder.set_max_depth(static_cast<size_t>(config::variant_nested_group_max_depth));
-    _skip_subcolumn_paths.clear();
 
     if (ptr->get_root_type() &&
         vectorized::remove_nullable(ptr->get_root_type())->get_primitive_type() ==
@@ -618,9 +614,6 @@ Status VariantColumnWriterImpl::finalize() {
         }
         RETURN_IF_ERROR(ng_builder.build_from_jsonb(entry->data.get_finalized_column_ptr()->get_ptr(),
                                                    entry->path, nested_groups, entry->data.size()));
-        if (nested_groups.find(entry->path) != nested_groups.end()) {
-            _skip_subcolumn_paths.insert(entry->path.get_path());
-        }
     }
 
     size_t num_rows = _column->size();

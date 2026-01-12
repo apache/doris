@@ -109,11 +109,6 @@ private:
     // Extract array size from a field (for determining offsets)
     static size_t get_array_size(const Field& value, const FieldInfo& info);
 
-    // Flatten nested array values to the deepest level
-    static void flatten_array_values(const Field& value, size_t target_depth,
-                                     std::vector<Field>& flat_values,
-                                     std::vector<size_t>& level_sizes);
-
     ColumnVariant& _column_variant;
     size_t _max_depth = 3;
 };

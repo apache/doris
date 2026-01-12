@@ -111,6 +111,27 @@ private:
     Status _process_array_of_objects(const doris::JsonbValue* arr_value, NestedGroup& group,
                                     size_t parent_row_idx, size_t depth);
 
+    // Process nested object field by recursively flattening into dotted paths.
+    Status _process_object_field(const doris::JsonbValue* obj_value,
+                                const vectorized::PathInData& next_prefix,
+                                NestedGroup& group, size_t element_flat_idx,
+                                std::unordered_set<std::string>& seen_child_paths,
+                                std::unordered_set<std::string>& seen_nested_paths,
+                                size_t depth);
+
+    // Process nested array<object> field within a NestedGroup.
+    Status _process_nested_array_field(const doris::JsonbValue* arr_value,
+                                      const vectorized::PathInData& next_prefix,
+                                      NestedGroup& group, size_t element_flat_idx,
+                                      std::unordered_set<std::string>& seen_nested_paths,
+                                      size_t depth);
+
+    // Process scalar field and insert into subcolumn.
+    Status _process_scalar_field(const doris::JsonbValue* value,
+                                const vectorized::PathInData& next_prefix,
+                                NestedGroup& group, size_t element_flat_idx,
+                                std::unordered_set<std::string>& seen_child_paths);
+
     // Return true if this array can be treated as array<object> (nulls allowed).
     bool _is_array_of_objects(const doris::JsonbValue* arr_value) const;
 

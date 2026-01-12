@@ -217,7 +217,6 @@ Status NestedGroupBuilder::_process_array_of_objects(const doris::JsonbValue* ar
     return Status::OK();
 }
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status NestedGroupBuilder::_process_object_as_paths(
         const doris::JsonbValue* obj_value, const vectorized::PathInData& current_prefix,
         NestedGroup& group, size_t element_flat_idx,
@@ -244,68 +243,92 @@ Status NestedGroupBuilder::_process_object_as_paths(
         }
 
         if (v->isObject()) {
-            // flatten object fields into dotted paths.
-            RETURN_IF_ERROR(_process_object_as_paths(v, next_prefix, group, element_flat_idx,
-                                                    seen_child_paths, seen_nested_paths,
-                                                    depth + 1));
-            continue;
+            RETURN_IF_ERROR(_process_object_field(v, next_prefix, group, element_flat_idx,
+                                                 seen_child_paths, seen_nested_paths, depth));
+        } else if (v->isArray() && _is_array_of_objects(v)) {
+            RETURN_IF_ERROR(_process_nested_array_field(v, next_prefix, group, element_flat_idx,
+                                                       seen_nested_paths, depth));
+        } else {
+            RETURN_IF_ERROR(_process_scalar_field(v, next_prefix, group, element_flat_idx,
+                                                 seen_child_paths));
         }
-
-        if (v->isArray() && _is_array_of_objects(v)) {
-            // Nested array<object> inside this group.
-            // array<object> has the highest priority. If the same path was
-            // previously treated as a scalar child, discard it.
-            if (auto it_child = group.children.find(next_prefix); it_child != group.children.end()) {
-                group.children.erase(it_child);
-            }
-            std::shared_ptr<NestedGroup>& ng = group.nested_groups[next_prefix];
-            if (!ng) {
-                ng = std::make_shared<NestedGroup>();
-                ng->path = next_prefix;
-            }
-
-            if (_handle_conflict(*ng, /*is_array_object=*/true)) {
-                continue;
-            }
-
-            // Ensure offsets size up to current parent element.
-            // Fill missing parent elements with empty arrays.
-            OffsetManager::backfill_to_element(*ng, element_flat_idx);
-
-            // Process nested group for this parent element (one offsets entry appended inside).
-            RETURN_IF_ERROR(_process_array_of_objects(v, *ng, element_flat_idx, depth + 1));
-            seen_nested_paths.insert(ng->path.get_path());
-            continue;
-        }
-
-        // Scalar / non-array value becomes a child subcolumn.
-        // if this path is already a nested array<object>, discard scalars.
-        if (group.nested_groups.contains(next_prefix)) {
-            continue;
-        }
-        vectorized::Field f;
-        RETURN_IF_ERROR(_jsonb_to_field(v, f));
-
-        // Ensure subcolumn exists and is nullable (for NestedGroup children, we need nullable
-        // to support NULL values when a field is missing in some rows)
-        if (group.children.find(next_prefix) == group.children.end()) {
-            // Create a new nullable subcolumn for this path
-            group.children[next_prefix] = vectorized::ColumnVariant::Subcolumn(0, true, false);
-        }
-
-        auto& sub = group.children[next_prefix];
-        if (sub.size() < element_flat_idx) {
-            sub.insert_many_defaults(element_flat_idx - sub.size());
-        }
-        try {
-            sub.insert(f);
-        } catch (const doris::Exception& e) {
-            return Status::InternalError("NestedGroupBuilder insert failed at {}: {}",
-                                         next_prefix.get_path(), e.to_string());
-        }
-        seen_child_paths.insert(next_prefix.get_path());
     }
 
+    return Status::OK();
+}
+
+Status NestedGroupBuilder::_process_object_field(
+        const doris::JsonbValue* obj_value, const vectorized::PathInData& next_prefix,
+        NestedGroup& group, size_t element_flat_idx,
+        std::unordered_set<std::string>& seen_child_paths,
+        std::unordered_set<std::string>& seen_nested_paths, size_t depth) {
+    // Recursively flatten object fields into dotted paths.
+    return _process_object_as_paths(obj_value, next_prefix, group, element_flat_idx,
+                                   seen_child_paths, seen_nested_paths, depth + 1);
+}
+
+Status NestedGroupBuilder::_process_nested_array_field(
+        const doris::JsonbValue* arr_value, const vectorized::PathInData& next_prefix,
+        NestedGroup& group, size_t element_flat_idx,
+        std::unordered_set<std::string>& seen_nested_paths, size_t depth) {
+    // Nested array<object> inside this group.
+    // array<object> has the highest priority. If the same path was
+    // previously treated as a scalar child, discard it.
+    if (auto it_child = group.children.find(next_prefix); it_child != group.children.end()) {
+        group.children.erase(it_child);
+    }
+
+    std::shared_ptr<NestedGroup>& ng = group.nested_groups[next_prefix];
+    if (!ng) {
+        ng = std::make_shared<NestedGroup>();
+        ng->path = next_prefix;
+    }
+
+    if (_handle_conflict(*ng, /*is_array_object=*/true)) {
+        return Status::OK();
+    }
+
+    // Ensure offsets size up to current parent element.
+    // Fill missing parent elements with empty arrays.
+    OffsetManager::backfill_to_element(*ng, element_flat_idx);
+
+    // Process nested group for this parent element (one offsets entry appended inside).
+    RETURN_IF_ERROR(_process_array_of_objects(arr_value, *ng, element_flat_idx, depth + 1));
+    seen_nested_paths.insert(ng->path.get_path());
+    return Status::OK();
+}
+
+Status NestedGroupBuilder::_process_scalar_field(
+        const doris::JsonbValue* value, const vectorized::PathInData& next_prefix,
+        NestedGroup& group, size_t element_flat_idx,
+        std::unordered_set<std::string>& seen_child_paths) {
+    // Scalar / non-array value becomes a child subcolumn.
+    // If this path is already a nested array<object>, discard scalars.
+    if (group.nested_groups.contains(next_prefix)) {
+        return Status::OK();
+    }
+
+    vectorized::Field f;
+    RETURN_IF_ERROR(_jsonb_to_field(value, f));
+
+    // Ensure subcolumn exists and is nullable (for NestedGroup children, we need nullable
+    // to support NULL values when a field is missing in some rows)
+    if (group.children.find(next_prefix) == group.children.end()) {
+        // Create a new nullable subcolumn for this path
+        group.children[next_prefix] = vectorized::ColumnVariant::Subcolumn(0, true, false);
+    }
+
+    auto& sub = group.children[next_prefix];
+    if (sub.size() < element_flat_idx) {
+        sub.insert_many_defaults(element_flat_idx - sub.size());
+    }
+    try {
+        sub.insert(f);
+    } catch (const doris::Exception& e) {
+        return Status::InternalError("NestedGroupBuilder insert failed at {}: {}",
+                                     next_prefix.get_path(), e.to_string());
+    }
+    seen_child_paths.insert(next_prefix.get_path());
     return Status::OK();
 }
 
@@ -350,7 +373,34 @@ Status NestedGroupBuilder::_jsonb_to_field(const doris::JsonbValue* value,
         return Status::OK();
     }
 
-    return Status::InvalidArgument("NestedGroupBuilder cannot convert container type {} to field",
+    // For arrays (non array<object>), recursively convert each element to Field
+    // and create an Array type Field.
+    if (value->isArray()) {
+        const auto* arr = value->unpack<doris::ArrayVal>();
+        vectorized::Array arr_field;
+        const int n = arr->numElem();
+        arr_field.reserve(n);
+        for (int i = 0; i < n; ++i) {
+            const auto* elem = arr->get(i);
+            vectorized::Field elem_field;
+            RETURN_IF_ERROR(_jsonb_to_field(elem, elem_field));
+            arr_field.push_back(std::move(elem_field));
+        }
+        out = vectorized::Field::create_field<PrimitiveType::TYPE_ARRAY>(std::move(arr_field));
+        return Status::OK();
+    }
+
+    // // For objects that reach here (shouldn't happen normally as objects should be
+    // // recursively flattened in _process_object_as_paths), serialize as JSONB as fallback.
+    // if (value->isObject()) {
+    //     const char* data = reinterpret_cast<const char*>(value);
+    //     size_t size = value->size();
+    //     out = vectorized::Field::create_field<PrimitiveType::TYPE_JSONB>(
+    //             vectorized::JsonbField(data, size));
+    //     return Status::OK();
+    // }
+
+    return Status::InvalidArgument("NestedGroupBuilder cannot convert type {} to field",
                                    value->typeName());
 }
 

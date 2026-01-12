@@ -166,10 +166,6 @@ private:
     // hold the references of subcolumns info
     std::unordered_map<std::string, TabletSchema::SubColumnInfo> _subcolumns_info;
     std::unordered_map<std::string, NestedGroupWriter> _nested_group_writers;
-
-    // English comment: JSONB subcolumns that are expanded into NestedGroup should not be written
-    // as physical subcolumns in the segment.
-    std::unordered_set<std::string> _skip_subcolumn_paths;
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
