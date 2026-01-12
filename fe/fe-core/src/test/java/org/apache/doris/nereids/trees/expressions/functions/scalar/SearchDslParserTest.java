@@ -832,16 +832,16 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseAndOperator() {
-        // Test: Currently lowercase 'and' is also treated as operator
-        // According to PDF requirement, only uppercase should be operators
-        // This test documents current behavior - may need to change
+        // Test: lowercase 'and' should NOT be treated as operator (per hubspot.md requirement #5)
+        // Only uppercase AND is recognized as operator
+        // 'field:a and field:b' is invalid DSL because 'and' is parsed as term, not operator
         String dsl = "field:a and field:b";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
 
-        Assertions.assertNotNull(plan);
-        // Current behavior: lowercase 'and' IS an operator
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        // TODO: If PDF requires only uppercase, this should fail and return OR or different structure
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl);
+        });
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL syntax"));
     }
 
     @Test
@@ -857,15 +857,16 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseOrOperator() {
-        // Test: Currently lowercase 'or' is also treated as operator
-        // According to PDF requirement, only uppercase should be operators
+        // Test: lowercase 'or' should NOT be treated as operator (per hubspot.md requirement #5)
+        // Only uppercase OR is recognized as operator
+        // 'field:a or field:b' is invalid DSL because 'or' is parsed as term, not operator
         String dsl = "field:a or field:b";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
 
-        Assertions.assertNotNull(plan);
-        // Current behavior: lowercase 'or' IS an operator
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        // TODO: If PDF requires only uppercase, this should fail
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl);
+        });
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL syntax"));
     }
 
     @Test
@@ -880,15 +881,16 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseNotOperator() {
-        // Test: Currently lowercase 'not' is also treated as operator
-        // According to PDF requirement, only uppercase should be operators
+        // Test: lowercase 'not' should NOT be treated as operator (per hubspot.md requirement #5)
+        // Only uppercase NOT is recognized as operator
+        // 'not field:spam' is invalid DSL because 'not' is parsed as term, not operator
         String dsl = "not field:spam";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
 
-        Assertions.assertNotNull(plan);
-        // Current behavior: lowercase 'not' IS an operator
-        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
-        // TODO: If PDF requires only uppercase, this should fail
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl);
+        });
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL syntax"));
     }
 
     @Test
