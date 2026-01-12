@@ -121,6 +121,7 @@ suite("load") {
             file """${getS3Url()}/regression/tpcds/sf1/${tableName}.dat.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
 
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 

@@ -21,14 +21,20 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class ExpressionAnalyzerTest {
 
@@ -59,5 +65,35 @@ public class ExpressionAnalyzerTest {
         Assertions.assertThrowsExactly(AnalysisException.class,
                 () -> analyzer.preProcessUnboundFunction(unboundFunction, null),
                 " Unknown column 'YEAR' in 'table list");
+    }
+
+    @Test
+    public void testConstructUnboundFunctionArguments() {
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+        BoundStar boundStar1 = new BoundStar(ImmutableList.of(
+                new SlotReference(new ExprId(1), "c1", BigIntType.INSTANCE, true, ImmutableList.of()),
+                new SlotReference(new ExprId(2), "c2", BigIntType.INSTANCE, true, ImmutableList.of())
+        ));
+        BoundStar boundStar2 = new BoundStar(ImmutableList.of(
+                new SlotReference(new ExprId(3), "c3", BigIntType.INSTANCE, true, ImmutableList.of()),
+                new SlotReference(new ExprId(4), "c4", BigIntType.INSTANCE, true, ImmutableList.of())
+        ));
+        SlotReference slotReference = new SlotReference(new ExprId(5), "c5", BigIntType.INSTANCE, true, ImmutableList.of());
+        UnboundFunction unboundFunction = new UnboundFunction("json_object", true,
+                ImmutableList.of(boundStar2, slotReference, boundStar1));
+        List<Object> result = analyzer.constructUnboundFunctionArguments(unboundFunction);
+        List<Object> expectedResult = ImmutableList.of(true,
+                new StringLiteral("c3"),
+                new SlotReference(new ExprId(3), "c3", BigIntType.INSTANCE, true, ImmutableList.of()),
+                new StringLiteral("c4"),
+                new SlotReference(new ExprId(4), "c4", BigIntType.INSTANCE, true, ImmutableList.of()),
+                new SlotReference(new ExprId(5), "c5", BigIntType.INSTANCE, true, ImmutableList.of()),
+                new StringLiteral("c1"),
+                new SlotReference(new ExprId(1), "c1", BigIntType.INSTANCE, true, ImmutableList.of()),
+                new StringLiteral("c2"),
+                new SlotReference(new ExprId(2), "c2", BigIntType.INSTANCE, true, ImmutableList.of())
+        );
+        Assertions.assertEquals(expectedResult, result);
     }
 }

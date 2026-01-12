@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/base_tablet.h"
@@ -57,6 +58,7 @@ class Adder;
 }
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Tablet;
 class CumulativeCompactionPolicy;
@@ -116,7 +118,7 @@ public:
     DataDir* data_dir() const { return _data_dir; }
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
 
-    const std::string& tablet_path() const override { return _tablet_path; }
+    std::string tablet_path() const override { return _tablet_path; }
 
     bool set_tablet_schema_into_rowset_meta();
     Status init();
@@ -146,8 +148,8 @@ public:
     size_t tablet_remote_size();
 
     size_t num_rows();
-    int version_count() const;
-    int stale_version_count() const;
+    size_t version_count() const;
+    size_t stale_version_count() const;
     bool exceed_version_limit(int32_t limit) override;
     uint64_t segment_count() const;
     Version max_version() const;
@@ -180,24 +182,15 @@ public:
     /// need to delete flag.
     void delete_expired_stale_rowset();
 
-    // Given spec_version, find a continuous version path and store it in version_path.
-    // If quiet is true, then only "does this path exist" is returned.
-    // If skip_missing_version is true, return ok even there are missing versions.
-    Status capture_consistent_versions_unlocked(const Version& spec_version, Versions* version_path,
-                                                bool skip_missing_version, bool quiet) const;
-
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
     void acquire_version_and_rowsets(
             std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
-    Status capture_consistent_rowsets_unlocked(
-            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
-
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
+                              const CaptureRowsetOps& opts) override;
 
     // Find the missed versions until the spec_version.
     //
@@ -355,7 +348,7 @@ public:
     std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
 
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
-        std::atomic_store_explicit(&_visible_version, visible_version, std::memory_order_relaxed);
+        _visible_version.store(visible_version);
     }
 
     bool should_fetch_from_peer();
@@ -508,6 +501,10 @@ public:
         _compaction_score -= score;
     }
 
+    Status prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                       const PUniqueId& load_id, bool ingest);
+    // TODO: commit_txn
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
@@ -639,7 +636,7 @@ private:
     int64_t _io_error_times = 0;
 
     // partition's visible version. it sync from fe, but not real-time.
-    std::shared_ptr<const VersionWithTime> _visible_version;
+    atomic_shared_ptr<const VersionWithTime> _visible_version;
 
     std::atomic_bool _is_full_compaction_running = false;
 
@@ -711,12 +708,12 @@ inline size_t Tablet::num_rows() {
     return _tablet_meta->num_rows();
 }
 
-inline int Tablet::version_count() const {
+inline size_t Tablet::version_count() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->version_count();
 }
 
-inline int Tablet::stale_version_count() const {
+inline size_t Tablet::stale_version_count() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->stale_version_count();
 }
@@ -729,7 +726,7 @@ inline Version Tablet::max_version() const {
 inline uint64_t Tablet::segment_count() const {
     std::shared_lock rdlock(_meta_lock);
     uint64_t segment_nums = 0;
-    for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         segment_nums += rs_meta->num_segments();
     }
     return segment_nums;
@@ -771,4 +768,5 @@ inline int64_t Tablet::avg_rs_meta_serialize_size() const {
     return _tablet_meta->avg_rs_meta_serialize_size();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -17,8 +17,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include "common/config.h"
 #include "common/status.h"
+#include "util/cpu_info.h"
 
 namespace doris {
 using namespace config;
@@ -46,4 +49,5 @@ TEST(ConfigValidatorTest, Validator) {
     EXPECT_TRUE(s.ok());
     EXPECT_EQ(cfg_validator_2, 8);
 }
+
 } // namespace doris

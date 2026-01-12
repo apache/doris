@@ -22,6 +22,7 @@
 namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
+CONF_Int32(brpc_internal_listen_port, "-1");
 CONF_Int32(brpc_num_threads, "64");
 // connections without data transmission for so many seconds will be closed
 // Set -1 to disable it.
@@ -29,6 +30,10 @@ CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
 CONF_String(fdb_cluster, "xxx:yyy@127.0.0.1:4500");
 CONF_String(fdb_cluster_file_path, "./conf/fdb.cluster");
+CONF_Bool(enable_fdb_external_client_directory, "true");
+// The directory path of external foundationdb client library.
+// eg: /path/to/dir1:/path/to/dir2:...
+CONF_String(fdb_external_client_directory, "");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
@@ -78,9 +83,11 @@ CONF_String(custom_conf_path, "");
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
+CONF_mInt64(packed_file_correction_delay_seconds,
+            "259200"); // seconds to wait before correcting packed files
 CONF_Int32(recycle_concurrency, "16");
 CONF_mInt32(recycle_job_lease_expired_ms, "60000");
-CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
+CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
@@ -89,6 +96,11 @@ CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// Max number of delete tasks per batch when recycling objects.
+// Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
+CONF_Int32(recycler_max_tasks_per_batch, "1000");
+// The worker pool size for http api `statistics_recycle` worker pool
+CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
 // s3_producer_pool recycle_tablet_pool, delete single object in this pool
@@ -97,9 +109,6 @@ CONF_Int32(recycle_pool_parallelism, "40");
 CONF_Bool(enable_inverted_check, "false");
 // Currently only used for recycler test
 CONF_Bool(enable_delete_bitmap_inverted_check, "false");
-// checks if https://github.com/apache/doris/pull/40204 works as expected
-CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
-CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
 CONF_Bool(enable_delete_bitmap_storage_optimize_v2_check, "false");
 CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5min
 // interval for scanning instances to do checks and inspections
@@ -107,18 +116,41 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 // enable recycler metrics statistics
-CONF_Bool(enable_recycler_metrics, "false");
+CONF_Bool(enable_recycler_stats_metrics, "false");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+CONF_mInt32(decrement_packed_file_ref_counts_retry_times, "10");
+CONF_mInt32(packed_file_txn_retry_times, "10");
+// randomized interval to reduce conflict storms in FoundationDB, default 5-50ms
+CONF_mInt64(packed_file_txn_retry_sleep_min_ms, "5");
+CONF_mInt64(packed_file_txn_retry_sleep_max_ms, "50");
+CONF_mInt32(recycle_txn_delete_max_retry_times, "10");
 
 // force recycler to recycle all useless object.
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+
+// Strip key bounds in recycle rowset meta emitted by compaction to shrink op log size
+CONF_Bool(enable_recycle_rowset_strip_key_bounds, "true");
+
+CONF_mBool(enable_restore_job_check, "false");
+
+CONF_mBool(enable_tablet_stats_key_check, "false");
+CONF_mBool(enable_txn_key_check, "false");
+
+CONF_mBool(enable_meta_key_check, "false");
+CONF_mBool(enable_version_key_check, "false");
+CONF_mBool(enable_meta_rowset_key_check, "false");
+CONF_mBool(enable_snapshot_check, "false");
+CONF_mBool(enable_mvcc_meta_key_check, "false");
+CONF_mBool(enable_packed_file_check, "false");
+CONF_mBool(enable_mvcc_meta_check, "false");
+
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
@@ -241,6 +273,10 @@ CONF_mBool(enable_load_txn_status_check, "true");
 
 CONF_mBool(enable_tablet_job_check, "true");
 
+CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation,
@@ -279,11 +315,19 @@ CONF_mInt64(max_txn_commit_byte, "7340032");
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
-CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
+CONF_mBool(enable_cloud_parallel_txn_lazy_commit, "true");
+CONF_Int32(parallel_txn_lazy_commit_num_threads, "0"); // hardware concurrency if zero.
+CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
+CONF_mBool(txn_lazy_commit_shuffle_partitions, "true");
+CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
+CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
 
-CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
+// the possibility to use a lazy commit for a doris txn, ranges from 0 to 100,
+// usually for testing
+// 0 for never, 100 for always
+CONF_mInt32(cloud_txn_lazy_commit_fuzzy_possibility, "0");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
@@ -321,7 +365,7 @@ CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-CONF_Int32(aws_log_level, "3");
+CONF_Int32(aws_log_level, "2");
 CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
 
 // azure sdk log level
@@ -329,7 +373,7 @@ CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-CONF_Int32(azure_log_level, "3");
+CONF_Int32(azure_log_level, "4");
 CONF_Validator(azure_log_level,
                [](const int config) -> bool { return config >= 1 && config <= 4; });
 
@@ -341,5 +385,51 @@ CONF_mString(ca_cert_file_paths,
 
 CONF_Bool(enable_split_rowset_meta_pb, "false");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_split_tablet_schema_pb, "false");
+CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K
+CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+
+CONF_Bool(enable_logging_for_single_version_reading, "false");
+CONF_mBool(enable_logging_conflict_keys, "false");
+
+// The time after which an aborted snapshot can be recycled, in seconds.
+// Default is 1 hour (3600 seconds).
+CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
+
+// Snapshot configuration limits
+CONF_Int32(snapshot_min_interval_seconds, "3600"); // 1h min interval limit
+CONF_Int32(snapshot_max_reserved_num, "35");       // max reserved snapshots limit
+// New instance enable multi version status by default.
+// The new instance multi version status will be set to MULTI_VERSION_READ_WRITE.
+CONF_Bool(enable_multi_version_status, "false");
+// New instance enable cluster snapshot, it only works when enable_multi_version_status is true.
+// The new instance snapshot switch status will be set to SNAPSHOT_SWITCH_ON, and the auto snapshot will be open.
+CONF_Bool(enable_cluster_snapshot, "false");
+CONF_Bool(enable_snapshot_data_migrator, "false");
+CONF_Bool(enable_snapshot_chain_compactor, "false");
+CONF_Int32(snapshot_data_migrator_concurrent, "2");
+CONF_Int32(snapshot_chain_compactor_concurrent, "2");
+// Parallelism for snapshot migration and compaction operations
+//
+// When to adjust:
+// - Increase (to 20-50): Large-scale migrations (>10K tablets), sufficient resources
+// - Decrease (to 1-5):  Memory/CPU constrained, high FDB conflict rate
+//
+// Cost of higher parallelism:
+// - Increases memory usage (transaction buffers, caches)
+// - Increases CPU usage (proportional to parallelism)
+// - Increases FDB load and may raise conflict rate
+CONF_Int32(snapshot_migrate_parallelism, "2");
+CONF_Int32(snapshot_compact_parallelism, "2");
+
+CONF_mString(aws_credentials_provider_version, "v2");
+CONF_Validator(aws_credentials_provider_version,
+               [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
+
+CONF_mBool(enable_notify_instance_update, "true");
+CONF_Bool(enable_instance_update_watcher, "true");
+
+CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
+CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
 
 } // namespace doris::cloud::config

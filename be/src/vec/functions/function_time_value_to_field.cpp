@@ -21,12 +21,14 @@
 #include "common/status.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
+#include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/time_value.h"
 #include "vec/utils/template_helpers.hpp"
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <typename ToDataType, typename Transform>
 class FunctionTimeValueToField : public IFunction {
 public:
@@ -60,7 +62,7 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; i++) {
-            col_res_data[i] = Transform::execute(column_time->get_element(i));
+            cast_set(col_res_data[i], Transform::execute(column_time->get_element(i)));
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -83,10 +85,25 @@ struct SecondImpl {
     static inline auto execute(const TimeValue::TimeType& t) { return TimeValue::second(t); }
 };
 
+struct MicroImpl {
+    constexpr static auto name = "microsecond";
+    static inline auto execute(const TimeValue::TimeType& t) { return TimeValue::microsecond(t); }
+};
+
+using FunctionHourFromUnixtime = FunctionTimeFieldFromUnixtime<HourFromUnixtimeImpl>;
+using FunctionMinuteFromUnixtime = FunctionTimeFieldFromUnixtime<MinuteFromUnixtimeImpl>;
+using FunctionSecondFromUnixtime = FunctionTimeFieldFromUnixtime<SecondFromUnixtimeImpl>;
+using FunctionMicrosecondFromUnixtime = FunctionTimeFieldFromUnixtime<MicrosecondFromUnixtimeImpl>;
+
 void register_function_time_value_field(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeValueToField<DataTypeInt32, HourImpl>>();
     factory.register_function<FunctionTimeValueToField<DataTypeInt8, MintuImpl>>();
     factory.register_function<FunctionTimeValueToField<DataTypeInt8, SecondImpl>>();
+    factory.register_function<FunctionTimeValueToField<DataTypeInt32, MicroImpl>>();
+    factory.register_function<FunctionHourFromUnixtime>();
+    factory.register_function<FunctionMinuteFromUnixtime>();
+    factory.register_function<FunctionSecondFromUnixtime>();
+    factory.register_function<FunctionMicrosecondFromUnixtime>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

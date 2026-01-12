@@ -30,7 +30,7 @@ class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                  RuntimeState* state, const TFileScanRangeParams& params,
-                 const TFileRangeDesc& range, io::IOContext* io_ctx);
+                 const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache);
 
     ~PaimonReader() override = default;
 
@@ -54,8 +54,9 @@ public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                     RuntimeState* state, const TFileScanRangeParams& params,
-                    const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                    const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                           meta_cache) {};
     ~PaimonOrcReader() final = default;
 
     void set_delete_rows() final {
@@ -65,8 +66,7 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>*
-                    table_col_name_to_value_range,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -78,8 +78,8 @@ public:
                 _params, _range.table_format_params.paimon_params.schema_id, tuple_descriptor,
                 orc_type_ptr));
 
-        return orc_reader->init_reader(&read_table_col_names, table_col_name_to_value_range,
-                                       conjuncts, false, tuple_descriptor, row_descriptor,
+        return orc_reader->init_reader(&read_table_col_names, col_name_to_block_idx, conjuncts,
+                                       false, tuple_descriptor, row_descriptor,
                                        not_single_slot_filter_conjuncts,
                                        slot_id_to_filter_conjuncts, table_info_node_ptr);
     }
@@ -90,8 +90,10 @@ public:
     ENABLE_FACTORY_CREATOR(PaimonParquetReader);
     PaimonParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                         RuntimeState* state, const TFileScanRangeParams& params,
-                        const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                        const TFileRangeDesc& range, io::IOContext* io_ctx,
+                        FileMetaCache* meta_cache)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                           meta_cache) {};
     ~PaimonParquetReader() final = default;
 
     void set_delete_rows() final {
@@ -101,10 +103,11 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>*
-                    table_col_name_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts,
+            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                    slot_id_to_predicates,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
@@ -118,8 +121,8 @@ public:
                 _params, _range.table_format_params.paimon_params.schema_id, tuple_descriptor,
                 *field_desc));
 
-        return parquet_reader->init_reader(read_table_col_names, table_col_name_to_value_range,
-                                           conjuncts, tuple_descriptor, row_descriptor,
+        return parquet_reader->init_reader(read_table_col_names, col_name_to_block_idx, conjuncts,
+                                           slot_id_to_predicates, tuple_descriptor, row_descriptor,
                                            colname_to_slot_id, not_single_slot_filter_conjuncts,
                                            slot_id_to_filter_conjuncts, table_info_node_ptr);
     }

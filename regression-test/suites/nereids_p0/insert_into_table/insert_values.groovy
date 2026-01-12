@@ -21,8 +21,6 @@ suite('nereids_insert_into_values') {
     sql 'set enable_nereids_dml=true'
     sql 'set enable_strict_consistency_dml=true'
 
-    sql 'use nereids_insert_into_table_test'
-
     def t1 = 'value_t1'
     def t2 = 'value_t2'
     def t3 = 'value_t3'
@@ -138,9 +136,62 @@ suite('nereids_insert_into_values') {
         properties("replication_num" = "1");
     """
 
-    createMV("create materialized view k12s3m as select k1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
+    createMV("create materialized view k12s3m as select k1 as a1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
 
     sql "insert into agg_have_dup_base_value values (-4, -4, -4, 'd')"
     sql "sync"
     qt_mv "select * from agg_have_dup_base_value"
+
+    multi_sql """
+            DROP TABLE IF EXISTS test_insert_cast_interval;
+            CREATE TABLE test_insert_cast_interval (
+              `id` int NULL,
+              `dt` date NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`, `dt`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+            
+            INSERT INTO test_insert_cast_interval values(1, date_floor('2020-02-02', interval 1 second));
+        """
+
+    qt_select_test_insert_cast_interval "select * from test_insert_cast_interval"
+
+    multi_sql """
+        drop table if exists test_insert_more_string;
+        CREATE TABLE test_insert_more_string (
+            `r_regionkey` int NULL,
+            `r_name` varchar(4) NULL
+        )
+        DUPLICATE KEY(`r_regionkey`)
+        DISTRIBUTED BY HASH(`r_regionkey`)
+        BUCKETS 1 PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+
+    // shorter varchar is ok
+    sql "insert into test_insert_more_string values (1, 'ab')"
+
+    // set enable_insert_value_auto_cast = true
+    // longer varchar will truncate
+    sql "set enable_insert_strict=false"
+    sql "insert into test_insert_more_string values (2, 'abcdefg')"
+    sql "set enable_insert_strict=true"
+
+    // when disable string auto cast and in insert strict mode, insert will failed
+    sql 'set enable_insert_value_auto_cast = false'
+    test {
+        def exception_str = isGroupCommitMode() ? "DATA_QUALITY_ERROR" : "Insert has filtered data in strict mode"
+        sql "insert into test_insert_more_string values (3, 'hi'), (4, 'jklmn')"
+        exception exception_str
+    }
+
+    // when disable insert strict, the longer varchar row will be truncated and inserted
+    sql 'set enable_insert_strict = false'
+    sql "insert into test_insert_more_string values (5, 'o'), (6, 'pqrst')"
+
+    order_qt_select_test_insert_more_string "select * from test_insert_more_string"
 }

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.CommonResultSet;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -54,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * A physical relation that contains only one row consist of some constant expressions.
@@ -133,6 +135,23 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
     }
 
     @Override
+    public String shapeInfo() {
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            StringBuilder builder = new StringBuilder();
+            builder.append(getClass().getSimpleName());
+            // the internal project list's order may be unstable, especial for join tables,
+            // so sort the projects to make it stable
+            builder.append(projects.stream().map(Expression::shapeInfo).sorted()
+                    .collect(Collectors.joining(", ", "[", "]")));
+            return builder.toString();
+        } else {
+            return super.shapeInfo();
+        }
+    }
+
+    @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalOneRowRelation(relationId, projects, groupExpression,
@@ -155,6 +174,19 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
                 if (expr instanceof Literal) {
                     LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
                     columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+                    if (output.getDataType().toCatalogDataType().isVarbinaryType()) {
+                        // The FE (computeResultInFe) can currently only build a ResultSet<List<List<String>>>.
+                        // If we materialize a VARBINARY literal via legacyExpr.getStringValueForQuery():
+                        //   1) We first wrap the raw bytes in a Java String.
+                        //   2) Later StmtExecutor.sendTextResultRow re-encodes that String as UTF-8 when
+                        //      writing the MySQL wire protocol. This may expand bytes (e.g. 0xAB becomes
+                        //      two bytes 0xC2 0xAB), so the client observes a different value than the BE path.
+                        // The BE execution path is correct because it sends the raw bytes already serialized
+                        // for the MySQL protocol without a lossy String round-trip.
+                        // Todo: Refactor ResultSet (supports per-cell byte[])
+                        // so we can VARBINARY safely and remove this early return.
+                        return Optional.empty();
+                    }
                     data.add(legacyExpr.getStringValueForQuery(
                             cascadesContext.getStatementContext().getFormatOptions()));
                 } else {

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
@@ -43,7 +44,7 @@ public class GrantResourcePrivilegeCommandTest extends TestWithFeService {
                 Optional.empty(),
                 Optional.of("test"),
                 Optional.empty());
-        Assertions.assertDoesNotThrow(() -> command.validate());
+        Assertions.assertThrowsExactly(AnalysisException.class, () -> command.validate());
     }
 
     @Test
@@ -58,7 +59,7 @@ public class GrantResourcePrivilegeCommandTest extends TestWithFeService {
                 + " \"user\" = \"jdbc_user\",\n"
                 + " \"password\" = \"jdbc_passwd\",\n"
                 + " \"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false\",\n"
-                + " \"driver_url\" = \"https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar\",\n"
+                + " \"driver_url\" = \"https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/jdbc_driver/mysql-connector-java-8.0.25.jar\",\n"
                 + " \"driver_class\" = \"com.mysql.cj.jdbc.Driver\"\n"
                 + ");";
 
@@ -95,9 +96,8 @@ public class GrantResourcePrivilegeCommandTest extends TestWithFeService {
     public void testWorkload() {
         String createWorkLoadSql = "create workload group if not exists g1 \n"
                 + "properties (  \n"
-                + "\"cpu_share\"=\"10\", \n"
-                + "\"memory_limit\"=\"30%\", \n"
-                + "\"enable_memory_overcommit\"=\"true\" \n"
+                + "\"min_memory_percent\"=\"10\", \n"
+                + "\"max_memory_percent\"=\"30%\" \n"
                 + ");";
         String createUserSql = "CREATE USER 'jack1'";
         String createRoleSql = "CREATE ROLE role2";

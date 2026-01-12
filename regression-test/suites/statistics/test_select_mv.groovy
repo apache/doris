@@ -35,20 +35,20 @@ suite("test_select_mv") {
     }
 
     def dup_sql1 = """select count(*) from test_dup;"""
-    def dup_sql2 = """select mv_key2 from test_dup index dup1 order by mv_key2;"""
-    def dup_sql3 = """select count(mv_key2) from test_dup index dup1;"""
-    def dup_sql4 = """select min(mv_key2), max(mv_key2), count(mv_key2), sum(mv_key2) from test_dup index dup1;"""
-    def dup_sql5 = """select `mva_SUM__CAST(``value`` AS BIGINT)` as a from test_dup index dup1 order by a;"""
-    def dup_sql6 = """select count(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_dup index dup1;"""
-    def dup_sql7 = """select min(`mva_SUM__CAST(``value`` AS BIGINT)`), max(`mva_SUM__CAST(``value`` AS BIGINT)`), ndv(`mva_SUM__CAST(``value`` AS BIGINT)`), sum(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_dup index dup1;"""
+    def dup_sql2 = """select a1 from test_dup index dup1 order by a1;"""
+    def dup_sql3 = """select count(a1) from test_dup index dup1;"""
+    def dup_sql4 = """select min(a1), max(a1), count(a1), sum(a1) from test_dup index dup1;"""
+    def dup_sql5 = """select a2 as a from test_dup index dup1 order by a;"""
+    def dup_sql6 = """select count(a2) from test_dup index dup1;"""
+    def dup_sql7 = """select min(a2), max(a2), ndv(a2), sum(a2) from test_dup index dup1;"""
 
     def agg_sql1 = """select count(*) from test_agg;"""
-    def agg_sql2 = """select mv_key2 from test_agg index agg1 order by mv_key2;"""
-    def agg_sql3 = """select count(mv_key2) from test_agg index agg1;"""
-    def agg_sql4 = """select min(mv_key2), max(mv_key2), count(mv_key2), sum(mv_key2) from test_agg index agg1;"""
-    def agg_sql5 = """select `mva_SUM__CAST(``value`` AS BIGINT)` as a from test_agg index agg1 order by a;"""
-    def agg_sql6 = """select count(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_agg index agg1;"""
-    def agg_sql7 = """select min(`mva_SUM__CAST(``value`` AS BIGINT)`), max(`mva_SUM__CAST(``value`` AS BIGINT)`), ndv(`mva_SUM__CAST(``value`` AS BIGINT)`), sum(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_agg index agg1;"""
+    def agg_sql2 = """select a3 from test_agg index agg1 order by a3;"""
+    def agg_sql3 = """select count(a3) from test_agg index agg1;"""
+    def agg_sql4 = """select min(a3), max(a3), count(a3), sum(a3) from test_agg index agg1;"""
+    def agg_sql5 = """select a4 as a from test_agg index agg1 order by a;"""
+    def agg_sql6 = """select count(a4) from test_agg index agg1;"""
+    def agg_sql7 = """select min(a4), max(a4), ndv(a4), sum(a4) from test_agg index agg1;"""
 
 
     sql """drop database if exists test_select_mv"""
@@ -67,7 +67,7 @@ suite("test_select_mv") {
         );
     """
 
-    createMV("create materialized view dup1 as select key2, sum(value) from test_dup group by key2;")
+    createMV("create materialized view dup1 as select key2 as a1, sum(value) as a2 from test_dup group by key2;")
 
     sql """CREATE TABLE test_agg (
             key1 int NOT NULL,
@@ -81,7 +81,7 @@ suite("test_select_mv") {
         );
     """
 
-    createMV("create materialized view agg1 as select key2, sum(value) from test_agg group by key2;")
+    createMV("create materialized view agg1 as select key2 as a3, sum(value) as a4 from test_agg group by key2;")
 
     sql """insert into test_dup values (1, 1, 1), (2, 2, 2)"""
     sql """insert into test_dup values (1, 1, 1), (2, 2, 2)"""
@@ -104,6 +104,6 @@ suite("test_select_mv") {
     qt_agg_sql6 agg_sql6
     qt_agg_sql7 agg_sql7
 
-    sql """drop database if exists test_select_mv"""
+    // sql """drop database if exists test_select_mv"""
 }
 

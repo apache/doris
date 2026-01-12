@@ -26,6 +26,7 @@ import "descriptors.proto";
 import "types.proto";
 import "olap_common.proto";
 import "olap_file.proto";
+import "runtime_profile.proto";
 
 option cc_generic_services = true;
 
@@ -57,6 +58,45 @@ message PTransmitDataParams {
 message PTransmitDataResult {
     optional PStatus status = 1;
     optional int64 receive_time = 2;
+};
+
+message PTransmitRecCTEBlockParams {
+    repeated PBlock blocks = 1;
+    optional bool eos = 2;
+    optional PUniqueId query_id = 3;
+    optional PUniqueId fragment_instance_id = 4;
+    optional int32 node_id = 5;
+};
+
+message PTransmitRecCTEBlockResult {
+    optional PStatus status = 1;
+};
+
+
+message PRerunFragmentParams {
+    enum Opcode {
+    wait = 1;    // wait fragment execute done
+    release = 2; // release current round's resource
+    rebuild = 3; // rebuild next round pipeline tasks
+    submit = 4;  // submit tasks to execute
+    close = 5;   // close fragment
+    }
+    optional PUniqueId query_id = 1;
+    optional int32 fragment_id = 2;
+    optional Opcode stage = 3;
+};
+
+message PRerunFragmentResult {
+    optional PStatus status = 1;
+};
+
+message PResetGlobalRfParams {
+    optional PUniqueId query_id = 1;
+    repeated int32 filter_ids = 2;
+};
+
+message PResetGlobalRfResult {
+    optional PStatus status = 1;
 };
 
 message PTabletWithPartition {
@@ -225,6 +265,7 @@ message PTabletWriterCancelRequest {
     required PUniqueId id = 1;
     required int64 index_id = 2;
     required int32 sender_id = 3;
+    optional string cancel_reason = 4;
 };
 
 message PTabletWriterCancelResult {
@@ -795,6 +836,7 @@ message PMultiGetBlockV2 {
     };
     optional RowFormat format = 2;
     repeated bytes binary_row_data = 3;
+    optional PRuntimeProfileTree profile = 4;
 }
 
 message PMultiGetResponseV2 {
@@ -852,10 +894,36 @@ message FileCacheBlockMeta {
     required FileCacheType cache_type = 7;
     required int64 expiration_time = 8;
     optional int64 file_size = 9;
+    optional FileType file_type = 10;
 }
 
 message PGetFileCacheMetaResponse {
     repeated FileCacheBlockMeta file_cache_block_metas = 1;
+}
+
+message PWarmUpRowsetRequest {
+    repeated RowsetMetaPB rowset_metas = 1;
+    optional int64 unix_ts_us = 2;
+    optional int64 sync_wait_timeout_ms = 3;
+    optional bool skip_existence_check = 4;
+}
+
+message PWarmUpRowsetResponse {
+    optional PStatus status = 1;
+}
+
+message RecycleCacheMeta {
+    optional int64 tablet_id = 1;
+    optional string rowset_id = 2;
+    optional int64 num_segments = 3;
+    repeated string index_file_names = 4;
+}
+
+message PRecycleCacheRequest {
+    repeated RecycleCacheMeta cache_metas = 1;
+}
+
+message PRecycleCacheResponse {
 }
 
 message PReportStreamLoadStatusRequest {
@@ -905,6 +973,7 @@ message PGroupCommitInsertResponse {
     optional int64 loaded_rows = 4;
     optional int64 filtered_rows = 5;
     optional string error_url = 6;
+    optional string first_error_msg = 7;
 }
 
 message POpenLoadStreamRequest {
@@ -927,6 +996,7 @@ message PTabletSchemaWithIndex {
 message POpenLoadStreamResponse {
     optional PStatus status = 1;
     repeated PTabletSchemaWithIndex tablet_schemas = 2;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 3;
 }
 
 message PFailedTablet {
@@ -941,6 +1011,7 @@ message PLoadStreamResponse {
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
     optional bool eos = 6;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 7;
 }
 
 message PStreamHeader {
@@ -963,6 +1034,7 @@ message PStreamHeader {
     optional TabletSchemaPB flush_schema = 11;
     optional uint64 offset = 12;
     optional FileType file_type = 13;
+    optional int64 num_incremental_streams = 14;
 }
 
 message PGetWalQueueSizeRequest{
@@ -1036,6 +1108,65 @@ message PAbortRefreshDictionaryResponse {
     optional PStatus status = 1;
 }
 
+message PGetTabletRowsetsRequest {
+    optional int64 tablet_id = 1;
+    optional int64 version_start = 2;
+    optional int64 version_end = 3;
+
+    optional DeleteBitmapPB delete_bitmap_keys = 4;
+}
+
+message PGetTabletRowsetsResponse {
+    required PStatus status = 1;
+    repeated RowsetMetaPB rowsets = 2;
+
+    optional DeleteBitmapPB delete_bitmap = 3;
+}
+
+message CacheBlockReqest {
+    // PEER_FILE_CACHE_BLOCK
+    optional int64 block_offset = 1;
+    optional int64 block_size = 2;
+}
+
+message PFetchPeerDataRequest {
+    enum Type {
+        PEER_FILE_RANGE = 1;
+        PEER_FILE_CACHE_BLOCK = 2;
+    }
+    optional Type type = 1;
+    // obj path, let peer calc hash, and download file cache
+    // PEER_FILE_RANGE and PEER_FILE_CACHE_BLOCK use
+    optional string path = 2;
+
+    // PEER_FILE_RANGE
+    optional int64 file_offset = 3;
+    optional int64 file_size = 4;
+    // PEER_FILE_CACHE_BLOCK
+    repeated CacheBlockReqest cache_req = 5;
+}
+
+message CacheBlockPB {
+    optional int64 block_offset = 1;
+    optional int64 block_size = 2;
+    optional bytes data = 3;
+}
+
+message PFetchPeerDataResponse {
+    optional PStatus status = 1;
+    repeated CacheBlockPB datas = 2;
+}
+
+message PRequestCdcClientRequest {
+    optional string api = 1; 
+    optional string params = 2; 
+}
+
+message PRequestCdcClientResult {
+    optional PStatus status = 1;
+    optional string response = 2;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1062,6 +1193,9 @@ service PBackendService {
     rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
+    rpc rerun_fragment(PRerunFragmentParams) returns (PRerunFragmentResult);
+    rpc reset_global_rf(PResetGlobalRfParams) returns (PResetGlobalRfResult);
+    rpc transmit_rec_cte_block(PTransmitRecCTEBlockParams) returns (PTransmitRecCTEBlockResult);
     rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_block_by_http(PEmptyRequest) returns (PTransmitDataResult);
     rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
@@ -1074,6 +1208,8 @@ service PBackendService {
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc multiget_data_v2(PMultiGetRequestV2) returns (PMultiGetResponseV2);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
+    rpc warm_up_rowset(PWarmUpRowsetRequest) returns (PWarmUpRowsetResponse);
+    rpc recycle_cache(PRecycleCacheRequest) returns (PRecycleCacheResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
@@ -1089,5 +1225,8 @@ service PBackendService {
     rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
     rpc commit_refresh_dictionary(PCommitRefreshDictionaryRequest) returns (PCommitRefreshDictionaryResponse);
     rpc abort_refresh_dictionary(PAbortRefreshDictionaryRequest) returns (PAbortRefreshDictionaryResponse);
+    rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
+    rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
+    rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
 

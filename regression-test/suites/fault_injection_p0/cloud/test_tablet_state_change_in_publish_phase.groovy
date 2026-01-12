@@ -135,7 +135,7 @@ suite("test_tablet_state_change_in_publish_phase", "docker") {
             // let sc finish
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.sleep")
 
-            dockerAwaitUntil(30) {
+            awaitUntil(30) {
                 def res = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
                 logger.info("alter status: ${res}")
                 res[0].State as String == "FINISHED"

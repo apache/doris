@@ -1,0 +1,480 @@
+From 09acd3271571ce3ba72bc0ecc8a2009e09061b57 Mon Sep 17 00:00:00 2001
+From: Ran Miller <ranmiller.leaf@gmail.com>
+Date: Wed, 30 Aug 2023 11:14:03 +0800
+Subject: [PATCH] Server support ALPN with OpenSSL (#2102)
+
+* Server support ALPN with OpenSSL
+
+* Fix SSL unittest compile error
+
+* Add ALPN protocol unittest
+
+* Add ALPN protocol doc
+---
+ docs/cn/server.md                    |   7 ++
+ docs/en/server.md                    |   7 ++
+ src/brpc/adaptive_protocol_type.h    |   1 +
+ src/brpc/details/ssl_helper.cpp      |  58 ++++++++++++
+ src/brpc/details/ssl_helper.h        |  19 +++-
+ src/brpc/server.cpp                  |  38 +++++++-
+ src/brpc/server.h                    |   6 ++
+ src/brpc/ssl_options.h               |   7 +-
+ test/brpc_alpn_protocol_unittest.cpp | 126 +++++++++++++++++++++++++++
+ test/brpc_ssl_unittest.cpp           |   2 +-
+ 10 files changed, 262 insertions(+), 9 deletions(-)
+ create mode 100644 test/brpc_alpn_protocol_unittest.cpp
+
+diff --git a/docs/cn/server.md b/docs/cn/server.md
+index 81469b9f..070adf97 100644
+--- a/docs/cn/server.md
++++ b/docs/cn/server.md
+@@ -534,6 +534,13 @@ struct ServerSSLOptions {
+ 
+ - 其余选项还包括：密钥套件选择（推荐密钥ECDHE-RSA-AES256-GCM-SHA384，chrome默认第一优先密钥，安全性很高，但比较耗性能）、session复用等。
+ 
++- 如果想支持应用层协议协商，可通过`alpns`选项设置Server端支持的协议字符串，在Server启动时会校验协议的有效性，多个协议间使用逗号分割。具体使用方式如下：
++
++  ```c++
++  ServerSSLOptions ssl_options;
++  ssl_options.alpns = "http, h2, baidu_std";
++  ```
++
+ - SSL层在协议层之下（作用在Socket层），即开启后，所有协议（如HTTP）都支持用SSL加密后传输到Server，Server端会先进行SSL解密后，再把原始数据送到各个协议中去。
+ 
+ - SSL开启后，端口仍然支持非SSL的连接访问，Server会自动判断哪些是SSL，哪些不是。如果要屏蔽非SSL访问，用户可通过`Controller::is_ssl()`判断是否是SSL，同时在[connections](connections.md)内置监控上也可以看到连接的SSL信息。
+diff --git a/docs/en/server.md b/docs/en/server.md
+index 52ed0d88..39738acf 100644
+--- a/docs/en/server.md
++++ b/docs/en/server.md
+@@ -530,6 +530,13 @@ struct ServerSSLOptions {
+ 
+ - Other options include: cipher suites (recommend using `ECDHE-RSA-AES256-GCM-SHA384` which is the default suite used by chrome, and one of the safest suites. The drawback is more CPU cost), session reuse and so on. 
+ 
++- If you want to support application layer protocol negotiation, you can use the `alpns` option to set the protocol string supported by the server side. When the server starts, the validity of the protocol will be verified, and multiple protocols are separated by commas. The specific usage is as follows:
++
++  ```c++
++  ServerSSLOptions ssl_options;
++  ssl_options.alpns = "http, h2, baidu_std";
++  ```
++
+ - SSL layer works under protocol layer. As a result, all protocols (such as HTTP)  can provide SSL access when it's turned on. Server will decrypt the data first and then pass it into each protocol.
+ 
+ - After turning on SSL, non-SSL access is still available for the same port. Server can automatically distinguish SSL from non-SSL requests. SSL-only mode can be implemented using `Controller::is_ssl()` in service's callback and `SetFailed` if it returns false. In the meanwhile, the builtin-service [connections](../cn/connections.md) also shows the SSL information for each connection.
+diff --git a/src/brpc/adaptive_protocol_type.h b/src/brpc/adaptive_protocol_type.h
+index 666654ea..36674a71 100644
+--- a/src/brpc/adaptive_protocol_type.h
++++ b/src/brpc/adaptive_protocol_type.h
+@@ -44,6 +44,7 @@ class AdaptiveProtocolType {
+ public:
+     explicit AdaptiveProtocolType() : _type(PROTOCOL_UNKNOWN) {}
+     explicit AdaptiveProtocolType(ProtocolType type) : _type(type) {}
++    explicit AdaptiveProtocolType(butil::StringPiece name) { *this = name; }
+     ~AdaptiveProtocolType() {}
+ 
+     void operator=(ProtocolType type) {
+diff --git a/src/brpc/details/ssl_helper.cpp b/src/brpc/details/ssl_helper.cpp
+index 76a73547..81460aa9 100644
+--- a/src/brpc/details/ssl_helper.cpp
++++ b/src/brpc/details/ssl_helper.cpp
+@@ -441,6 +441,40 @@ static int SetSSLOptions(SSL_CTX* ctx, const std::string& ciphers,
+     return 0;
+ }
+ 
++static int ServerALPNCallback(
++        SSL* ssl, const unsigned char** out, unsigned char* outlen,
++        const unsigned char* in, unsigned int inlen, void* arg) {
++    const std::string* alpns = static_cast<const std::string*>(arg);
++    if (alpns == nullptr) {
++        return SSL_TLSEXT_ERR_NOACK;
++    }
++
++    // Use OpenSSL standard select API.
++    int select_result = SSL_select_next_proto(
++            const_cast<unsigned char**>(out), outlen, 
++            reinterpret_cast<const unsigned char*>(alpns->data()), alpns->size(),
++            in, inlen);
++    return (select_result == OPENSSL_NPN_NEGOTIATED) 
++                ? SSL_TLSEXT_ERR_OK : SSL_TLSEXT_ERR_NOACK;
++}
++
++static int SetServerALPNCallback(SSL_CTX* ssl_ctx, const std::string* alpns) {
++    if (ssl_ctx == nullptr) {
++        LOG(ERROR) << "Fail to set server ALPN callback, ssl_ctx is nullptr.";
++        return -1;
++    }
++
++    // Server set alpn callback when openssl version is more than 1.0.2
++#if (OPENSSL_VERSION_NUMBER >= SSL_VERSION_NUMBER(1, 0, 2))
++    SSL_CTX_set_alpn_select_cb(ssl_ctx, ServerALPNCallback,
++            const_cast<std::string*>(alpns));
++#else
++    LOG(WARNING) << "OpenSSL version=" << OPENSSL_VERSION_STR 
++            << " is lower than 1.0.2, ignore server alpn.";
++#endif
++    return 0;
++}
++
+ SSL_CTX* CreateClientSSLContext(const ChannelSSLOptions& options) {
+     std::unique_ptr<SSL_CTX, FreeSSLCTX> ssl_ctx(
+         SSL_CTX_new(SSLv23_client_method()));
+@@ -470,6 +504,7 @@ SSL_CTX* CreateClientSSLContext(const ChannelSSLOptions& options) {
+ SSL_CTX* CreateServerSSLContext(const std::string& certificate,
+                                 const std::string& private_key,
+                                 const ServerSSLOptions& options,
++                                const std::string* alpns,
+                                 std::vector<std::string>* hostnames) {
+     std::unique_ptr<SSL_CTX, FreeSSLCTX> ssl_ctx(
+         SSL_CTX_new(SSLv23_server_method()));
+@@ -521,6 +556,12 @@ SSL_CTX* CreateServerSSLContext(const std::string& certificate,
+ 
+ #endif  // OPENSSL_NO_DH
+ 
++    // Set ALPN callback to choose application protocol when alpns is not empty.
++    if (alpns != nullptr && !alpns->empty()) {
++        if (SetServerALPNCallback(ssl_ctx.get(), alpns) != 0) {
++            return NULL; 
++        }
++    }
+     return ssl_ctx.release();
+ }
+ 
+@@ -833,6 +874,23 @@ void Print(std::ostream& os, X509* cert, const char* sep) {
+     os << butil::StringPiece(bufp, len);
+ }
+ 
++std::string ALPNProtocolToString(const AdaptiveProtocolType& protocol) {
++    butil::StringPiece name = protocol.name();
++    // Default use http 1.1 version
++    if (name.starts_with("http")) {
++        name.set("http/1.1");
++    }
++
++    // ALPN extension uses 1 byte to record the protocol length
++    // and it's maximum length is 255.
++    if (name.size() > CHAR_MAX) {
++        name = name.substr(0, CHAR_MAX); 
++    }
++
++    char length = static_cast<char>(name.size());
++    return std::string(&length, 1) + name.data(); 
++}
++
+ } // namespace brpc
+ 
+ #endif // USE_MESALINK
+diff --git a/src/brpc/details/ssl_helper.h b/src/brpc/details/ssl_helper.h
+index 8f09aae2..4f1e55b2 100644
+--- a/src/brpc/details/ssl_helper.h
++++ b/src/brpc/details/ssl_helper.h
+@@ -24,16 +24,23 @@
+ #include <openssl/ssl.h>
+ // For some versions of openssl, SSL_* are defined inside this header
+ #include <openssl/ossl_typ.h>
++#include <openssl/opensslv.h>
+ #else
+ #include <mesalink/openssl/ssl.h>
+ #include <mesalink/openssl/err.h>
+ #include <mesalink/openssl/x509.h>
+ #endif
+-#include "brpc/socket_id.h"            // SocketId
+-#include "brpc/ssl_options.h"          // ServerSSLOptions
++#include "brpc/socket_id.h"                 // SocketId
++#include "brpc/ssl_options.h"               // ServerSSLOptions
++#include "brpc/adaptive_protocol_type.h"    // AdaptiveProtocolType
+ 
+ namespace brpc {
+ 
++// The calculation method is the same as OPENSSL_VERSION_NUMBER in the openssl/crypto.h file.
++// SSL_VERSION_NUMBER can pass parameter calculation instead of using fixed macro.
++#define SSL_VERSION_NUMBER(major, minor, patch) \
++    ( (major << 28) | (minor << 20) | (patch << 4) )
++
+ enum SSLState {
+     SSL_UNKNOWN = 0,
+     SSL_OFF = 1,                // Not an SSL connection
+@@ -78,12 +85,14 @@ int SSLDHInit();
+ SSL_CTX* CreateClientSSLContext(const ChannelSSLOptions& options);
+ 
+ // Create a new SSL_CTX in server mode using `certificate_file'
+-// and `private_key_file' and then set the right options onto it
+-// according `options'. Finally, extract hostnames from CN/subject
++// and `private_key_file' and then set the right options and alpn
++// onto it according `options'.Finally, extract hostnames from CN/subject
+ // fields into `hostnames'
++// Attention: ensure that the life cycle of function return is greater than alpns param.
+ SSL_CTX* CreateServerSSLContext(const std::string& certificate_file,
+                                 const std::string& private_key_file,
+                                 const ServerSSLOptions& options,
++                                const std::string* alpns,
+                                 std::vector<std::string>* hostnames);
+ 
+ // Create a new SSL (per connection object) using configurations in `ctx'.
+@@ -102,6 +111,8 @@ SSLState DetectSSLState(int fd, int* error_code);
+ void Print(std::ostream& os, SSL* ssl, const char* sep);
+ void Print(std::ostream& os, X509* cert, const char* sep);
+ 
++std::string ALPNProtocolToString(const AdaptiveProtocolType& protocol);
++
+ } // namespace brpc
+ 
+ #endif // BRPC_SSL_HELPER_H
+diff --git a/src/brpc/server.cpp b/src/brpc/server.cpp
+index ce5a0dd2..c25cd5f0 100644
+--- a/src/brpc/server.cpp
++++ b/src/brpc/server.cpp
+@@ -656,6 +656,31 @@ int Server::InitializeOnce() {
+     return 0;
+ }
+ 
++int Server::InitALPNOptions(const ServerSSLOptions* options) {
++    if (options == nullptr) {
++        LOG(ERROR) << "Fail to init alpn options, ssl options is nullptr.";
++        return -1;
++    }   
++
++    std::string raw_protocol;
++    const std::string& alpns = options->alpns;
++    for (butil::StringSplitter split(alpns.data(), ','); split; ++split) {
++        butil::StringPiece alpn(split.field(), split.length());
++        alpn.trim_spaces();
++
++        // Check protocol valid(exist and server support)
++        AdaptiveProtocolType protocol_type(alpn);
++        const Protocol* protocol = FindProtocol(protocol_type);
++        if (protocol == nullptr || !protocol->support_server()) {
++            LOG(ERROR) << "Server does not support alpn=" << alpn;
++            return -1;
++        }
++        raw_protocol.append(ALPNProtocolToString(protocol_type));
++    }
++    _raw_alpns = std::move(raw_protocol);
++    return 0;
++}
++
+ static void* CreateServerTLS(const void* args) {
+     return static_cast<const DataFactory*>(args)->CreateData();
+ }
+@@ -918,6 +943,12 @@ int Server::StartInternal(const butil::EndPoint& endpoint,
+     // Free last SSL contexts
+     FreeSSLContexts();
+     if (_options.has_ssl_options()) {
++
++        // Change ServerSSLOptions.alpns to _raw_alpns.
++        // AddCertificate function maybe access raw_alpns variable.
++        if (InitALPNOptions(_options.mutable_ssl_options()) != 0) {
++            return -1;
++        }
+         CertInfo& default_cert = _options.mutable_ssl_options()->default_cert;
+         if (default_cert.certificate.empty()) {
+             LOG(ERROR) << "default_cert is empty";
+@@ -1921,8 +1952,9 @@ int Server::AddCertificate(const CertInfo& cert) {
+     SSLContext ssl_ctx;
+     ssl_ctx.filters = cert.sni_filters;
+     ssl_ctx.ctx = std::make_shared<SocketSSLContext>();
+-    SSL_CTX* raw_ctx = CreateServerSSLContext(cert.certificate, cert.private_key,
+-                                              _options.ssl_options(), &ssl_ctx.filters);
++    SSL_CTX* raw_ctx = CreateServerSSLContext(
++            cert.certificate, cert.private_key,
++            _options.ssl_options(), &_raw_alpns, &ssl_ctx.filters);
+     if (raw_ctx == NULL) {
+         return -1;
+     }
+@@ -2047,7 +2079,7 @@ int Server::ResetCertificates(const std::vector<CertInfo>& certs) {
+         ssl_ctx.ctx = std::make_shared<SocketSSLContext>();
+         ssl_ctx.ctx->raw_ctx = CreateServerSSLContext(
+             certs[i].certificate, certs[i].private_key,
+-            _options.ssl_options(), &ssl_ctx.filters);
++            _options.ssl_options(), &_raw_alpns, &ssl_ctx.filters);
+         if (ssl_ctx.ctx->raw_ctx == NULL) {
+             return -1;
+         }
+diff --git a/src/brpc/server.h b/src/brpc/server.h
+index e598a6e8..982c6701 100644
+--- a/src/brpc/server.h
++++ b/src/brpc/server.h
+@@ -600,6 +600,8 @@ friend class Controller;
+     // ensured to be called only once
+     int InitializeOnce();
+ 
++    int InitALPNOptions(const ServerSSLOptions* options);
++
+     // Create acceptor with handlers of protocols.
+     Acceptor* BuildAcceptor();
+ 
+@@ -715,6 +717,10 @@ friend class Controller;
+     ServerOptions _options;
+     butil::EndPoint _listen_addr;
+ 
++    // ALPN extention protocol-list format. Server initialize this with alpns options.
++    // OpenSSL API use this variable to avoid conversion at each handshake.
++    std::string _raw_alpns;
++
+     std::string _version;
+     time_t _last_start_time;
+     bthread_t _derivative_thread;
+diff --git a/src/brpc/ssl_options.h b/src/brpc/ssl_options.h
+index 57c4d38d..c7caa1dd 100644
+--- a/src/brpc/ssl_options.h
++++ b/src/brpc/ssl_options.h
+@@ -148,7 +148,12 @@ struct ServerSSLOptions {
+     // Default: see above
+     VerifyOptions verify;
+ 
+-    // TODO: Support NPN & ALPN
++    // Options used to choose the most suitable application protocol, separated by comma.
++    // The NPN protocol is not commonly used, so only ALPN is supported.
++    // Available protocols: http, h2, baidu_std etc.
++    // Default: empty
++    std::string alpns;
++
+     // TODO: Support OSCP stapling
+ };
+ 
+diff --git a/test/brpc_alpn_protocol_unittest.cpp b/test/brpc_alpn_protocol_unittest.cpp
+new file mode 100644
+index 00000000..7884b3fe
+--- /dev/null
++++ b/test/brpc_alpn_protocol_unittest.cpp
+@@ -0,0 +1,126 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#include <string>
++#include <vector>
++
++#include "gtest/gtest.h"
++#include "gflags/gflags.h"
++
++#include "echo.pb.h"
++#include "brpc/channel.h"
++#include "brpc/server.h"
++#include "butil/fd_guard.h"
++#include "butil/endpoint.h"
++
++DEFINE_string(listen_addr, "0.0.0.0:8011", "Server listen address.");
++
++int main(int argc, char* argv[]) {
++    testing::InitGoogleTest(&argc, argv);
++    google::ParseCommandLineFlags(&argc, &argv, true);    
++    return RUN_ALL_TESTS();
++}
++
++namespace {
++
++class EchoServerImpl : public test::EchoService {
++public:
++    virtual void Echo(google::protobuf::RpcController* controller,
++                        const ::test::EchoRequest* request,
++                        test::EchoResponse* response,
++                        google::protobuf::Closure* done) {
++        brpc::ClosureGuard done_guard(done);
++        response->set_message(request->message());
++
++        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
++        LOG(NOTICE) << "protocol:" << cntl->request_protocol();
++  }
++};
++
++class ALPNTest : public testing::Test {
++public:
++    ALPNTest() = default;
++    virtual ~ALPNTest() = default;
++
++    virtual void SetUp() override { 
++        // Start brpc server with SSL
++        brpc::ServerOptions server_options;
++        auto&& ssl_options = server_options.mutable_ssl_options();
++        ssl_options->default_cert.certificate = "cert1.crt";
++        ssl_options->default_cert.private_key = "cert1.key";
++        ssl_options->alpns = "http, h2, baidu_std";
++
++        EXPECT_EQ(0, _server.AddService(&_echo_server_impl,
++                                        brpc::SERVER_DOESNT_OWN_SERVICE));
++        EXPECT_EQ(0, _server.Start(FLAGS_listen_addr.data(), &server_options));
++    }
++    
++    virtual void TearDown() override {
++        _server.Stop(0);
++        _server.Join();
++    }
++
++    std::string HandshakeWithServer(std::vector<std::string> alpns) {
++        // Init client ssl ctx and set alpn.
++        brpc::ChannelSSLOptions options;
++        SSL_CTX* ssl_ctx = brpc::CreateClientSSLContext(options);
++        EXPECT_NE(nullptr, ssl_ctx);
++
++        std::string raw_alpn;
++        for (auto&& alpn : alpns) {
++            raw_alpn.append(brpc::ALPNProtocolToString(brpc::AdaptiveProtocolType(alpn)));
++        }
++        SSL_CTX_set_alpn_protos(ssl_ctx, 
++                reinterpret_cast<const unsigned char*>(raw_alpn.data()), raw_alpn.size());
++    
++        // TCP connect.
++        butil::EndPoint endpoint;
++        butil::str2endpoint(FLAGS_listen_addr.data(), &endpoint);
++
++        int cli_fd = butil::tcp_connect(endpoint, nullptr);
++        butil::fd_guard guard(cli_fd);
++        EXPECT_NE(0, cli_fd);
++
++        // SSL handshake.
++        SSL* ssl = brpc::CreateSSLSession(ssl_ctx, 0, cli_fd, false);
++        EXPECT_NE(nullptr, ssl);
++        EXPECT_EQ(1, SSL_do_handshake(ssl)); 
++
++        // Get handshake result.
++        const unsigned char* select_alpn = nullptr;
++        unsigned int len = 0;
++        SSL_get0_alpn_selected(ssl, &select_alpn, &len);
++        return std::string(reinterpret_cast<const char*>(select_alpn), len);
++    }
++
++private:
++    brpc::Server _server;
++    EchoServerImpl _echo_server_impl;
++};
++
++TEST_F(ALPNTest, Server) {
++    // Server alpn support h2 http baidu_std, test the following case:
++    // 1. Client provides 1 protocol which is in the list supported by the server.
++    // 2. Server select protocol according to priority.
++    // 3. Server does not support the protocol provided by the client.
++
++    EXPECT_EQ("baidu_std", ALPNTest::HandshakeWithServer({"baidu_std"}));
++    EXPECT_EQ("h2", ALPNTest::HandshakeWithServer({"baidu_std", "h2"}));
++    EXPECT_EQ("", ALPNTest::HandshakeWithServer({"nshead"}));
++}
++
++} // namespace
+diff --git a/test/brpc_ssl_unittest.cpp b/test/brpc_ssl_unittest.cpp
+index 7d58e455..e101f534 100644
+--- a/test/brpc_ssl_unittest.cpp
++++ b/test/brpc_ssl_unittest.cpp
+@@ -389,7 +389,7 @@ TEST_F(SSLTest, ssl_perf) {
+     SSL_CTX* cli_ctx = brpc::CreateClientSSLContext(opt);
+     SSL_CTX* serv_ctx =
+             brpc::CreateServerSSLContext("cert1.crt", "cert1.key",
+-                                         brpc::SSLOptions(), NULL);
++                                         brpc::SSLOptions(), NULL, NULL);
+     SSL* cli_ssl = brpc::CreateSSLSession(cli_ctx, 0, clifd, false);
+ #if defined(SSL_CTRL_SET_TLSEXT_HOSTNAME) || defined(USE_MESALINK)
+     SSL_set_tlsext_host_name(cli_ssl, "localhost");
+-- 
+2.50.1
+

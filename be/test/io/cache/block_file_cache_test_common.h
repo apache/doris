@@ -75,11 +75,11 @@ extern fs::path caches_dir;
 extern std::string cache_base_path;
 extern std::string tmp_file;
 
-constexpr unsigned long long operator"" _mb(unsigned long long m) {
+constexpr unsigned long long operator""_mb(unsigned long long m) {
     return m * 1024 * 1024;
 }
 
-constexpr unsigned long long operator"" _kb(unsigned long long m) {
+constexpr unsigned long long operator""_kb(unsigned long long m) {
     return m * 1024;
 }
 
@@ -98,6 +98,8 @@ class BlockFileCacheTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
+        config::file_cache_background_ttl_gc_interval_ms = 2000;
+        config::file_cache_background_ttl_info_update_interval_ms = 2000;
         config::enable_evict_file_cache_in_advance = false; // disable evict in
                                                             // advance for most
                                                             // cases for simple

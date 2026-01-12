@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
@@ -62,7 +61,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -138,8 +136,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
-
-    private Analyzer analyzer;
+    @SerializedName(value = "sv")
+    protected Map<String, String> sessionVariables;
 
     protected RollupJobV2() {
         super(JobType.ROLLUP);
@@ -152,7 +150,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+                       OriginStatement origStmt, Map<String, String> sessionVariables) throws AnalysisException {
         super(rawSql, jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
@@ -169,7 +167,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
-        initAnalyzer();
+        this.sessionVariables = sessionVariables;
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
@@ -200,18 +198,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     public String getBaseIndexName() {
         return baseIndexName;
-    }
-
-    protected void initAnalyzer() throws AnalysisException {
-        ConnectContext connectContext = new ConnectContext();
-        Database db;
-        try {
-            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException("error happens when parsing create materialized view stmt: " + origStmt, e);
-        }
-        connectContext.setDatabase(db.getFullName());
-        analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
     }
 
     protected void createRollupReplica() throws AlterCancelException {
@@ -285,7 +271,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 objectPool,
                                 tbl.rowStorePageSize(),
                                 tbl.variantEnableFlattenNested(),
-                                tbl.storagePageSize());
+                                tbl.storagePageSize(), tbl.getTDEAlgorithm(),
+                                tbl.storageDictPageSize(), null);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -360,7 +347,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         createRollupReplica();
 
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
-        this.jobState = JobState.WAITING_TXN;
+        setJobState(JobState.WAITING_TXN);
 
         // write edit log
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
@@ -378,7 +365,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
-                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer, null);
+                rollupKeysType, origStmt, null, sessionVariables);
         tbl.rebuildFullSchema();
     }
 
@@ -413,11 +400,12 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.readLock();
-        Map<Object, Object> objectPool = new ConcurrentHashMap<Object, Object>();
         String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            // Create object pool per MaterializedIndex
+            Map<Long, Map<Object, Object>> indexObjectPoolMap = Maps.newHashMap();
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
@@ -429,6 +417,14 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 Map<String, Expr> defineExprs = Maps.newHashMap();
                 MaterializedIndex rollupIndex = entry.getValue();
                 Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
+
+                // Get or create object pool for this MaterializedIndex
+                Map<Object, Object> objectPool = indexObjectPoolMap.get(rollupIndex.getId());
+                if (objectPool == null) {
+                    objectPool = new ConcurrentHashMap<Object, Object>();
+                    indexObjectPoolMap.put(rollupIndex.getId(), objectPool);
+                }
+
                 for (Tablet rollupTablet : rollupIndex.getTablets()) {
                     long rollupTabletId = rollupTablet.getId();
                     long baseTabletId = tabletIdMap.get(rollupTabletId);
@@ -459,7 +455,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     for (Column column : rollupColumns) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
-                        destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
 
@@ -494,7 +489,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 dbId, tableId, partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
-                                objectPool, whereClause, expiration, vaultId);
+                                objectPool, whereClause, expiration, vaultId, queryOptions, queryGlobals);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }
@@ -505,7 +500,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         AgentTaskQueue.addBatchTask(rollupBatchTask);
         AgentTaskExecutor.submit(rollupBatchTask);
-        this.jobState = JobState.RUNNING;
+        setJobState(JobState.RUNNING);
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
@@ -540,13 +535,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
-                int maxFailedTimes = 0;
-                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
-                    if (task.getErrorCode() != null && task.getErrorCode()
-                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
-                        maxFailedTimes = Config.schema_change_max_retry_time;
-                    }
-                }
+                int maxFailedTimes = getRetryTimes(task);
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
@@ -624,6 +613,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.finishedTimeMs = System.currentTimeMillis();
 
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        this.showJobState = JobState.FINISHED;
         LOG.info("rollup job finished: {}", jobId);
     }
 
@@ -671,7 +661,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         cancelInternal();
 
-        jobState = JobState.CANCELLED;
+        setJobState(JobState.CANCELLED);
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
@@ -742,7 +732,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         // to make sure that this job will run runPendingJob() again to create the rollup replicas
-        this.jobState = JobState.PENDING;
+        setJobState(JobState.PENDING);
         this.watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay pending rollup job: {}", jobId);
@@ -781,7 +771,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
-        this.jobState = JobState.WAITING_TXN;
+        setJobState(JobState.WAITING_TXN);
         this.watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay waiting txn rollup job: {}", jobId);
@@ -808,6 +798,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
+        this.showJobState = JobState.FINISHED;
 
         LOG.info("replay finished rollup job: {}", jobId);
     }
@@ -819,7 +810,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         cancelInternal();
         // try best to drop roll index, when job is cancelled
         onCancel();
-        this.jobState = JobState.CANCELLED;
+        setJobState(JobState.CANCELLED);
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled rollup job: {}", jobId);
@@ -861,7 +852,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         info.add(rollupIndexName);
         info.add(rollupIndexId);
         info.add(watershedTxnId);
-        info.add(jobState.name());
+        info.add(showJobState.name());
         info.add(errMsg);
         // progress
         if (jobState == JobState.RUNNING && rollupBatchTask.getTaskNum() > 0) {
@@ -893,10 +884,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         return partitionIdToRollupIndex;
     }
 
-    public void setJobState(JobState jobState) {
-        this.jobState = jobState;
-    }
-
     private void setColumnsDefineExpr(List<MVColumnItem> mvColumnItemList) {
         for (MVColumnItem mvColumnItem : mvColumnItemList) {
             for (Column column : rollupSchema) {
@@ -923,6 +910,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return;
         }
 
+        showJobState = jobState;
         if (jobState != JobState.PENDING) {
             return;
         }
@@ -949,7 +937,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             // Under normal circumstances, the stmt will not fail to analyze.
             // In some cases (such as drop table force), analyze may fail because cancel is
             // not included in the checkpoint.
-            jobState = JobState.CANCELLED;
+            setJobState(JobState.CANCELLED);
             LOG.warn("error happens when parsing create materialized view command: " + command, e);
             return;
         }
@@ -967,5 +955,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @Override
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 }

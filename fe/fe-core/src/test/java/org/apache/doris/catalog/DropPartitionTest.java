@@ -17,13 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -64,18 +67,39 @@ public class DropPartitionTest {
     }
 
     private static void createDb(String sql) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropPartition(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().alterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    private static void recoverPartition(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverPartitionCommand) {
+            ((RecoverPartitionCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @Test
@@ -91,8 +115,7 @@ public class DropPartitionTest {
         Assert.assertEquals(1, replicaList.size());
         Assert.assertNull(partition);
         String recoverPartitionSql = "recover partition p20210201 from test.tbl1";
-        RecoverPartitionStmt recoverPartitionStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverPartitionSql, connectContext);
-        Env.getCurrentEnv().recoverPartition(recoverPartitionStmt);
+        recoverPartition(recoverPartitionSql);
         partition = table.getPartition("p20210201");
         Assert.assertNotNull(partition);
         Assert.assertEquals("p20210201", partition.getName());
@@ -111,10 +134,9 @@ public class DropPartitionTest {
         Assert.assertTrue(replicaList.isEmpty());
         Assert.assertNull(partition);
         String recoverPartitionSql = "recover partition p20210202 from test.tbl1";
-        RecoverPartitionStmt recoverPartitionStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverPartitionSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "No partition named 'p20210202' or partition id '-1' in table tbl1",
-                () -> Env.getCurrentEnv().recoverPartition(recoverPartitionStmt));
+                () -> recoverPartition(recoverPartitionSql));
     }
 
     @Test

@@ -31,14 +31,12 @@ namespace vectorized {
 class Arena;
 } // namespace vectorized
 
-TabletColumnPtr create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false,
-                               bool has_bitmap_index = false);
+TabletColumnPtr create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false);
 
 TabletColumnPtr create_int_value(
         int32_t id,
         FieldAggregationMethod agg_method = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
-        bool is_nullable = true, const std::string default_value = "", bool is_bf_column = false,
-        bool has_bitmap_index = false);
+        bool is_nullable = true, const std::string default_value = "", bool is_bf_column = false);
 
 TabletColumnPtr create_char_key(int32_t id, bool is_nullable = true);
 
@@ -58,10 +56,10 @@ TabletColumnPtr create_with_default_value(std::string default_value) {
     return column;
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, vectorized::Arena* pool,
+void set_column_value_by_type(FieldType fieldType, int src, char* target, vectorized::Arena& arena,
                               size_t _length = 8);
 
 void set_column_value_by_type(FieldType fieldType, const std::string& src, char* target,
-                              vectorized::Arena* pool, size_t _length = 8);
+                              vectorized::Arena& arena, size_t _length = 8);
 
 } // namespace doris

@@ -18,7 +18,9 @@
 #include "io/fs/s3_file_writer.h"
 
 #include <aws/s3/model/CompletedPart.h>
+#include <bvar/recorder.h>
 #include <bvar/reducer.h>
+#include <bvar/window.h>
 #include <fmt/core.h>
 #include <glog/logging.h>
 
@@ -40,8 +42,10 @@
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "util/s3_util.h"
+#include "util/stopwatch.hpp"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer_total_num");
 bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer_bytes_written");
@@ -50,6 +54,10 @@ bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer_file_being_written")
 bvar::Adder<uint64_t> s3_file_writer_async_close_queuing("s3_file_writer_async_close_queuing");
 bvar::Adder<uint64_t> s3_file_writer_async_close_processing(
         "s3_file_writer_async_close_processing");
+bvar::IntRecorder s3_file_writer_first_append_to_close_ms_recorder;
+bvar::Window<bvar::IntRecorder> s3_file_writer_first_append_to_close_ms_window(
+        "s3_file_writer_first_append_to_close_ms",
+        &s3_file_writer_first_append_to_close_ms_recorder, /*window_size=*/10);
 
 S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket,
                            std::string key, const FileWriterOptions* opts)
@@ -61,13 +69,8 @@ S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string 
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
     Aws::Http::SetCompliantRfc3986Encoding(true);
-    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
-        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
-                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
-                BlockFileCache::hash(_obj_storage_path_opts.path.filename().native()),
-                FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_obj_storage_path_opts.path.filename().native()))});
-    }
+
+    init_cache_builder(opts, _obj_storage_path_opts.path);
 }
 
 S3FileWriter::~S3FileWriter() {
@@ -123,10 +126,48 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
 }
 
 Status S3FileWriter::close(bool non_block) {
+    auto record_close_latency = [this]() {
+        if (_close_latency_recorded || !_first_append_timestamp.has_value()) {
+            return;
+        }
+        auto now = std::chrono::steady_clock::now();
+        auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  now - *_first_append_timestamp)
+                                  .count();
+        s3_file_writer_first_append_to_close_ms_recorder << latency_ms;
+        if (auto* sampler = s3_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+            sampler->take_sample();
+        }
+        _close_latency_recorded = true;
+    };
+
     if (state() == State::CLOSED) {
-        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
-                                     _obj_storage_path_opts.path.native(),
-                                     _obj_storage_path_opts.key);
+        if (_async_close_pack != nullptr) {
+            _st = _async_close_pack->future.get();
+            _async_close_pack = nullptr;
+            // Return the final close status so that a blocking close issued after
+            // an async close observes the real result just like the legacy behavior.
+            if (!non_block && _st.ok()) {
+                record_close_latency();
+            }
+            return _st;
+        }
+        if (non_block) {
+            if (_st.ok()) {
+                record_close_latency();
+                return Status::Error<ErrorCode::ALREADY_CLOSED>(
+                        "S3FileWriter already closed, file path {}, file key {}",
+                        _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
+            }
+            return _st;
+        }
+        if (_st.ok()) {
+            record_close_latency();
+            return Status::Error<ErrorCode::ALREADY_CLOSED>(
+                    "S3FileWriter already closed, file path {}, file key {}",
+                    _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
+        }
+        return _st;
     }
     if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
@@ -139,6 +180,9 @@ Status S3FileWriter::close(bool non_block) {
         _state = State::CLOSED;
         // The next time we call close() with no matter non_block true or false, it would always return the
         // '_st' value because this writer is already closed.
+        if (!non_block && _st.ok()) {
+            record_close_latency();
+        }
         return _st;
     }
     if (non_block) {
@@ -149,12 +193,17 @@ Status S3FileWriter::close(bool non_block) {
         return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
             s3_file_writer_async_close_queuing << -1;
             s3_file_writer_async_close_processing << 1;
-            _async_close_pack->promise.set_value(_close_impl());
+            _st = _close_impl();
+            _state = State::CLOSED;
+            _async_close_pack->promise.set_value(_st);
             s3_file_writer_async_close_processing << -1;
         });
     }
     _st = _close_impl();
     _state = State::CLOSED;
+    if (!non_block && _st.ok()) {
+        record_close_latency();
+    }
     return _st;
 }
 
@@ -191,10 +240,12 @@ Status S3FileWriter::_build_upload_buffer() {
         // that this instance of S3FileWriter might have been destructed when we
         // try to do writing into file cache, so we make the lambda capture the variable
         // we need by value to extend their lifetime
-        builder.set_allocate_file_blocks_holder(
-                [builder = *_cache_builder, offset = _bytes_appended]() -> FileBlocksHolderPtr {
-                    return builder.allocate_cache_holder(offset, config::s3_write_buffer_size);
-                });
+        int64_t id = get_tablet_id(_obj_storage_path_opts.path.native()).value_or(0);
+        builder.set_allocate_file_blocks_holder([builder = *_cache_builder,
+                                                 offset = _bytes_appended,
+                                                 tablet_id = id]() -> FileBlocksHolderPtr {
+            return builder.allocate_cache_holder(offset, config::s3_write_buffer_size, tablet_id);
+        });
     }
     RETURN_IF_ERROR(builder.build(&_pending_buf));
     auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
@@ -237,6 +288,10 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (state() != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}",
                                      _obj_storage_path_opts.path.native());
+    }
+
+    if (!_first_append_timestamp.has_value()) {
+        _first_append_timestamp = std::chrono::steady_clock::now();
     }
 
     size_t buffer_size = config::s3_write_buffer_size;
@@ -282,7 +337,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
+void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
     VLOG_DEBUG << "upload_one_part " << _obj_storage_path_opts.path.native()
                << " part=" << part_num;
     if (buf.is_cancelled()) {
@@ -386,14 +441,14 @@ Status S3FileWriter::_complete() {
     }
 
     // check number of parts
-    int expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
-                              !!(_bytes_appended % config::s3_write_buffer_size);
-    int expected_num_parts2 =
+    int64_t expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
+                                  !!(_bytes_appended % config::s3_write_buffer_size);
+    int64_t expected_num_parts2 =
             (_bytes_appended % config::s3_write_buffer_size) ? _cur_part_num : _cur_part_num - 1;
     DCHECK_EQ(expected_num_parts1, expected_num_parts2)
             << " bytes_appended=" << _bytes_appended << " cur_part_num=" << _cur_part_num
             << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    if (_failed || _completed_parts.size() != expected_num_parts1 ||
+    if (_failed || _completed_parts.size() != static_cast<size_t>(expected_num_parts1) ||
         expected_num_parts1 != expected_num_parts2) {
         _st = Status::InternalError(
                 "failed to complete multipart upload, error status={} failed={} #complete_parts={} "
@@ -444,8 +499,9 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
-              << " size=" << _bytes_appended;
+    MonotonicStopWatch timer;
+    timer.start();
+
     if (state() == State::CLOSED) {
         DCHECK(state() != State::CLOSED)
                 << "state=" << (int)state() << " path=" << _obj_storage_path_opts.path.native();
@@ -461,9 +517,12 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     }
     TEST_SYNC_POINT_RETURN_WITH_VOID("S3FileWriter::_put_object", this, &buf);
     auto resp = client->put_object(_obj_storage_path_opts, buf.get_string_view_data());
+    timer.stop();
+
     if (resp.status.code != ErrorCode::OK) {
-        LOG_WARNING("failed to put object, put object failed because {}, file path {}",
-                    resp.status.msg, _obj_storage_path_opts.path.native());
+        LOG_WARNING("failed to put object, put object failed because {}, file path {}, time={}ms",
+                    resp.status.msg, _obj_storage_path_opts.path.native(),
+                    timer.elapsed_time_milliseconds());
         buf.set_status({resp.status.code, std::move(resp.status.msg)});
         return;
     }
@@ -475,7 +534,11 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         return;
     }
 
+    LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
+              << " size=" << _bytes_appended << " time=" << timer.elapsed_time_milliseconds()
+              << "ms";
     s3_file_created_total << 1;
+    s3_bytes_written_total << buf.get_size();
 }
 
 std::string S3FileWriter::_dump_completed_part() const {
@@ -486,5 +549,6 @@ std::string S3FileWriter::_dump_completed_part() const {
     }
     return ss.str();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

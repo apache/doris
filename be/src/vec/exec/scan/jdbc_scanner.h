@@ -47,11 +47,11 @@ public:
 
     JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
                 const TupleId& tuple_id, const std::string& query_string,
-                TOdbcTableType::type table_type, RuntimeProfile* profile);
+                TOdbcTableType::type table_type, bool is_tvf, RuntimeProfile* profile);
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
+    Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -83,6 +83,7 @@ private:
     const TupleDescriptor* _tuple_desc = nullptr;
     // the sql query database type: like mysql, PG...
     TOdbcTableType::type _table_type;
+    bool _is_tvf;
     // Scanner of JDBC.
     std::unique_ptr<JdbcConnector> _jdbc_connector;
     JdbcConnectorParam _jdbc_param;

@@ -56,7 +56,7 @@ private:
     Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
                                               vectorized::ColumnRawPtrs& key_columns,
-                                              const size_t num_rows);
+                                              const uint32_t num_rows);
     void _make_nullable_output_key(vectorized::Block* block);
     bool _should_expand_preagg_hash_tables();
 
@@ -72,11 +72,9 @@ private:
     bool _should_expand_hash_table = true;
     bool _stop_emplace_flag = false;
     const int batch_size;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;
     bool _reach_limit = false;
@@ -111,7 +109,7 @@ public:
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_needs_finalize && _probe_expr_ctxs.empty()) {
             return {ExchangeType::NOOP};
         }
@@ -120,7 +118,7 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution();
+        return {ExchangeType::PASSTHROUGH};
     }
 
     bool require_data_distribution() const override { return _is_colocate; }

@@ -18,9 +18,13 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayCumSum.cpp
 // and modified by Doris
 
+#include "common/logging.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
@@ -35,18 +39,16 @@ namespace doris::vectorized {
 
 // array_cum_sum([1, 2, 3, 4, 5]) -> [1, 3, 6, 10, 15]
 // array_cum_sum([1, NULL, 3, NULL, 5]) -> [1, NULL, 4, NULL, 9]
-template <bool enable_decimal256>
+template <PrimitiveType PType>
 class FunctionArrayCumSum : public IFunction {
 public:
     using NullMapType = PaddedPODArray<UInt8>;
 
-    static constexpr auto name = enable_decimal256 ? "array_cum_sum_decimal256" : "array_cum_sum";
+    static constexpr auto name = "array_cum_sum";
 
-    static FunctionPtr create() {
-        return std::make_shared<FunctionArrayCumSum<enable_decimal256>>();
-    }
+    explicit FunctionArrayCumSum(DataTypePtr result_type) {}
 
-    using DecimalResultType = std::conditional_t<enable_decimal256, Decimal256, Decimal128V3>;
+    static FunctionPtr create() { return std::make_shared<FunctionArrayCumSum>(nullptr); }
 
     String get_name() const override { return name; }
 
@@ -140,9 +142,9 @@ public:
         auto res_val = _execute_by_type(src_nested_type, *src_nested_column, src_offsets,
                                         src_null_map, res_nested_ptr);
         if (!res_val) {
-            return Status::RuntimeError(
-                    fmt::format("execute failed or unsupported types for function {}({})",
-                                get_name(), block.get_by_position(arguments[0]).type->get_name()));
+            return Status::InvalidArgument(
+                    "execute failed or unsupported types for function {}({})", get_name(),
+                    block.get_by_position(arguments[0]).type->get_name());
         }
 
         ColumnPtr res_array_ptr =
@@ -191,20 +193,20 @@ private:
                                                             res_nested_ptr);
             break;
         case TYPE_DECIMAL32:
-            res = _execute_number<TYPE_DECIMAL32, DecimalResultType::PType>(
-                    src_column, src_offsets, src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL32, PType>(src_column, src_offsets, src_null_map,
+                                                         res_nested_ptr);
             break;
         case TYPE_DECIMAL64:
-            res = _execute_number<TYPE_DECIMAL64, DecimalResultType::PType>(
-                    src_column, src_offsets, src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL64, PType>(src_column, src_offsets, src_null_map,
+                                                         res_nested_ptr);
             break;
         case TYPE_DECIMAL128I:
-            res = _execute_number<TYPE_DECIMAL128I, DecimalResultType::PType>(
-                    src_column, src_offsets, src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL128I, PType>(src_column, src_offsets, src_null_map,
+                                                           res_nested_ptr);
             break;
         case TYPE_DECIMAL256:
-            res = _execute_number<TYPE_DECIMAL256, DecimalResultType::PType>(
-                    src_column, src_offsets, src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL256, PType>(src_column, src_offsets, src_null_map,
+                                                          res_nested_ptr);
             break;
         case TYPE_DECIMALV2:
             res = _execute_number<TYPE_DECIMALV2, TYPE_DECIMALV2>(src_column, src_offsets,
@@ -219,60 +221,72 @@ private:
     template <PrimitiveType Element, PrimitiveType Result>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
-        using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
-        using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
-
-        // 1. get pod array from src
-        auto src_column_concrete = reinterpret_cast<const ColVecType*>(&src_column);
-        if (!src_column_concrete) {
+        if constexpr (is_decimalv3(Element) &&
+                      (TYPE_DECIMAL128I != Result && TYPE_DECIMAL256 != Result)) {
             return false;
-        }
-
-        // 2. construct result data
-        typename ColVecResult::MutablePtr res_nested_mut_ptr = nullptr;
-        if constexpr (is_decimal(Result)) {
-            res_nested_mut_ptr = ColVecResult::create(0, src_column_concrete->get_scale());
         } else {
-            res_nested_mut_ptr = ColVecResult::create();
+            using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
+            using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
+
+            // 1. get pod array from src
+            auto src_column_concrete = assert_cast<const ColVecType*>(&src_column);
+            if (!src_column_concrete) {
+                return false;
+            }
+
+            // 2. construct result data
+            typename ColVecResult::MutablePtr res_nested_mut_ptr = nullptr;
+            if constexpr (is_decimal(Result)) {
+                res_nested_mut_ptr = ColVecResult::create(0, src_column_concrete->get_scale());
+            } else {
+                res_nested_mut_ptr = ColVecResult::create();
+            }
+
+            // get result data pod array
+            auto size = src_column.size();
+            auto& res_datas = res_nested_mut_ptr->get_data();
+            res_datas.resize(size);
+
+            // 3. compute cum sum and null map
+            _compute_cum_sum<Result>(src_column_concrete->get_data(), src_offsets, src_null_map,
+                                     res_datas);
+
+            // handle null value in res_datas for first null value
+            auto res_null_map_col = ColumnUInt8::create(size, 0);
+            size_t first_not_null_pos =
+                    VectorizedUtils::find_first_valid_simd(src_null_map, 0, size);
+            VLOG_DEBUG << "first_not_null_pos: " << std::to_string(first_not_null_pos);
+            VectorizedUtils::range_set_nullmap_to_true_simd(res_null_map_col->get_data(), 0,
+                                                            first_not_null_pos);
+
+            res_nested_ptr = ColumnNullable::create(std::move(res_nested_mut_ptr),
+                                                    std::move(res_null_map_col));
+
+            return true;
         }
-
-        // get result data pod array
-        auto size = src_column.size();
-        auto& res_datas = res_nested_mut_ptr->get_data();
-        res_datas.resize(size);
-
-        _compute_cum_sum<typename PrimitiveTypeTraits<Element>::ColumnItemType,
-                         typename PrimitiveTypeTraits<Result>::ColumnItemType>(
-                src_column_concrete->get_data(), src_offsets, src_null_map, res_datas);
-
-        auto res_null_map_col = ColumnUInt8::create(size, 0);
-        auto& res_null_map = res_null_map_col->get_data();
-        VectorizedUtils::update_null_map(res_null_map, src_null_map);
-        res_nested_ptr =
-                ColumnNullable::create(std::move(res_nested_mut_ptr), std::move(res_null_map_col));
-
-        return true;
     }
 
-    template <typename Element, typename Result>
-    void _compute_cum_sum(const PaddedPODArray<Element>& src_datas,
-                          const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map,
-                          PaddedPODArray<Result>& res_datas) const {
+    template <PrimitiveType Result>
+    void _compute_cum_sum(const auto& src_datas, const ColumnArray::Offsets64& src_offsets,
+                          const NullMapType& src_null_map, auto& res_datas) const {
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
-            // [1, null, 2, 3] -> [1, null, 3, 6]
+            // [1, null, 2, 3] -> [1, 1, 3, 6]
+            // [1, null, null, 3] -> [1, 1, 1, 4]
             // [null, null, 1, 2, 3] -> [null, null, 1, 3, 6]
-            Result accumulated {};
+            // [null, 1, null, 2, 3] -> [null, 1, 1, 3, 6]
+            // [null, null, null, null] -> [null, null, null, null]
+            typename PrimitiveTypeTraits<Result>::ColumnItemType accumulated {};
 
             for (size_t pos = prev_offset; pos < cur_offset; ++pos) {
-                // skip null value
+                // treat null value as 0
                 if (src_null_map[pos]) {
-                    res_datas[pos] = Result {};
-                    continue;
+                    accumulated += typename PrimitiveTypeTraits<Result>::ColumnItemType(0);
+                } else {
+                    accumulated +=
+                            typename PrimitiveTypeTraits<Result>::ColumnItemType(src_datas[pos]);
                 }
 
-                accumulated += src_datas[pos];
                 res_datas[pos] = accumulated;
             }
 
@@ -282,8 +296,40 @@ private:
 };
 
 void register_function_array_cum_sum(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayCumSum<false>>(FunctionArrayCumSum<false>::name);
-    factory.register_function<FunctionArrayCumSum<true>>(FunctionArrayCumSum<true>::name);
+    ArrayAggFunctionCreator creator = [&](const DataTypePtr& result_type) {
+        PrimitiveType primitive_type;
+        if (PrimitiveType::TYPE_ARRAY == result_type->get_primitive_type()) {
+            const DataTypeArray* data_type_array =
+                    static_cast<const DataTypeArray*>(remove_nullable(result_type).get());
+            primitive_type = data_type_array->get_nested_type()->get_primitive_type();
+        } else {
+            primitive_type = result_type->get_primitive_type();
+        }
+        if (is_decimalv3(primitive_type)) {
+            return DefaultFunctionBuilder::create_array_agg_function_decimalv3<FunctionArrayCumSum>(
+                    result_type);
+        } else {
+            FunctionBuilderPtr func;
+            auto call = [&](const auto& type) -> bool {
+                using DispatchType = std::decay_t<decltype(type)>;
+                if constexpr (!is_decimalv3(DispatchType::PType)) {
+                    func = std::make_shared<DefaultFunctionBuilder>(
+                            FunctionArrayCumSum<DispatchType::PType>::create());
+                    return true;
+                } else {
+                    return false;
+                }
+            };
+            if (!dispatch_switch_int(primitive_type, call) &&
+                !dispatch_switch_float(primitive_type, call)) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "array function array_cum_sum error, result type {}",
+                                       result_type->get_name());
+            }
+            return func;
+        }
+    };
+    factory.register_array_agg_function("array_cum_sum", creator);
 }
 
 } // namespace doris::vectorized

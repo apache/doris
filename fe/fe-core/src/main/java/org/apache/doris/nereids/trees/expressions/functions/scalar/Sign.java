@@ -48,13 +48,18 @@ public class Sign extends ScalarFunction
         super("sign", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sign(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sign withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sign(children.get(0));
+        return new Sign(getFunctionParams(children));
     }
 
     @Override

@@ -36,10 +36,10 @@ suite("test_analyze_ip_type") {
         );  
     """
     sql """insert into ${tableName} values(-1, NULL, NULL)"""
-    sql """insert into ${tableName} values(0, 0, '::')"""
-    sql """insert into ${tableName} values(1, 1, '::1')"""
-    sql """insert into ${tableName} values(2130706433, 2130706433, '2001:1b70:a1:610::b102:2')"""
-    sql """insert into ${tableName} values(4294967295, 4294967295, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')"""
+    sql """insert into ${tableName} values(0, '0.0.0.0', '::')"""
+    sql """insert into ${tableName} values(1, '0.0.0.1', '::1')"""
+    sql """insert into ${tableName} values(2130706433, '127.0.0.1', '2001:1b70:a1:610::b102:2')"""
+    sql """insert into ${tableName} values(4294967295, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')"""
     sql """analyze table ${tableName} with sync"""
 
     def result = sql """show column stats ${tableName}"""

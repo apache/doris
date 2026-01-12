@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
@@ -87,7 +87,8 @@ public class IcebergTransactionTest {
         hadoopCatalog.initialize("df", props);
         this.spyExternalCatalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(spyExternalCatalog.getCatalog()).thenReturn(hadoopCatalog);
-        Mockito.when(spyExternalCatalog.getPreExecutionAuthenticator()).thenReturn(new PreExecutionAuthenticator());
+        Mockito.when(spyExternalCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
         ops = new IcebergMetadataOps(spyExternalCatalog, hadoopCatalog);
     }
 
@@ -189,10 +190,14 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
             mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
                     .thenReturn(table);
+            // Allow parsePartitionValueFromString to call the real implementation
+            mockedStatic.when(() -> IcebergUtils.parsePartitionValueFromString(
+                    ArgumentMatchers.any(), ArgumentMatchers.any()))
+                    .thenCallRealMethod();
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.empty());
+            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 
@@ -304,8 +309,8 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.empty());
+            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 
@@ -415,10 +420,10 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable);
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
             ctx.setOverwrite(true);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.of(ctx));
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 
@@ -440,10 +445,10 @@ public class IcebergTransactionTest {
                     .thenReturn(table);
 
             IcebergTransaction txn = getTxn();
-            txn.beginInsert(icebergExternalTable);
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
             ctx.setOverwrite(true);
-            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition), Optional.of(ctx));
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 

@@ -57,19 +57,19 @@ suite("test_mask_function") {
     """
 
     qt_select_mask_first_n """
-        select name, mask_first_n(name), mask_first_n(name, 3), mask_first_n(name, 100) from table_mask_test order by id;
+        select name, mask_first_n(name,id), mask_first_n(name), mask_first_n(name, 3), mask_first_n(name, 100) from table_mask_test order by id;
     """
 
     qt_select_mask_first_n_nullable """
-        select phone, mask_first_n(phone), mask_first_n(phone, 3), mask_first_n(phone, 100) from table_mask_test order by id;
+        select phone, mask_first_n(phone,id), mask_first_n(phone), mask_first_n(phone, 3), mask_first_n(phone, 100) from table_mask_test order by id;
     """
 
     qt_select_mask_last_n """
-        select name, mask_last_n(name), mask_last_n(name, 3), mask_last_n(name, 100) from table_mask_test order by id;
+        select name, mask_last_n(name,id), mask_last_n(name), mask_last_n(name, 3), mask_last_n(name, 100) from table_mask_test order by id;
     """
 
     qt_select_mask_last_n_nullable """
-        select phone, mask_last_n(phone), mask_last_n(phone, 3), mask_last_n(phone, 100) from table_mask_test order by id;
+        select phone, mask_last_n(phone,id), mask_last_n(phone), mask_last_n(phone, 3), mask_last_n(phone, 100) from table_mask_test order by id;
     """
 
     qt_select_digital_masking """
@@ -97,6 +97,10 @@ suite("test_mask_function") {
         exception "Argument at index 3 for function mask must be constant"
     }
 
+    sql """
+         set enable_fold_constant_by_be=true;
+    """
+
     test {
         sql """ select mask_last_n("12345", -100); """
         exception "function mask_last_n only accept non-negative input for 2nd argument but got -100"
@@ -105,12 +109,23 @@ suite("test_mask_function") {
         sql """ select mask_first_n("12345", -100); """
         exception "function mask_first_n only accept non-negative input for 2nd argument but got -100"
     }
+
     test {
-        sql """ select mask_last_n("12345", id) from table_mask_test; """
-        exception "mask_last_n must accept literal for 2nd argument"
+        sql """
+            SELECT mask('Ivy', 'G', 'g', '0', ')') AS result;
+        """
+        exception "Can not find the compatibility function signature: mask(VARCHAR(3), VARCHAR(1), VARCHAR(1), VARCHAR(1), VARCHAR(1))"
     }
+
     test {
-        sql """ select mask_first_n("12345", id) from table_mask_test; """
-        exception "mask_first_n must accept literal for 2nd argument"
+        sql """ SELECT mask() AS result;
+        """
+        exception "Can not found function 'mask' which has 0 arity. Candidate functions are: [mask(Expression, Expression...)]"
+    }
+
+    test {
+        sql """  SELECT mask('Ivy', 'G', 'g', '0', ')','ss','ada') AS result;
+        """
+        exception "Can not find the compatibility function signature: mask(VARCHAR(3), VARCHAR(1), VARCHAR(1), VARCHAR(1), VARCHAR(1), VARCHAR(2), VARCHAR(3))"
     }
 }

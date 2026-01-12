@@ -55,6 +55,11 @@ public class BitmapIntersect extends NotNullableAggregateFunction
         this(arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapIntersect(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BitmapType.INSTANCE);
@@ -66,7 +71,7 @@ public class BitmapIntersect extends NotNullableAggregateFunction
     @Override
     public BitmapIntersect withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapIntersect(children.get(0));
+        return new BitmapIntersect(getFunctionParams(distinct, children));
     }
 
     @Override

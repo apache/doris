@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
@@ -55,7 +56,7 @@ using ColumnString = ColumnStr<UInt32>;
 
 struct InState {
     bool use_set = true;
-    std::unique_ptr<HybridSetBase> hybrid_set;
+    std::shared_ptr<HybridSetBase> hybrid_set;
 };
 
 template <bool negative>
@@ -137,6 +138,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);
@@ -148,7 +150,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -157,7 +159,6 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::string column_name = data_type_with_name.first;
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
@@ -175,13 +176,14 @@ public:
                     param_type, &param_value, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             segment_v2::InvertedIndexParam param;
-            param.column_name = column_name;
+            param.column_name = data_type_with_name.first;
+            param.column_type = data_type_with_name.second;
             param.query_value = query_param->get_value();
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
-            ;
-            RETURN_IF_ERROR(iter->read_from_index(&param));
+            param.analyzer_ctx = analyzer_ctx;
+            RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
             *roaring |= *param.roaring;
         }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);

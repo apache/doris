@@ -47,13 +47,18 @@ public class EncodeAsInt extends EncodeString
         super("encode_as_int", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private EncodeAsInt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public EncodeAsInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new EncodeAsInt(children.get(0));
+        return new EncodeAsInt(getFunctionParams(children));
 
     }
 

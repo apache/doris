@@ -161,8 +161,8 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
                 [&tablet]() {
                     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
                     return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
-                                           [](int64_t val, RowsetMetaSharedPtr& rs_meta) {
-                                               return val + rs_meta->num_segments();
+                                           [](int64_t val, const auto& it) {
+                                               return val + it.second->num_segments();
                                            });
                 }(),
                 block);
@@ -214,10 +214,9 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
                 17,
                 [&tablet]() {
                     const auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
-                    return std::any_of(rs_metas.begin(), rs_metas.end(),
-                                       [](const RowsetMetaSharedPtr& rs_meta) {
-                                           return rs_meta->is_segments_overlapping();
-                                       });
+                    return std::any_of(rs_metas.begin(), rs_metas.end(), [](const auto& it) {
+                        return it.second->is_segments_overlapping();
+                    });
                 }(),
                 block);
     }

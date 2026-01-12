@@ -59,8 +59,16 @@ suite("test_date_function_const") {
         notContains("00:00:00")
     }
 
+    def sessionVarOrigValue = sql("select @@enable_strict_cast")
+    // test {
+    //     sql "set enable_strict_cast = true"
+    //     sql """select date_add("1900-01-01 12:00:00.123456", interval 10000000000 month);"""
+    //     exception "Operation months_add of 1900-01-01 12:00:00.123456, 1410065408 out of range"
+    // }
     test {
+        sql "set enable_strict_cast = false"
         sql """select date_add("1900-01-01 12:00:00.123456", interval 10000000000 month);"""
-        exception "Operation months_add of 1900-01-01 12:00:00.123456, 1410065408 out of range"
+        result([[null]])
     }
+    sql("set enable_strict_cast=${sessionVarOrigValue[0][0]}")
 }

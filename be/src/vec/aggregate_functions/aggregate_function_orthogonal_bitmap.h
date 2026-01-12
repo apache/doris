@@ -36,7 +36,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -122,13 +121,13 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         result = AggOrthBitmapBaseData<T>::bitmap.intersect();
         DataTypeBitMap::serialize_as_stream(result, buf);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
         DataTypeBitMap::deserialize_as_stream(result, buf);
     }
 
@@ -158,17 +157,17 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
         data.resize(AggOrthBitmapBaseData<T>::bitmap.size());
         AggOrthBitmapBaseData<T>::bitmap.serialize(data.data());
-        write_binary(data, buf);
+        buf.write_binary(data);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
-        read_binary(data, buf);
+        buf.read_binary(data);
         AggOrthBitmapBaseData<T>::bitmap.deserialize(data.data());
     }
 
@@ -199,14 +198,14 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         result = AggOrthBitmapBaseData<T>::bitmap.intersect_count();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
-        read_binary(result, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
+        buf.read_binary(result);
     }
 
     void get(IColumn& to) const {
@@ -272,22 +271,20 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         result = AggOrthBitmapExprCalBaseData<T>::bitmap_expr_cal.bitmap_calculate();
         DataTypeBitMap::serialize_as_stream(result, buf);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         DataTypeBitMap::deserialize_as_stream(result, buf);
     }
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(!result.empty()
-                                               ? result
-                                               : const_cast<AggOrthBitMapExprCal*>(this)
-                                                         ->bitmap_expr_cal.bitmap_calculate());
+        column.get_data().emplace_back(!result.empty() ? result
+                                                       : this->bitmap_expr_cal.bitmap_calculate());
     }
 
     void reset() {
@@ -314,21 +311,20 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         result = AggOrthBitmapExprCalBaseData<T>::bitmap_expr_cal.bitmap_calculate_count();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
-        read_binary(result, buf);
+        buf.read_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
+        buf.read_binary(result);
     }
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
-                                              : const_cast<AggOrthBitMapExprCalCount*>(this)
-                                                        ->bitmap_expr_cal.bitmap_calculate_count());
+                                              : this->bitmap_expr_cal.bitmap_calculate_count());
     }
 
     void reset() {
@@ -357,10 +353,10 @@ struct OrthBitmapUnionCountData {
 
     void write(BufferWritable& buf) {
         result = value.cardinality();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
-    void read(BufferReadable& buf) { read_binary(result, buf); }
+    void read(BufferReadable& buf) { buf.read_binary(result); }
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
@@ -379,7 +375,9 @@ private:
 
 template <typename Impl>
 class AggFunctionOrthBitmapFunc final
-        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>> {
+        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     String get_name() const override { return Impl::name; }
 
@@ -393,22 +391,24 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).init_add_key(columns, row_num, _argument_size);
         this->data(place).add(columns, row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
+        // todo: rethink the write method to determine whether const_cast is necessary.
         this->data(const_cast<AggregateDataPtr>(place)).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

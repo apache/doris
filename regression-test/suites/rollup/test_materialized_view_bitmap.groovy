@@ -36,7 +36,7 @@ suite("test_materialized_view_bitmap", "rollup") {
             DISTRIBUTED BY HASH(k1) properties("replication_num" = "1");
         """
 
-    sql "CREATE MATERIALIZED VIEW test_neg as select k1,bitmap_union(to_bitmap(k2)), bitmap_union(to_bitmap(k3)) FROM ${tbName1} GROUP BY k1;"
+    sql "CREATE MATERIALIZED VIEW test_neg as select k1 as a1,bitmap_union(to_bitmap(k2)), bitmap_union(to_bitmap(k3)) FROM ${tbName1} GROUP BY k1;"
     def max_try_secs = 60
     Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)

@@ -170,12 +170,12 @@ suite("dml_into_outfile", "p0") {
     """
     createMV(""" create materialized view ${into_outfile_sync_mv_name}
         as select
-        ps_partkey,
-        ps_suppkey,
-        ps_availqty,
-        ps_supplycost,
-        ps_comment,
-        count(*)
+        ps_partkey as a1,
+        ps_suppkey as a2,
+        ps_availqty as a3,
+        ps_supplycost as a4,
+        ps_comment as a5,
+        count(*) as a6
         from
         partsupp
         group by

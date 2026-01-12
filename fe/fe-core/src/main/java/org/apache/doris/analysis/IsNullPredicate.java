@@ -22,12 +22,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -39,28 +36,6 @@ public class IsNullPredicate extends Predicate {
     private static final String IS_NULL = "is_null_pred";
     private static final String IS_NOT_NULL = "is_not_null_pred";
 
-    public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getSupportedTypes()) {
-            if (t.isNull()) {
-                continue;
-            }
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
-                    Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                    null, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-        }
-        // for array type
-        for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
-                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL, null,
-                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-        }
-    }
-
     @SerializedName("inn")
     private boolean isNotNull;
 
@@ -68,23 +43,17 @@ public class IsNullPredicate extends Predicate {
         // use for serde only
     }
 
-    public IsNullPredicate(Expr e, boolean isNotNull) {
-        this(e, isNotNull, false);
-    }
-
     /**
      * use for Nereids ONLY
      */
-    public IsNullPredicate(Expr e, boolean isNotNull, boolean isNereids) {
+    public IsNullPredicate(Expr e, boolean isNotNull) {
         super();
         this.isNotNull = isNotNull;
         Preconditions.checkNotNull(e);
         children.add(e);
-        if (isNereids) {
-            fn = new Function(new FunctionName(isNotNull ? IS_NOT_NULL : IS_NULL),
-                    Lists.newArrayList(e.getType()), Type.BOOLEAN, false, true, NullableMode.ALWAYS_NOT_NULLABLE);
-            Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
-        }
+        fn = new Function(new FunctionName(isNotNull ? IS_NOT_NULL : IS_NULL), Lists.newArrayList(e.getType()),
+                Type.BOOLEAN, false, true, NullableMode.ALWAYS_NOT_NULLABLE);
+        this.nullable = false;
     }
 
     protected IsNullPredicate(IsNullPredicate other) {
@@ -121,60 +90,12 @@ public class IsNullPredicate extends Predicate {
                 : " IS NULL");
     }
 
-    @Override
-    public String toDigestImpl() {
-        return getChild(0).toDigest() + (isNotNull ? " IS NOT NULL" : " IS NULL");
-    }
-
     public boolean isSlotRefChildren() {
         return (children.get(0) instanceof SlotRef);
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (isNotNull) {
-            fn = getBuiltinFunction(IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        } else {
-            fn = getBuiltinFunction(IS_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        }
-        Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
-
-        // determine selectivity
-        selectivity = 0.1;
-        // LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
-    }
-
-    /**
-     * Negates an IsNullPredicate.
-     */
-    @Override
-    public Expr negate() {
-        return new IsNullPredicate(getChild(0), !isNotNull);
-    }
-
-    @Override
-    public boolean isNullable() {
-        return false;
-    }
-
-    /**
-     * fix issue 6390
-     */
-    @Override
-    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
-        // Don't push down predicate to view for is null predicate because the value can contain null
-        // after outer join
-        recursiveResetChildrenResult(!forPushDownPredicatesToView);
-        final Expr childValue = getChild(0);
-        if (forPushDownPredicatesToView || !(childValue instanceof LiteralExpr)) {
-            return this;
-        }
-        return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);
     }
 }

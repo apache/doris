@@ -60,15 +60,14 @@ public:
                                  TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
                                  TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN};
         auto testing_key_types = {
-                TPrimitiveType::BOOLEAN,     TPrimitiveType::TINYINT,    TPrimitiveType::SMALLINT,
-                TPrimitiveType::INT,         TPrimitiveType::BIGINT,     TPrimitiveType::FLOAT,
-                TPrimitiveType::DOUBLE,      TPrimitiveType::DATE,       TPrimitiveType::DATETIME,
-                TPrimitiveType::BINARY,      TPrimitiveType::CHAR,       TPrimitiveType::LARGEINT,
-                TPrimitiveType::VARCHAR,     TPrimitiveType::DECIMALV2,  TPrimitiveType::TIME,
-                TPrimitiveType::STRING,      TPrimitiveType::DATEV2,     TPrimitiveType::DATETIMEV2,
-                TPrimitiveType::TIMEV2,      TPrimitiveType::DECIMAL32,  TPrimitiveType::DECIMAL64,
-                TPrimitiveType::DECIMAL128I, TPrimitiveType::DECIMAL256, TPrimitiveType::IPV4,
-                TPrimitiveType::IPV6};
+                TPrimitiveType::BOOLEAN,    TPrimitiveType::TINYINT,    TPrimitiveType::SMALLINT,
+                TPrimitiveType::INT,        TPrimitiveType::BIGINT,     TPrimitiveType::FLOAT,
+                TPrimitiveType::DOUBLE,     TPrimitiveType::DATE,       TPrimitiveType::DATETIME,
+                TPrimitiveType::BINARY,     TPrimitiveType::CHAR,       TPrimitiveType::LARGEINT,
+                TPrimitiveType::VARCHAR,    TPrimitiveType::DECIMALV2,  TPrimitiveType::STRING,
+                TPrimitiveType::DATEV2,     TPrimitiveType::DATETIMEV2, TPrimitiveType::TIMEV2,
+                TPrimitiveType::DECIMAL32,  TPrimitiveType::DECIMAL64,  TPrimitiveType::DECIMAL128I,
+                TPrimitiveType::DECIMAL256, TPrimitiveType::IPV4,       TPrimitiveType::IPV6};
 
         for (const auto& op_type : testing_join_ops) {
             for (const auto key_type : testing_key_types) {

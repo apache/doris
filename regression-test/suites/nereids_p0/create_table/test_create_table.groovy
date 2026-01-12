@@ -22,6 +22,8 @@ suite("nereids_create_table") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
+    sql "set enable_unicode_name_support = true"
+
 
     def str = new File("""${context.file.parent}/ddl/table.sql""").text
     for (String table in str.split(';')) {
@@ -48,7 +50,7 @@ suite("nereids_create_table") {
             CREATE TABLE region  (
                 r_regionkey      int NOT NULL,
                 r_name       VARCHAR(25) NOT NULL,
-                `CAST(``o_custkey`` AS BIGINT)` VARCHAR(152)
+                `__DORIS_hello` VARCHAR(152)
             )ENGINE=OLAP
             DUPLICATE KEY(`r_regionkey`)
             COMMENT "OLAP"
@@ -58,24 +60,21 @@ suite("nereids_create_table") {
             );
         """
 
-        exception "Incorrect column name"
+        exception "Disable to create table column with name start with __DORIS_"
     }
 
-    test {
-        sql """
-            CREATE TABLE region  (
-                r_regionkey      int NOT NULL,
-                r_name       VARCHAR(25) NOT NULL,
-                `mva_invalid` VARCHAR(152)
-            )ENGINE=OLAP
-            DUPLICATE KEY(`r_regionkey`)
-            COMMENT "OLAP"
-            DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1" 
-            );
-        """
-
-        exception "Incorrect column name"
-    }
+    sql """drop table if exists region;"""
+    sql """
+        CREATE TABLE region  (
+            r_regionkey      int NOT NULL,
+            r_name       VARCHAR(25) NOT NULL,
+            `mva_invalid` VARCHAR(152)
+        )ENGINE=OLAP
+        DUPLICATE KEY(`r_regionkey`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1" 
+        );
+    """
 }

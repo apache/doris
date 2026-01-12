@@ -159,7 +159,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
     @Test
     void test13() {
         // no rewrite, because of "a like 'xyz'"
-        String expr = "a like 'xyz% or a=1 or a=2': no extract";
+        String expr = "a like 'xyz% or a=1 or a=2'";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
         Assertions.assertEquals("(a like 'xyz% or a=1 or a=2')", rewritten.toSql());

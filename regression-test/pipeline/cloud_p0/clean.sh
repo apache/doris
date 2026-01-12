@@ -26,6 +26,5 @@ if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else
 echo "#### Run tpcds test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-if stop_doris_grace; then exit_flag=0; else exit_flag=1; fi
 clean_fdb "cloud_instance_0"
-exit "${exit_flag}"
+exit

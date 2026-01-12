@@ -90,9 +90,16 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
         def be_host = backendId_to_backendIP[trigger_backend_id]
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
         sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
+        if (enableTls) {
+            sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
 
         String command = sb.toString()
         logger.info(command)
@@ -114,9 +121,16 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
         do {
             Thread.sleep(1000)
             StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
+        sb.append("/api/compaction/run_status?tablet_id=")
+        sb.append(tablet_id)
+        if (enableTls) {
+            sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
 
             String command = sb.toString()
             logger.info(command)
@@ -177,7 +191,7 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
 
         def tablets = sql_return_maparray """ show tablets from ${testTable}; """
         logger.info("tablets: " + tablets)
-        assertEquals(1, tablets.size())
+        assertTrue(tablets.size() >= 1)
         def tablet = tablets[0]
 
         // 1. write some data
@@ -246,6 +260,76 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
         assertEquals(5, local_dm["cardinality"])
 
         order_qt_sql4 "select * from ${testTable}"
+
+        // ============= test sequence column =============
+        testTable = "test_mow_compaction_seq"
+        sql """ DROP TABLE IF EXISTS ${testTable} """
+        sql """
+            create table ${testTable} (`k` int NOT NULL, `v` int NOT NULL)
+            UNIQUE KEY(`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES (
+                "enable_unique_key_merge_on_write" = "true",
+                "replication_allocation" = "tag.location.default: 1",
+                "function_column.sequence_col" = "v",
+                "disable_auto_compaction" = "true"
+            );
+            """
+
+        tablets = sql_return_maparray """ show tablets from ${testTable}; """
+        logger.info("tablets: " + tablets)
+        assertTrue(tablets.size() >= 1)
+        tablet = tablets[0]
+
+        // 1. write some data
+        sql """ INSERT INTO ${testTable} VALUES (1, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (2, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (3, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (4, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (5, 9); """
+        sql "sync"
+        order_qt_sql1 """ select * from ${testTable}; """
+
+        // 2. trigger compaction to generate base rowset
+        getTabletStatus(tablet)
+        assertTrue(triggerCompaction(tablet).contains("Success"))
+        waitForCompaction(tablet)
+        getTabletStatus(tablet)
+        local_dm = getLocalDeleteBitmapStatus(tablet)
+        logger.info("local_dm 2.0: " + local_dm)
+        order_qt_sql2 "select * from ${testTable}"
+
+        // 3. write some data
+        sql """ INSERT INTO ${testTable} VALUES (1, 10), (2, 8); """
+        sql """ INSERT INTO ${testTable} VALUES (3, 5), (4, 5); """
+        sql """ INSERT INTO ${testTable} VALUES (3, 4), (4, 6); """
+        sql """ INSERT INTO ${testTable} VALUES (5, 10); """
+        sql """ INSERT INTO ${testTable} VALUES (5, 5); """
+        sql """ sync """
+        order_qt_sql3 "select * from ${testTable}"
+        getTabletStatus(tablet)
+        local_dm = getLocalDeleteBitmapStatus(tablet)
+        logger.info("local_dm 2.1: " + local_dm)
+
+        GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+                [tablet_id: "${tablet.TabletId}", start_version: 7, end_version: 11]);
+        assertTrue(triggerCompaction(tablet).contains("Success"))
+        waitForCompaction(tablet)
+
+        // wait for no stale rowsets
+        for (int i = 0; i < 20; i++) {
+            tablet_status = getTabletStatus(tablet)
+            if (tablet_status["stale_rowsets"].size() == 0 && tablet_status["rowsets"].size() == 3) {
+                break
+            }
+            sleep(1000)
+        }
+        logger.info("wait for no stale rowsets")
+        tablet_status = getTabletStatus(tablet)
+        assertEquals(0, tablet_status["stale_rowsets"].size())
+        assertEquals(3, tablet_status["rowsets"].size())
+        local_dm = getLocalDeleteBitmapStatus(tablet)
+        logger.info("local_dm 2.2: " + local_dm)
     } finally {
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
         reset_be_param("compaction_promotion_version_count")

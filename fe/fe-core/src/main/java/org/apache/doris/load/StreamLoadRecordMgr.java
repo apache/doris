@@ -274,13 +274,14 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                         + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
                                         + " status: {}, message: {}, error_url: {},"
                                         + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
-                                        + " load_bytes: {}, start_time: {}, finish_time: {}.",
+                                        + " load_bytes: {}, start_time: {}, finish_time: {}, first_error_msg: {}.",
                                 backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
                                 streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
                                 streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
                                 streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
                                 streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(),
-                                streamLoadItem.getLoadBytes(), startTime, finishTime);
+                                streamLoadItem.getLoadBytes(), startTime, finishTime,
+                                streamLoadItem.getFirstErrorMsg());
                     }
 
                     AuditEvent auditEvent =
@@ -312,7 +313,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                     String.valueOf(streamLoadItem.getFilteredRows()),
                                     String.valueOf(streamLoadItem.getUnselectedRows()),
                                     String.valueOf(streamLoadItem.getLoadBytes()),
-                                    startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment());
+                                    startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment(),
+                                    String.valueOf(streamLoadItem.getFirstErrorMsg()));
 
                     String fullDbName = streamLoadItem.getDb();
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);

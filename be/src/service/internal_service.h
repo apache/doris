@@ -140,6 +140,16 @@ public:
                         const ::doris::PPublishFilterRequestV2* request,
                         ::doris::PPublishFilterResponse* response,
                         ::google::protobuf::Closure* done) override;
+    void transmit_rec_cte_block(google::protobuf::RpcController* controller,
+                                const PTransmitRecCTEBlockParams* request,
+                                PTransmitRecCTEBlockResult* response,
+                                google::protobuf::Closure* done) override;
+    void rerun_fragment(google::protobuf::RpcController* controller,
+                        const PRerunFragmentParams* request, PRerunFragmentResult* response,
+                        google::protobuf::Closure* done) override;
+    void reset_global_rf(google::protobuf::RpcController* controller,
+                         const PResetGlobalRfParams* request, PResetGlobalRfResult* response,
+                         google::protobuf::Closure* done) override;
     void transmit_block(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response,
@@ -227,6 +237,16 @@ public:
                                   PAbortRefreshDictionaryResponse* response,
                                   google::protobuf::Closure* done) override;
 
+    void get_tablet_rowsets(google::protobuf::RpcController* controller,
+                            const PGetTabletRowsetsRequest* request,
+                            PGetTabletRowsetsResponse* response,
+                            google::protobuf::Closure* done) override;
+
+    void request_cdc_client(google::protobuf::RpcController* controller,
+                            const PRequestCdcClientRequest* request,
+                            PRequestCdcClientResult* result,
+                            google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -237,8 +257,6 @@ private:
                                     bool compact,
                                     const std::function<void(RuntimeState*, Status*)>& cb =
                                             std::function<void(RuntimeState*, Status*)>());
-
-    Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,

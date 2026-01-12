@@ -41,6 +41,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 template <FieldType Type>
 class BinaryPlainPageBuilder : public PageBuilderHelper<BinaryPlainPageBuilder<Type>> {
@@ -75,14 +76,15 @@ public:
                 }
             }
             size_t offset = _buffer.size();
-            _offsets.push_back(offset);
+            _offsets.push_back(cast_set<uint32_t>(offset));
             // This may need a large memory, should return error if could not allocated
             // successfully, to avoid BE OOM.
             RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
 
-            _last_value_size = src->size;
+            _last_value_size = cast_set<uint32_t>(src->size);
             _size_estimate += src->size;
             _size_estimate += sizeof(uint32_t);
+            _raw_data_size += src->size;
 
             i++;
             vals += sizeof(Slice);
@@ -100,7 +102,7 @@ public:
             for (uint32_t _offset : _offsets) {
                 put_fixed32_le(&_buffer, _offset);
             }
-            put_fixed32_le(&_buffer, _offsets.size());
+            put_fixed32_le(&_buffer, cast_set<uint32_t>(_offsets.size()));
             if (_offsets.size() > 0) {
                 _copy_value_at(0, &_first_value);
                 _copy_value_at(_offsets.size() - 1, &_last_value);
@@ -120,6 +122,7 @@ public:
             _size_estimate = sizeof(uint32_t);
             _finished = false;
             _last_value_size = 0;
+            _raw_data_size = 0;
         });
         return Status::OK();
     }
@@ -127,6 +130,8 @@ public:
     size_t count() const override { return _offsets.size(); }
 
     uint64_t size() const override { return _size_estimate; }
+
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -153,7 +158,10 @@ public:
         return Slice(&_buffer[_offsets[idx]], value_size);
     }
 
-    inline Slice get(std::size_t idx) const { return (*this)[idx]; }
+    Status get_dict_word(uint32_t value_code, Slice* word) override {
+        *word = (*this)[value_code];
+        return Status::OK();
+    }
 
 private:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
@@ -173,6 +181,7 @@ private:
     PageBuilderOptions _options;
     // size of last added value
     uint32_t _last_value_size = 0;
+    uint64_t _raw_data_size = 0;
     faststring _first_value;
     faststring _last_value;
 };
@@ -202,7 +211,7 @@ public:
 
         // Decode trailer
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
-        _offsets_pos = _data.get_size() - (_num_elems + 1) * sizeof(uint32_t);
+        _offsets_pos = cast_set<uint32_t>(_data.get_size() - ((_num_elems + 1) * sizeof(uint32_t)));
 
         if (_offsets_pos > _data.get_size() - sizeof(uint32_t)) {
             return Status::Corruption(
@@ -308,7 +317,7 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
-    Status get_dict_word_info(StringRef* dict_word_info) {
+    Status get_dict_word_info(StringRef* dict_word_info) override {
         if (UNLIKELY(_num_elems <= 0)) {
             return Status::OK();
         }
@@ -365,10 +374,11 @@ private:
     std::vector<StringRef> _binary_data;
 
     // Index of the currently seeked element in the page.
-    uint32_t _cur_idx;
+    size_t _cur_idx;
     friend class BinaryDictPageDecoder;
     friend class FileColumnIterator;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

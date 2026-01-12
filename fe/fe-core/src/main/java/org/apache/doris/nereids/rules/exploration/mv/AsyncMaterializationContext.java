@@ -19,9 +19,11 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -39,9 +41,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Async context for query rewrite by materialized view
@@ -50,6 +55,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     private static final Logger LOG = LogManager.getLogger(AsyncMaterializationContext.class);
     private final MTMV mtmv;
+    private Map<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMultiFlatMap;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -71,7 +77,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    List<String> generateMaterializationIdentifier() {
+    public List<String> generateMaterializationIdentifier() {
         if (super.identifier == null) {
             super.identifier = MaterializationContext.generateMaterializationIdentifier(mtmv, null);
         }
@@ -173,5 +179,29 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     public boolean isSuccess() {
         return success;
+    }
+
+    /**
+     * Calculate partition mappings and cache
+     */
+    public Map<MTMVRelatedTableIf, Map<String, Set<String>>> calculatePartitionMappings() throws AnalysisException {
+        if (partitionMultiFlatMap != null) {
+            return partitionMultiFlatMap;
+        }
+        partitionMultiFlatMap = new HashMap<>();
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMultiMap = this.mtmv.calculatePartitionMappings();
+        for (Map.Entry<String, Map<MTMVRelatedTableIf, Set<String>>> entry : partitionMultiMap.entrySet()) {
+            String partitionKey = entry.getKey();
+            Map<MTMVRelatedTableIf, Set<String>> tableMap = entry.getValue();
+            for (Map.Entry<MTMVRelatedTableIf, Set<String>> tableEntry : tableMap.entrySet()) {
+                MTMVRelatedTableIf table = tableEntry.getKey();
+                Set<String> set = tableEntry.getValue();
+                partitionMultiFlatMap
+                        .computeIfAbsent(table, k -> new HashMap<>())
+                        .computeIfAbsent(partitionKey, k -> new HashSet<>())
+                        .addAll(set);
+            }
+        }
+        return partitionMultiFlatMap;
     }
 }

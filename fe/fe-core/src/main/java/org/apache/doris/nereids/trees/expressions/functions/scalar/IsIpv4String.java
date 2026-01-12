@@ -46,13 +46,18 @@ public class IsIpv4String extends ScalarFunction
         super("is_ipv4_string", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private IsIpv4String(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public IsIpv4String withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "is_ipv4_string accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IsIpv4String(children.get(0));
+        return new IsIpv4String(getFunctionParams(children));
     }
 
     @Override

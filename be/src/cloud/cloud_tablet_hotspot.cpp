@@ -94,12 +94,12 @@ void get_return_partitions(
                     }
                 }
             }
-            THotPartition hot_partition;
-            hot_partition.__set_partition_id(partition_id);
-            hot_partition.__set_query_per_day(value.qpd);
-            hot_partition.__set_query_per_week(value.qpw);
-            hot_partition.__set_last_access_time(value.last_access_time);
-            msg.hot_partitions.push_back(hot_partition);
+            THotPartition new_hot_partition;
+            new_hot_partition.__set_partition_id(partition_id);
+            new_hot_partition.__set_query_per_day(value.qpd);
+            new_hot_partition.__set_query_per_week(value.qpw);
+            new_hot_partition.__set_last_access_time(value.last_access_time);
+            msg.hot_partitions.push_back(new_hot_partition);
             return_partitions++;
         }
         msg.__isset.hot_partitions = !msg.hot_partitions.empty();

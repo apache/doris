@@ -18,15 +18,23 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -39,7 +47,9 @@ import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
 import java.util.Collections;
@@ -52,18 +62,14 @@ import java.util.stream.Collectors;
  * Base class for External File Scan, including external query and load.
  */
 public abstract class FileScanNode extends ExternalScanNode {
-
-    public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
-
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
-    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
-            boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
@@ -89,6 +95,10 @@ public abstract class FileScanNode extends ExternalScanNode {
         return tableLevelRowCount;
     }
 
+    public long getTotalFileSize() {
+        return totalFileSize;
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -102,12 +112,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
 
         output.append(prefix);
-        boolean isBatch;
-        try {
-            isBatch = isBatchMode();
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
+        boolean isBatch = isBatchMode();
         if (isBatch) {
             output.append("(approximate)");
         }
@@ -171,6 +176,8 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
 
+        printNestedColumns(output, prefix, getTupleDesc());
+
         // pushdown agg
         output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
         if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
@@ -196,25 +203,35 @@ public abstract class FileScanNode extends ExternalScanNode {
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
 
+        Map<String, SlotDescriptor> nameToSlotDesc = Maps.newLinkedHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            nameToSlotDesc.put(slot.getColumn().getName(), slot);
+        }
+
         for (Column column : getColumns()) {
             Expr expr;
+            Expression expression;
             if (column.getDefaultValue() != null) {
-                if (column.getDefaultValueExprDef() != null) {
-                    expr = column.getDefaultValueExpr();
-                    expr.analyze(analyzer);
-                } else {
-                    expr = new StringLiteral(column.getDefaultValue());
-                }
+                expression = new NereidsParser().parseExpression(
+                        column.getDefaultValueSql());
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                        null, new Scope(ImmutableList.of()), null, true, true);
+                expression = analyzer.analyze(expression);
             } else {
                 if (column.isAllowNull()) {
                     // For load, use Varchar as Null, for query, use column type.
                     if (useVarcharAsNull) {
-                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                        expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
                     } else {
-                        expr = NullLiteral.create(column.getType());
+                        SlotDescriptor slotDescriptor = nameToSlotDesc.get(column.getName());
+                        // the nested type(map/array/struct) maybe pruned,
+                        // we should use the pruned type to avoid be core
+                        expression = new NullLiteral(DataType.fromCatalogType(
+                                slotDescriptor == null ? column.getType() : slotDescriptor.getType()
+                        ));
                     }
                 } else {
-                    expr = null;
+                    expression = null;
                 }
             }
             // if there is already an expr , just skip it.
@@ -232,8 +249,11 @@ public abstract class FileScanNode extends ExternalScanNode {
             // default value.
             // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
-                if (expr != null) {
-                    expr = castToSlot(slotDesc, expr);
+                if (expression != null) {
+                    expression = TypeCoercionUtils.castIfNotSameType(expression,
+                            DataType.fromCatalogType(slotDesc.getType()));
+                    expr = ExpressionTranslator.translate(expression,
+                            new PlanTranslatorContext(CascadesContext.initTempContext()));
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
                 } else {
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);

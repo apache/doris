@@ -174,9 +174,6 @@ public class RelationUtil {
                 connectContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
                 LogicalPlan logicalPlan;
                 try {
-                    // disable rbo sync mv rewrite
-                    connectContext.getSessionVariable()
-                            .setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
                     // disable constant fold
                     connectContext.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
                     planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY,

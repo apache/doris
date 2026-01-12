@@ -76,14 +76,13 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
                 sql """ create table internal.${db_name}.${hive_tb}_4 (id,str2,str3,str1) auto partition by list (str1)() properties("replication_num" = "1") as select id, str1, str2, str3 from ${catalog}.${db_name}.${hive_tb} """
                 assertTrue(false)
             } catch (Exception ex) {
-                assertTrue(ex.getMessage().contains("Partition name's length is over limit of 50"))
+                assertTrue(ex.getMessage().contains("Insert has filtered data in strict mode"))
             }
 
-            try {
-                sql """ create table internal.${db_name}.${hive_tb}_5 (id,str1,str3,str2) auto partition by list (str2)() properties("replication_num" = "1") as select id, str1, str2, str3 from ${catalog}.${db_name}.${hive_tb} """
-                assertTrue(false)
-            } catch (Exception ex) {
-                assertTrue(ex.getMessage().contains("Partition name's length is over limit of 50"))
+            sql """ create table internal.${db_name}.${hive_tb}_5 (id,str1,str3,str2) auto partition by list (str2)() properties("replication_num" = "1") as select id, str1, str2, str3 from ${catalog}.${db_name}.${hive_tb} """
+            def results = sql"""show partitions from internal.${db_name}.${hive_tb}_5"""
+            for (def result : results) {
+                assertTrue(result[1].length() <= 62)
             }
 
             try {

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.collect.ImmutableList;
@@ -39,10 +40,6 @@ public class ArraySortBy extends ScalarFunction
                 ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
     );
 
-    private ArraySortBy(List<Expression> expressions) {
-        super("array_sortby", expressions);
-    }
-
     /**
      * constructor with arguments.
      * array_sortby(lambda, a1, ...) = array_sortby(a1, array_map(lambda, a1, ...))
@@ -55,13 +52,28 @@ public class ArraySortBy extends ScalarFunction
         }
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArraySortBy(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     public ArraySortBy(Expression arg1, Expression arg2) {
         super("array_sortby", arg1, arg2);
     }
 
     @Override
     public ArraySortBy withChildren(List<Expression> children) {
-        return new ArraySortBy(children);
+        return new ArraySortBy(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
+                    || ((ArrayType) argType).getItemType().isVariantType()
+                    || ((ArrayType) argType).getItemType().isJsonType())) {
+            throw new AnalysisException("array_reverse_sort does not support types: " + argType.toSql());
+        }
     }
 
     @Override

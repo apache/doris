@@ -103,7 +103,6 @@ suite("test_aggregate_histogram") {
     // Test without GROUP BY
     qt_select """
         SELECT
-            histogram(c_bool, 2),
             histogram(c_tinyint, 2),
             histogram(c_smallint, 2),
             histogram(c_bigint, 2),
@@ -128,7 +127,6 @@ suite("test_aggregate_histogram") {
     qt_select """
         SELECT
             c_id,
-            hist(c_bool, 2),
             hist(c_tinyint, 2),
             hist(c_smallint, 2),
             hist(c_bigint, 2),
@@ -157,7 +155,6 @@ suite("test_aggregate_histogram") {
         CREATE TABLE ${tableCTAS1} PROPERTIES("replication_num" = "1") AS
         SELECT
             1,
-            hist(c_bool, 2),
             hist(c_tinyint, 2),
             hist(c_smallint, 2),
             hist(c_bigint, 2),
@@ -182,7 +179,6 @@ suite("test_aggregate_histogram") {
         CREATE TABLE ${tableCTAS2} PROPERTIES("replication_num" = "1") AS
         SELECT
             1,
-            hist(c_bool, 2),
             hist(c_tinyint, 2),
             hist(c_smallint, 2),
             hist(c_bigint, 2),
@@ -202,6 +198,11 @@ suite("test_aggregate_histogram") {
         FROM
             ${tableName}
     """
+
+    test {
+        sql """ SELECT hist(c_tinyint, c_tinyint) from histogram_test;""" 
+        exception "errCode = 2,"
+    }
 
     qt_select "SELECT * from ${tableCTAS1}"
     qt_select "SELECT * from ${tableCTAS2}"

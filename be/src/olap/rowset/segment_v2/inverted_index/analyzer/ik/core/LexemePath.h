@@ -31,9 +31,9 @@ namespace doris::segment_v2 {
 
 class LexemePath : public QuickSortSet {
 public:
-    LexemePath(IKMemoryPool<Cell>& pool);
-    LexemePath(LexemePath& other, IKMemoryPool<Cell>& pool);
-    LexemePath(LexemePath&& other, IKMemoryPool<Cell>& pool) noexcept;
+    LexemePath(vectorized::Arena& arena);
+    LexemePath(LexemePath& other, vectorized::Arena& arena);
+    LexemePath(LexemePath&& other, vectorized::Arena& arena) noexcept;
     bool addCrossLexeme(Lexeme& lexeme);
     bool addNotCrossLexeme(Lexeme& lexeme);
     std::optional<Lexeme> removeTail();

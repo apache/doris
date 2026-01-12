@@ -22,32 +22,31 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
  * Struct type in Nereids.
  */
 @Developing
-public class StructType extends DataType implements ComplexDataType {
+public class StructType extends DataType implements ComplexDataType, NestedColumnPrunable {
 
     public static final StructType SYSTEM_DEFAULT = new StructType();
 
     public static final int WIDTH = 24;
 
     private final List<StructField> fields;
-    private final Supplier<Map<String, StructField>> nameToFields;
+    private final Map<String, StructField> nameToFields;
 
     private StructType() {
-        nameToFields = Suppliers.memoize(ImmutableMap::of);
+        nameToFields = new HashMap<>();
         fields = ImmutableList.of();
     }
 
@@ -56,11 +55,16 @@ public class StructType extends DataType implements ComplexDataType {
      */
     public StructType(List<StructField> fields) {
         this.fields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
-        this.nameToFields = Suppliers.memoize(() -> this.fields.stream().collect(ImmutableMap.toImmutableMap(
-                StructField::getName, f -> f, (f1, f2) -> {
-                    throw new AnalysisException("The name of the struct field cannot be repeated."
-                            + " same name fields are " + f1 + " and " + f2);
-                })));
+        // field name should be lowercase and check the same or not
+        // ATTN: should use LinkedHashMap to keep order
+        this.nameToFields = new LinkedHashMap<>();
+        for (StructField field : this.fields) {
+            String fieldName = field.getName().toLowerCase();
+            StructField existingField = this.nameToFields.put(fieldName, field);
+            if (existingField != null) {
+                throw new AnalysisException("Duplicate field name found: " + fieldName);
+            }
+        }
     }
 
     public List<StructField> getFields() {
@@ -68,7 +72,11 @@ public class StructType extends DataType implements ComplexDataType {
     }
 
     public Map<String, StructField> getNameToFields() {
-        return nameToFields.get();
+        return nameToFields;
+    }
+
+    public StructField getField(String name) {
+        return nameToFields.get(name.toLowerCase());
     }
 
     @Override

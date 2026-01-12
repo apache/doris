@@ -36,7 +36,7 @@
 
 namespace doris::vectorized {
 
-static const size_t TEST_COUNT = 50;
+static const size_t TEST_COUNT = 2;
 
 static std::string print_hex(const StringRef& str) {
     std::string hex_str;

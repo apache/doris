@@ -91,7 +91,10 @@ public:
 
     // Close all file writers
     // If the inverted index file writer is not closed, an error will be thrown during destruction
-    Status close();
+    Status begin_close();
+
+    // Wait for all inverted index file writers to be closed
+    Status finish_close();
 
     // Get inverted index file info in segment id order.
     // `seg_id_offset` is the offset of the segment id relative to the subscript of `_inverted_index_file_writers`,
@@ -131,8 +134,7 @@ public:
 
     Status create_index_file_writer(uint32_t segment_id, IndexFileWriterPtr* writer) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush() override;
 
@@ -190,17 +192,16 @@ public:
         return _seg_files.get_file_writers();
     }
 
-    std::unordered_map<int, IndexFileWriterPtr>& inverted_index_file_writers() {
+    std::unordered_map<int, IndexFileWriterPtr>& index_file_writers() {
         return this->_idx_files.get_file_writers();
     }
 
 private:
-    void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
     Status _generate_delete_bitmap(int32_t segment_id);
-    Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
+    virtual Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit(size_t segnum);
@@ -216,9 +217,11 @@ protected:
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
     Status _close_inverted_index_file_writers() {
-        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.begin_close(),
                                        "failed to close index file when build new rowset");
         this->_total_index_size += _idx_files.get_total_index_size();
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.finish_close(),
+                                       "failed to wait close index file when build new rowset");
         return Status::OK();
     }
 
@@ -274,8 +277,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
@@ -299,6 +301,7 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint32_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+    Status _remove_segment_footer_cache(const uint32_t seg_id, const std::string& segment_path);
     void _clear_statistics_for_deleting_segments_unsafe(uint32_t begin, uint32_t end);
 
     StorageEngine& _engine;

@@ -78,7 +78,7 @@ void pop_block(int64_t id, PopState state) {
     }
     }
 }
-void transmit_blockv2(PBackendService_Stub& stub,
+void transmit_blockv2(PBackendService_Stub* stub,
                       std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
                               closure) {

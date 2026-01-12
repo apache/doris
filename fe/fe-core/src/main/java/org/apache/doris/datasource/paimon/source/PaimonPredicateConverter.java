@@ -25,7 +25,6 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.Subquery;
 import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.paimon.data.BinaryString;
@@ -95,11 +94,6 @@ public class PaimonPredicateConverter {
     }
 
     private Predicate doInPredicate(InPredicate predicate) {
-        // InPredicate, only support a in (1,2,3)
-        if (predicate.contains(Subquery.class)) {
-            return null;
-        }
-
         SlotRef slotRef = convertDorisExprToSlotRef(predicate.getChild(0));
         if (slotRef == null) {
             return null;

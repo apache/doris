@@ -18,18 +18,46 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * expression rewrite context.
  */
 public class ExpressionRewriteContext {
 
+    public final Optional<Plan> plan;
+    public final Optional<ExpressionSource> source;
     public final CascadesContext cascadesContext;
 
     public ExpressionRewriteContext(CascadesContext cascadesContext) {
+        this(Optional.empty(), Optional.empty(), cascadesContext);
+    }
+
+    public ExpressionRewriteContext(Plan plan, CascadesContext cascadesContext) {
+        this(Optional.of(plan), Optional.empty(), cascadesContext);
+    }
+
+    public ExpressionRewriteContext(Plan plan, ExpressionSource source, CascadesContext cascadesContext) {
+        this(Optional.of(plan), Optional.of(source), cascadesContext);
+    }
+
+    private ExpressionRewriteContext(Optional<Plan> plan, Optional<ExpressionSource> source,
+            CascadesContext cascadesContext) {
+        this.plan = Objects.requireNonNull(plan, "plan can not be null, or use Optional.empty()");
+        this.source = Objects.requireNonNull(source, "source can not be null, or use Optional.empty()");
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
     }
 
+    /**
+     * Expression detail source from.
+     * Currently only used in Join, add more if needed.
+     */
+    public enum ExpressionSource {
+        JOIN_HASH_CONDITION,
+        JOIN_OTHER_CONDITION,
+        JOIN_MARK_CONDITION,
+    }
 }

@@ -37,8 +37,16 @@ public class Log extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
     );
+
+    /**
+     * constructor with 1 arguments.
+     */
+    public Log(Expression arg0) {
+        super("log", arg0);
+    }
 
     /**
      * constructor with 2 arguments.
@@ -47,13 +55,19 @@ public class Log extends ScalarFunction
         super("log", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Log(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Log withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Log(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2,
+                "Log function should have 1 or 2 children, but got: %s", children.size());
+        return new Log(getFunctionParams(children));
     }
 
     @Override

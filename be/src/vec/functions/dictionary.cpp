@@ -21,20 +21,23 @@
 
 #include "runtime/thread_context.h"
 #include "vec/columns/column.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 
 namespace doris::vectorized {
 
 IDictionary::IDictionary(std::string name, std::vector<DictionaryAttribute> attributes)
         : _dict_name(std::move(name)), _attributes(std::move(attributes)) {
     for (size_t i = 0; i < _attributes.size(); i++) {
-        const auto& name = _attributes[i].name;
-        if (_name_to_attributes_index.contains(name)) {
+        const auto& nested_name = _attributes[i].name;
+        if (_name_to_attributes_index.contains(nested_name)) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "The names of attributes should not have duplicates : {}", name);
+                                   "The names of attributes should not have duplicates : {}",
+                                   nested_name);
         }
-        _name_to_attributes_index[name] = i;
+        _name_to_attributes_index[nested_name] = i;
     }
 }
 
@@ -113,7 +116,9 @@ void IDictionary::load_values(const std::vector<ColumnPtr>& values_column) {
                     using ValueRealDataType = std::decay_t<decltype(type)>;
                     auto& att = _values_data[i];
                     auto init_column_with_type = [&](auto& column_with_type) {
-                        column_with_type.column = value_column_without_nullable;
+                        using Type = std::decay_t<decltype(column_with_type)>::RealColumnType;
+                        column_with_type.column =
+                                cast_to_column<Type>(value_column_without_nullable);
                         // if original value is nullable, the null_map must be not null
                         if (values_column[i]->is_nullable()) {
                             column_with_type.null_map =

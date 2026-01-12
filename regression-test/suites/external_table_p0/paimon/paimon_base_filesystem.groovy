@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
 
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -29,6 +29,8 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         String catalog_cosn = "paimon_base_filesystem_paimon_cosn"
         String aliYunAk = context.config.otherConfigs.get("aliYunAk")
         String aliYunSk = context.config.otherConfigs.get("aliYunSk")
+        String aliYunEndpoint = context.config.otherConfigs.get("aliYunEndpoint")
+        String bucket = context.config.otherConfigs.get("aliYunBucket")
         String hwYunAk = context.config.otherConfigs.get("hwYunAk")
         String hwYunSk = context.config.otherConfigs.get("hwYunSk")
         String txYunAk = context.config.otherConfigs.get("txYunAk")
@@ -68,10 +70,10 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
             create catalog if not exists ${catalog_oss} properties (
                 "type" = "paimon",
                 "paimon.catalog.type"="filesystem",
-                "warehouse" = "oss://doris-regression-bj/regression/paimon1",
+                "warehouse" = "oss://${bucket}/regression/paimon1",
                 "oss.access_key"="${aliYunAk}",
                 "oss.secret_key"="${aliYunSk}",
-                "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
+                "oss.endpoint"="${aliYunEndpoint}"
             );
         """
         sql """
@@ -89,6 +91,60 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         logger.info("catalog " + catalog_cos + " created")
         logger.info("catalog " + catalog_cosn + " created")
 
+        sql """ switch ${catalog_oss} """
+        sql """ show databases """
+        sql """ use ${catalog_oss}.db1 """
+        // sql """ show tables """
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
+
+        sql """ switch ${catalog_obs} """
+        sql """ show databases """
+        sql """ use ${catalog_obs}.db1 """
+        // sql """ show tables """
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
+
+        sql """ switch ${catalog_cos} """
+        sql """ show databases """
+        sql """ use ${catalog_cos}.db1 """
+        // sql """ show tables """
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
+
+        sql """ switch ${catalog_cosn} """
+        sql """ show databases """
+        sql """ use ${catalog_cosn}.db1 """
+        // sql """ show tables """
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
+
+
         sql """set force_jni_scanner=false"""
         qt_oss oss
         qt_obs obs
@@ -99,8 +155,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         qt_oss oss
         qt_obs obs
         qt_cos cos
-        // java.lang.ClassNotFoundException: Class org.apache.hadoop.fs.CosFileSystem not found
-        // qt_cosn cosn
+        qt_cosn cosn
 
     } finally {
         sql """set force_jni_scanner=false"""

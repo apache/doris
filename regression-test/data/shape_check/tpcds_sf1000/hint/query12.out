@@ -26,6 +26,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(web_sales date_dim item )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

@@ -18,7 +18,6 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.disruptor.TimerJobEvent;
@@ -26,7 +25,7 @@ import org.apache.doris.job.task.AbstractTask;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -55,7 +54,7 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
                 log.info("job is null,may be job is deleted, ignore");
                 return;
             }
-            if (event.getJob().isReadyForScheduling(null) && event.getJob().getJobStatus() == JobStatus.RUNNING) {
+            if (event.getJob().isReadyForScheduling(null) && event.getJob().isJobRunning()) {
                 List<? extends AbstractTask> tasks = event.getJob().commonCreateTasks(TaskType.SCHEDULED, null);
                 if (CollectionUtils.isEmpty(tasks)) {
                     log.warn("job is ready for scheduling, but create task is empty, skip scheduler,"

@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
 #include "vec/common/arena.h"
 #include "vec/common/custom_allocator.h"
 
@@ -70,8 +71,8 @@ struct ProcessHashTableProbe {
                                       size_t column_to_keep);
 
     template <typename HashTableType>
-    typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
-                                                   const uint8_t* null_map);
+    typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx,
+                                                   uint32_t probe_rows, const uint8_t* null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -111,7 +112,8 @@ struct ProcessHashTableProbe {
     const std::vector<bool>& _right_output_slot_flags;
     // nullable column but not has null except first row
     std::vector<bool> _build_column_has_null;
-    bool _need_calculate_build_index_has_zero = true;
+
+    bool _need_calculate_all_match_one = false;
 
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;

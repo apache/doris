@@ -26,13 +26,13 @@
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
-#include <climits>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/status.h"
 #include "olap/lru_cache.h"
@@ -40,8 +40,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
@@ -62,6 +61,8 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
 public:
@@ -142,7 +143,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
-    RowDescriptor row_desc(tuple_desc(), false);
+    RowDescriptor row_desc(tuple_desc());
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
@@ -215,7 +216,8 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 RowCache::RowCache(int64_t capacity, int num_shards)
         : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
                          LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
-                         num_shards) {}
+                         num_shards, /*element count capacity */ 0,
+                         /*enable prune*/ true, /*is lru-k*/ true) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -290,17 +292,17 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         auto reusable_ptr = std::make_shared<Reusable>();
         TDescriptorTable t_desc_tbl;
         TExprList t_output_exprs;
-        uint32_t len = request->desc_tbl().size();
+        auto len = cast_set<uint32_t>(request->desc_tbl().size());
         RETURN_IF_ERROR(
                 deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(request->desc_tbl().data()),
                                        &len, false, &t_desc_tbl));
-        len = request->output_expr().size();
+        len = cast_set<uint32_t>(request->output_expr().size());
         RETURN_IF_ERROR(deserialize_thrift_msg(
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         TQueryOptions t_query_options;
-        len = request->query_options().size();
+        len = cast_set<uint32_t>(request->query_options().size());
         if (request->has_query_options()) {
             RETURN_IF_ERROR(deserialize_thrift_msg(
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
@@ -384,7 +386,7 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     // 1. get primary key from conditions
     std::vector<OlapTuple> olap_tuples;
     olap_tuples.resize(request->key_tuples().size());
-    for (size_t i = 0; i < request->key_tuples().size(); ++i) {
+    for (int i = 0; i < request->key_tuples().size(); ++i) {
         const KeyTuple& key_tuple = request->key_tuples(i);
         for (const std::string& key_col : key_tuple.key_column_rep()) {
             olap_tuples[i].add_value(key_col);
@@ -517,8 +519,12 @@ Status PointQueryExecutor::_lookup_row_data() {
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
                 SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                StorageReadOptions storage_read_options;
+                storage_read_options.stats = &_read_stats;
+                storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
                 RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                row_id, column, _read_stats, iter));
+                                                                row_id, column,
+                                                                storage_read_options, iter));
                 if (_tablet->tablet_schema()
                             ->column_by_uid(slot->col_unique_id())
                             .has_char_type()) {
@@ -536,7 +542,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         // thus missing in include_col_uids and missing_col_uids
         for (size_t i = 0; i < _result_block->columns(); ++i) {
             auto column = _result_block->get_by_position(i).column;
-            int padding_rows = _row_hits - column->size();
+            int padding_rows = _row_hits - cast_set<int>(column->size());
             if (padding_rows > 0) {
                 column->assume_mutable()->insert_many_defaults(padding_rows);
             }
@@ -583,21 +589,12 @@ Status PointQueryExecutor::_output_data() {
         RuntimeState state;
         auto buffer = std::make_shared<PointQueryResultBlockBuffer>(&state);
         // TODO reuse mysql_writer
-        if (_binary_row_format) {
-            vectorized::VMysqlResultWriter<true> mysql_writer(buffer, _reusable->output_exprs(),
-                                                              nullptr);
-            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            _result_block->clear_names();
-            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
-            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
-        } else {
-            vectorized::VMysqlResultWriter<false> mysql_writer(buffer, _reusable->output_exprs(),
-                                                               nullptr);
-            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            _result_block->clear_names();
-            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
-            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
-        }
+        vectorized::VMysqlResultWriter mysql_writer(buffer, _reusable->output_exprs(), nullptr,
+                                                    _binary_row_format);
+        RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
+        _result_block->clear_names();
+        RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+        RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {
         _response->set_empty_batch(true);
@@ -606,5 +603,7 @@ Status PointQueryExecutor::_output_data() {
     _reusable->return_block(_result_block);
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

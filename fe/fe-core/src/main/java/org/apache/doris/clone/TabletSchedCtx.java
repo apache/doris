@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -86,7 +87,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public static final int FINISHED_COUNTER_THRESHOLD = 4;
 
-    private static VersionCountComparator VERSION_COUNTER_COMPARATOR = new VersionCountComparator();
+    private static CloneSrcComparator CLONE_SRC_COMPARATOR
+            = new CloneSrcComparator();
 
     public enum Type {
         BALANCE, REPAIR
@@ -638,9 +640,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find copy source replica");
         }
 
+        // make candidates more random
+        Collections.shuffle(candidates);
+
         // choose a replica which slot is available from candidates.
-        // sort replica by version count asc, so that we prefer to choose replicas with fewer versions
-        Collections.sort(candidates, VERSION_COUNTER_COMPARATOR);
+        // sort replica by version count asc and isUserDrop, so that we prefer to choose replicas with fewer versions
+        Collections.sort(candidates, CLONE_SRC_COMPARATOR);
         for (Replica srcReplica : candidates) {
             long replicaBeId = srcReplica.getBackendIdWithoutException();
             PathSlot slot = backendsWorkingSlots.get(replicaBeId);
@@ -1013,7 +1018,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 || tabletHealth.status == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
                 || tabletHealth.status == TabletStatus.COLOCATE_MISMATCH
                 || tabletHealth.status == TabletStatus.REPLICA_MISSING_FOR_TAG) {
-            replica = new Replica(
+            replica = new LocalReplica(
                     Env.getCurrentEnv().getNextId(), destBackendId,
                     -1 /* version */, schemaHash,
                     -1 /* data size */, -1, -1 /* row count */,
@@ -1370,19 +1375,21 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return sb.toString();
     }
 
-    // Comparator to sort the replica with version count, asc
-    public static class VersionCountComparator implements Comparator<Replica> {
+    // Comparator to sort the replica with version count and isUserDrop, if isUserDrop true, put it to end.
+    // In same isUserDrop, version count asc
+    // such as [(100, true), (50, false), (-1, false), (200, false), (-1, true)
+    // after sort [(50, false), (200, false), (-1, false), (100, ture), (-1, true)]
+    public static class CloneSrcComparator implements Comparator<Replica> {
         @Override
         public int compare(Replica r1, Replica r2) {
+            boolean isUserDrop1 = r1.isUserDrop();
+            boolean isUserDrop2 = r2.isUserDrop();
             long verCount1 = r1.getVisibleVersionCount() == -1 ? Long.MAX_VALUE : r1.getVisibleVersionCount();
             long verCount2 = r2.getVisibleVersionCount() == -1 ? Long.MAX_VALUE : r2.getVisibleVersionCount();
-            if (verCount1 < verCount2) {
-                return -1;
-            } else if (verCount1 > verCount2) {
-                return 1;
-            } else {
-                return 0;
+            if (isUserDrop1 == isUserDrop2) {
+                return Long.compare(verCount1, verCount2);
             }
+            return Boolean.compare(isUserDrop1, isUserDrop2);
         }
     }
 

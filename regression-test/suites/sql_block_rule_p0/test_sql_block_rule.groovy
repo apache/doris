@@ -53,10 +53,8 @@ suite("test_sql_block_rule", "nonConcurrent") {
         sql("SELECT * FROM table_2", false)
         exception "sql match regex sql block rule: test_rule_sql"
     }
-    test {
-        sql("EXPLAIN SELECT * FROM table_2", false)
-        exception "sql match regex sql block rule: test_rule_sql"
-    }
+    // EXPLAIN should not be blocked by sql block rule
+    sql "EXPLAIN SELECT * FROM table_2"
 
     test {
         sql("INSERT INTO table_2 SELECT * FROM table_2", false)
@@ -272,4 +270,17 @@ suite("test_sql_block_rule", "nonConcurrent") {
         """
     }
 
+    multi_sql """
+        drop SQL_BLOCK_RULE if exists rule_drop_r;
+
+        CREATE SQL_BLOCK_RULE rule_drop
+        PROPERTIES(
+        "sql"="select \\* from order_analysis",
+        "global"="true",
+        "enable"="true");
+
+        ALTER SQL_BLOCK_RULE rule_drop PROPERTIES("global"="true");
+
+        select NULL;
+    """
 }

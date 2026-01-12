@@ -30,15 +30,21 @@ class HiveReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     HiveReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                RuntimeState* state, const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               io::IOContext* io_ctx)
+               io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot,
+               FileMetaCache* meta_cache)
             : TableFormatReader(std::move(file_format_reader), state, profile, params, range,
-                                io_ctx) {};
+                                io_ctx, meta_cache),
+              _is_file_slot(is_file_slot) {};
 
     ~HiveReader() override = default;
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
     Status init_row_filters() final { return Status::OK(); };
+
+protected:
+    // https://github.com/apache/doris/pull/23369
+    const std::set<TSlotId>* _is_file_slot = nullptr;
 };
 
 class HiveOrcReader final : public HiveReader {
@@ -46,18 +52,26 @@ public:
     ENABLE_FACTORY_CREATOR(HiveOrcReader);
     HiveOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                   RuntimeState* state, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                  const TFileRangeDesc& range, io::IOContext* io_ctx,
+                  const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
+            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                         is_file_slot, meta_cache) {};
     ~HiveOrcReader() final = default;
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>*
-                    table_col_name_to_value_range,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+
+private:
+    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+                                             const TupleDescriptor* tuple_descriptor);
+
+    static ColumnIdResult _create_column_ids_by_top_level_col_index(
+            const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
 };
 
 class HiveParquetReader final : public HiveReader {
@@ -65,19 +79,29 @@ public:
     ENABLE_FACTORY_CREATOR(HiveParquetReader);
     HiveParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                       RuntimeState* state, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                      const TFileRangeDesc& range, io::IOContext* io_ctx,
+                      const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
+            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                         is_file_slot, meta_cache) {};
     ~HiveParquetReader() final = default;
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>*
-                    table_col_name_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts,
+            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                    slot_id_to_predicates,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+
+private:
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
+
+    static ColumnIdResult _create_column_ids_by_top_level_col_index(
+            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

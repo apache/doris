@@ -49,13 +49,18 @@ public class BitmapMax extends ScalarFunction
         super("bitmap_max", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapMax(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapMax withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapMax(children.get(0));
+        return new BitmapMax(getFunctionParams(children));
     }
 
     @Override

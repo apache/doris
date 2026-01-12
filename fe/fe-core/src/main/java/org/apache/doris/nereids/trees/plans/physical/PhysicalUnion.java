@@ -21,14 +21,17 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.ShuffleType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -42,6 +45,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Physical Union.
@@ -105,6 +109,35 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
                 "constantExprsList", constantExprsList);
+    }
+
+    @Override
+    public String shapeInfo() {
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            StringBuilder builder = new StringBuilder();
+
+            boolean ignoreDistribute = ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes()
+                    .contains(PhysicalDistribute.class.getSimpleName());
+
+            ShuffleType shuffleType = shuffleType();
+            if (!ignoreDistribute && shuffleType != ShuffleType.shuffle) {
+                builder.append("[").append(shuffleType).append("]");
+            }
+
+            builder.append(getClass().getSimpleName());
+            builder.append("(constantExprsList=");
+            builder.append(constantExprsList.stream()
+                    .map(exprs -> exprs.stream().map(Expression::shapeInfo)
+                            .collect(Collectors.joining(", ", "[", "]")))
+                    .collect(Collectors.joining(", ", "[", "]")));
+            builder.append(")");
+            return builder.toString();
+        } else {
+            return super.shapeInfo();
+        }
     }
 
     @Override

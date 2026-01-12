@@ -29,6 +29,7 @@ public class BigIntType extends IntegralType implements Int64OrLessType {
     public static final BigIntType INSTANCE = new BigIntType("bigint");
     public static final BigIntType SIGNED = new BigIntType("signed");
 
+    public static final int RANGE = 19; // The maximum number of digits that BigInt can represent.
     private static final int WIDTH = 8;
 
     private final String simpleName;
@@ -60,5 +61,10 @@ public class BigIntType extends IntegralType implements Int64OrLessType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public int range() {
+        return RANGE;
     }
 }

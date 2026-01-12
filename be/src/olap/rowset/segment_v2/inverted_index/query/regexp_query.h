@@ -32,8 +32,7 @@ namespace doris::segment_v2 {
 
 class RegexpQuery : public Query {
 public:
-    RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                const TQueryOptions& query_options, const io::IOContext* io_ctx);
+    RegexpQuery(SearcherPtr searcher, IndexQueryContextPtr context);
     ~RegexpQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
@@ -46,8 +45,8 @@ private:
                                 hs_database_t* database, hs_scratch_t* scratch,
                                 const std::optional<std::string>& prefix);
 
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
-    const io::IOContext* _io_ctx = nullptr;
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
 
     int32_t _max_expansions = 50;
     DisjunctionQuery _query;

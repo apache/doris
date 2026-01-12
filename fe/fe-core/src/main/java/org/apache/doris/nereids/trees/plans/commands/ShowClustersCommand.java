@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -50,16 +51,20 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Represents the command for SHOW CLUSTERS.
  */
 public class ShowClustersCommand extends ShowCommand {
+    // sql: show clusters;
     public static final ImmutableList<String> CLUSTER_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("cluster").add("is_current").add("users").add("backend_num").build();
-
+            .add("cluster").add("is_current").add("users").add("backend_num")
+            .add("sub_clusters").add("policy").add("properties").build();
+    // sql: show compute groups;
     public static final ImmutableList<String> COMPUTE_GROUP_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("IsCurrent").add("Users").add("BackendNum").build();
+            .add("Name").add("IsCurrent").add("Users").add("BackendNum")
+            .add("SubComputeGroups").add("Policy").add("Properties").build();
 
     private static final Logger LOG = LogManager.getLogger(ShowClustersCommand.class);
     private final boolean isComputeGroup;
@@ -89,19 +94,30 @@ public class ShowClustersCommand extends ShowCommand {
         }
 
         List<String> clusterNames = null;
-        clusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+        CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
+        clusterNames = cloudSys.getCloudClusterNames();
+        // virtual cluster info
+        List<ComputeGroup> virtualComputeGroup = cloudSys.getComputeGroups(true);
+        List<String> virtualComputeGroupNames = virtualComputeGroup.stream()
+                .map(ComputeGroup::getName).collect(Collectors.toList());
+
+        clusterNames.addAll(virtualComputeGroupNames);
 
         final Set<String> clusterNameSet = Sets.newTreeSet();
         clusterNameSet.addAll(clusterNames);
 
         for (String clusterName : clusterNameSet) {
-            ArrayList<String> row = Lists.newArrayList(clusterName);
             // current_used, users
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
             }
+            ComputeGroup cg = cloudSys.getComputeGroupByName(clusterName);
+            if (cg == null) {
+                continue;
+            }
+            ArrayList<String> row = Lists.newArrayList(clusterName);
             String clusterNameFromCtx = "";
             try {
                 clusterNameFromCtx = ctx.getCloudCluster();
@@ -122,10 +138,32 @@ public class ShowClustersCommand extends ShowCommand {
 
             String result = Joiner.on(", ").join(users);
             row.add(result);
-            int backendNum = ((CloudSystemInfoService) Env.getCurrentEnv().getCurrentSystemInfo())
-                    .getBackendsByClusterName(clusterName).size();
-            row.add(String.valueOf(backendNum));
+            // subClusters
+            String subClusterNames = "";
+            // Policy
+            String policy = "";
+            if (!virtualComputeGroupNames.contains(clusterName)) {
+                int backendNum = cloudSys.getBackendsByClusterName(clusterName).size();
+                row.add(String.valueOf(backendNum));
+                rows.add(row);
+                row.add(subClusterNames);
+                row.add(policy);
+                row.add(cg.getProperties().toString());
+                continue;
+            }
+            // virtual compute group
+            // virtual cg backends eq 0
+            row.add(String.valueOf(0));
             rows.add(row);
+
+            String activeCluster = cg.getPolicy().getActiveComputeGroup();
+            String standbyCluster = cg.getPolicy().getStandbyComputeGroup();
+            // first active, second standby
+            subClusterNames = Joiner.on(", ").join(activeCluster, standbyCluster);
+            row.add(subClusterNames);
+            // Policy
+            row.add(cg.getPolicy().toString());
+            row.add(cg.getProperties().toString());
         }
 
         return new ShowResultSet(getMetaData(), rows);

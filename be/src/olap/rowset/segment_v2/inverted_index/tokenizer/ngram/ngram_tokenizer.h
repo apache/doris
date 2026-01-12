@@ -25,6 +25,7 @@
 using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class NGramTokenizer : public DorisTokenizer {
 public:
@@ -44,7 +45,7 @@ private:
     void update_last_non_token_char();
 
     void consume() {
-        uint8_t c = _buffer[_buffer_start++];
+        auto c = static_cast<uint8_t>(_buffer[_buffer_start++]);
         _offset += U8_LENGTH(c);
     }
 
@@ -75,4 +76,5 @@ private:
     std::string _utf8_buffer;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

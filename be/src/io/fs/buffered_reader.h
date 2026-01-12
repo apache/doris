@@ -37,9 +37,12 @@
 #include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/typeid_cast.h"
-
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace io {
 
 class FileSystem;
@@ -222,7 +225,6 @@ public:
         int64_t merged_io = 0;
         int64_t request_bytes = 0;
         int64_t merged_bytes = 0;
-        int64_t apply_bytes = 0;
     };
 
     struct RangeCachedData {
@@ -275,7 +277,8 @@ public:
     static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                         const std::vector<PrefetchRange>& random_access_ranges)
+                         const std::vector<PrefetchRange>& random_access_ranges,
+                         int64_t merge_read_slice_size = READ_SLICE_SIZE)
             : _profile(profile),
               _reader(std::move(reader)),
               _random_access_ranges(random_access_ranges) {
@@ -288,9 +291,13 @@ public:
         // 1MB for oss, 8KB for hdfs
         _equivalent_io_size =
                 _is_oss ? config::merged_oss_min_io_size : config::merged_hdfs_min_io_size;
-        for (const PrefetchRange& range : _random_access_ranges) {
-            _statistics.apply_bytes += range.end_offset - range.start_offset;
+
+        _merged_read_slice_size = merge_read_slice_size;
+
+        if (_merged_read_slice_size < 0) {
+            _merged_read_slice_size = READ_SLICE_SIZE;
         }
+
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
             ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
@@ -304,8 +311,6 @@ public:
                                                           random_profile, 1);
             _merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
                                                          random_profile, 1);
-            _apply_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ApplyBytes", TUnit::BYTES,
-                                                        random_profile, 1);
         }
     }
 
@@ -348,7 +353,6 @@ protected:
             COUNTER_UPDATE(_merged_io, _statistics.merged_io);
             COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
             COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
-            COUNTER_UPDATE(_apply_bytes, _statistics.apply_bytes);
             if (_reader != nullptr) {
                 _reader->collect_profile_before_close();
             }
@@ -362,7 +366,6 @@ private:
     RuntimeProfile::Counter* _merged_io = nullptr;
     RuntimeProfile::Counter* _request_bytes = nullptr;
     RuntimeProfile::Counter* _merged_bytes = nullptr;
-    RuntimeProfile::Counter* _apply_bytes = nullptr;
 
     int _search_read_range(size_t start_offset, size_t end_offset);
     void _clean_cached_data(RangeCachedData& cached_data);
@@ -388,6 +391,7 @@ private:
     bool _is_oss;
     double _max_amplified_ratio;
     size_t _equivalent_io_size;
+    int64_t _merged_read_slice_size;
 
     Statistics _statistics;
 };
@@ -552,7 +556,7 @@ private:
     void reset_all_buffer(size_t position) {
         for (int64_t i = 0; i < _pre_buffers.size(); i++) {
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
-            int cur_buf_pos = get_buffer_pos(cur_pos);
+            size_t cur_buf_pos = get_buffer_pos(cur_pos);
             // reset would do all the prefetch work
             _pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos));
         }
@@ -607,12 +611,6 @@ private:
  */
 class BufferedStreamReader {
 public:
-    struct Statistics {
-        int64_t read_time = 0;
-        int64_t read_calls = 0;
-        int64_t read_bytes = 0;
-    };
-
     /**
      * Return the address of underlying buffer that locates the start of data between [offset, offset + bytes_to_read)
      * @param buf the buffer address to save the start address of data
@@ -625,13 +623,9 @@ public:
      * Save the data address to slice.data, and the slice.size is the bytes to read.
      */
     virtual Status read_bytes(Slice& slice, uint64_t offset, const IOContext* io_ctx) = 0;
-    Statistics& statistics() { return _statistics; }
     virtual ~BufferedStreamReader() = default;
     // return the file path
     virtual std::string path() = 0;
-
-protected:
-    Statistics _statistics;
 };
 
 class BufferedFileStreamReader : public BufferedStreamReader, public ProfileCollector {
@@ -653,7 +647,7 @@ protected:
     }
 
 private:
-    std::unique_ptr<uint8_t[]> _buf;
+    DorisUniqueBufferPtr<uint8_t> _buf;
     io::FileReaderSPtr _file;
     uint64_t _file_start_offset;
     uint64_t _file_end_offset;
@@ -665,4 +659,7 @@ private:
 };
 
 } // namespace io
+
+#include "common/compile_check_end.h"
+
 } // namespace doris

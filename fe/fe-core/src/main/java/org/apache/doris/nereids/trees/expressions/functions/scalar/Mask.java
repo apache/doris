@@ -36,8 +36,23 @@ import java.util.List;
  */
 public class Mask extends ScalarFunction implements ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE)
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .args(StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
@@ -47,14 +62,20 @@ public class Mask extends ScalarFunction implements ExplicitlyCastableSignature,
         super("mask", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Mask(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Mask withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Mask(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty()
+                && arity() >= 1
+                && arity() <= 4);
+        return new Mask(getFunctionParams(children));
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -89,6 +88,7 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 
 public class OlapQueryCacheTest {
@@ -100,7 +100,6 @@ public class OlapQueryCacheTest {
 
     private List<PartitionRange.PartitionSingle> newRangeList;
     private Cache.HitRange hitRange;
-    private Analyzer analyzer;
     private Database db;
     private Env env;
     private ConnectContext ctx;
@@ -150,7 +149,6 @@ public class OlapQueryCacheTest {
         };
 
         FunctionSet fs = new FunctionSet();
-        fs.init();
         Deencapsulation.setField(env, "functionSet", fs);
 
         channel.reset();
@@ -253,7 +251,6 @@ public class OlapQueryCacheTest {
             }
         };
 
-        analyzer = new Analyzer(env, ctx);
         newRangeList = Lists.newArrayList();
 
         db = ((InternalCatalog) env.getCurrentCatalog()).getDbNullable(fullDbName);
@@ -425,8 +422,14 @@ public class OlapQueryCacheTest {
         column.add(column4);
         column.add(column5);
 
-        table.setIndexMeta(new Long(2), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
+        table.setIndexMeta(2L, "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
                 KeysType.AGG_KEYS);
+        MaterializedIndex rollup = new MaterializedIndex(2L, IndexState.NORMAL);
+        part12.createRollupIndex(rollup);
+        part13.createRollupIndex(rollup);
+        part14.createRollupIndex(rollup);
+        part15.createRollupIndex(rollup);
+
         Deencapsulation.setField(table, "baseIndexId", 2);
 
         table.addPartition(part12);
@@ -441,7 +444,7 @@ public class OlapQueryCacheTest {
         String originStmt
                 = "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `__count_1` FROM `testDb`.`appevent` WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`";
         View view = new View(30000L, "view1", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("_count_2", ScalarType.BIGINT)
@@ -452,7 +455,7 @@ public class OlapQueryCacheTest {
     private View createEventView2() {
         String originStmt = "SELECT `eventdate` AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`";
         View view = new View(30001L, "view2", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("userid", ScalarType.INT)
@@ -464,7 +467,7 @@ public class OlapQueryCacheTest {
         String originStmt
                 = "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `count(``userid``)` FROM `testDb`.`appevent` WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`";
         View view = new View(30002L, "view3", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("_count_2", ScalarType.BIGINT)
@@ -476,7 +479,7 @@ public class OlapQueryCacheTest {
         String originStmt = "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `__count_1` FROM `testDb`.`view2` "
                 + "WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`";
         View view = new View(30003L, "view4", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("_count_2", ScalarType.BIGINT)

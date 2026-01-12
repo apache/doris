@@ -60,7 +60,7 @@ suite("nereids_gen_fn") {
 		select id, e from fn_test lateral view explode_json_array_string('["1", "2", "3"]') lv as e order by id, e'''
 
 	qt_sql_explode_json_array_json_Varchar '''
-		select id, e from fn_test lateral view explode_json_array_json('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]') lv as e order by id, e'''
+		select id, e from fn_test lateral view explode_json_array_json('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]') lv as e order by id, json_extract_int(e, '\$.id')'''
 
 	qt_sql_explode_json_array_json_Json '''
 		select id, e from fn_test lateral view explode_json_array_json(cast('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]' as json)) lv as e order by id, cast(e as string); '''

@@ -23,6 +23,7 @@ import org.apache.doris.datasource.FileSplit;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class HudiSplit extends FileSplit {
@@ -40,4 +41,5 @@ public class HudiSplit extends FileSplit {
     private List<String> hudiColumnNames;
     private List<String> hudiColumnTypes;
     private List<String> nestedFields;
+    private Map<String, String> hudiPartitionValues;
 }

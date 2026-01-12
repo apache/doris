@@ -33,6 +33,7 @@ suite("test_arith_functions") {
         result([[11022916880, 11902L]])
     }
 
+    sql "drop TABLE if exists testmoddb"
     sql """
     CREATE TABLE testmoddb (
         K1 BIGINT,

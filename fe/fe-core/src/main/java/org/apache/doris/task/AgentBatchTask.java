@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushStoragePolicyReq;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
@@ -223,6 +224,9 @@ public class AgentBatchTask implements Runnable {
                     List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                     for (AgentTask task : tasks) {
                         task.failedWithMsg(errMsg);
+                        if (errMsg.contains("Socket is closed")) {
+                            task.setErrorCode(TStatusCode.NETWORK_ERROR);
+                        }
                     }
                 }
             }

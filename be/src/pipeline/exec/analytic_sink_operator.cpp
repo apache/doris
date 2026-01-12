@@ -47,7 +47,6 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _remove_count = ADD_COUNTER(custom_profile(), "RemoveCount", TUnit::UNIT);
     _blocks_memory_usage =
             common_profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _agg_arena_pool = std::make_unique<vectorized::Arena>();
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     if (!p._has_window || (!p._has_window_start && !p._has_window_end)) {
         // haven't set window, Unbounded:  [unbounded preceding,unbounded following]
@@ -71,14 +70,18 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         }
         _streaming_mode = true;
         _support_incremental_calculate = (p._has_window_start && p._has_window_end);
+
+        // TAnalyticWindowBoundaryType::PRECEDING -> negative
+        // TAnalyticWindowBoundaryType::CURRENT_ROW -> set zero
+        // TAnalyticWindowBoundaryType::FOLLOWING -> positive
         if (p._has_window_start) { //calculate start boundary
             TAnalyticWindowBoundary b = p._window.window_start;
             if (b.__isset.rows_offset_value) { //[offset     ,   ]
                 _rows_start_offset = b.rows_offset_value;
                 if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
-                    _rows_start_offset *= -1;                                //preceding--> negative
-                }                                                            //current_row  0
-            } else {                                                         //following    positive
+                    _rows_start_offset *= -1;
+                }
+            } else {
                 DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                 _rows_start_offset = 0;
             }
@@ -165,8 +168,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                 _range_between_expr_ctxs[i]->root()->data_type()->create_column();
     }
 
-    _fn_place_ptr = _agg_arena_pool->aligned_alloc(p._total_size_of_aggregate_states,
-                                                   p._align_aggregate_states);
+    _fn_place_ptr = _shared_state->agg_arena_pool.aligned_alloc(p._total_size_of_aggregate_states,
+                                                                p._align_aggregate_states);
     _create_agg_status();
     return Status::OK();
 }
@@ -179,7 +182,6 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
 
     _destroy_agg_status();
-    _agg_arena_pool = nullptr;
     _fn_place_ptr = nullptr;
     _result_window_columns.clear();
     _agg_input_columns.clear();
@@ -386,13 +388,14 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
             _agg_functions[i]->function()->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                    _agg_arena_pool.get(), false, false, false, &_use_null_result[i],
+                    _shared_state->agg_arena_pool, false, false, false, &_use_null_result[i],
                     &_could_use_previous_result[i]);
         } else {
             _agg_functions[i]->function()->add_range_single_place(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                    _agg_arena_pool.get(), &(_use_null_result[i]), &_could_use_previous_result[i]);
+                    _shared_state->agg_arena_pool, &(_use_null_result[i]),
+                    &_could_use_previous_result[i]);
         }
     }
 }
@@ -662,7 +665,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         // Its behavior is same with executed without group by key.
         // https://github.com/apache/doris/pull/40693
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(_pool, desc, {}, /*without_key*/ true,
-                                                           &evaluator));
+                                                           true, &evaluator));
         _agg_functions.emplace_back(evaluator);
 
         int node_idx = 0;
@@ -707,7 +710,7 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
         std::vector<TTupleId> tuple_ids;
         tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
-        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, std::vector<bool>(2, false));
+        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids);
         if (!_partition_by_eq_expr_ctxs.empty()) {
             RETURN_IF_ERROR(
                     vectorized::VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));
@@ -899,10 +902,9 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
 Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
                                                    const vectorized::VExprContextSPtr& expr,
                                                    vectorized::IColumn* dst_column, size_t length) {
-    int result_col_id = -1;
-    RETURN_IF_ERROR(expr->execute(block, &result_col_id));
-    DCHECK_GE(result_col_id, 0);
-    auto column = block->get_by_position(result_col_id).column->convert_to_full_column_if_const();
+    vectorized::ColumnPtr column;
+    RETURN_IF_ERROR(expr->execute(block, column));
+    column = column->convert_to_full_column_if_const();
     // iff dst_column is string, maybe overflow of 4G, so need ignore overflow
     // the column is used by compare_at self to find the range, it's need convert it when overflow?
     dst_column->insert_range_from_ignore_overflow(*column, 0, length);

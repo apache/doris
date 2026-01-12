@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "pipeline/dependency.h"
+#include "pipeline/exec/rec_cte_scan_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -181,7 +182,7 @@ void QueryContext::_init_resource_context() {
 }
 
 void QueryContext::init_query_task_controller() {
-    _resource_ctx->set_task_controller(QueryTaskController::create(this));
+    _resource_ctx->set_task_controller(QueryTaskController::create(shared_from_this()));
     _resource_ctx->task_controller()->set_task_id(_query_id);
     _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
     _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
@@ -233,10 +234,11 @@ QueryContext::~QueryContext() {
     obj_pool.clear();
     _merge_controller_handler.reset();
 
-#ifndef BE_TEST
-    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-#endif
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
+    // fragment_mgr is nullptr in unittest
+    if (ExecEnv::GetInstance()->fragment_mgr()) {
+        ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
+    }
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
@@ -297,9 +299,9 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
                    "If there are many errors: `addr2line: Dwarf Error`,"
                    "or other FAQ, reference doc: "
                    "https://doris.apache.org/community/developer-guide/debug-tool/#4-qa\n";
-            auto log_str =
+            auto nest_log_str =
                     fmt::format("Query {}, dump heap profile to dot: {}", print_id(_query_id), dot);
-            LOG_LONG_STRING(INFO, log_str);
+            LOG_LONG_STRING(INFO, nest_log_str);
         }
     }
 
@@ -315,6 +317,16 @@ void QueryContext::set_load_error_url(std::string error_url) {
 std::string QueryContext::get_load_error_url() {
     std::lock_guard<std::mutex> lock(_error_url_lock);
     return _load_error_url;
+}
+
+void QueryContext::set_first_error_msg(std::string error_msg) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _first_error_msg = error_msg;
+}
+
+std::string QueryContext::get_first_error_msg() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _first_error_msg;
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
@@ -449,6 +461,10 @@ QueryContext::_collect_realtime_query_profile() {
                 continue;
             }
 
+            if (fragment_ctx->need_notify_close()) {
+                continue;
+            }
+
             auto profile = fragment_ctx->collect_realtime_profile();
 
             if (profile.empty()) {
@@ -484,6 +500,48 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() {
             /*is_done=*/false);
 
     return exec_status;
+}
+
+Status QueryContext::send_block_to_cte_scan(
+        const TUniqueId& instance_id, int node_id,
+        const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks, bool eos) {
+    std::unique_lock<std::mutex> l(_cte_scan_lock);
+    auto it = _cte_scan.find(std::make_pair(instance_id, node_id));
+    if (it == _cte_scan.end()) {
+        return Status::InternalError("RecCTEScan not found for instance {}, node {}",
+                                     print_id(instance_id), node_id);
+    }
+    for (const auto& pblock : pblocks) {
+        RETURN_IF_ERROR(it->second->add_block(pblock));
+    }
+    if (eos) {
+        it->second->set_ready();
+    }
+    return Status::OK();
+}
+
+void QueryContext::registe_cte_scan(const TUniqueId& instance_id, int node_id,
+                                    pipeline::RecCTEScanLocalState* scan) {
+    std::unique_lock<std::mutex> l(_cte_scan_lock);
+    auto key = std::make_pair(instance_id, node_id);
+    DCHECK(!_cte_scan.contains(key)) << "Duplicate registe cte scan for instance "
+                                     << print_id(instance_id) << ", node " << node_id;
+    _cte_scan.emplace(key, scan);
+}
+
+void QueryContext::deregiste_cte_scan(const TUniqueId& instance_id, int node_id) {
+    std::lock_guard<std::mutex> l(_cte_scan_lock);
+    auto key = std::make_pair(instance_id, node_id);
+    DCHECK(_cte_scan.contains(key)) << "Duplicate deregiste cte scan for instance "
+                                    << print_id(instance_id) << ", node " << node_id;
+    _cte_scan.erase(key);
+}
+
+Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids) {
+    if (_merge_controller_handler) {
+        return _merge_controller_handler->reset_global_rf(this, filter_ids);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

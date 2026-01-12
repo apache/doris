@@ -46,13 +46,18 @@ public class ExplodeBitmapOuter extends TableGeneratingFunction implements Unary
         super("explode_bitmap_outer", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeBitmapOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeBitmapOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeBitmapOuter(children.get(0));
+        return new ExplodeBitmapOuter(getFunctionParams(children));
     }
 
     @Override

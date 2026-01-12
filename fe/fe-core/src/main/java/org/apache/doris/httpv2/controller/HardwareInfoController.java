@@ -55,7 +55,7 @@ public class HardwareInfoController {
 
     private static final Logger LOG = LogManager.getLogger(HardwareInfoController.class);
 
-    @RequestMapping(path = "/hardware_info/fe", method = RequestMethod.GET)
+    @RequestMapping(path = "/hardware_info/fe/", method = RequestMethod.GET)
     public Object index() {
         Map<String, Map<String, String>> map = new HashMap<>();
         appendVersionInfo(map);
@@ -69,6 +69,7 @@ public class HardwareInfoController {
         map.put("Git", Version.DORIS_BUILD_HASH);
         map.put("BuildInfo", Version.DORIS_BUILD_INFO);
         map.put("BuildTime", Version.DORIS_BUILD_TIME);
+        map.put("Features", Version.DORIS_FEATURE_LIST);
         content.put("VersionInfo", map);
     }
 

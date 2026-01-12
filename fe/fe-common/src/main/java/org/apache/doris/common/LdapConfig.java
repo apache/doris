@@ -77,7 +77,7 @@ public class LdapConfig extends ConfigBase {
      * After timeout, the user information will be retrieved from the LDAP service again.
      */
     @ConfigBase.ConfField(mutable = true)
-    public static long ldap_user_cache_timeout_s = 12 * 60 * 60;
+    public static long ldap_user_cache_timeout_s = 5 * 60;
 
     /**
      * System LDAP information cache time.
@@ -143,18 +143,18 @@ public class LdapConfig extends ConfigBase {
      * it is dropped from the pool, and an attempt to borrow another is made.
      */
     @ConfigBase.ConfField
-    public static boolean ldap_pool_test_on_borrow = false;
+    public static boolean ldap_pool_test_on_borrow = true;
 
     /**
      * Whether objects are validated before being returned to the pool.
      */
     @ConfigBase.ConfField
-    public static boolean ldap_pool_test_on_return = false;
+    public static boolean ldap_pool_test_on_return = true;
 
     /**
      * Whether objects are validated by the idle object evictor (if any). If an object fails to validate,
      * it is dropped from the pool.
      */
     @ConfigBase.ConfField
-    public static boolean ldap_pool_test_while_idle = false;
+    public static boolean ldap_pool_test_while_idle = true;
 }

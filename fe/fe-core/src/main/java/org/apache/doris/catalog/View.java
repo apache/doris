@@ -17,16 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -34,8 +31,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
-import java.lang.ref.SoftReference;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Table metadata representing a catalog view or a local view from a WITH clause.
@@ -45,7 +43,7 @@ import java.util.List;
  * Refreshing or invalidating a view will reload the view's definition but will not
  * affect the metadata of the underlying tables (if any).
  */
-public class View extends Table implements GsonPostProcessable {
+public class View extends Table implements GsonPostProcessable, ViewIf {
     private static final Logger LOG = LogManager.getLogger(View.class);
 
     // The original SQL-string given as view definition. Set during analysis.
@@ -69,21 +67,16 @@ public class View extends Table implements GsonPostProcessable {
     private String inlineViewDef;
 
     // for persist
+    // Replaced by sessionVariables
+    @Deprecated
     @SerializedName("sm")
     private long sqlMode = 0L;
 
-    // View definition created by parsing inlineViewDef_ into a QueryStmt.
-    // 'queryStmt' is a strong reference, which is used when this view is created directly from a QueryStmt
-    // 'queryStmtRef' is a soft reference, it is created from parsing query stmt, and it will be cleared if
-    // JVM memory is not enough.
-    private QueryStmt queryStmt;
-    private SoftReference<QueryStmt> queryStmtRef = new SoftReference<QueryStmt>(null);
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
 
     // Set if this View is from a WITH clause and not persisted in the catalog.
     private boolean isLocalView;
-
-    // Set if this View is from a WITH clause with column labels.
-    private List<String> colLabels;
 
     // Used for read from image
     public View() {
@@ -96,45 +89,9 @@ public class View extends Table implements GsonPostProcessable {
         isLocalView = false;
     }
 
-    /**
-     * C'tor for WITH-clause views that already have a parsed QueryStmt and an optional
-     * list of column labels.
-     */
-    public View(String alias, QueryStmt queryStmt, List<String> colLabels) {
-        super(-1, alias, TableType.VIEW, null);
-        this.isLocalView = true;
-        this.queryStmt = queryStmt;
-        this.colLabels = colLabels;
-    }
-
-    public boolean isLocalView() {
-        return isLocalView;
-    }
-
-    public QueryStmt getQueryStmt() {
-        if (queryStmt != null) {
-            return queryStmt;
-        }
-        QueryStmt retStmt = queryStmtRef.get();
-        if (retStmt == null) {
-            synchronized (this) {
-                retStmt = queryStmtRef.get();
-                if (retStmt == null) {
-                    try {
-                        retStmt = init();
-                    } catch (UserException e) {
-                        // should not happen
-                        LOG.error("unexpected exception", e);
-                    }
-                }
-            }
-        }
-        return retStmt;
-    }
-
-    public void setInlineViewDefWithSqlMode(String inlineViewDef, long sqlMode) {
+    public void setInlineViewDefWithSessionVariables(String inlineViewDef, Map<String, String> sessionVariables) {
         this.inlineViewDef = inlineViewDef;
-        this.sqlMode = sqlMode;
+        this.sessionVariables = sessionVariables;
     }
 
     public void setSqlMode(long sqlMode) {
@@ -149,43 +106,9 @@ public class View extends Table implements GsonPostProcessable {
         return inlineViewDef;
     }
 
-    /**
-     * Initializes the originalViewDef, inlineViewDef, and queryStmt members
-     * by parsing the expanded view definition SQL-string.
-     * Throws a TableLoadingException if there was any error parsing the
-     * the SQL or if the view definition did not parse into a QueryStmt.
-     */
-    public synchronized QueryStmt init() throws UserException {
-        return null;
-    }
-
-    /**
-     * Returns the column labels the user specified in the WITH-clause.
-     */
-    public List<String> getOriginalColLabels() {
-        return colLabels;
-    }
-
-    /**
-     * Returns the explicit column labels for this view, or null if they need to be derived
-     * entirely from the underlying query statement. The returned list has at least as many
-     * elements as the number of column labels in the query stmt.
-     */
-    public List<String> getColLabels() {
-        QueryStmt stmt = getQueryStmt();
-        if (colLabels == null) {
-            return null;
-        }
-        if (colLabels.size() >= stmt.getColLabels().size()) {
-            return colLabels;
-        }
-        List<String> explicitColLabels = Lists.newArrayList(colLabels);
-        explicitColLabels.addAll(stmt.getColLabels().subList(colLabels.size(), stmt.getColLabels().size()));
-        return explicitColLabels;
-    }
-
-    public boolean hasColLabels() {
-        return colLabels != null;
+    @Override
+    public String getViewText() {
+        return inlineViewDef;
     }
 
     // Get the md5 of signature string of this view.
@@ -236,13 +159,23 @@ public class View extends Table implements GsonPostProcessable {
     public void resetViewDefForRestore(String srcDbName, String dbName) {
         // the source db name is not setted in old BackupMeta, keep compatible with the old one.
         if (srcDbName != null) {
-            // replace dbName with a regular expression
-            inlineViewDef = inlineViewDef.replaceAll("(?<=`internal`\\.`)([^`]+)(?=`\\.`)", dbName);
+            // Only replace the source database name, preserve cross-database references
+            // Pattern: `internal`.`srcDbName`.`table` -> `internal`.`dbName`.`table`
+            String pattern = "(?<=`internal`\\.`)" + Pattern.quote(srcDbName) + "(?=`\\.`)";
+            inlineViewDef = inlineViewDef.replaceAll(pattern, dbName);
         }
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
         originalViewDef = "";
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 }

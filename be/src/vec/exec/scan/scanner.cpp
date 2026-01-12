@@ -20,10 +20,12 @@
 #include <glog/logging.h>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr_context.h"
@@ -37,11 +39,13 @@ Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
           _limit(limit),
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
-          _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
+          _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
+          _has_prepared(false) {
+    _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
-Status Scanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {
@@ -75,12 +79,43 @@ Status Scanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts)
 Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
-        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        auto status = get_block(state, &_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
+        if (_alreay_eos) {
+            *eos = true;
+            _padding_block.swap(_origin_block);
+        } else {
+            _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+            const auto min_batch_size = std::max(state->batch_size() / 2, 1);
+            while (_padding_block.rows() < min_batch_size && !*eos) {
+                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+                if (_origin_block.rows() >= min_batch_size) {
+                    break;
+                }
+
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size()) {
+                    RETURN_IF_ERROR(_merge_padding_block());
+                    _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                } else {
+                    if (_origin_block.rows() < _padding_block.rows()) {
+                        _padding_block.swap(_origin_block);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // first output the origin block change eos = false, next time output padding block
+        // set the eos to true
+        if (*eos && !_padding_block.empty() && !_origin_block.empty()) {
+            _alreay_eos = true;
+            *eos = false;
+        }
+        if (_origin_block.empty() && !_padding_block.empty()) {
+            _padding_block.swap(_origin_block);
+        }
         return _do_projections(&_origin_block, block);
+    } else {
+        return get_block(state, block, eos);
     }
-    return get_block(state, block, eos);
 }
 
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
@@ -91,10 +126,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (auto* const slot_desc : _output_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
-                // should be ignore from reading
-                continue;
-            }
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                                 slot_desc->get_data_type_ptr(),
                                                 slot_desc->col_name()));
@@ -103,9 +134,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
     {
         do {
-            // if step 2 filter all rows of block, and block will be reused to get next rows,
-            // must clear row_same_bit of block, or will get wrong row_same_bit.size() which not equal block.rows()
-            block->clear_same_bit();
             // 1. Get input block from scanner
             {
                 // get block time
@@ -113,8 +141,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
                     DCHECK(block->rows() == 0);
-                    // clear TEMP columns to avoid column align problem
-                    block->erase_tmp_columns();
                     break;
                 }
                 _num_rows_read += block->rows();
@@ -145,11 +171,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status Scanner::_filter_output_block(Block* block) {
-    Defer clear_tmp_block([&]() { block->erase_tmp_columns(); });
-    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
-        // scanner filter_block is already done (only by _topn_next currently), just skip it
-        return Status::OK();
-    }
     auto old_rows = block->rows();
     Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
@@ -184,21 +205,21 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
     DCHECK_EQ(mutable_columns.size(), _projections.size());
 
     for (int i = 0; i < mutable_columns.size(); ++i) {
-        auto result_column_id = -1;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
-        auto column_ptr = input_block.get_by_position(result_column_id)
-                                  .column->convert_to_full_column_if_const();
-        //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
-        if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
-            DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
-            reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
-                    ->insert_range_from_not_nullable(*column_ptr, 0, rows);
-        } else {
-            mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+        ColumnPtr column_ptr;
+        RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
+        column_ptr = column_ptr->convert_to_full_column_if_const();
+        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
+        mutable_columns[i] = column_ptr->assume_mutable();
     }
-    DCHECK(mutable_block.rows() == rows);
+
     output_block->set_columns(std::move(mutable_columns));
+
+    // origin columns was moved into output_block, so we need to set origin_block to empty columns
+    auto empty_columns = origin_block->clone_empty_columns();
+    origin_block->set_columns(std::move(empty_columns));
+    DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
 }
@@ -226,26 +247,28 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     }
     // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    RETURN_IF_ERROR(_local_state->_helper.clone_conjunct_ctxs(_state, _conjuncts,
+                                                              _local_state->_conjuncts));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
 
 Status Scanner::close(RuntimeState* state) {
-    if (_is_closed) {
-        return Status::OK();
-    }
 #ifndef BE_TEST
     COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
 #endif
-    _is_closed = true;
     return Status::OK();
+}
+
+bool Scanner::_try_close() {
+    bool expected = false;
+    return _is_closed.compare_exchange_strong(expected, true);
 }
 
 void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
-    if (!_state->enable_profile() && !_is_load) return;
+
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);

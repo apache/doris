@@ -33,6 +33,12 @@ public abstract class AbstractRuntimeTask<ChildId, Child extends AbstractRuntime
         }
     }
 
+    public Integer getInstanceNum() {
+        return childrenTasks.allTasks().stream()
+                .mapToInt(Child::getInstanceNum)
+                .sum();
+    }
+
     public Map<ChildId, Child> getChildrenTasks() {
         return childrenTasks.allTaskMap();
     }

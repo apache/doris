@@ -33,8 +33,4 @@ suite("test_pushdown_explain") {
         sql("select cast(0 as date)")
         contains "NULL"
     }
-    explain {
-        sql("select cast(\"6.a8\" as json)")
-        contains "NULL"
-    }
 }

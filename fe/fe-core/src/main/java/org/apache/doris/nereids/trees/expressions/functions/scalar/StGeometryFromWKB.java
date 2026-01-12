@@ -50,13 +50,18 @@ public class StGeometryFromWKB extends ScalarFunction
         super("st_geometryfromwkb", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StGeometryFromWKB(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StGeometryFromWKB withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StGeometryFromWKB(children.get(0));
+        return new StGeometryFromWKB(getFunctionParams(children));
     }
 
     @Override

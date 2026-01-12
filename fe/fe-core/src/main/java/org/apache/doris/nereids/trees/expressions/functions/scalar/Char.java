@@ -47,6 +47,11 @@ public class Char extends ScalarFunction
         super("char", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Char(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(child(0) instanceof StringLikeLiteral)) {
@@ -64,7 +69,7 @@ public class Char extends ScalarFunction
      */
     @Override
     public Char withChildren(List<Expression> children) {
-        return new Char(children);
+        return new Char(getFunctionParams(children));
     }
 
     @Override

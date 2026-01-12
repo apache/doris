@@ -37,6 +37,11 @@ suite("test_cold_data_compaction", "nonConcurrent") {
         }
     }
 
+    def custoBeConfig = [
+        cold_data_compaction_score_threshold : 4
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
     String suffix = UUID.randomUUID().hashCode().abs().toString()
     String s3Prefix = "regression/cold_data_compaction"
     multi_sql """
@@ -103,10 +108,25 @@ suite("test_cold_data_compaction", "nonConcurrent") {
     })
 
     String tabletId = sql_return_maparray("show tablets from t_recycle_in_s3")[0].TabletId
+
+    // get be http ip and port for tabletId
+    def tablets = sql_return_maparray("show tablets from t_recycle_in_s3")
+    def tablet = tablets.find { it.TabletId == tabletId }
+    def backendId = tablet.BackendId
+    def bes = sql_return_maparray("show backends")
+    def injectBe = bes.find { it.BackendId == backendId }
+    def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, tabletId)
+    logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
+
     // check number of remote files
     def filesBeforeCompaction = getS3Client().listObjects(
             new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix + "/data/${tabletId}")).getObjectSummaries()
 
+    // logout files
+    logger.info("Files in S3 before compaction:")
+    filesBeforeCompaction.each { file ->
+        logger.info(" - ${file.getKey()} (size: ${file.getSize()})")
+    }
     // 5 RowSets + 1 meta
     assertEquals(6, filesBeforeCompaction.size())
 
@@ -137,4 +157,5 @@ suite("test_cold_data_compaction", "nonConcurrent") {
         logger.info("after drop t_recycle_in_s3, remote file number is ${filesAfterDrop.size()}")
         return filesAfterDrop.size() == 0
     })
+    }
 }

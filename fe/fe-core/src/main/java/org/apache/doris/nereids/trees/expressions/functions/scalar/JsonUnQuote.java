@@ -47,13 +47,18 @@ public class JsonUnQuote extends ScalarFunction
         super("json_unquote", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonUnQuote(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonUnQuote withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new JsonUnQuote(children.get(0));
+        return new JsonUnQuote(getFunctionParams(children));
     }
 
     @Override

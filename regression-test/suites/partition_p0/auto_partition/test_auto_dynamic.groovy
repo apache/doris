@@ -93,7 +93,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
         );
     """
     def part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 6)
+    assertEquals(part_result.size(), 6)
 
     sql " drop table if exists auto_dynamic "
     sql """
@@ -114,7 +114,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
         );
     """
     part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 1)
+    assertEquals(part_result.size(), 1)
 
     def skip_test = false
     test {
@@ -137,7 +137,8 @@ suite("test_auto_dynamic", "nonConcurrent") {
     sleep(10000)
     part_result = sql " show partitions from auto_dynamic "
     log.info("${part_result}".toString())
-    assertEquals(part_result.size, 3)
+    assertTrue(part_result.size() == 3 || part_result.size() == 4,
+        "The partition size should be 3 or 4, but got ${part_result.size()}")
 
     qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
 

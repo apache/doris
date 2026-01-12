@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv.rollup;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -50,9 +51,14 @@ public class ContainDistinctFunctionRollupHandler extends AggFunctionRollUpHandl
     public static final ContainDistinctFunctionRollupHandler INSTANCE = new ContainDistinctFunctionRollupHandler();
     public static Set<AggregateFunction> SUPPORTED_AGGREGATE_FUNCTION_SET = ImmutableSet.of(
             new Max(true, Any.INSTANCE), new Min(true, Any.INSTANCE),
+            new Max(true, Any.INSTANCE).withAlwaysNullable(true),
+            new Min(true, Any.INSTANCE).withAlwaysNullable(true),
             new Max(false, Any.INSTANCE), new Min(false, Any.INSTANCE),
-            new Count(true, Any.INSTANCE), new Sum(true, Any.INSTANCE),
-            new Avg(true, Any.INSTANCE));
+            new Max(false, Any.INSTANCE).withAlwaysNullable(true),
+            new Min(false, Any.INSTANCE).withAlwaysNullable(true),
+            new Count(true, Any.INSTANCE),
+            new Sum(true, Any.INSTANCE), new Sum(true, Any.INSTANCE).withAlwaysNullable(true),
+            new Avg(true, Any.INSTANCE), new Avg(true, Any.INSTANCE).withAlwaysNullable(true));
 
     @Override
     public boolean canRollup(AggregateFunction queryAggregateFunction,
@@ -103,7 +109,8 @@ public class ContainDistinctFunctionRollupHandler extends AggFunctionRollUpHandl
                 if (!context.param) {
                     return expr;
                 }
-                if (expr instanceof Literal || expr instanceof BinaryArithmetic || expr instanceof Slot) {
+                if (expr instanceof Literal || expr instanceof BinaryArithmetic || expr instanceof Slot
+                        || expr instanceof Cast) {
                     return super.visit(expr, context);
                 }
                 context.param = false;

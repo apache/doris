@@ -16,6 +16,7 @@
 // under the License.
 
 suite('test_subquery_nullable') {
+    sql 'set enable_parallel_result_sink=false;'
     sql 'DROP TABLE IF EXISTS test_subquery_nullable_t1 FORCE'
     sql 'DROP TABLE IF EXISTS test_subquery_nullable_t2 FORCE'
     sql "CREATE TABLE test_subquery_nullable_t1(a int not null, b int not null, c int not null) distributed by hash(a) properties('replication_num' = '1')"

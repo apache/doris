@@ -19,10 +19,10 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF5
+------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF3 RF5
 ----------------------------------PhysicalProject
 ------------------------------------filter(ca_county IN ('Campbell County', 'Cleburne County', 'Escambia County', 'Fairfield County', 'Washtenaw County'))
---------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------PhysicalOlapScan[customer_address(ca)]
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 ------------------------------PhysicalProject
@@ -46,7 +46,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[date_dim]
 
 Hint log:
-Used: leading(customer_demographics broadcast { c broadcast ca } ) 
+Used: leading(customer_demographics broadcast { c broadcast ca } )
 UnUsed:
 SyntaxError:
 

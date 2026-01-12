@@ -69,9 +69,12 @@ public class Tag implements Writable {
     public static final String CLOUD_CLUSTER_NAME = "cloud_cluster_name";
     public static final String CLOUD_CLUSTER_ID = "cloud_cluster_id";
     public static final String CLOUD_UNIQUE_ID = "cloud_unique_id";
+    public static final String CLOUD_CLUSTER_STATUS = "cloud_cluster_status";
     public static final String CLOUD_CLUSTER_PUBLIC_ENDPOINT = "cloud_cluster_public_endpoint";
     public static final String CLOUD_CLUSTER_PRIVATE_ENDPOINT = "cloud_cluster_private_endpoint";
-    public static final String CLOUD_CLUSTER_STATUS = "cloud_cluster_status";
+
+    public static final String PUBLIC_ENDPOINT = "public_endpoint";
+    public static final String PRIVATE_ENDPOINT = "private_endpoint";
 
     public static final String COMPUTE_GROUP_NAME = "compute_group_name";
 
@@ -86,6 +89,7 @@ public class Tag implements Writable {
             VALUE_MIX, VALUE_DEFAULT_CLUSTER);
     private static final String TAG_TYPE_REGEX = "^[a-z][a-z0-9_]{0,32}$";
     private static final String TAG_VALUE_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,32}$";
+    private static final String ENDPOINT_REGEX = "^[a-zA-Z0-9.-]+(:[0-9]+)?$";
 
 
     public static final Tag DEFAULT_BACKEND_TAG;
@@ -112,7 +116,13 @@ public class Tag implements Writable {
         if (!type.matches(TAG_TYPE_REGEX)) {
             throw new AnalysisException("Invalid tag type format: " + type);
         }
-        if (!value.matches(TAG_VALUE_REGEX)) {
+
+        // if type is an endpoint type, value must be a valid endpoint
+        if (type.equalsIgnoreCase(PUBLIC_ENDPOINT) || type.equalsIgnoreCase(PRIVATE_ENDPOINT)) {
+            if (!value.matches(ENDPOINT_REGEX)) {
+                throw new AnalysisException("Invalid " + type + " value format: " + value);
+            }
+        } else if (!value.matches(TAG_VALUE_REGEX)) {
             throw new AnalysisException("Invalid tag value format: " + value);
         }
         return new Tag(type, value);

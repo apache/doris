@@ -25,12 +25,13 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "util/cgroup_util.h"
 #include "util/perf_counters.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(avail_cpu_num, MetricUnit::NOUNIT);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(host_cpu_num, MetricUnit::NOUNIT);
@@ -731,7 +732,7 @@ void SystemMetrics::_update_snmp_metrics() {
     }
 
     // We only care about Tcp lines, so skip other lines in front of Tcp line
-    int res = 0;
+    int64_t res = 0;
     while ((res = getline(&_line_ptr, &_line_buf_size, fp)) > 0) {
         if (strstr(_line_ptr, "Tcp") != nullptr) {
             break;
@@ -1004,7 +1005,8 @@ void SystemMetrics::_update_proc_metrics() {
 void SystemMetrics::update_be_avail_cpu_num() {
     int64_t physical_cpu_num = _cpu_num_metrics->host_cpu_num->value();
     if (physical_cpu_num > 0) {
-        physical_cpu_num = CGroupUtil::get_cgroup_limited_cpu_number(physical_cpu_num);
+        physical_cpu_num =
+                CGroupUtil::get_cgroup_limited_cpu_number(cast_set<int32_t>(physical_cpu_num));
         _cpu_num_metrics->avail_cpu_num->set_value(physical_cpu_num);
     }
 }

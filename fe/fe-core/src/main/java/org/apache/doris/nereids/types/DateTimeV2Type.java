@@ -27,8 +27,6 @@ import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
-import com.google.common.base.Preconditions;
-
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -41,13 +39,13 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type SYSTEM_DEFAULT = new DateTimeV2Type(0);
     public static final DateTimeV2Type MAX = new DateTimeV2Type(MAX_SCALE);
+    public static final DateTimeV2Type WILDCARD = new DateTimeV2Type(-1);
 
     private static final int WIDTH = 8;
 
     private final int scale;
 
     private DateTimeV2Type(int scale) {
-        Preconditions.checkArgument(0 <= scale && scale <= MAX_SCALE);
         this.scale = scale;
     }
 

@@ -28,6 +28,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::pipeline {
@@ -54,6 +55,16 @@ static void insert_with_indexs(auto& dst, const auto& src, const auto& indexs, b
     }
 }
 
+static void mock_column_size(auto& col, size_t size) {
+    if (!is_column_const(*col)) {
+        DCHECK(col->empty());
+        col->insert_default();
+        col = vectorized::ColumnConst::create(std::move(col), size);
+    } else {
+        col->resize(size);
+    }
+}
+
 template <int JoinOpType>
 ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState* parent,
                                                          int batch_size)
@@ -70,7 +81,17 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
           _probe_side_output_timer(parent->_probe_side_output_timer),
           _finish_probe_phase_timer(parent->_finish_probe_phase_timer),
           _right_col_idx(_parent_operator->_right_col_idx),
-          _right_col_len(_parent_operator->_right_table_data_types.size()) {}
+          _right_col_len(_parent_operator->_right_table_data_types.size()) {
+    constexpr int CALCULATE_ALL_MATCH_ONE_THRESHOLD = 2;
+    int probe_output_non_lazy_materialized_count = 0;
+    for (int i = 0; i < _left_output_slot_flags.size(); i++) {
+        if (_left_output_slot_flags[i] && !_parent_operator->is_lazy_materialized_column(i)) {
+            probe_output_non_lazy_materialized_count++;
+        }
+    }
+    _need_calculate_all_match_one =
+            probe_output_non_lazy_materialized_count >= CALCULATE_ALL_MATCH_ONE_THRESHOLD;
+}
 
 template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::MutableColumns& mcol,
@@ -87,16 +108,14 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
     }
 
     if (!build_index_has_zero && _build_column_has_null.empty()) {
-        _need_calculate_build_index_has_zero = false;
         _build_column_has_null.resize(_right_output_slot_flags.size());
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             _build_column_has_null[i] = false;
             if (_right_output_slot_flags[i] && column.is_nullable()) {
                 const auto& nullable = assert_cast<const vectorized::ColumnNullable&>(column);
-                _build_column_has_null[i] = !simd::contain_byte(
-                        nullable.get_null_map_data().data() + 1, nullable.size() - 1, 1);
-                _need_calculate_build_index_has_zero |= _build_column_has_null[i];
+                _build_column_has_null[i] = !simd::contain_one(
+                        nullable.get_null_map_data().data() + 1, nullable.size() - 1);
             }
         }
     }
@@ -115,9 +134,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
                         _build_indexs.get_data().data() + size);
             }
         } else if (i + _right_col_idx != _parent->_mark_column_id) {
-            mcol[i + _right_col_idx]->insert_default();
-            mcol[i + _right_col_idx] =
-                    vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
+            mock_column_size(mcol[i + _right_col_idx], size);
         }
     }
     if (_parent->_mark_column_id != -1) {
@@ -138,7 +155,8 @@ template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::MutableColumns& mcol) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
-    bool all_match_one = check_all_match_one(_probe_indexs.get_data());
+    bool all_match_one =
+            _need_calculate_all_match_one ? check_all_match_one(_probe_indexs.get_data()) : false;
 
     for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
         if (_left_output_slot_flags[i]) {
@@ -151,8 +169,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::Mut
             auto& column = probe_block.get_by_position(i).column;
             insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
         } else {
-            mcol[i]->insert_default();
-            mcol[i] = vectorized::ColumnConst::create(std::move(mcol[i]), _probe_indexs.size());
+            mock_column_size(mcol[i], _probe_indexs.size());
         }
     }
 }
@@ -160,7 +177,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::Mut
 template <int JoinOpType>
 template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
-        HashTableType& hash_table_ctx, size_t probe_rows, const uint8_t* null_map) {
+        HashTableType& hash_table_ctx, uint32_t probe_rows, const uint8_t* null_map) {
     // may over batch size 1 for some outer join case
     _probe_indexs.resize(_batch_size + 1);
     _build_indexs.resize(_batch_size + 1);
@@ -175,7 +192,9 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
         hash_table_ctx.arena.clear();
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_parent->_probe_columns.size() == 1 && null_map) {
-            _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
+            if (simd::contain_one(null_map, probe_rows)) {
+                _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
+            }
         }
 
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
@@ -349,8 +368,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
         }
         const auto& column_filter =
                 assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data();
-        bool need_filter =
-                simd::count_zero_num((int8_t*)column_filter.data(), column_filter.size()) != 0;
+        bool need_filter = simd::contain_zero(column_filter.data(), column_filter.size());
         if (need_filter) {
             row_indexs.filter(column_filter);
         }
@@ -714,7 +732,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                         column, _build_indexs.get_data().data(),
                         _build_indexs.get_data().data() + block_size);
             } else {
-                mcol[j + _right_col_idx]->resize(block_size);
+                mock_column_size(mcol[j + _right_col_idx], block_size);
             }
         }
 
@@ -744,7 +762,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
         // just resize the left table column in case with other conjunct to make block size is not zero
         if (_parent_operator->_is_right_semi_anti && _right_col_idx != 0) {
             for (int i = 0; i < _right_col_idx; ++i) {
-                mcol[i]->resize(block_size);
+                mock_column_size(mcol[i], block_size);
             }
         }
 
@@ -779,20 +797,28 @@ struct ExtractType<T(U)> {
             ExtractType<void(T)>::Type & hash_table_ctx, vectorized::MutableBlock & mutable_block, \
             vectorized::Block * output_block, bool* eos, bool is_mark_join);
 
-#define INSTANTIATION_FOR(JoinOpType)                                              \
-    template struct ProcessHashTableProbe<JoinOpType>;                             \
-                                                                                   \
-    INSTANTIATION(JoinOpType, (SerializedHashTableContext));                       \
-    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt8>));   \
-    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt16>));  \
-    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt32>));  \
-    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt64>));  \
-    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt128>)); \
-    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt256>)); \
-    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt64>));     \
-    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt128>));    \
-    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt136>));    \
-    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt256>));    \
+#define INSTANTIATION_FOR(JoinOpType)                                                    \
+    template struct ProcessHashTableProbe<JoinOpType>;                                   \
+                                                                                         \
+    INSTANTIATION(JoinOpType, (SerializedHashTableContext));                             \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt8>));   \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt16>));  \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt32>));  \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt64>));  \
+    INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<vectorized::UInt128>)); \
+    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt8>));         \
+    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt16>));        \
+    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt32>));        \
+    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt64>));        \
+    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt128>));       \
+    INSTANTIATION(JoinOpType, (PrimaryTypeHashTableContext<vectorized::UInt256>));       \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt64>));           \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt72>));           \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt96>));           \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt104>));          \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt128>));          \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt136>));          \
+    INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<vectorized::UInt256>));          \
     INSTANTIATION(JoinOpType, (MethodOneString));
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -65,7 +65,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    create_sync_mv(context.dbName, tableName, mvName, """select user_id, date, city, age, sex from ${tableName}""")
+    create_sync_mv(context.dbName, tableName, mvName, """select user_id as a1, date as a2, city as a3, age as a4, sex as a5 from ${tableName}""")
 
     // alter and test light schema change
     if (!isCloudMode()) {
@@ -74,7 +74,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName2 = "mv2"
-    create_sync_mv(context.dbName, tableName, mvName2, """select user_id, date, city, age, sex, cost from ${tableName};""")
+    create_sync_mv(context.dbName, tableName, mvName2, """select user_id as b1, date as b2, city as b3, age as b4, sex as b5, cost as b6 from ${tableName};""")
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

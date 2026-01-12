@@ -41,6 +41,7 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <typename ResultCtxType>
 ResultBlockBuffer<ResultCtxType>::ResultBlockBuffer(TUniqueId id, RuntimeState* state,
@@ -192,19 +193,19 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
         auto num_rows = 0;
         size_t batch_size = 0;
         if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
-            num_rows = result->rows();
+            num_rows = cast_set<int>(result->rows());
             batch_size = result->bytes();
         } else if constexpr (std::is_same_v<InBlockType, TFetchDataResult>) {
-            num_rows = result->result_batch.rows.size();
+            num_rows = cast_set<int>(result->result_batch.rows.size());
             for (const auto& row : result->result_batch.rows) {
                 batch_size += row.size();
             }
         }
         if (!_result_batch_queue.empty()) {
             if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
-                sz = _result_batch_queue.back()->rows();
+                sz = cast_set<int>(_result_batch_queue.back()->rows());
             } else if constexpr (std::is_same_v<InBlockType, TFetchDataResult>) {
-                sz = _result_batch_queue.back()->result_batch.rows.size();
+                sz = cast_set<int>(_result_batch_queue.back()->result_batch.rows.size());
             }
             if (sz + num_rows < _buffer_limit &&
                 (batch_size + _last_batch_bytes) <= config::thrift_max_message_size) {
@@ -252,4 +253,5 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
 template class ResultBlockBuffer<vectorized::GetArrowResultBatchCtx>;
 template class ResultBlockBuffer<vectorized::GetResultBatchCtx>;
 
+#include "common/compile_check_end.h"
 } // namespace doris

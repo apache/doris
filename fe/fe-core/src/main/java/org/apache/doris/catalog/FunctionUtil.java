@@ -17,12 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -30,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
 import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -111,7 +107,7 @@ public class FunctionUtil {
         if (!isReplay) {
             if (existFuncs != null) {
                 for (Function existFunc : existFuncs) {
-                    if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
+                    if (function.isIdentical(existFunc)) {
                         if (ifNotExists) {
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("function already exists");
@@ -161,15 +157,6 @@ public class FunctionUtil {
         return functions;
     }
 
-    public static Function getFunction(Function desc, Function.CompareMode mode,
-            ConcurrentMap<String, ImmutableList<Function>> name2Function) {
-        List<Function> fns = name2Function.get(desc.getFunctionName().getFunction());
-        if (fns == null) {
-            return null;
-        }
-        return Function.getFunction(fns, desc, mode);
-    }
-
     /***
      * is global function
      * @return
@@ -178,43 +165,39 @@ public class FunctionUtil {
         return SetType.GLOBAL == type;
     }
 
-    /***
-     * reAcquire dbName and check "No database selected"
-     * @param analyzer
-     * @param dbName
-     * @param clusterName
-     * @return
-     * @throws AnalysisException
-     */
-    public static String reAcquireDbName(Analyzer analyzer, String dbName)
-            throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        }
-        return dbName;
-    }
-
     public static boolean translateToNereids(String dbName, Function function) {
         try {
-            if (function instanceof AliasFunction) {
-                AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
-            } else if (function instanceof ScalarFunction) {
-                if (function.isUDTFunction()) {
-                    JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                } else {
-                    JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                }
-            } else if (function instanceof AggregateFunction) {
-                JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
-            }
+            translateToNereidsImpl(dbName, function);
         } catch (Exception e) {
             LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
                     function.getFunctionName().getFunction(), e);
         }
         return true;
+    }
+
+    public static boolean translateToNereidsThrows(String dbName, Function function) {
+        try {
+            translateToNereidsImpl(dbName, function);
+        } catch (Exception e) {
+            LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getFunctionName().getFunction(), e);
+            throw e;
+        }
+        return true;
+    }
+
+    private static void translateToNereidsImpl(String dbName, Function function) {
+        if (function instanceof AliasFunction) {
+            AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
+        } else if (function instanceof ScalarFunction) {
+            if (function.isUDTFunction()) {
+                JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+            } else {
+                JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+            }
+        } else if (function instanceof AggregateFunction) {
+            JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+        }
     }
 
     public static boolean dropFromNereids(String dbName, FunctionSearchDesc function) {

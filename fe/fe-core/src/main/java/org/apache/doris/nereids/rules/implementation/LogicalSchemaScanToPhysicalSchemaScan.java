@@ -37,7 +37,8 @@ public class LogicalSchemaScanToPhysicalSchemaScan extends OneImplementationRule
                         scan.getLogicalProperties(),
                         scan.getSchemaCatalog(),
                         scan.getSchemaDatabase(),
-                        scan.getSchemaTable())
+                        scan.getSchemaTable(),
+                        scan.getFrontendConjuncts())
         ).toRule(RuleType.LOGICAL_SCHEMA_SCAN_TO_PHYSICAL_SCHEMA_SCAN_RULE);
     }
 }

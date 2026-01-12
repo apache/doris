@@ -19,13 +19,15 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -37,7 +39,7 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -47,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -54,6 +57,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -64,7 +68,11 @@ public class CollectRelation implements AnalysisRuleFactory {
 
     private static final Logger LOG = LogManager.getLogger(CollectRelation.class);
 
-    public CollectRelation() {}
+    private boolean firstLevel;
+
+    public CollectRelation(boolean firstLevel) {
+        this.firstLevel = firstLevel;
+    }
 
     @Override
     public List<Rule> buildRules() {
@@ -99,9 +107,11 @@ public class CollectRelation implements AnalysisRuleFactory {
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueries) {
             // we should use a chain to ensure visible of cte
             LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
+            // 看起来需要在CascadesContext中添加当前CTE的name，以便判断自引用
             CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
-                    cascadesContext, parsedCtePlan, outerCteCtx);
-            innerCascadesCtx.newTableCollector().collect();
+                    cascadesContext, parsedCtePlan, outerCteCtx, aliasQuery.isRecursiveCte()
+                            ? Optional.of(aliasQuery.getAlias()) : Optional.empty(), ImmutableList.of());
+            innerCascadesCtx.newTableCollector(true).collect();
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             // cteId is not used in CollectTable stage
             CTEId cteId = new CTEId(0);
@@ -119,9 +129,10 @@ public class CollectRelation implements AnalysisRuleFactory {
                 if (e instanceof SubqueryExpr) {
                     SubqueryExpr subqueryExpr = (SubqueryExpr) e;
                     CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
-                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
+                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext, Optional.empty(),
+                            ImmutableList.of());
                     subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
-                            () -> subqueryContext.newTableCollector().collect());
+                            () -> subqueryContext.newTableCollector(true).collect());
                     ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
                 }
             });
@@ -171,6 +182,10 @@ public class CollectRelation implements AnalysisRuleFactory {
             List<String> nameParts, TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
         if (nameParts.size() == 1) {
             String tableName = nameParts.get(0);
+            if (cascadesContext.getCurrentRecursiveCteName().isPresent()
+                    && tableName.equalsIgnoreCase(cascadesContext.getCurrentRecursiveCteName().get())) {
+                return;
+            }
             // check if it is a CTE's name
             CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
             if (cteContext != null) {
@@ -186,13 +201,17 @@ public class CollectRelation implements AnalysisRuleFactory {
         if (cascadesContext.getRewritePlan() instanceof UnboundDictionarySink) {
             table = ((UnboundDictionarySink) cascadesContext.getRewritePlan()).getDictionary();
         } else {
-            table = cascadesContext.getConnectContext().getStatementContext()
-                .getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+            StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+            table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+            if (firstLevel) {
+                statementContext.getOneLevelTables().put(tableQualifier, table);
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("collect table {} from {}", nameParts, tableFrom);
         }
         if (tableFrom == TableFrom.QUERY) {
+            collectMVCandidates(table, cascadesContext);
             collectMTMVCandidates(table, cascadesContext);
         }
         if (tableFrom == TableFrom.INSERT_TARGET) {
@@ -207,15 +226,25 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
     }
 
-    protected void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
-        boolean shouldCollect = false;
-        for (PlannerHook plannerHook : cascadesContext.getStatementContext().getPlannerHooks()) {
-            // only collect when InitMaterializationContextHook exists in planner hooks
-            if (plannerHook instanceof InitMaterializationContextHook) {
-                shouldCollect = true;
-                break;
+    // collect sync materialized view which maybe used for rewrite later
+    private void collectMVCandidates(TableIf tableIf, CascadesContext cascadesContext) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        boolean shouldCollect = MaterializedViewUtils.containMaterializedViewHook(statementContext);
+        if (shouldCollect && tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            long baseIndexId = olapTable.getBaseIndexId();
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+                if (entry.getKey() != baseIndexId) {
+                    statementContext.getCandidateMVs().add(entry.getValue());
+                }
             }
         }
+    }
+
+    // collect async materialized view which maybe used for rewrite later
+    private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
+        boolean shouldCollect = MaterializedViewUtils.containMaterializedViewHook(
+                cascadesContext.getStatementContext());
         if (shouldCollect) {
             boolean isDebugEnabled = LOG.isDebugEnabled();
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
@@ -252,14 +281,12 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     protected void parseAndCollectFromView(List<String> tableQualifier, View view, CascadesContext parentContext) {
-        Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
-        long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
-        parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);
+        Pair<String, Map<String, String>> viewInfo = parentContext.getStatementContext()
+                .getAndCacheViewInfo(tableQualifier, view);
         LogicalPlan parsedViewPlan;
-        try {
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
+                viewInfo.second)) {
             parsedViewPlan = new NereidsParser().parseSingle(viewInfo.first);
-        } finally {
-            parentContext.getConnectContext().getSessionVariable().setSqlMode(originalSqlMode);
         }
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
@@ -267,7 +294,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(),
-                () -> viewContext.newTableCollector().collect());
+                () -> viewContext.newTableCollector(false).collect());
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
     }
 }

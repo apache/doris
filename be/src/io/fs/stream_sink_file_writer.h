@@ -53,9 +53,6 @@ public:
         static Path dummy;
         return dummy;
     }
-
-    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
-
     Status close(bool non_block = false) override;
 
 private:

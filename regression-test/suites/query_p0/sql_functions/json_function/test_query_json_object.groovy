@@ -40,13 +40,13 @@ suite("test_query_json_object", "query") {
     sql "insert into ${tableName} values(3,null,true,null,null);"
     sql "insert into ${tableName} values(4,null,null,'test','2022-01-01 11:11:11');"
     sql "insert into ${tableName} values(5,1,true,'test','2022-01-01 11:11:11');"
-    qt_sql1 "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4,'k5', null,'k6','k6') from ${tableName} order by k0;"
+    qt_sql1 "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',cast(k4 as string),'k5', null,'k6','k6') from ${tableName} order by k0;"
     test {
         sql """select k0,json_object(k3,123) from ${tableName} order by k0;"""
-        exception "function json_object can not input null value , JSON documents may not contain NULL member names."
+        exception "JSON documents may not contain NULL member name"
     }
 
-    qt_sql2 """select json_object ( CONCAT('k',t.number%30926%3000 + 0),CONCAT('k',t.number%30926%3000 + 0,t.number%1000000) ) from numbers("number" = "2") t order by 1;"""
+    qt_sql2 """select json_object ( CONCAT('k',t.number%30926%3000 + 0),CONCAT('k',t.number%30926%3000 + 0,t.number%1000000) ) v from numbers("number" = "2") t order by cast(v as string);"""
     sql "DROP TABLE ${tableName};"
 
     // test json_object with complex type
@@ -57,13 +57,8 @@ suite("test_query_json_object", "query") {
     qt_sql_array """ SELECT json_object('id', 1, 'level', array(1,2)); """
     qt_sql_array """ SELECT json_object('id', 1, 'level', array(1.1,2.2)); """
     qt_sql_array """ SELECT json_object('id', 1, 'level', array(1.1,2)); """
-    qt_sql_array """ SELECT json_object('id', 1, 'level', array(cast(1 as decimal), cast(1.2 as decimal))); """
-    // map
-    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 'b', 'c', 'd')); """
-    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 1, 'c', 2)); """
-    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 1.1, 'c', 2.2)); """
-    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 1.1, 'c', 2)); """
-    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', cast(1 as decimal), 'c', cast(1.2 as decimal))); """
+    qt_sql_array_decimal """ SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_object('id', 1, 'level', array(cast(1 as decimal), cast(1.2 as decimal))); """
+    qt_sql_array_decimal_fold """ SELECT /*+ set_var(enable_fold_constant_by_be=1) */ json_object('id', 1, 'level', array(cast(1 as decimal), cast(1.2 as decimal))); """
     // struct
     qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1)); """
     qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1.1)); """
@@ -84,7 +79,6 @@ suite("test_query_json_object", "query") {
             CREATE TABLE test_query_json_object_complex (
               `k0` int(11) not null,
               `k1` array<string> NULL,
-              `k2` map<string, string> NULL,
               `k3` struct<name:string, age:int> NULL,
               `k4` json NULL
             ) ENGINE=OLAP
@@ -97,11 +91,19 @@ suite("test_query_json_object", "query") {
             "storage_format" = "V2"
             );
         """
-    sql "insert into ${tableName} values(1,null,null,null,null);"
-    sql "insert into ${tableName} values(2, array('a','b'), map('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}');"
-    sql """insert into ${tableName} values(3, array('"a"', '"b"'), map('"a"', '"b"', '"c"', '"d"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
-    sql """insert into ${tableName} values(4, array(1,2), map(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
-    sql """insert into ${tableName} values(5, array(1,2,3,3), map(1,2,3,4), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
-    qt_sql2 "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4) from ${tableName} order by k0;"
+    sql "insert into ${tableName} values(1,null,null,null);"
+    sql "insert into ${tableName} values(2, array('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}');"
+    sql """insert into ${tableName} values(3, array('"a"', '"b"'),named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
+    sql """insert into ${tableName} values(4, array(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
+    sql """insert into ${tableName} values(5, array(1,2,3,3), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
+    qt_sql2 "select json_object('k0',k0,'k1',k1,'k3',k3,'k4',k4) from ${tableName} order by k0;"
 
+    qt_json_object1 """ select json_object('k0', null, 'k1', json_parse('{"a":1}'), 'k2', '{"a":1}'); """
+    qt_json_object2 """ select json_object('k0', null); """
+
+
+    test {
+        sql """select json_object(null, 123); """
+        exception "json_object key can't be NULL"
+    }
 }

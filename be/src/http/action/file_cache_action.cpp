@@ -50,11 +50,15 @@ constexpr static std::string_view CLEAR = "clear";
 constexpr static std::string_view RESET = "reset";
 constexpr static std::string_view HASH = "hash";
 constexpr static std::string_view LIST_CACHE = "list_cache";
+constexpr static std::string_view LIST_BASE_PATHS = "list_base_paths";
+constexpr static std::string_view CHECK_CONSISTENCY = "check_consistency";
 constexpr static std::string_view CAPACITY = "capacity";
 constexpr static std::string_view RELEASE = "release";
 constexpr static std::string_view BASE_PATH = "base_path";
 constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
+constexpr static std::string_view DUMP = "dump";
 constexpr static std::string_view VALUE = "value";
+constexpr static std::string_view RELOAD = "reload";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
@@ -72,6 +76,11 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         json[RELEASED_ELEMENTS.data()] = released;
         *json_metrics = json.ToString();
     } else if (operation == CLEAR) {
+        DBUG_EXECUTE_IF("FileCacheAction._handle_header.ignore_clear", {
+            LOG_WARNING("debug point FileCacheAction._handle_header.ignore_clear");
+            st = Status::OK();
+            return st;
+        });
         const std::string& sync = req->param(SYNC.data());
         const std::string& segment_path = req->param(VALUE.data());
         if (segment_path.empty()) {
@@ -127,6 +136,67 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
                 *json_metrics = json.ToString();
             }
         }
+    } else if (operation == DUMP) {
+        io::FileCacheFactory::instance()->dump_all_caches();
+    } else if (operation == LIST_BASE_PATHS) {
+        auto all_cache_base_path = io::FileCacheFactory::instance()->get_base_paths();
+        EasyJson json;
+        std::ranges::for_each(all_cache_base_path,
+                              [&json](auto& x) { json.PushBack(std::move(x)); });
+        *json_metrics = json.ToString();
+    } else if (operation == CHECK_CONSISTENCY) {
+        const std::string& cache_base_path = req->param(BASE_PATH.data());
+        if (cache_base_path.empty()) {
+            st = Status::InvalidArgument("missing parameter: {} is required", BASE_PATH.data());
+        } else {
+            auto* block_file_cache = io::FileCacheFactory::instance()->get_by_path(cache_base_path);
+            if (block_file_cache == nullptr) {
+                st = Status::InvalidArgument("file cache not found for base_path: {}",
+                                             cache_base_path);
+            } else {
+                std::vector<std::string> inconsistencies;
+                RETURN_IF_ERROR(block_file_cache->report_file_cache_inconsistency(inconsistencies));
+                EasyJson json;
+                std::ranges::for_each(inconsistencies,
+                                      [&json](auto& x) { json.PushBack(std::move(x)); });
+                *json_metrics = json.ToString();
+            }
+        }
+    } else if (operation == RELOAD) {
+#ifdef BE_TEST
+        std::string doris_home = getenv("DORIS_HOME");
+        std::string conffile = std::string(doris_home) + "/conf/be.conf";
+        if (!doris::config::init(conffile.c_str(), true, true, true)) {
+            return Status::InternalError("Error reading config file");
+        }
+
+        std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
+        if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
+            return Status::InternalError("Error reading custom config file");
+        }
+
+        if (!doris::config::enable_file_cache) {
+            return Status::InternalError("config::enbale_file_cache should be true!");
+        }
+
+        std::unordered_set<std::string> cache_path_set;
+        std::vector<doris::CachePath> cache_paths;
+        RETURN_IF_ERROR(doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths));
+
+        std::vector<CachePath> cache_paths_no_dup;
+        cache_paths_no_dup.reserve(cache_paths.size());
+        for (const auto& cache_path : cache_paths) {
+            if (cache_path_set.contains(cache_path.path)) {
+                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+                continue;
+            }
+            cache_path_set.emplace(cache_path.path);
+            cache_paths_no_dup.emplace_back(cache_path);
+        }
+        RETURN_IF_ERROR(doris::io::FileCacheFactory::instance()->reload_file_cache(cache_paths));
+#else
+        return Status::InternalError("Do not use reload in production environment!!!!");
+#endif
     } else {
         st = Status::InternalError("invalid operation: {}", operation);
     }

@@ -1188,4 +1188,10 @@ TEST(BitmapValueTest, bitmap_value_iterator_test) {
         }
     }
 }
+
+TEST(BitmapValueTest, invalid_data) {
+    BitmapValue bitmap;
+    char data[] = {0x02, static_cast<char>(0xff), 0x03};
+    EXPECT_FALSE(bitmap.deserialize(data));
+}
 } // namespace doris

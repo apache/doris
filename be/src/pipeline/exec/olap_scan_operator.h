@@ -21,29 +21,29 @@
 
 #include <string>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
+#include "util/runtime_profile.h"
 
-namespace doris {
-#include "common/compile_check_begin.h"
-
-namespace vectorized {
+namespace doris::vectorized {
 class OlapScanner;
-}
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class OlapScanOperatorX;
 class OlapScanLocalState final : public ScanLocalState<OlapScanLocalState> {
 public:
     using Parent = OlapScanOperatorX;
+    using Base = ScanLocalState<OlapScanLocalState>;
     ENABLE_FACTORY_CREATOR(OlapScanLocalState);
-    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : ScanLocalState(state, parent) {}
-
+    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status prepare(RuntimeState* state) override;
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
@@ -51,11 +51,21 @@ public:
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name,
                            std::to_string(_parent->node_id()));
     }
-    Status hold_tablets();
+    std::vector<Dependency*> execution_dependencies() override {
+        if (!_cloud_tablet_dependency) {
+            return Base::execution_dependencies();
+        }
+        std::vector<Dependency*> res = Base::execution_dependencies();
+        res.push_back(_cloud_tablet_dependency.get());
+        return res;
+    }
+
+    Status open(RuntimeState* state) override;
 
 private:
     friend class vectorized::OlapScanner;
 
+    Status _sync_cloud_tablets(RuntimeState* state);
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
@@ -68,11 +78,28 @@ private:
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
 
-    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_bloom_filter() const override {
+        return PushDownType::ACCEPTABLE;
+    }
+    PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
-    PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_bitmap_filter() const override {
+        return PushDownType::ACCEPTABLE;
+    }
 
-    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_is_null_predicate(
+            vectorized::VectorizedFnCall* fn_call) const override {
+        return fn_call->fn().name.function_name == "is_null_pred" ||
+                               fn_call->fn().name.function_name == "is_not_null_pred"
+                       ? PushDownType::ACCEPTABLE
+                       : PushDownType::UNACCEPTABLE;
+    }
+    PushDownType _should_push_down_in_predicate() const override {
+        return PushDownType::ACCEPTABLE;
+    }
+    PushDownType _should_push_down_binary_predicate(
+            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+            StringRef* constant_val, const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr() override;
 
@@ -80,6 +107,11 @@ private:
 
     bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
+            return false;
+        }
+        if (!olap_scan_node().__isset.columns_desc || olap_scan_node().columns_desc.empty() ||
+            olap_scan_node().columns_desc[0].col_unique_id < 0) {
+            // Disable topN filter if there is no schema info
             return false;
         }
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
@@ -90,11 +122,17 @@ private:
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<SyncRowsetStats> _sync_statistics;
+    MonotonicStopWatch _sync_cloud_tablets_watcher;
+    std::shared_ptr<Dependency> _cloud_tablet_dependency;
+    std::atomic<size_t> _pending_tablets_num = 0;
+    bool _prepared = false;
+    std::future<Status> _cloud_tablet_future;
+    std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
-    std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
-    std::set<int32_t> _maybe_read_column_ids;
+    std::set<int32_t> _output_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
@@ -171,11 +209,7 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
-    // row count filtered by bitmap inverted index
-    RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
-    // time fro bitmap inverted index read and filter
-    RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
-
+    RuntimeProfile::Counter* _statistics_collect_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
@@ -190,6 +224,33 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
+
+    RuntimeProfile::Counter* _ann_topn_filter_counter = nullptr;
+    // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs
+    RuntimeProfile::Counter* _ann_topn_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
+
+    RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_pre_process_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_engine_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_post_process_costs = nullptr;
+    // post_process_costs = engine_convert_costs + result_convert_costs
+    RuntimeProfile::Counter* _ann_topn_engine_convert_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_result_convert_costs = nullptr;
+
+    RuntimeProfile::Counter* _ann_range_search_filter_counter = nullptr;
+    // range_Search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs
+    RuntimeProfile::Counter* _ann_range_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_search_cnt = nullptr;
+
+    RuntimeProfile::Counter* _ann_range_pre_process_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_engine_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_post_process_costs = nullptr;
+
+    RuntimeProfile::Counter* _ann_range_engine_convert_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
@@ -197,6 +258,10 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
+
+    // condition cache filter stats
+    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
@@ -219,14 +284,34 @@ private:
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
+    // total uncompressed bytes read when scanning sparse columns in variant
+    RuntimeProfile::Counter* _variant_scan_sparse_column_bytes = nullptr;
+
+    // total time spent scanning sparse subcolumns
+    RuntimeProfile::Counter* _variant_scan_sparse_column_timer = nullptr;
+    // time to build/resolve subcolumn paths from the sparse column
+    RuntimeProfile::Counter* _variant_fill_path_from_sparse_column_timer = nullptr;
+    // Variant subtree: times falling back to default iterator due to missing path
+    RuntimeProfile::Counter* _variant_subtree_default_iter_count = nullptr;
+    // Variant subtree: times selecting leaf iterator (target subcolumn is a leaf)
+    RuntimeProfile::Counter* _variant_subtree_leaf_iter_count = nullptr;
+    // Variant subtree: times selecting hierarchical iterator (node has children and sparse columns)
+    RuntimeProfile::Counter* _variant_subtree_hierarchical_iter_count = nullptr;
+    // Variant subtree: times selecting sparse iterator (iterate over sparse subcolumn)
+    RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
+
     std::vector<TabletWithVersion> _tablets;
-    std::vector<TabletReader::ReadSource> _read_sources;
+    std::vector<TabletReadSource> _read_sources;
+
+    std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
+    std::map<SlotId, size_t> _slot_id_to_index_in_block;
+    // this map is needed for scanner opening.
+    std::map<SlotId, vectorized::DataTypePtr> _slot_id_to_col_type;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -234,12 +319,20 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
-    Status hold_tablets(RuntimeState* state) override;
+
+    int get_column_id(const std::string& col_name) const override {
+        if (!_tablet_schema) {
+            return -1;
+        }
+        const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
+        return _tablet_schema->field_index(column.unique_id());
+    }
 
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
     TQueryCacheParam _cache_param;
+    TabletSchemaSPtr _tablet_schema;
 };
 
 #include "common/compile_check_end.h"

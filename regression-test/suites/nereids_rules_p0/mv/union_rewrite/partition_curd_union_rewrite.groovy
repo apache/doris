@@ -78,9 +78,6 @@ suite ("partition_curd_union_rewrite") {
     );
     """
 
-    sql """alter table orders modify column o_comment set stats ('row_count'='3');"""
-    sql """alter table lineitem modify column l_comment set stats ('row_count'='3');"""
-
     sql"""
     insert into orders values 
     (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
@@ -106,6 +103,9 @@ suite ("partition_curd_union_rewrite") {
     (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
     (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
     """
+
+    sql """alter table orders modify column o_comment set stats ('row_count'='9');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='9');"""
 
     sql """analyze table orders with sync;"""
     sql """analyze table lineitem with sync;"""
@@ -180,11 +180,11 @@ suite ("partition_curd_union_rewrite") {
     waitingMTMVTaskFinished(getJobName(db, mv_name))
 
     // All partition is valid, test query and rewrite by materialized view
-    mv_rewrite_success(all_partition_sql, mv_name, true,
+    mv_rewrite_success(all_partition_sql, mv_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
 
-    mv_rewrite_success(partition_sql, mv_name, true,
+    mv_rewrite_success(partition_sql, mv_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 

@@ -27,6 +27,9 @@ public class SchemaTypeMapperTest {
     @Test
     public void testFromSchema_AllDefinedSchemas() {
         for (SchemaTypeMapper mapper : SchemaTypeMapper.values()) {
+            if (mapper.equals(SchemaTypeMapper.OSS_HDFS)) {
+                continue;
+            }
             String schema = mapper.getSchema();
 
             StorageProperties.Type expectedType = SchemaTypeMapper.fromSchema(schema);

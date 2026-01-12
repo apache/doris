@@ -39,6 +39,8 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
         timestamps.eachWithIndex { timestamp, index ->
             def query_name = "qt_incremental_${index + 1}_end"
             "${query_name}" """ select count(user_id) from ${table_name}@incr('beginTime' = '${timestamp}'); """
+            query_name = "qt_incremental_${index + 1}_latest"
+            "${query_name}" """ select count(user_id) from ${table_name}@incr('beginTime' = '${timestamp}', 'endTime' = 'latest'); """
             query_name = "qt_incremental_earliest_${index + 1}"
             "${query_name}" """ select count(user_id) from ${table_name}@incr('beginTime' = 'earliest', 'endTime' = '${timestamp}'); """
             if (index > 0) {

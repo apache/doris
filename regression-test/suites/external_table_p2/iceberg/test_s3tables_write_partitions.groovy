@@ -1,3 +1,5 @@
+import java.util.concurrent.ThreadLocalRandom
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,15 +18,22 @@
 // under the License.
 
 suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+    // disable this test by default, glue + s3table is recommended
+    def run_test = false;
+    if (!run_test) {
+        return;
+    }
     def format_compressions = ["parquet_snappy", "orc_zlib"]
 
-    def test_columns_out_of_order = {  String format_compression, String catalog_name ->
+    def test_s3_columns_out_of_order = {  String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        sql """ drop table if exists columns_out_of_order_source_tbl_${format_compression} """
+        def source_tbl = "s3_columns_out_of_order_source_tbl_${format_compression}_master"+ ThreadLocalRandom.current().nextInt(1000)
+        def target_tbl = "s3_columns_out_of_order_target_tbl_${format_compression}_master" + ThreadLocalRandom.current().nextInt(1000)
+        sql """ drop table if exists ${source_tbl} """
         sql """
-            CREATE TABLE columns_out_of_order_source_tbl_${format_compression} (
+            CREATE TABLE ${source_tbl} (
                 `col3` bigint,
                 `col6` int,
                 `col1` bigint,
@@ -37,9 +46,9 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
                     "write-format"=${format}
                 )
         """;
-        sql """ drop table if exists columns_out_of_order_target_tbl_${format_compression} """
+        sql """ drop table if exists ${target_tbl}"""
         sql """
-            CREATE TABLE columns_out_of_order_target_tbl_${format_compression} (
+            CREATE TABLE ${target_tbl} (
                 `col1` bigint,
                 `col2` bigint,
                 `col3` bigint,
@@ -57,23 +66,23 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
         """;
 
         sql """
-            INSERT INTO columns_out_of_order_source_tbl_${format_compression} (
+            INSERT INTO ${source_tbl} (
               col1, col2, col3, col4, col5, col6
             ) VALUES (1, 2, 3, 4, 5, 6);
             """
-        order_qt_columns_out_of_order01 """ SELECT * FROM columns_out_of_order_source_tbl_${format_compression} """
+        order_qt_columns_out_of_order01 """ SELECT * FROM ${source_tbl} """
 
         sql """
-            INSERT INTO columns_out_of_order_target_tbl_${format_compression} (
+            INSERT INTO ${target_tbl} (
               col1, col2, col3, col4, col5, col6
             ) VALUES (1, 2, 3, 4, 5, 6);
             """
 
-        order_qt_columns_out_of_order02 """ SELECT * FROM columns_out_of_order_target_tbl_${format_compression} """
+        order_qt_columns_out_of_order02 """ SELECT * FROM ${target_tbl} """
 
-        sql """ drop table columns_out_of_order_source_tbl_${format_compression} """
-        sql """ drop table columns_out_of_order_target_tbl_${format_compression} """
-        sql """ drop database if exists `test_columns_out_of_order` """;
+        sql """ drop table ${source_tbl} """
+        sql """ drop table ${target_tbl} """
+        sql """ drop database if exists `test_s3_columns_out_of_order` """;
     }
 
     String enabled = context.config.otherConfigs.get("enableExternalIcebergTest")
@@ -94,13 +103,13 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
     sql """ switch ${catalog_name};"""
     sql """ use my_namespace;""" 
     sql """ set enable_fallback_to_original_planner=false """
-    def tables = sql """ show tables; """
-    assertTrue(tables.size() > 0)
+    // def tables = sql """ show tables; """
+    // assertTrue(tables.size() > 0)
 
     try {
         for (String format_compression in format_compressions) {
             logger.info("Process format_compression " + format_compression)
-            test_columns_out_of_order(format_compression, catalog_name)
+            test_s3_columns_out_of_order(format_compression, catalog_name)
         }
     } finally {
     }

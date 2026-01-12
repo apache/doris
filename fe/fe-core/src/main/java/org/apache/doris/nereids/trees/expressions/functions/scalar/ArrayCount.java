@@ -39,10 +39,6 @@ public class ArrayCount extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(BooleanType.INSTANCE))
     );
 
-    private ArrayCount(List<Expression> expressions) {
-        super("array_count", expressions);
-    }
-
     /**
      * constructor with arguments.
      * array_count(lambda, a1, ...) = array_count(array_map(lambda, a1, ...))
@@ -51,12 +47,17 @@ public class ArrayCount extends ScalarFunction
         super("array_count", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayCount(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayCount withChildren(List<Expression> children) {
-        return new ArrayCount(children);
+        return new ArrayCount(getFunctionParams(children));
     }
 
     @Override

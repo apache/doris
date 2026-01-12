@@ -2,20 +2,20 @@
 -- !desc_create_table --
 decimal_test	DUP_KEYS	name	varchar(65533)	varchar(65533)	Yes	true	\N		true		
 		id	smallint	smallint	Yes	false	\N	NONE	true		
-		timestamp0	DECIMAL(38, 9)	decimalv3(38,9)	Yes	false	\N	NONE	true		
-		timestamp1	DECIMAL	decimalv3(10,0)	Yes	false	\N	NONE	true		
-		timestamp2	DECIMAL(10, 1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
-		timestamp3	DECIMAL	decimalv3(10,0)	Yes	false	\N	NONE	true		
-		timestamp4	DECIMAL(10, 1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
+		timestamp0	decimal(38,9)	decimalv3(38,9)	Yes	false	\N	NONE	true		
+		timestamp1	decimal(10,0)	decimalv3(10,0)	Yes	false	\N	NONE	true		
+		timestamp2	decimal(10,1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
+		timestamp3	decimal(10,0)	decimalv3(10,0)	Yes	false	\N	NONE	true		
+		timestamp4	decimal(10,1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
 
 -- !desc_create_table_like --
 decimal_test_like	DUP_KEYS	name	varchar(65533)	varchar(65533)	Yes	true	\N		true		
 		id	smallint	smallint	Yes	false	\N	NONE	true		
-		timestamp0	DECIMAL(38, 9)	decimalv3(38,9)	Yes	false	\N	NONE	true		
-		timestamp1	DECIMAL	decimalv3(10,0)	Yes	false	\N	NONE	true		
-		timestamp2	DECIMAL(10, 1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
-		timestamp3	DECIMAL	decimalv3(10,0)	Yes	false	\N	NONE	true		
-		timestamp4	DECIMAL(10, 1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
+		timestamp0	decimal(38,9)	decimalv3(38,9)	Yes	false	\N	NONE	true		
+		timestamp1	decimal(10,0)	decimalv3(10,0)	Yes	false	\N	NONE	true		
+		timestamp2	decimal(10,1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
+		timestamp3	decimal(10,0)	decimalv3(10,0)	Yes	false	\N	NONE	true		
+		timestamp4	decimal(10,1)	decimalv3(10,1)	Yes	false	\N	NONE	true		
 
 -- !select_table_like --
 test1	1	123456789.000000000	1234567891	123456789.0	1234567891	123456789.0

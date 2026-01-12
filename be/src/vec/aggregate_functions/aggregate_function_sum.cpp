@@ -28,21 +28,25 @@ namespace doris::vectorized {
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
+                                           const DataTypePtr& result_type,
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
-        if (attr.enable_decimal256) {
-            return creator_with_type::creator<AggregateFunctionSumSimpleDecimal256>(
-                    name, types, result_is_nullable, attr);
+        if (is_decimalv3(types[0]->get_primitive_type())) {
+            // for decimalv3, use result type from FE plan
+            return creator_with_type_list<TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+                                          TYPE_DECIMAL256>::
+                    creator_with_result_type<AggregateFunctionSumDecimalV3>(
+                            name, types, result_type, result_is_nullable, attr);
         } else {
-            return creator_with_type::creator<AggregateFunctionSumSimple>(name, types,
-                                                                          result_is_nullable, attr);
+            // TODO: for other types, also use result type from FE plan
+            return creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                          TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMALV2>::
+                    creator<AggregateFunctionSumSimple>(name, types, result_type,
+                                                        result_is_nullable, attr);
         }
     };
     factory.register_function_both("sum", creator);
-}
-
-void register_aggregate_function_sum0(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("sum0", creator_with_type::creator<AggregateFunctionSumSimple>);
+    factory.register_alias("sum", "sum0");
 }
 
 } // namespace doris::vectorized

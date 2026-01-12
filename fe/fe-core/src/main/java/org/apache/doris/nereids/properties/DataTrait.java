@@ -130,6 +130,10 @@ public class DataTrait {
         return uniformSet.slotUniformValue.getOrDefault(slot, Optional.empty());
     }
 
+    public Map<Slot, Optional<Expression>> getAllUniformValues() {
+        return uniformSet.slotUniformValue;
+    }
+
     public boolean isNullSafeEqual(Slot l, Slot r) {
         return equalSet.isEqual(l, r);
     }
@@ -148,6 +152,10 @@ public class DataTrait {
 
     public Set<Slot> calEqualSet(Slot s) {
         return equalSet.calEqualSet(s);
+    }
+
+    public ImmutableEqualSet<Slot> getEqualSet() {
+        return equalSet;
     }
 
     public ImmutableSet<FdItem> getFdItems() {

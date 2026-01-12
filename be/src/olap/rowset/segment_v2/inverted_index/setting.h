@@ -22,8 +22,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
-#include <memory>
-#include <regex>
+#include <boost/regex.hpp>
 #include <unordered_map>
 #include <utility>
 
@@ -77,25 +76,65 @@ public:
         return default_value;
     }
 
-    std::string get_string(const std::string& key) const {
+    std::string get_string(const std::string& key, const std::string& default_value = "") const {
         auto it = _args.find(key);
         if (it != _args.end()) {
             return it->second;
         }
-        return "";
+        return default_value;
     }
 
     std::vector<std::string> get_entry_list(const std::string& key) const {
+        static const boost::regex sep(R"((?<=\])\s*,\s*(?=\[))");
         std::vector<std::string> lists;
         auto it = _args.find(key);
         if (it != _args.end()) {
-            static std::regex pattern(R"(\[([^\]]+)\])");
-            std::smatch match;
-            std::sregex_iterator iter(it->second.begin(), it->second.end(), pattern);
-            std::sregex_iterator end;
-            for (; iter != end; ++iter) {
-                if (iter->size() > 1) {
-                    lists.emplace_back((*iter)[1].str());
+            std::string trimmed_input = boost::algorithm::trim_copy(it->second);
+            if (trimmed_input.empty()) {
+                return lists;
+            }
+
+            auto validate_single = [&](const std::string& item, const std::string& prefix) {
+                if (item.size() < 2 || item.front() != '[' || item.back() != ']') {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    prefix + key + " must be enclosed in []");
+                }
+                int depth = 0;
+                for (size_t i = 0; i + 1 < item.size(); ++i) {
+                    char c = item[i];
+                    if (c == '[') {
+                        ++depth;
+                    } else if (c == ']') {
+                        --depth;
+                        if (depth == 0) {
+                            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                            prefix + key + " must be enclosed in []");
+                        }
+                    }
+                }
+            };
+
+            if (boost::regex_search(trimmed_input, sep)) {
+                boost::sregex_token_iterator regex_it(trimmed_input.begin(), trimmed_input.end(),
+                                                      sep, -1);
+                boost::sregex_token_iterator end;
+                for (; regex_it != end; ++regex_it) {
+                    std::string item = boost::algorithm::trim_copy(regex_it->str());
+                    validate_single(item, "Each item in ");
+                    std::string content = item.substr(1, item.size() - 2);
+                    if (!content.empty()) {
+                        lists.emplace_back(content);
+                    }
+                }
+            } else {
+                if (trimmed_input.size() < 2 || trimmed_input.front() != '[' ||
+                    trimmed_input.back() != ']') {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "Item in " + key + " must be enclosed in []");
+                }
+                std::string content = trimmed_input.substr(1, trimmed_input.size() - 2);
+                if (!content.empty()) {
+                    lists.emplace_back(content);
                 }
             }
         }

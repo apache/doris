@@ -75,6 +75,14 @@ public class AlterDatabasePropertiesCommand extends AlterCommand {
         Env.getCurrentEnv().alterDatabaseProperty(dbName, properties);
     }
 
+    public String getDbName() {
+        return dbName;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAlterDatabasePropertiesCommand(this, context);

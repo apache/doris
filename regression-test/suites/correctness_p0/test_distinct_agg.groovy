@@ -39,6 +39,10 @@ suite("test_distinct_agg") {
             (1, '1234', 'A0', 'C0', '1', '2023-01-10 23:00:00');
     '''
 
+    qt_sql '''
+            select avg_weighted(distinct k1, k1) from test_distinct_agg_t
+        '''
+
     test {
         sql '''
             select k5, k6, SUM(k3) AS k3 

@@ -24,6 +24,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
+import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Joiner;
@@ -31,7 +38,9 @@ import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class SinglePartitionDesc implements AllPartitionDesc {
     private boolean isAnalyzed;
@@ -236,4 +245,94 @@ public class SinglePartitionDesc implements AllPartitionDesc {
     public String toString() {
         return toSql();
     }
+
+    /**
+     * translate To PartitionDefinition
+     */
+    public PartitionDefinition translateToPartitionDefinition() {
+        PartitionDefinition partitionDefinition;
+
+        switch (partitionKeyDesc.getPartitionType()) {
+            case IN:
+                List<List<Expression>> values = partitionKeyDesc.getInValues().stream()
+                        .map(innerLilst -> innerLilst.stream()
+                            .map(partitionValue -> {
+                                if (partitionValue.isNullPartition()) {
+                                    return new NullLiteral();
+                                } else if (partitionValue.isMax()) {
+                                    return PartitionDefinition.MaxValue.INSTANCE;
+                                } else {
+                                    String stringValue = partitionValue.getStringValue();
+                                    return Literal.of(stringValue);
+                                }
+                            })
+                            .map(literal -> (Expression) literal)
+                            .collect(Collectors.toList()))
+                        .collect(Collectors.toList());
+
+                partitionDefinition = new InPartition(ifNotExists, partName, values);
+                break;
+            case LESS_THAN:
+                List<Expression> expressions = partitionKeyDesc.getUpperValues().stream()
+                        .map(partitionValue -> {
+                            if (partitionValue.isNullPartition()) {
+                                return new NullLiteral();
+                            } else if (partitionValue.isMax()) {
+                                return PartitionDefinition.MaxValue.INSTANCE;
+                            } else {
+                                String stringValue = partitionValue.getStringValue();
+                                return Literal.of(stringValue);
+                            }
+                        })
+                        .map(literal -> (Expression) literal)
+                        .collect(Collectors.toList());
+
+                partitionDefinition = new LessThanPartition(ifNotExists, partName, expressions);
+                break;
+            case FIXED:
+                List<Expression> lower = partitionKeyDesc.getLowerValues().stream()
+                        .map(partitionValue -> {
+                            if (partitionValue.isNullPartition()) {
+                                return new NullLiteral();
+                            } else if (partitionValue.isMax()) {
+                                return PartitionDefinition.MaxValue.INSTANCE;
+                            } else {
+                                String stringValue = partitionValue.getStringValue();
+                                return Literal.of(stringValue);
+                            }
+                        })
+                        .map(literal -> (Expression) literal)
+                        .collect(Collectors.toList());
+
+                List<Expression> upper = partitionKeyDesc.getUpperValues().stream()
+                        .map(partitionValue -> {
+                            if (partitionValue.isNullPartition()) {
+                                return new NullLiteral();
+                            } else if (partitionValue.isMax()) {
+                                return PartitionDefinition.MaxValue.INSTANCE;
+                            } else {
+                                String stringValue = partitionValue.getStringValue();
+                                return Literal.of(stringValue);
+                            }
+                        })
+                        .map(literal -> (Expression) literal)
+                        .collect(Collectors.toList());
+
+                partitionDefinition = new FixedRangePartition(ifNotExists, partName, lower, upper);
+                break;
+            default:
+                return null;
+        }
+
+        partitionDefinition.setMutable(isMutable);
+        partitionDefinition.setInMemory(isInMemory);
+        partitionDefinition.setReplicaAllocation(replicaAlloc);
+        partitionDefinition.setVersionInfo(versionInfo);
+        partitionDefinition.setTabletType(tabletType);
+        partitionDefinition.setProperties(properties);
+        partitionDefinition.setPartitionDataProperty(partitionDataProperty);
+
+        return partitionDefinition;
+    }
+
 }

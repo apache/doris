@@ -47,13 +47,18 @@ public class Degrees extends ScalarFunction
         super("degrees", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Degrees(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Degrees withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Degrees(children.get(0));
+        return new Degrees(getFunctionParams(children));
     }
 
     @Override

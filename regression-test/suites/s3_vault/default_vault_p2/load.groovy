@@ -22,6 +22,14 @@
 // Note: To filter out tables from sql files, use the following one-liner comamnd
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
 suite("load") {
+    try {
+        sql """ show storage vaults; """
+    } catch (Exception e) {
+        log.info("show storage vaults failed: ${e.message}")
+        if (e.message.contains("doesn't support storage vault")) {
+            return;
+        }
+    }
 
     sql """
         CREATE STORAGE VAULT IF NOT EXISTS default_vault_ssb_flat_hdfs_vault_s3

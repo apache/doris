@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_mv_dp") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS dp; """
 
     sql """
@@ -37,7 +39,7 @@ suite ("test_mv_dp") {
     sql """INSERT INTO `dp` VALUES (1,'success',["1","2"]),(2,'fail',["1"]);"""
 
     createMV("""CREATE MATERIALIZED VIEW view_2 as
-                    select d,
+                    select d as a1,
                         bitmap_union(bitmap_from_array(cast(uid_list as array<bigint>))),
                         bitmap_union(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
                     from dp
@@ -45,18 +47,8 @@ suite ("test_mv_dp") {
 
     sql """INSERT INTO `dp` VALUES (1,'success',["3","4"]),(2,'success',["5"]);"""
     sql "analyze table dp with sync;"
-    sql """set enable_stats=false;"""
-/*
-    streamLoad {
-        table "test"
 
-        set 'columns', 'date'
-
-        file './test'
-        time 10000 // limit inflight 10s
-    }
-*/
-
+    sql """alter table dp modify column d set stats ('row_count'='4');"""
     mv_rewrite_success("""select d,
                         bitmap_union_count(bitmap_from_array(cast(uid_list as array<bigint>))),
                         bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
@@ -68,11 +60,4 @@ suite ("test_mv_dp") {
                         bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
                     from dp
                     group by d order by 1;"""
-    sql """set enable_stats=true;"""
-    sql """alter table dp modify column d set stats ('row_count'='4');"""
-    mv_rewrite_success("""select d,
-                        bitmap_union_count(bitmap_from_array(cast(uid_list as array<bigint>))),
-                        bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
-                    from dp
-                    group by d;""", "view_2")
 }

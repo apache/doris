@@ -98,7 +98,7 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
     }
 
     def checkAllTable = { isAllBeAliveOrDeadLong ->
-        dockerAwaitUntil(60) {
+        awaitUntil(60) {
             checkAllTableImpl(isAllBeAliveOrDeadLong, true)
         }
         checkAllTableImpl(isAllBeAliveOrDeadLong, false)
@@ -107,7 +107,7 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
-        'enable_cloud_warm_up_for_rebalance=true',
+        'cloud_warm_up_for_rebalance_type=async_warmup',
         'cloud_tablet_rebalancer_interval_second=1',
         'cloud_balance_tablet_percent_per_run=1.0',
     ]
@@ -128,7 +128,7 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
         checkAllTable(true)
 
         cluster.stopBackends(choseDeadBeIndex)
-        dockerAwaitUntil(60) {
+        awaitUntil(60) {
             def chosenBe = cluster.getBeByIndex(choseDeadBeIndex)
             !chosenBe.alive
         }
@@ -144,13 +144,13 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
 
         def choseRestartFeIndex = cluster.getOneFollowerFe().index
         cluster.stopFrontends(choseRestartFeIndex)
-        dockerAwaitUntil(60) {
+        awaitUntil(60) {
             def chosenFe = cluster.getFeByIndex(choseRestartFeIndex)
             !chosenFe.alive
         }
 
         cluster.startFrontends(choseRestartFeIndex)
-        dockerAwaitUntil(60) {
+        awaitUntil(60) {
             def chosenFe = cluster.getFeByIndex(choseRestartFeIndex)
             chosenFe.alive
         }

@@ -53,6 +53,11 @@ public class EncryptKeyRef extends ScalarFunction
         super("encryptKeyRef", args);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private EncryptKeyRef(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     public String getDbName() {
         Preconditions.checkArgument(children.get(0) instanceof StringLikeLiteral);
         return ((StringLikeLiteral) children.get(0)).value;
@@ -69,7 +74,7 @@ public class EncryptKeyRef extends ScalarFunction
     @Override
     public EncryptKeyRef withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new EncryptKeyRef(children);
+        return new EncryptKeyRef(getFunctionParams(children));
     }
 
     @Override

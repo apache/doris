@@ -16,46 +16,79 @@
 // under the License.
 
 suite("test_string_function_regexp") {
-    sql "set batch_size = 4096;"
-
-    def tbName = "test_string_function_regexp"
-    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql "DROP TABLE IF EXISTS test_string_function_regexp"
     sql """
-            CREATE TABLE IF NOT EXISTS ${tbName} (
-                k varchar(32)
+            CREATE TABLE IF NOT EXISTS test_string_function_regexp (
+                k varchar(32),
+                v int,
             )
             DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1");
         """
     sql """
-        INSERT INTO ${tbName} VALUES 
-            ("billie eillish"),
-            ("It's ok"),
-            ("Emmy eillish"),
-            ("It's true")
+        INSERT INTO test_string_function_regexp VALUES 
+            ("billie eillish",1),
+            ("It's ok",2),
+            ("Emmy eillish",3),
+            ("It's true",4),
+            (null,5),
+            ("",6),
+            ("billie eillish",null)
         """
     // regexp as keyword
-    qt_sql "SELECT k FROM ${tbName} WHERE k regexp '^billie' ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE k regexp 'ok\$' ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE k regexp concat('^', k) order by k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k regexp '^billie' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k regexp 'ok\$' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k regexp concat('^', k) order by k;"
 
-    qt_sql "SELECT k FROM ${tbName} WHERE k not regexp '^billie' ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE k not regexp 'ok\$' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k not regexp '^billie' ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE k not regexp 'ok\$' ORDER BY k;"
 
     // regexp as function
-    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, '^billie') ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, 'ok\$') ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE regexp(k, concat('^', k)) order by k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE not regexp(k, '^billie') ORDER BY k;"
-    qt_sql "SELECT k FROM ${tbName} WHERE not regexp(k, 'ok\$') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE regexp(k, '^billie') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE regexp(k, 'ok\$') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE regexp(k, concat('^', k)) order by k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE not regexp(k, '^billie') ORDER BY k;"
+    qt_sql "SELECT k FROM test_string_function_regexp WHERE not regexp(k, 'ok\$') ORDER BY k;"
 
+    qt_sql "SELECT regexp_extract(k, '([[:lower:]]+)C([[:lower:]]+)', 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract(k, k, 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract(k, k, v) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract(k, '([[:lower:]]+)C([[:lower:]]+)', v) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract('AbCdE', k, v) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract('AbCdE', k, 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', v) from test_string_function_regexp ORDER BY k;"
+    
+    qt_sql "SELECT regexp_extract_all(k, '([[:lower:]]+)C([[:lower:]]+)') from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract_all(k, k) from test_string_function_regexp ORDER BY k;"
+    qt_sql "SELECT regexp_extract_all('AbCdE', k) from test_string_function_regexp ORDER BY k;"
 
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 1);"
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 2);"
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 3);"
 
+    sql "set enable_extended_regex = false;"
+    test {
+        sql 'SELECT regexp_extract(\'foo123bar456baz\', \'(?<=foo)(\\\\d+)(?=bar)\', 1);'
+        exception "Invalid regex pattern"
+    }
+    sql "set enable_extended_regex = true;"
+    qt_regexp_extract_1 'SELECT regexp_extract(\'foo123bar456baz\', \'(?<=foo)(\\\\d+)(?=bar)\', 1);'
+    qt_regexp_extract_2 'SELECT regexp_extract(\'EdgeCase1 EdgeCase2 EdgeCase3\', \'(EdgeCase\\\\d)(?= EdgeCase|$)\', 1);'
+    qt_regexp_extract_3 'SELECT regexp_extract(\'ID:AA-1,ID:BB-2,ID:CC-3\', \'(?<=ID:)([A-Z]{2}-\\\\d)(?=,ID|$)\', 1);'
+    sql "set enable_extended_regex = false;"
+
     qt_sql "SELECT regexp_extract_or_null('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 1);"
     qt_sql "SELECT regexp_extract_or_null('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 2);"
     qt_sql "SELECT regexp_extract_or_null('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 3);"
+
+    sql "SET enable_extended_regex = false;"
+    test {
+        sql "SELECT regexp_extract_or_null('foo123bar', '(?<=foo)(\\\\d+)(?=bar)', 1);"
+        exception "Invalid regex pattern"
+    }
+    sql "set enable_extended_regex = true;"
+    qt_regexp_extract_or_null_1 "SELECT regexp_extract_or_null('foo123bar', '(?<=foo)(\\\\d+)(?=bar)', 1);"
+    qt_regexp_extract_or_null_2 "SELECT regexp_extract_or_null('TokenA TokenB TokenC', '(?<=Token)([A-Z])(?= TokenC)', 1);"
+    sql "set enable_extended_regex = false;"
 
     qt_sql "SELECT regexp_extract_all('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)');"
     qt_sql "SELECT regexp_extract_all('http://a.m.baidu.com/i41915i73660.htm', 'i([0-9]+)');"
@@ -63,7 +96,19 @@ suite("test_string_function_regexp") {
     qt_sql "select regexp_extract_all('xxfs','f');"
     qt_sql "select regexp_extract_all('asdfg', '(z|x|c|)');"
     qt_sql "select regexp_extract_all('abcdfesscca', '(ab|c|)');"
-    qt_sql_regexp_extract_all "select regexp_extract_all('', '\"([^\"]+)\":'), length(regexp_extract_all('', '\"([^\"]+)\":')) from test_string_function_regexp;"
+
+    sql "set enable_extended_regex = false"
+    test {
+        sql 'SELECT REGEXP_EXTRACT_ALL(\'Apache/Doris\', \'([a-zA-Z_+-]+(?:\\/[a-zA-Z_0-9+-]+)*)(?=s|$)\');'
+        exception "Invalid regex pattern"
+    }
+    sql "set enable_extended_regex = true;"
+    qt_sql_regexp_extract_all_1 "select regexp_extract_all('', '\"([^\"]+)\":'), length(regexp_extract_all('', '\"([^\"]+)\":')) from test_string_function_regexp;"
+    qt_sql_regexp_extract_all_2 'SELECT REGEXP_EXTRACT_ALL(\'Apache/Doris\', \'([a-zA-Z_+-]+(?:\\/[a-zA-Z_0-9+-]+)*)(?=s|$)\');'
+    qt_sql_regexp_extract_all_3 'SELECT REGEXP_EXTRACT_ALL(\'foo123bar456baz\', \'(\\\\d{3})(?=bar|baz)\');'
+    qt_sql_regexp_extract_all_4 'SELECT REGEXP_EXTRACT_ALL(\'ID:AA-1,ID:BB-2,ID:CC-3\', \'(?<=ID:)([A-Z]{2}-\\\\d)\');'
+    qt_sql_regexp_extract_all_5 'SELECT REGEXP_EXTRACT_ALL(\'EdgeCase1EdgeCase2EdgeCase3\', \'(?<=Edge)(Case\\\\d)(?=Edge|$)\');'
+    sql "set enable_extended_regex = false;"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"
@@ -71,30 +116,47 @@ suite("test_string_function_regexp") {
     qt_sql "SELECT regexp_replace_one('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace_one('a b b','(b)','<\\\\1>');"
 
+    sql "set enable_extended_regex = false"
+    test {
+        sql 'SELECT regexp(\'foobar\', \'(?<=foo)bar\');'
+        exception "Invalid regex expression"
+    }
+    sql "set enable_extended_regex = true;"
+    qt_regexp_fn_1 'SELECT regexp(\'abc123def\', \'abc[0-9]+\');'
+    qt_regexp_fn_2 'SELECT regexp(\'edge case test\', \'\\bcase\\b\');'
+    qt_regexp_fn_3 'SELECT regexp(\'foo123bar\', \'foo(?=123)\');'
+    qt_regexp_fn_4 'SELECT regexp(\'fooXYZbar\', \'foo(?!123)\');'
+    qt_regexp_fn_5 'SELECT regexp(\'123abc\', \'^\\d+\');'
+    qt_regexp_fn_6 'SELECT regexp(\'abc123\', \'^\\d+\');'
+    qt_regexp_fn_7 'SELECT regexp(\'foobar\', \'(?<=foo)bar\');'
+    qt_regexp_fn_8 'SELECT regexp(\'foobar\', \'(?<!foo)bar\');'
+    qt_regexp_fn_9 'SELECT regexp(\'Hello\', \'(?i)hello\');'
+    sql "set enable_extended_regex = false;"
+
     qt_sql_utf1 """ select '皖12345' REGEXP '^[皖][0-9]{5}\$'; """
     qt_sql_utf2 """ select '皖 12345' REGEXP '^[皖] [0-9]{5}\$'; """
 
     // bug fix
     sql """
-        INSERT INTO ${tbName} VALUES
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish"),
-            ("billie eillish")
+        INSERT INTO test_string_function_regexp VALUES
+            ("billie eillish",11),
+            ("billie eillish",12),
+            ("billie eillish",13),
+            ("billie eillish",14),
+            ("billie eillish",15),
+            ("billie eillish",16),
+            ("billie eillish",17),
+            ("billie eillish",18),
+            ("billie eillish",19),
+            ("billie eillish",20),
+            ("billie eillish",21),
+            ("billie eillish",22),
+            ("billie eillish",23)
         """
     qt_sql_regexp_null "SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/regexp_extract(k, cast(null as varchar), 1) from test_string_function_regexp;"
     // end bug fix
 
-    sql "DROP TABLE ${tbName};"
+    sql "DROP TABLE test_string_function_regexp;"
 
     def tableName= "test"
     sql "use test_query_db"

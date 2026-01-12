@@ -55,3 +55,9 @@ V5_3
 3	3
 6	\N
 
+-- !test_datetimev2 --
+1	j	a3	\N	a5	a5	a3	a5	a3
+2	a	\N	\N	ee	ee	a	ee	a
+3	\N	\N	\N	3	3	c	3	c
+4	a	\N	b	b	b	\N	2	\N
+

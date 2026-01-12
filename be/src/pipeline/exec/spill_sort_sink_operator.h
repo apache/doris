@@ -23,6 +23,7 @@
 #include "sort_sink_operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 class SpillSortSinkLocalState;
 class SpillSortSinkOperatorX;
 
@@ -39,6 +40,8 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
+    bool is_blockable() const override;
+
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
@@ -46,6 +49,8 @@ public:
 private:
     void _init_counters();
     void update_profile(RuntimeProfile* child_profile);
+
+    Status _execute_spill_sort(RuntimeState* state, TUniqueId query_id);
 
     friend class SpillSortSinkOperatorX;
 
@@ -73,8 +78,8 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution() const override {
-        return _sort_sink_operator->required_data_distribution();
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        return _sort_sink_operator->required_data_distribution(state);
     }
     bool require_data_distribution() const override {
         return _sort_sink_operator->require_data_distribution();
@@ -99,4 +104,6 @@ private:
     friend class SpillSortSinkLocalState;
     std::unique_ptr<SortSinkOperatorX> _sort_sink_operator;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

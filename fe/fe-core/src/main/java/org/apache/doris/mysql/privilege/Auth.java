@@ -18,17 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
-import org.apache.doris.analysis.AlterRoleStmt;
-import org.apache.doris.analysis.CreateRoleStmt;
-import org.apache.doris.analysis.DropRoleStmt;
-import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.PasswordOptions;
-import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetLdapPassVar;
-import org.apache.doris.analysis.SetPassVar;
-import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
@@ -80,7 +72,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -263,6 +255,18 @@ public class Auth implements Writable {
             }
         }
         return roles;
+    }
+
+    public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
+        Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
+        Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
+        for (Role role : rolesByUserWithLdap) {
+            String roleName = role.getRoleName();
+            if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
+                res.add(roleName);
+            }
+        }
+        return res;
     }
 
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
@@ -548,11 +552,6 @@ public class Auth implements Writable {
 
     public void dropUser(UserIdentity userIdent, boolean ignoreIfNonExists)  throws DdlException {
         dropUserInternal(userIdent, ignoreIfNonExists, false);
-    }
-
-    // drop user
-    public void dropUser(DropUserStmt stmt) throws DdlException {
-        dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
     }
 
     public void replayDropUser(UserIdentity userIdent) {
@@ -973,12 +972,6 @@ public class Auth implements Writable {
         }
     }
 
-    // set password
-    public void setPassword(SetPassVar stmt) throws DdlException {
-        setPasswordInternal(stmt.getUserIdent(), stmt.getPassword(), null, true /* err on non exist */,
-                false /* set by resolver */, false);
-    }
-
     public void setPassword(UserIdentity userIdentity, byte[] password) throws DdlException {
         setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
                 false /* set by resolver */, false);
@@ -1020,13 +1013,6 @@ public class Auth implements Writable {
         LOG.info("finished to set password for {}. is replay: {}", userIdent, isReplay);
     }
 
-    // set ldap admin password.
-    public void setLdapPassword(SetLdapPassVar stmt) {
-        ldapInfo = new LdapInfo(stmt.getLdapPassword());
-        Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
-        LOG.info("finished to set ldap password.");
-    }
-
     public void setLdapPassword(String ldapPassword) {
         ldapInfo = new LdapInfo(ldapPassword);
         Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
@@ -1040,25 +1026,12 @@ public class Auth implements Writable {
         }
     }
 
-    public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
-        ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
-    }
-
     public void refreshLdap(RefreshLdapCommand command) {
         ldapManager.refresh(command.getIsAll(), command.getUser());
     }
 
-    // create role
-    public void createRole(CreateRoleStmt stmt) throws DdlException {
-        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
-    }
-
     public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
         createRoleInternal(role, ignoreIfExists, comment, false);
-    }
-
-    public void alterRole(AlterRoleStmt stmt) throws DdlException {
-        alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
 
     public void alterRole(String role, String comment) throws DdlException {
@@ -1115,11 +1088,6 @@ public class Auth implements Writable {
         LOG.info("finished to create role: {}, is replay: {}", role, isReplay);
     }
 
-    // drop role
-    public void dropRole(DropRoleStmt stmt) throws DdlException {
-        dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
-    }
-
     public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {
         dropRoleInternal(role, ignoreIfNonExists, false);
     }
@@ -1159,12 +1127,6 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    // update user property
-    public void updateUserProperty(SetUserPropertyStmt stmt) throws UserException {
-        List<Pair<String, String>> properties = stmt.getPropertyPairList();
-        updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
     public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
@@ -1304,6 +1266,24 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean getEnablePreferCachedRowset(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getEnablePreferCachedRowset(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getQueryFreshnessToleranceMs(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryFreshnessToleranceMs(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {
@@ -1365,8 +1345,8 @@ public class Auth implements Writable {
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== Roles ==============
-            userAuthInfo.add(ldapUserInfo.getRoles().stream().map(role -> role.getRoleName())
-                    .collect(Collectors.joining(",")));
+            userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
+                    ConnectContext.get().getSessionVariable().showUserDefaultRole)));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
             if (user == null) {

@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -29,6 +28,7 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBrokerOp;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -86,16 +86,16 @@ public class BrokerMgr {
         return brokers;
     }
 
-    public void execute(ModifyBrokerClause clause) throws DdlException {
-        switch (clause.getOp()) {
+    public void execute(ModifyBrokerOp modifyBrokerOp) throws DdlException {
+        switch (modifyBrokerOp.getOp()) {
             case OP_ADD:
-                addBrokers(clause.getBrokerName(), clause.getHostPortPairs());
+                addBrokers(modifyBrokerOp.getBrokerName(), modifyBrokerOp.getHostPortPairs());
                 break;
             case OP_DROP:
-                dropBrokers(clause.getBrokerName(), clause.getHostPortPairs());
+                dropBrokers(modifyBrokerOp.getBrokerName(), modifyBrokerOp.getHostPortPairs());
                 break;
             case OP_DROP_ALL:
-                dropAllBroker(clause.getBrokerName());
+                dropAllBroker(modifyBrokerOp.getBrokerName());
                 break;
             default:
                 break;
@@ -167,13 +167,16 @@ public class BrokerMgr {
     }
 
     public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
+        if (brokerName == null) {
+            throw new AnalysisException("Unknown broker name(" + brokerName + ")");
+        }
         if (brokerName.equalsIgnoreCase(BrokerDesc.MULTI_LOAD_BROKER)) {
             return new FsBroker("127.0.0.1", 0);
         }
         lock.lock();
         try {
             ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(brokerName);
-            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
+            if (brokerAddsMap == null || brokerAddsMap.isEmpty()) {
                 throw new AnalysisException("Unknown broker name(" + brokerName + ")");
             }
             List<FsBroker> brokers = brokerAddsMap.get(host);

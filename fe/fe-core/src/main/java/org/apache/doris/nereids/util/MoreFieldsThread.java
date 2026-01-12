@@ -18,13 +18,21 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.parser.Origin;
+import org.apache.doris.qe.ConnectContext;
+
+import java.util.function.Supplier;
 
 /**
  * This class is used to extend some thread local fields for Thread,
  * so we can access the thread fields faster than ThreadLocal
  */
 public class MoreFieldsThread extends Thread {
+    private static final ThreadLocal<Boolean> keepFunctionSignatureThreadLocal = new ThreadLocal<>();
+    private static final ThreadLocal<ConnectContext> connectContextThreadLocal = new ThreadLocal<>();
+
     private Origin origin;
+    private ConnectContext connectContext;
+    private boolean keepFunctionSignature;
 
     public MoreFieldsThread() {
     }
@@ -63,5 +71,75 @@ public class MoreFieldsThread extends Thread {
 
     public final Origin getOrigin() {
         return this.origin;
+    }
+
+    public static void removeConnectContext() {
+        setConnectContext(null);
+    }
+
+    /** setConnectContext */
+    public static void setConnectContext(ConnectContext connectContext) {
+        Thread thread = Thread.currentThread();
+        if (thread instanceof MoreFieldsThread) {
+            ((MoreFieldsThread) thread).connectContext = connectContext;
+        } else {
+            if (connectContext == null) {
+                MoreFieldsThread.connectContextThreadLocal.remove();
+            } else {
+                MoreFieldsThread.connectContextThreadLocal.set(connectContext);
+            }
+        }
+    }
+
+    /** getConnectContext */
+    public static ConnectContext getConnectContext() {
+        Thread thread = Thread.currentThread();
+        if (thread instanceof MoreFieldsThread) {
+            return ((MoreFieldsThread) thread).connectContext;
+        } else {
+            return MoreFieldsThread.connectContextThreadLocal.get();
+        }
+    }
+
+    /** when keepFunctionSignature is true, we will use the origin function signature for the rewritten expression */
+    public static boolean isKeepFunctionSignature() {
+        Thread thread = Thread.currentThread();
+        if (thread instanceof MoreFieldsThread) {
+            return ((MoreFieldsThread) thread).keepFunctionSignature;
+        } else {
+            Boolean keep = MoreFieldsThread.keepFunctionSignatureThreadLocal.get();
+            return keep != null && keep;
+        }
+    }
+
+    public static <T> T keepFunctionSignature(Supplier<T> callback) {
+        return keepFunctionSignature(true, callback);
+    }
+
+    /** when keepFunctionSignature is true, we will use the origin function signature for the rewritten expression */
+    public static <T> T keepFunctionSignature(boolean keepFunctionSignature, Supplier<T> callback) {
+        Thread thread = Thread.currentThread();
+        if (thread instanceof MoreFieldsThread) {
+            MoreFieldsThread moreFieldsThread = (MoreFieldsThread) thread;
+            boolean originKeepFunctionSignature = moreFieldsThread.keepFunctionSignature;
+            try {
+                moreFieldsThread.keepFunctionSignature = keepFunctionSignature;
+                return callback.get();
+            } finally {
+                moreFieldsThread.keepFunctionSignature = originKeepFunctionSignature;
+            }
+        } else {
+            Boolean originKeepFunctionSignature = keepFunctionSignatureThreadLocal.get();
+            try {
+                keepFunctionSignatureThreadLocal.set(keepFunctionSignature);
+                return callback.get();
+            } finally {
+                if (originKeepFunctionSignature != null) {
+                    keepFunctionSignatureThreadLocal.set(originKeepFunctionSignature);
+                } else {
+                    keepFunctionSignatureThreadLocal.remove();
+                }
+            }
+        }
     }
 }

@@ -18,11 +18,11 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[RIGHT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
+------------------------------------PhysicalOlapScan[web_sales(ws2)] apply RFs: RF0
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF1 RF2 RF3
+------------------------------------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF1 RF2 RF3
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_returns]
+--------------------------------PhysicalOlapScan[web_returns(wr1)]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_date <= '2000-04-01') and (date_dim.d_date >= '2000-02-01'))
 --------------------------------PhysicalOlapScan[date_dim]

@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -35,6 +38,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -131,5 +135,25 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
                 .matchesFromRoot(
                         logicalProject(logicalAggregate().when(a -> a.getGroupByExpressions().size() == 2))
                 );
+    }
+
+    @Test
+    void testisBinaryArithmeticSlot() {
+        Slot id = scan1.getOutput().get(0);
+
+        Mod mod = new Mod(id, Literal.of(2));
+        Assertions.assertFalse(SimplifyAggGroupBy.isBinaryArithmeticSlot(mod));
+
+        Add add = new Add(id, Literal.of(2));
+        Assertions.assertTrue(SimplifyAggGroupBy.isBinaryArithmeticSlot(add));
+
+        Subtract subtract = new Subtract(id, Literal.of(2));
+        Assertions.assertTrue(SimplifyAggGroupBy.isBinaryArithmeticSlot(subtract));
+
+        Multiply multiply = new Multiply(id, Literal.of(2));
+        Assertions.assertTrue(SimplifyAggGroupBy.isBinaryArithmeticSlot(multiply));
+
+        Divide divide = new Divide(id, Literal.of(2));
+        Assertions.assertTrue(SimplifyAggGroupBy.isBinaryArithmeticSlot(divide));
     }
 }

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -40,7 +41,8 @@ public class XxHash32 extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(StringType.INSTANCE)
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(StringType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(VarBinaryType.INSTANCE)
     );
 
     /**
@@ -50,14 +52,18 @@ public class XxHash32 extends ScalarFunction
         super("xxhash_32", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private XxHash32(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public XxHash32 withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new XxHash32(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new XxHash32(getFunctionParams(children));
     }
 
     @Override

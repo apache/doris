@@ -55,6 +55,11 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
         super("dict_get_many", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DictGetMany(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (getArguments().size() != 3) {
@@ -69,7 +74,7 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
         String[] firstNames = ((Literal) getArgument(0)).getStringValue().split("\\."); // db.dict
         String dbName = firstNames[0];
         String dictName = firstNames[1];
-        if (dbName.length() == 0 || dictName.length() == 0) {
+        if (dbName.isEmpty() || dictName.isEmpty()) {
             throw new AnalysisException("dict_get() requires dbName.dictName as first argument");
         }
     }
@@ -153,7 +158,7 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
     @Override
     public DictGetMany withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new DictGetMany(children.get(0), children.get(1), children.get(2));
+        return new DictGetMany(getFunctionParams(children));
     }
 
     @Override

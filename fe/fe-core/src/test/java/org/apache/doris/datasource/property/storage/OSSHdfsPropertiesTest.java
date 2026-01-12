@@ -44,7 +44,7 @@ public class OSSHdfsPropertiesTest {
         StorageProperties props = StorageProperties.createPrimary(origProps);
         Assertions.assertInstanceOf(OSSHdfsProperties.class, props);
 
-        Configuration conf = ((OSSHdfsProperties) props).getHadoopConfiguration();
+        Configuration conf = ((OSSHdfsProperties) props).getHadoopStorageConfig();
         Assertions.assertEquals("cn-shanghai.oss-dls.aliyuncs.com", conf.get("fs.oss.endpoint"));
         Assertions.assertEquals("testAccessKey", conf.get("fs.oss.accessKeyId"));
         Assertions.assertEquals("testSecretKey", conf.get("fs.oss.accessKeySecret"));
@@ -66,7 +66,7 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.hdfs.hadoop.config.resources", "osshdfs1/core-site.xml");
         StorageProperties props = StorageProperties.createPrimary(origProps);
         Assertions.assertInstanceOf(OSSHdfsProperties.class, props);
-        Configuration conf = ((OSSHdfsProperties) props).getHadoopConfiguration();
+        Configuration conf = ((OSSHdfsProperties) props).getHadoopStorageConfig();
         Assertions.assertEquals("cn-shanghai.oss-dls.aliyuncs.com", conf.get("fs.oss.endpoint"));
         Assertions.assertEquals("testAccessKey", conf.get("fs.oss.accessKeyId"));
         Assertions.assertEquals("testSecretKey", conf.get("fs.oss.accessKeySecret"));
@@ -83,7 +83,7 @@ public class OSSHdfsPropertiesTest {
     }
 
     @Test
-    public void testInvalidEndpoint() {
+    public void testInvalidEndpoint() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "invalid.aliyuncs.com");
         origProps.put("oss.access_key", "testAccessKey");
@@ -112,6 +112,9 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.endpoint", "cn-north-2-gov-1.oss-dls.aliyuncs.com");
         props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-north-2-gov-1", props.getBackendConfigProperties().get("fs.oss.region"));
+        origProps.remove("dlf.endpoint");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("cn-north-2-gov-1", props.getBackendConfigProperties().get("fs.oss.region"));
     }
 
     @Test
@@ -135,7 +138,7 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.secret_key", "testSecretKey");
         origProps.put("oss.region", "cn-shanghai");
         OSSHdfsProperties props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
-        Assertions.assertEquals("HDFS", props.getStorageName());
+        Assertions.assertEquals("OSSHDFS", props.getStorageName());
     }
 
     @Test
@@ -153,6 +156,64 @@ public class OSSHdfsPropertiesTest {
         origProps.remove("oss.hdfs.fs.defaultFS");
         props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("oss://bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
+    }
+
+    @Test
+    public void testOssAndOssHDFS() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("oss.endpoint", "cn-shanghai.oss-dls.aliyuncs.com");
+        origProps.put("oss.access_key", "testAccessKey");
+        origProps.put("oss.secret_key", "testSecretKey");
+        origProps.put("oss.hdfs.fs.defaultFS", "oss://my-bucket");
+        origProps.put("dlf.endpoint", "cn-shanghai.oss-dlf.aliyuncs.com");
+        origProps.put("dlf.access_key", "testAccessKey");
+        origProps.put("dlf.secret_key", "testSecretKey");
+        StorageProperties props = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("OSSHDFS", props.getStorageName());
+        Assertions.assertEquals("oss://my-bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
+        Assertions.assertEquals("cn-shanghai", props.getBackendConfigProperties().get("fs.oss.region"));
+    }
+
+    @Test
+    public void testDlfAndOssHDFS() throws UserException {
+
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("dlf.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        origProps.put("dlf.access_key", "testAccessKey");
+        origProps.put("dlf.secret_key", "testSecretKey");
+        origProps.put("oss.hdfs.enabled", "true");
+        StorageProperties props = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("OSSHDFS", props.getStorageName());
+    }
+
+
+    @Test
+    public void testOssHDFSNewProps() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("oss.hdfs.endpoint", "cn-shanghai.oss-dls.aliyuncs.com");
+        origProps.put("oss.hdfs.access_key", "testAccessKey");
+        origProps.put("oss.hdfs.secret_key", "testSecretKey");
+        StorageProperties props = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("OSSHDFS", props.getStorageName());
+        Assertions.assertEquals("cn-shanghai", props.getBackendConfigProperties().get("fs.oss.region"));
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem",
+                props.getBackendConfigProperties().get("fs.oss.impl"));
+        origProps.put("oss.endpoint", "cn-shanghai.oss.aliyuncs.com");
+        origProps.put("oss.access_key", "testAccessKey");
+        origProps.put("oss.secret_key", "testSecretKey");
+        props = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("OSSHDFS", props.getStorageName());
+        Assertions.assertEquals("cn-shanghai", props.getBackendConfigProperties().get("fs.oss.region"));
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem",
+                props.getBackendConfigProperties().get("fs.oss.impl"));
+        origProps.put("dlf.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        origProps.put("dlf.access_key", "testAccessKey");
+        origProps.put("dlf.secret_key", "testSecretKey");
+        props = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("OSSHDFS", props.getStorageName());
+        Assertions.assertEquals("cn-shanghai", props.getBackendConfigProperties().get("fs.oss.region"));
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem",
+                props.getBackendConfigProperties().get("fs.oss.impl"));
     }
 
 }

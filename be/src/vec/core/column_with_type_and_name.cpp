@@ -27,7 +27,10 @@
 #include <sstream>
 #include <string>
 
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -81,30 +84,54 @@ String ColumnWithTypeAndName::dump_structure() const {
     return out.str();
 }
 
-std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
-    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num);
+std::string ColumnWithTypeAndName::to_string(
+        size_t row_num, const vectorized::DataTypeSerDe::FormatOptions& format_options) const {
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
 }
+
+#ifdef BE_TEST
+std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto timezone = cctz::utc_time_zone();
+    format_options.timezone = &timezone;
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
+}
+#endif
 
 void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_name(name);
     type->to_pb_column_meta(col_meta);
 }
 
-ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_to_default) const {
+ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
+        bool replace_null_data_to_default) const {
     if (type->is_nullable()) {
-        auto nested_type = assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+        auto nested_type =
+                assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
+                        ->get_nested_type();
         ColumnPtr nested_column = column;
         if (column) {
             // A column_ptr is needed here to ensure that the column in convert_to_full_column_if_const is not released.
-            auto column_ptr = nested_column->convert_to_full_column_if_const();
-            const auto* source_column = assert_cast<const ColumnNullable*>(column_ptr.get());
-            nested_column = source_column->get_nested_column_ptr();
+            auto [column_ptr, is_const] = unpack_if_const(column);
+            const auto* source_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            column_ptr.get());
+            if (is_const) {
+                nested_column =
+                        ColumnConst::create(source_column->get_nested_column_ptr(), column->size());
+            } else {
+                nested_column = source_column->get_nested_column_ptr();
+            }
 
             if (replace_null_data_to_default) {
                 const auto& null_map = source_column->get_null_map_data();
                 // only need to mutate nested column, avoid to copy nullmap
                 auto mutable_nested_col = (*std::move(nested_column)).mutate();
-                mutable_nested_col->replace_column_null_data(null_map.data());
+                if (simd::contain_one(null_map.data(), null_map.size())) {
+                    mutable_nested_col->replace_column_null_data(null_map.data());
+                }
 
                 return {std::move(mutable_nested_col), nested_type, ""};
             }
@@ -115,4 +142,25 @@ ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_t
     }
 }
 
+Status ColumnWithTypeAndName::check_type_and_column_match() const {
+    if (!type) {
+        return Status::InternalError("ColumnWithTypeAndName type is nullptr");
+    }
+    if (!column) {
+        return Status::InternalError("ColumnWithTypeAndName column is nullptr");
+    }
+
+    if (check_and_get_column<ColumnNothing>(column.get())) {
+        return Status::OK();
+    }
+
+    auto st = type->check_column(*column);
+    if (!st.ok()) {
+        return Status::InternalError(
+                "ColumnWithTypeAndName check column type failed, column name: {}, type: {},  "
+                "column: {} , error: {}",
+                name, type->get_name(), column->get_name(), st.to_string());
+    }
+    return Status::OK();
+}
 } // namespace doris::vectorized

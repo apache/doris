@@ -18,29 +18,35 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.backup.BackupJobInfo;
+import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,6 +59,15 @@ import java.util.Set;
  * RestoreCommand
  */
 public class RestoreCommand extends Command implements ForwardWithSync {
+    public static final String PROP_RESERVE_REPLICA = "reserve_replica";
+    public static final String PROP_RESERVE_COLOCATE = "reserve_colocate";
+    public static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
+    public static final String PROP_CLEAN_TABLES = "clean_tables";
+    public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
+    public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
+    public static final String PROP_FORCE_REPLACE = "force_replace";
+    public static final String PROP_STORAGE_VAULT_NAME = "storage_vault_name";
+
     private static final Logger LOG = LogManager.getLogger(RestoreCommand.class);
     private static final String PROP_TIMEOUT = "timeout";
     private static final long MIN_TIMEOUT_MS = 600 * 1000L;
@@ -60,14 +75,6 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
     private static final String PROP_META_VERSION = "meta_version";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
-
-    private static final String PROP_RESERVE_REPLICA = "reserve_replica";
-    private static final String PROP_RESERVE_COLOCATE = "reserve_colocate";
-    private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
-    private static final String PROP_CLEAN_TABLES = "clean_tables";
-    private static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
-    private static final String PROP_ATOMIC_RESTORE = "atomic_restore";
-    private static final String PROP_FORCE_REPLACE = "force_replace";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
@@ -89,8 +96,9 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private final Map<String, String> properties;
     private final boolean isExclude;
     private long timeoutMs;
-    private byte[] meta = null;
-    private byte[] jobInfo = null;
+    private BackupMeta meta = null;
+    private BackupJobInfo jobInfo = null;
+    private String storageVaultName = null;
 
     /**
      * BackupCommand
@@ -200,7 +208,10 @@ public class RestoreCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void analyzeProperties() throws AnalysisException {
+    /**
+     * analyzeProperties
+     */
+    public void analyzeProperties() throws AnalysisException {
         // timeout
         if (properties.containsKey("timeout")) {
             try {
@@ -264,6 +275,22 @@ public class RestoreCommand extends Command implements ForwardWithSync {
                         "Invalid meta version format: " + copiedProperties.get(PROP_META_VERSION));
             }
             copiedProperties.remove(PROP_META_VERSION);
+        }
+
+        // storage vault name
+        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            Pair<String, String> info = PropertyAnalyzer.analyzeStorageVault(copiedProperties,
+                    Env.getCurrentInternalCatalog().getDbOrAnalysisException(labelNameInfo.getDb()));
+            Preconditions.checkArgument(StringUtils.isNumeric(info.second),
+                    "Invalid storage vault id :%s", info.second);
+            // Check if user has storage vault usage privilege
+            ConnectContext context = ConnectContext.get();
+            if (context != null && !Env.getCurrentEnv().getAccessManager()
+                    .checkStorageVaultPriv(context.getCurrentUserIdentity(), info.first, PrivPredicate.USAGE)) {
+                throw new AnalysisException(String.format("USAGE denied to user '%s'@'%s' for storage vault '%s'",
+                        context.getQualifiedUser(), context.getRemoteIP(), info.first));
+            }
+            storageVaultName = info.first;
         }
 
         // is being synced
@@ -341,6 +368,10 @@ public class RestoreCommand extends Command implements ForwardWithSync {
         return replicaAlloc;
     }
 
+    public String getStorageVaultName() {
+        return storageVaultName;
+    }
+
     public int getMetaVersion() {
         return metaVersion;
     }
@@ -381,19 +412,19 @@ public class RestoreCommand extends Command implements ForwardWithSync {
         return isLocal;
     }
 
-    public byte[] getMeta() {
+    public BackupMeta getMeta() {
         return meta;
     }
 
-    public void setMeta(byte[] meta) {
+    public void setMeta(BackupMeta meta) {
         this.meta = meta;
     }
 
-    public byte[] getJobInfo() {
+    public BackupJobInfo getJobInfo() {
         return jobInfo;
     }
 
-    public void setJobInfo(byte[] jobInfo) {
+    public void setJobInfo(BackupJobInfo jobInfo) {
         this.jobInfo = jobInfo;
     }
 
@@ -409,11 +440,5 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.RESTORE;
-    }
-
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("RestoreCommand not supported in cloud mode");
-        throw new DdlException("denied");
     }
 }

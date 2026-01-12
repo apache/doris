@@ -22,8 +22,12 @@ import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.BasicSessionCredentials;
+import com.amazonaws.auth.STSAssumeRoleSessionCredentialsProvider;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.amazonaws.util.StringUtils;
+import org.apache.doris.common.Config;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.hadoop.conf.Configuration;
 
 public class ConfigurationAWSCredentialsProvider implements AWSCredentialsProvider {
@@ -39,13 +43,31 @@ public class ConfigurationAWSCredentialsProvider implements AWSCredentialsProvid
         String accessKey = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_ACCESS_KEY));
         String secretKey = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_SECRET_KEY));
         String sessionToken = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN));
+        String roleArn = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_ROLE_ARN));
+        String externalId = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_EXTERNAL_ID));
         if (!StringUtils.isNullOrEmpty(accessKey) && !StringUtils.isNullOrEmpty(secretKey)) {
             return (StringUtils.isNullOrEmpty(sessionToken) ? new BasicAWSCredentials(accessKey,
                     secretKey) : new BasicSessionCredentials(accessKey, secretKey, sessionToken));
-        } else {
-            throw new SdkClientException(
-                    "Unable to load AWS credentials from hive conf (aws.glue.access-key and aws.glue.secret-key)");
         }
+        String credentialsProviderModeString = StringUtils.lowerCase(conf.get(AWSGlueConfig.AWS_CREDENTIALS_PROVIDER_MODE));
+        AwsCredentialsProviderMode credentialsProviderMode=AwsCredentialsProviderMode.fromString(credentialsProviderModeString);
+        AWSCredentialsProvider longLivedProvider = AwsCredentialsProviderFactory.createV1(credentialsProviderMode);
+        if (!StringUtils.isNullOrEmpty(roleArn)) {
+            STSAssumeRoleSessionCredentialsProvider.Builder builder =
+                    new STSAssumeRoleSessionCredentialsProvider.Builder(roleArn, "local-session")
+                            .withLongLivedCredentialsProvider(longLivedProvider);
+
+            if (!StringUtils.isNullOrEmpty(externalId)) {
+                builder.withExternalId(externalId);
+            }
+            STSAssumeRoleSessionCredentialsProvider provider = builder.build();
+            return provider.getCredentials();
+        }
+        if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
+            return longLivedProvider.getCredentials();
+        }
+        throw new SdkClientException("Unable to load AWS credentials from any provider in the chain");
+
     }
 
     @Override

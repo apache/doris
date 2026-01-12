@@ -38,8 +38,9 @@ public:
 public:
     virtual MutableColumnPtr clone_dummy(size_t s_) const = 0;
 
-    MutableColumnPtr clone_resized(size_t s) const override { return clone_dummy(s); }
+    MutableColumnPtr clone_resized(size_t size) const override { return clone_dummy(size); }
     size_t size() const override { return s; }
+    void resize(size_t _s) override { s = _s; }
     void insert_default() override { ++s; }
     void pop_back(size_t n) override { s -= n; }
     size_t byte_size() const override { return 0; }
@@ -109,15 +110,9 @@ public:
     }
 
     void get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
-                         Permutation& res) const override {
+                         HybridSorter&, Permutation& res) const override {
         res.resize(s);
         for (size_t i = 0; i < s; ++i) res[i] = i;
-    }
-
-    ColumnPtr replicate(const Offsets& offsets) const override {
-        column_match_offsets_size(s, offsets.size());
-
-        return clone_dummy(offsets.back());
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
@@ -158,6 +153,8 @@ public:
         __builtin_unreachable();
     }
 
+    // dummy column do not need to hash, so these functions are empty
+    // do not throw exception
     void update_hash_with_value(size_t n, SipHash& hash) const override {}
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
@@ -172,6 +169,12 @@ public:
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override {}
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override {}
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override {}
 
 protected:
     size_t s;

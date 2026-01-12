@@ -32,7 +32,7 @@ Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->terminate(state));
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
     return Base::terminate(state);
 }
 
@@ -95,6 +95,10 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
             uint64_t hash_table_size = local_state._shared_state->get_hash_table_size();
             valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
 
+            // record hash table
+            COUNTER_SET(local_state._hash_table_size, (int64_t)hash_table_size);
+            COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
+
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
             DCHECK_GT(_child_quantity, 1);
@@ -123,8 +127,8 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     vectorized::HashTableBuild<HashTableCtxType, is_intersect>
-                            hash_table_build_process(&local_state, rows, raw_ptrs, state);
-                    st = hash_table_build_process(arg, local_state._arena);
+                            hash_table_build_process(&local_state, uint32_t(rows), raw_ptrs, state);
+                    st = hash_table_build_process(arg, local_state._shared_state->arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                     __builtin_unreachable();
@@ -185,6 +189,9 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     SCOPED_TIMER(_init_timer);
     _merge_block_timer = ADD_TIMER(custom_profile(), "MergeBlocksTime");
     _build_timer = ADD_TIMER(custom_profile(), "BuildTime");
+    _hash_table_size = ADD_COUNTER(_common_profile, "HashTableSize", TUnit::UNIT);
+    _valid_element_in_hash_table =
+            ADD_COUNTER(_common_profile, "ValidElementInHashTable", TUnit::UNIT);
     auto& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     DCHECK(parent._cur_child_id == 0);

@@ -78,6 +78,8 @@ public:
         _expected_producer_num = num;
     }
 
+    int get_expected_producer_num() const { return _expected_producer_num; }
+
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;
         if (_expected_producer_num < _received_rf_size_num) {
@@ -92,6 +94,16 @@ public:
     uint64_t get_received_sum_size() const { return _received_sum_size; }
 
     bool ready() const { return _rf_state == State::READY; }
+
+    void set_wrapper_state_and_ready_to_apply(RuntimeFilterWrapper::State state,
+                                              std::string reason = "") {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        if (_rf_state == State::READY) {
+            return;
+        }
+        _wrapper->set_state(state, reason);
+        _rf_state = State::READY;
+    }
 
 private:
     RuntimeFilterMerger(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)

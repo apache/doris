@@ -46,6 +46,12 @@ public interface Journal {
     // toKey = -1 means toKey = Long.Max_Value
     public JournalCursor read(long fromKey, long toKey);
 
+    /**
+     * Same as read(fromKey, toKey)
+     * @param exitIfNotFound true: FE process will exit if journal not found; false: return null if journal not found
+     */
+    public JournalCursor read(long fromKey, long toKey, boolean exitIfNotFound);
+
     // Write a journal and sync to disk
     public long write(short op, Writable writable) throws IOException;
 

@@ -50,13 +50,18 @@ public class UnhexNull extends ScalarFunction
         super("unhex_null", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private UnhexNull(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public UnhexNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UnhexNull(children.get(0));
+        return new UnhexNull(getFunctionParams(children));
     }
 
     @Override

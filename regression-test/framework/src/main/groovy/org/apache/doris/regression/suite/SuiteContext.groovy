@@ -67,6 +67,7 @@ class SuiteContext implements Closeable {
     private long startTime
     private long finishTime
     private volatile Throwable throwable
+    public volatile Boolean isMultiDockerClusterRunning = false
 
     SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext, SuiteCluster cluster,
                  ExecutorService suiteExecutors, ExecutorService actionExecutors, Config config) {
@@ -145,12 +146,40 @@ class SuiteContext implements Closeable {
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
-            threadConnInfo.conn = config.getConnectionByDbName(dbName)
+            threadConnInfo.conn = getConnectionByDbName(dbName)
             threadConnInfo.username = config.jdbcUser
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
         }
         return threadConnInfo.conn
+    }
+
+    Connection getConnectionByDbName(String dbName) {
+        def jdbcUrl = getJdbcUrl()
+        def jdbcConn = DriverManager.getConnection(jdbcUrl, config.jdbcUser, config.jdbcPassword)
+        try {
+            String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
+            log.info("Try to create db, sql: ${sql}".toString())
+            if (!config.dryRun) {
+                jdbcConn.withCloseable { conn -> JdbcUtils.executeToList(conn, sql) }
+            }
+        } catch (Throwable t) {
+            throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+        }
+        def dbUrl = Config.buildUrlWithDb(jdbcUrl, dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, config.jdbcUser, config.jdbcPassword)
+    }
+
+    String getJdbcUrl() {
+        if (isMultiDockerClusterRunning) {
+            throw new IllegalStateException("In dockers() context, please use connectWithDockerCluster() to setup connection")
+        }
+        if (cluster.isRunning()) {
+            return cluster.jdbcUrl
+        } else {
+            return config.jdbcUrl
+        }
     }
 
     // like getConnection, but connect to FE master
@@ -310,6 +339,25 @@ class SuiteContext implements Closeable {
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
+        if ((config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
+            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + config.otherConfigs.get("keyStorePath")
+            String clientCAPwd = "clientCertificateKeyStorePassword=" + config.otherConfigs.get("keyStorePassword")
+            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + config.otherConfigs.get("trustStorePath")
+            String trustCAPwd = "trustCertificateKeyStorePassword=" + config.otherConfigs.get("trustStorePassword")
+            String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+            if (!url.contains("clientCertificateKeyStoreUrl")){
+                if (url.charAt(url.length() - 1) == '?') {
+                    return url + tlsUrl
+                    // e.g: jdbc:mysql://locahost:8080/dbname?a=b
+                } else if (url.contains('?')) {
+                    return url + '&' + tlsUrl
+                    // e.g: jdbc:mysql://locahost:8080/dbname
+                } else {
+                    return url + '?' + tlsUrl
+                }
+            }
+        }
         try {
             log.info("Create new connection for user '${user}' to '${url}'")
             return DriverManager.getConnection(url, user, password).withCloseable { newConn ->

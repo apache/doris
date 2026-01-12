@@ -66,6 +66,8 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     auto tablet_schema = std::make_shared<TabletSchema>();
     // FIXME(plat1ko): Rewrite columns updating logic
     tablet_schema->update_tablet_columns(*tablet->tablet_schema(), request.columns_desc);
+    tablet_schema->update_indexes_from_thrift(request.index_list);
+
     tablet_schema->set_schema_version(request.schema_version);
     RETURN_IF_ERROR(DeleteHandler::generate_delete_predicate(*tablet_schema,
                                                              request.delete_conditions, &del_pred));
@@ -94,7 +96,13 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     RETURN_IF_ERROR(rowset_writer->build(rowset));
     rowset->rowset_meta()->set_delete_predicate(std::move(del_pred));
 
-    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
+    auto st = engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(), "");
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to prepare rowset, status=" << st.to_string();
+        return st;
+    }
+
+    st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
 
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);

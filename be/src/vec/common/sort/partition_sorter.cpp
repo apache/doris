@@ -25,7 +25,6 @@
 #include "common/object_pool.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
-#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -46,7 +45,7 @@ PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit
                                  RuntimeState* state, RuntimeProfile* profile,
                                  bool has_global_limit, int64_t partition_inner_limit,
                                  TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row)
-        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset)),
           _row_desc(row_desc),
           _partition_inner_limit(partition_inner_limit),
@@ -64,7 +63,10 @@ Status PartitionSorter::append_block(Block* input_block) {
     return Status::OK();
 }
 
-Status PartitionSorter::prepare_for_read() {
+Status PartitionSorter::prepare_for_read(bool is_spill) {
+    if (is_spill) {
+        return Status::InternalError("PartitionSorter does not support spill");
+    }
     auto& blocks = _state->get_sorted_block();
     auto& queue = _state->get_queue();
     std::vector<MergeSortCursor> cursors;
@@ -189,8 +191,7 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
                 _output_distinct_rows++;
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->impl->block->get_columns()[i],
-                                               current->impl->pos);
+                merged_columns[i]->insert_from(*current->impl->columns[i], current->impl->pos);
             }
             merged_rows++;
             _output_total_rows++;

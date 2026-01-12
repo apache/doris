@@ -32,7 +32,7 @@ class HttpRequest;
 
 class ExecEnv;
 
-enum class DeleteBitmapActionType { COUNT_LOCAL = 1, COUNT_MS = 2 };
+enum class DeleteBitmapActionType { COUNT_LOCAL = 1, COUNT_MS = 2, COUNT_AGG_CACHE = 3 };
 
 /// This action is used for viewing the delete bitmap status
 class DeleteBitmapAction : public HttpHandlerWithAuth {
@@ -47,6 +47,7 @@ public:
 private:
     Status _handle_show_local_delete_bitmap_count(HttpRequest* req, std::string* json_result);
     Status _handle_show_ms_delete_bitmap_count(HttpRequest* req, std::string* json_result);
+    Status _handle_show_agg_cache_delete_bitmap_count(HttpRequest* req, std::string* json_result);
 
 private:
     BaseStorageEngine& _engine;

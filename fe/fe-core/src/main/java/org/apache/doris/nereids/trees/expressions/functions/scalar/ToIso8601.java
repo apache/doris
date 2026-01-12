@@ -23,9 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
 
@@ -41,17 +39,19 @@ public class ToIso8601 extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).args(DateType.INSTANCE)
-            );
+            FunctionSignature.ret(StringType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(StringType.INSTANCE).args(DateV2Type.INSTANCE));
 
     /**
      * constructor with 1 argument.
      */
     public ToIso8601(Expression arg0) {
         super("to_iso8601", arg0);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private ToIso8601(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -65,7 +65,7 @@ public class ToIso8601 extends ScalarFunction
     @Override
     public ToIso8601 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToIso8601(children.get(0));
+        return new ToIso8601(getFunctionParams(children));
     }
 
     @Override

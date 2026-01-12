@@ -67,7 +67,7 @@ suite('test_abort_txn_by_fe', 'docker') {
             sleep 6000
         } else {
             def dbId = getDbId()
-            dockerAwaitUntil(20, {
+            awaitUntil(20, {
                 def txns = sql_return_maparray("show proc '/transactions/${dbId}/running'")
                 txns.any { it.Label == loadLabel }
             })

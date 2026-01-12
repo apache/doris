@@ -59,18 +59,18 @@ public class Dround extends ScalarFunction
         super("dround", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Dround(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Dround withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1
-                || children.size() == 2);
-        if (children.size() == 1) {
-            return new Dround(children.get(0));
-        } else {
-            return new Dround(children.get(0), children.get(1));
-        }
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new Dround(getFunctionParams(children));
     }
 
     @Override

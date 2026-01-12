@@ -33,6 +33,7 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -70,7 +71,8 @@ public:
 
     virtual Status skip_values(size_t num_values) = 0;
 
-    virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) {
+    virtual Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
+                            size_t num_values) {
         return Status::NotSupported("set_dict is not supported");
     }
 
@@ -151,7 +153,7 @@ protected:
     }
 
     // For dictionary encoding
-    std::unique_ptr<uint8_t[]> _dict;
+    DorisUniqueBufferPtr<uint8_t> _dict;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
     std::vector<uint32_t> _indexes;
 };

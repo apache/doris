@@ -28,8 +28,9 @@ namespace doris::vectorized {
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, RuntimeState* state,
                            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                           io::IOContext* io_ctx)
-        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
+                           io::IOContext* io_ctx, FileMetaCache* meta_cache)
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx,
+                            meta_cache) {
     static const char* paimon_profile = "PaimonProfile";
     ADD_TIMER(_profile, paimon_profile);
     _paimon_profile.num_delete_rows =

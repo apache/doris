@@ -63,4 +63,31 @@
         group by 1,2,3,4,5,6,7
         order by 1,2,3,4,5,6,7;
     """
+
+    sql """
+    DROP TABLE IF EXISTS user_tags_bitmap; 
+    """
+
+    sql """
+    CREATE TABLE user_tags_bitmap ( tag_code VARCHAR(64), user_bitmap BITMAP  BITMAP_UNION) AGGREGATE KEY(tag_code) DISTRIBUTED BY HASH(tag_code) BUCKETS 10 PROPERTIES("replication_num" = "1");
+    """
+
+    qt_select_default """ 
+      INSERT INTO user_tags_bitmap
+      SELECT 
+          CONCAT('tag_', tag_id) AS tag_code,
+          bitmap_union(to_bitmap(user_id)) AS user_bitmap
+      FROM (
+          SELECT
+              number / 10 AS tag_id,                       
+              number AS user_id        
+          FROM numbers("number"="40960") 
+      ) t
+      GROUP BY tag_id;
+    """
+
+    qt_select_default """ 
+      select  BITMAP_UNION_COUNT(user_bitmap) as user_count from user_tags_bitmap
+    """
+ 
  }

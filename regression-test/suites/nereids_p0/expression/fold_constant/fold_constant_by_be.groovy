@@ -1,3 +1,5 @@
+import java.time.LocalDateTime
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -32,7 +34,7 @@ suite("fold_constant_by_be") {
                 curdate(),
                 DATE_FORMAT(DATE_SUB(month_ceil(CONCAT_WS('', '9999-07', '-26')), 1), '%Y-%m-%d'))
         '''
-        result([['9999-07-31']])
+        result([["9999-07-31"]])
     }
 
     sql """
@@ -85,5 +87,38 @@ suite("fold_constant_by_be") {
                 "order by pk rows between unbounded preceding and 6 following) AS col_alias26947 " +
                 "from table_200_undef_partitions2_keys3_properties4_distributed_by53;")
         notContains("mask")
+    }
+
+    sql 'set enable_fold_constant_by_be=true;'
+    explain {
+         sql "select IS_IPV4_MAPPED(NULLABLE(INET6_ATON('192.168.1.1')));"
+         contains "192.168.1.1"
+    }
+    explain {
+         sql "select IS_IPV4_MAPPED(NULLABLE(ipv6_string_to_num_or_default('192.168.1.1')));"
+         contains "192.168.1.1"
+    }
+    explain {
+        sql "select cosine_distance([0], [0]);"
+        contains "cosine_distance"
+        notContains("NULL")
+    }
+
+    explain {
+        sql "select array(cosine_distance([1], [1]), cast(\"NaN\" as float));"
+        contains "array(cosine_distance"
+        notContains("[0, ")
+    }
+
+    explain {
+        sql "select map(cosine_distance([1], [1]), cast(\"NaN\" as float));"
+        contains "map(cosine_distance"
+        notContains("MAP{0")
+    }
+
+    explain {
+        sql "select map(cast(\"NaN\" as float), cosine_distance([1], [1]));"
+        contains "map(NaN, cosine_distance"
+        notContains("MAP{NaN")
     }
 }

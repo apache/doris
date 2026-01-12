@@ -29,7 +29,7 @@ class QueryTaskController : public TaskController {
     ENABLE_FACTORY_CREATOR(QueryTaskController);
 
 public:
-    static std::unique_ptr<TaskController> create(QueryContext* query_ctx);
+    static std::unique_ptr<TaskController> create(std::shared_ptr<QueryContext> query_ctx);
     ~QueryTaskController() override = default;
 
     bool is_cancelled() const override;
@@ -37,6 +37,7 @@ public:
     bool cancel_impl(const Status& reason) override { return cancel_impl(reason, -1); }
     bool is_pure_load_task() const override;
     int32_t get_slot_count() const override;
+    void disable_reserve_memory() override;
     bool is_enable_reserve_memory() const override;
     void set_memory_sufficient(bool sufficient) override;
     int64_t memory_sufficient_time() override;

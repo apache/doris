@@ -87,7 +87,7 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
     mv_rewrite_success("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
-    mv_rewrite_fail("SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
+    mv_not_part_in("SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
 
     //refresh auto
     sql """

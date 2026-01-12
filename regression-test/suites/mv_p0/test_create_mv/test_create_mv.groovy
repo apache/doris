@@ -20,6 +20,9 @@
 // and modified by Doris.
 
 suite("test_create_mv") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     def tableName = "test_mv_10010"
 
     def getJobState = { table ->
@@ -55,8 +58,8 @@ suite("test_create_mv") {
         create materialized view mv_1 as
         select 
           date_trunc(load_time, 'minute'),
-          id,
-          class,
+          id as a1,
+          class as a2,
           count(id) as total,
           min(result) as min_result,
           sum(result) as max_result
@@ -81,5 +84,17 @@ suite("test_create_mv") {
                 assertEquals("FINISHED",res)
             }
         }
+    }
+    multi_sql """
+        drop table if exists t_mv_on_mv;
+        create table t_mv_on_mv(    id int,    value int)
+        partition by range(id)(    partition p1 values[('1'), ('2')),    partition p2 values[('2'), ('3')),    partition p3 values[('3'), ('4')),    partition p4 values[('4'), ('5')),    partition p5 values[('5'), ('6')))distributed by hash(id)properties(    'replication_num'='1');
+
+        insert into t_mv_on_mv values (1, 1), (1, 2),(2, 1), (2, 2), (3, 1), (3, 2),(4, 1), (4, 2),(5, 1), (5, 2);
+    """
+    createMV("""CREATE MATERIALIZED VIEW mv1 as select id as col1, sum(value) as col2 from t_mv_on_mv group by id;""")
+    test {
+        sql """CREATE MATERIALIZED VIEW mv2 as select col1 as aa, count(col2) as bb from t_mv_on_mv index mv1 group by col1; """
+        exception "do not support create materialized view on another synchronized mv"
     }
 }

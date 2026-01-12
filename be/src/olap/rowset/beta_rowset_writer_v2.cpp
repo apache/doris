@@ -79,12 +79,11 @@ Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWrite
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                                       TabletSchemaSPtr flush_schema) {
+Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     bool ok = false;
     for (const auto& stream : _streams) {
         auto st = stream->add_segment(_context.partition_id, _context.index_id, _context.tablet_id,
-                                      segment_id, segstat, flush_schema);
+                                      segment_id, segstat);
         if (!st.ok()) {
             LOG(WARNING) << "failed to add segment " << segment_id << " to stream "
                          << stream->stream_id();

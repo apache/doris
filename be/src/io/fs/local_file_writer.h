@@ -35,9 +35,6 @@ public:
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override;
     State state() const override { return _state; }
-
-    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
-
     Status close(bool non_block = false) override;
 
 private:

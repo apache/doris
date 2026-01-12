@@ -200,7 +200,6 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.ANY),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -223,7 +222,6 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.REQUIRE)),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -248,7 +246,6 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.GATHER),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -290,7 +287,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
@@ -314,7 +311,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
@@ -338,7 +335,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
@@ -361,7 +358,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);

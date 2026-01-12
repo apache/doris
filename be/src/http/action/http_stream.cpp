@@ -113,9 +113,11 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-    if (config::enable_stream_load_record) {
-        str = ctx->prepare_stream_load_record(str);
-        _save_stream_load_record(ctx, str);
+    if (config::enable_stream_load_record || config::enable_stream_load_record_to_audit_log_table) {
+        if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+            str = ctx->prepare_stream_load_record(str);
+            _save_stream_load_record(ctx, str);
+        }
     }
     // update statistics
     http_stream_requests_total->increment(1);
@@ -176,9 +178,12 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        if (config::enable_stream_load_record) {
-            str = ctx->prepare_stream_load_record(str);
-            _save_stream_load_record(ctx, str);
+        if (config::enable_stream_load_record ||
+            config::enable_stream_load_record_to_audit_log_table) {
+            if (req->header(HTTP_SKIP_RECORD_TO_AUDIT_LOG_TABLE).empty()) {
+                str = ctx->prepare_stream_load_record(str);
+                _save_stream_load_record(ctx, str);
+            }
         }
         return -1;
     }
@@ -347,6 +352,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
             [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
             }));
+    ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
     Status plan_status(Status::create(ctx->put_result.status));
     if (!plan_status.ok()) {

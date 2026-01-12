@@ -51,13 +51,13 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
 using doris::segment_v2::IndexFileWriter;
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 class InvertedIndexArrayTest : public testing::Test {
     using ExpectedDocMap = std::map<std::string, std::vector<int>>;
@@ -223,9 +223,9 @@ public:
         auto index_file_writer =
                 std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
                                                   seg_id, InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is ["amory", "commiter"]
@@ -279,7 +279,8 @@ public:
         EXPECT_EQ(st, Status::OK());
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
-        EXPECT_EQ(index_file_writer->close(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         ExpectedDocMap expected = {{"amory", {0, 1}}, {"doris", {0}}, {"commiter", {1}}};
         check_terms_stats(index_path_prefix, &expected, {}, InvertedIndexStorageFormatPB::V1,
@@ -308,9 +309,9 @@ public:
         auto index_file_writer =
                 std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
                                                   seg_id, InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is [NULL, "amory", "commiter"]
@@ -365,7 +366,8 @@ public:
         st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
-        EXPECT_EQ(index_file_writer->close(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         ExpectedDocMap expected = {{"amory", {0, 1}}, {"doris", {0}}, {"commiter", {1}}};
         check_terms_stats(index_path_prefix, &expected, {}, InvertedIndexStorageFormatPB::V1,
@@ -397,9 +399,9 @@ public:
         auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Simulate outer null cases: 5 rows, outer null map = {1, 0, 0, 1, 0}, i.e., rows 0 and 3 are null
@@ -477,7 +479,8 @@ public:
         st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
-        EXPECT_EQ(index_file_writer->close(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         // Expected inverted index result: only index non-null elements
         // Row 1: non-null in a2 is "test"
@@ -511,9 +514,9 @@ public:
         auto index_file_writer =
                 std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
                                                   seg_id, InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Simulate outer null cases: 5 rows, outer null map = {1, 0, 0, 1, 0}, i.e., rows 0 and 3 are null
@@ -591,7 +594,8 @@ public:
         st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
-        EXPECT_EQ(index_file_writer->close(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         // Expected inverted index result: only index non-null elements
         // Row 1: non-null in a2 is "test"
@@ -623,9 +627,9 @@ public:
         idx_meta.init_from_pb(*index_meta_pb.get());
         auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, "multi_block", 0, InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         ExpectedDocMap merged_expected;
@@ -793,7 +797,8 @@ public:
         }
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
-        EXPECT_EQ(index_file_writer->close(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         std::vector<int> expected_null_bitmap = {0, 3, 5, 7};
         check_terms_stats(index_path_prefix, &merged_expected, expected_null_bitmap,
@@ -821,9 +826,9 @@ public:
         auto index_file_writer =
                 std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
                                                   seg_id, InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         vectorized::DataTypePtr inner_int = std::make_shared<vectorized::DataTypeInt32>();
@@ -896,7 +901,8 @@ public:
         st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
-        EXPECT_EQ(index_file_writer->close(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         // expected inverted index: row0 contains "123" and "456" (doc id 0), row1 is null, row2 contains "789" and "101112" (doc id 2)
         ExpectedDocMap expected = {{"123", {0}}, {"456", {0}}, {"789", {2}}, {"101112", {2}}};
@@ -963,9 +969,9 @@ public:
         auto index_file_writer =
                 std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
                                                   seg_id, InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
@@ -1007,7 +1013,8 @@ public:
         EXPECT_EQ(st, Status::OK());
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
-        EXPECT_EQ(index_file_writer->close(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         std::vector<int> expected_null_bitmap = {0, 1};
         ExpectedDocMap expected {};
@@ -1112,5 +1119,4 @@ TEST_F(InvertedIndexArrayTest, ArrayInt) {
     test_array_numeric("int_test", 0, field);
     delete field;
 }
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

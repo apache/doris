@@ -23,6 +23,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <cstdint>
 #include <map>
 #include <ostream>
 #include <string>
@@ -30,6 +31,7 @@
 #include <vector>
 
 #include "absl/strings/substitute.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -39,6 +41,7 @@
 #include "http/http_status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const static std::string HEADER_JSON = "application/json";
 const static std::string PERSIST_PARAM = "persist";
@@ -118,14 +121,16 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
             rapidjson::Value result;
             result.SetObject();
             result.AddMember("config_name",
-                             rapidjson::Value(key.c_str(), key.size(), results.GetAllocator()),
+                             rapidjson::Value(key.c_str(), cast_set<uint32_t>(key.size()),
+                                              results.GetAllocator()),
                              results.GetAllocator());
-            result.AddMember(
-                    "status",
-                    rapidjson::Value(status.c_str(), status.size(), results.GetAllocator()),
-                    results.GetAllocator());
+            result.AddMember("status",
+                             rapidjson::Value(status.c_str(), cast_set<uint32_t>(status.size()),
+                                              results.GetAllocator()),
+                             results.GetAllocator());
             result.AddMember("msg",
-                             rapidjson::Value(msg.c_str(), msg.size(), results.GetAllocator()),
+                             rapidjson::Value(msg.c_str(), cast_set<uint32_t>(msg.size()),
+                                              results.GetAllocator()),
                              results.GetAllocator());
             results.PushBack(result, results.GetAllocator());
         }
@@ -139,4 +144,5 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, strbuf.GetString());
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

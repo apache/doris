@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -38,12 +39,19 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
+#include "recycler/recycler.h"
 #include "resource-manager/resource_manager.h"
+
+doris::cloud::RecyclerThreadPoolGroup thread_group;
 
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";
@@ -63,6 +71,18 @@ int main(int argc, char** argv) {
         return -1;
     }
     ::testing::InitGoogleTest(&argc, argv);
+    config::recycler_sleep_before_scheduling_seconds = 0; // we dont have to wait in UT
+
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_tablet_pool->start();
+    auto group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    group_recycle_function_pool->start();
+    thread_group =
+            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
+                                    std::move(group_recycle_function_pool));
     return RUN_ALL_TESTS();
 }
 
@@ -96,7 +116,8 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
     auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
                                 : std::make_shared<ResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -118,7 +139,8 @@ std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
     }
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -127,8 +149,8 @@ static std::string next_rowset_id() {
     return std::to_string(++cnt);
 }
 
-static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
-                       int64_t partition_id, int64_t tablet_id) {
+void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id, int64_t partition_id,
+                int64_t tablet_id) {
     auto tablet = req.add_tablet_metas();
     tablet->set_table_id(table_id);
     tablet->set_index_id(index_id);
@@ -144,11 +166,12 @@ static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t inde
     first_rowset->mutable_tablet_schema()->CopyFrom(*schema);
 }
 
-static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
-                          int64_t partition_id, int64_t tablet_id) {
+void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                   int64_t partition_id, int64_t tablet_id) {
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(1); // default db_id
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -190,12 +213,12 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
     req.set_db_id(db_id);
     req.set_txn_id(txn_id);
     meta_service->commit_txn(&cntl, &req, &res, nullptr);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+            << label << ", res=" << res.ShortDebugString();
 }
 
-static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
-                                              int partition_id = 10, int64_t version = -1,
-                                              int num_rows = 100) {
+doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id = 10,
+                                       int64_t version = -1, int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
     rowset.set_rowset_id(0); // required
     rowset.set_rowset_id_v2(next_rowset_id());
@@ -226,8 +249,8 @@ static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMe
     if (!arena) delete req;
 }
 
-static void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                          CreateRowsetResponse& res) {
+void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                   CreateRowsetResponse& res) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
@@ -275,8 +298,8 @@ static void get_delete_bitmap_update_lock(MetaServiceProxy* meta_service,
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
 }
 
-static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
-                          int64_t table_id, int64_t partition_id, int64_t tablet_id) {
+void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
+                   int64_t table_id, int64_t partition_id, int64_t tablet_id) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service, db_id, label, table_id, txn_id));
     CreateRowsetResponse res;
@@ -289,9 +312,26 @@ static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const s
     commit_txn(meta_service, db_id, txn_id, label);
 }
 
+void insert_rowsets(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
+                    int64_t table_id, int64_t partition_id, std::vector<int64_t> tablet_ids) {
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service, db_id, label, table_id, txn_id));
+    for (auto tablet_id : tablet_ids) {
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        prepare_rowset(meta_service, rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service, rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    }
+    commit_txn(meta_service, db_id, txn_id, label);
+}
+
 static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instance_id,
                              int64_t table_id, int64_t index_id,
-                             const std::vector<std::array<int64_t, 2>>& tablet_idxes) {
+                             const std::vector<std::array<int64_t, 2>>& tablet_idxes,
+                             bool skip_tablet_meta = false) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
 
@@ -306,6 +346,9 @@ static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instanc
         stats.set_cumulative_point(30);
         txn->put(stats_key, stats.SerializeAsString());
 
+        if (skip_tablet_meta) {
+            continue;
+        }
         doris::TabletMetaCloudPB tablet_pb;
         tablet_pb.set_table_id(table_id);
         tablet_pb.set_index_id(index_id);
@@ -1749,6 +1792,10 @@ TEST(MetaServiceTest, PrecommitTxnTest2) {
 
 TEST(MetaServiceTest, CommitTxnTest) {
     auto meta_service = get_meta_service();
+    int64_t table_id = 1234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1773,9 +1820,11 @@ TEST(MetaServiceTest, CommitTxnTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -1846,6 +1895,10 @@ TEST(MetaServiceTest, CommitTxnTest) {
 TEST(MetaServiceTest, CommitTxnExpiredTest) {
     auto meta_service = get_meta_service();
 
+    int64_t table_id = 1234789234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1871,9 +1924,11 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234789234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -1896,12 +1951,13 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
     }
 }
 
-static void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id,
-                                     int64_t index_id, int64_t partition_id, int64_t tablet_id,
-                                     int64_t txn_id) {
+void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                              int64_t partition_id, int64_t tablet_id, int64_t txn_id) {
     create_tablet(meta_service, table_id, index_id, partition_id, tablet_id);
     auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
     CreateRowsetResponse res;
+    prepare_rowset(meta_service, tmp_rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     commit_rowset(meta_service, tmp_rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
@@ -2047,8 +2103,8 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         ASSERT_EQ(res.versions()[1], 2);
 
         ASSERT_EQ(res.table_ids()[2], t1);
-        ASSERT_EQ(res.partition_ids()[2], t1_p1);
-        ASSERT_EQ(res.versions()[2], 3);
+        ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
+        ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
     }
 
     // doubly commit txn
@@ -2316,7 +2372,6 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
 
         ASSERT_EQ(res.table_ids()[0], t2);
@@ -2495,6 +2550,8 @@ TEST(MetaServiceTest, AbortTxnTest) {
             create_tablet(meta_service.get(), 12345, 1235, 1236, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -2545,6 +2602,8 @@ TEST(MetaServiceTest, AbortTxnTest) {
             create_tablet(meta_service.get(), table_id, 1235, 1236, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -2735,6 +2794,8 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
         create_tablet(meta_service.get(), table_id, 1235, 1236, tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -2834,8 +2895,9 @@ TEST(MetaServiceTest, CheckTxnConflictWithAbortLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     const int64_t db_id = 666;
     const int64_t table_id = 777;
@@ -2930,8 +2992,9 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     // clean txn label by db_id and label
     {
@@ -3006,6 +3069,8 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
             create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -3259,6 +3324,8 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
                         create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
                         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
                         CreateRowsetResponse res;
+                        prepare_rowset(meta_service.get(), tmp_rowset, res);
+                        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                         commit_rowset(meta_service.get(), tmp_rowset, res);
                         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                     }
@@ -3327,6 +3394,8 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
                         create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
                         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
                         CreateRowsetResponse res;
+                        prepare_rowset(meta_service.get(), tmp_rowset, res);
+                        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                         commit_rowset(meta_service.get(), tmp_rowset, res);
                         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
                     }
@@ -3383,8 +3452,9 @@ TEST(MetaServiceTest, GetTxnTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     {
         int64_t txn_id = -1;
@@ -3781,7 +3851,7 @@ TEST(MetaServiceTest, FilterCopyFilesTest) {
 
 extern std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(
         int64_t req_bc_cnt, int64_t bc_cnt, int64_t req_cc_cnt, int64_t cc_cnt, int64_t req_cp,
-        int64_t cp, int64_t req_start, int64_t req_end);
+        int64_t cp, int64_t req_fc_cnt, int64_t fc_cnt, int64_t req_start, int64_t req_end);
 
 TEST(MetaServiceTest, CalcSyncVersionsTest) {
     using Versions = std::vector<std::pair<int64_t, int64_t>>;
@@ -3797,7 +3867,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{8, 12}}));
     }
@@ -3813,7 +3883,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 10};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, 12}})); // [5, 9] v [8, 12]
     }
@@ -3822,7 +3892,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, 14}})); // [5, 14] v [8, 12]
     }
@@ -3839,7 +3909,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3855,7 +3925,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 3};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3870,7 +3940,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 3};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3886,7 +3956,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 4}, {8, 12}}));
     }
@@ -3895,7 +3965,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {8, 8};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 12}})); // [0, 7] v [8, 12]
     }
@@ -3904,7 +3974,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 10};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 12}})); // [0, 4] v [5, 9] v [8, 12]
     }
@@ -3913,7 +3983,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 14}})); // [0, 4] v [5, 14] v [8, 12]
     }
@@ -3922,10 +3992,41 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         // [0, 4] v [5, max] v [8, 12]
         ASSERT_EQ(versions, (Versions {{0, INT64_MAX - 1}}));
+    }
+
+    {
+        // when there exists full compaction, we can't optimize by "* only one CC happened and CP changed"
+
+        // * one CC happened and CP changed, and full compaction happened
+        // BE  [=][=][=][=][=][=][=][=][=][=]
+        //                  ^~~~~ req_cp
+        // MS  [xxxxxxxxxxxxxx][xxxxxxxxxxxxxx][=======][=][=]
+        //                      ^~~~~~~ ms_cp
+        //                  ^___________________________^ related_versions: [req_cp, max]
+        //
+        auto [req_bc_cnt, bc_cnt] = std::tuple {0, 1};
+        auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
+        auto [req_cp, cp] = std::tuple {4, 7};
+        auto [req_start, req_end] = std::tuple {9, 12};
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 1,
+                                           req_start, req_end);
+        ASSERT_EQ(versions, (Versions {{0, INT64_MAX - 1}}));
+    }
+
+    {
+        // abnormal case:
+        auto [req_bc_cnt, bc_cnt] = std::tuple {0, 1};
+        auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
+        auto [req_cp, cp] = std::tuple {4, 7};
+        auto [req_start, req_end] = std::tuple {9, 12};
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
+                                           req_start, req_end);
+        // when not considering full compaction, the returned versions is wrong becasue rowsets in [7-8] are missed
+        ASSERT_EQ(versions, (Versions {{0, 6}, {9, 12}}));
     }
 }
 
@@ -4501,8 +4602,8 @@ TEST(MetaServiceTest, DecodeTest) {
     std::cout << "rowset2=" << proto_to_json(rowset2) << std::endl;
 }
 
-static void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
-                             int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
+void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                      int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
     brpc::Controller cntl;
     GetTabletStatsRequest req;
     auto idx = req.add_tablet_idx();
@@ -5068,10 +5169,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_points().size(), 0);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        EXPECT_EQ(res.base_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_points().size(), 3);
     }
 
     for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
@@ -5215,6 +5316,38 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
             ASSERT_EQ(cumulative_point, 30);
         }
     }
+
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
+        // 2.5 abnormal path, meeting error when reading tablets' meta
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal5";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes, true);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND);
+    }
 }
 
 static std::string generate_random_string(int length) {
@@ -5246,6 +5379,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmapWithBigKeys) {
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
             &get_lock_res, nullptr);
     ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+    // v1 update delete bitmap
     UpdateDeleteBitmapRequest update_delete_bitmap_req;
     UpdateDeleteBitmapResponse update_delete_bitmap_res;
     update_delete_bitmap_req.set_cloud_unique_id("test_cloud_unique_id");
@@ -5255,16 +5389,82 @@ TEST(MetaServiceTest, UpdateDeleteBitmapWithBigKeys) {
     update_delete_bitmap_req.set_initiator(100);
     update_delete_bitmap_req.set_tablet_id(333);
     std::string large_value = generate_random_string(300 * 1000 * 3);
-    for (int i = 0; i < 100000; i++) {
+    DeleteBitmapPB delete_bitmap_pb;
+    auto num = 100000;
+    for (int i = 0; i < num; i++) {
         update_delete_bitmap_req.add_rowset_ids("0200000003ea308a3647dbea83220ed4b8897f2288244a91");
         update_delete_bitmap_req.add_segment_ids(0);
         update_delete_bitmap_req.add_versions(i);
-        update_delete_bitmap_req.add_segment_delete_bitmaps("1");
+        update_delete_bitmap_req.add_segment_delete_bitmaps(i % 500 == 0 ? large_value : "1");
+
+        delete_bitmap_pb.add_rowset_ids("0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+        delete_bitmap_pb.add_segment_ids(0);
+        delete_bitmap_pb.add_versions(i);
+        delete_bitmap_pb.add_segment_delete_bitmaps(i % 500 == 0 ? large_value : "1");
     }
+    // v2 update delete bitmap
+    DeleteBitmapStoragePB delete_bitmap_storage_pb;
+    delete_bitmap_storage_pb.set_store_in_fdb(true);
+    *(delete_bitmap_storage_pb.mutable_delete_bitmap()) = std::move(delete_bitmap_pb);
+    *(update_delete_bitmap_req.add_delete_bitmap_storages()) = std::move(delete_bitmap_storage_pb);
+    update_delete_bitmap_req.add_delta_rowset_ids(
+            "0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+
     meta_service->update_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
                                        &update_delete_bitmap_req, &update_delete_bitmap_res,
                                        nullptr);
     ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+
+    // get delete bitmap v1
+    GetDeleteBitmapRequest get_delete_bitmap_req;
+    get_delete_bitmap_req.set_cloud_unique_id("test_cloud_unique_id");
+    get_delete_bitmap_req.set_tablet_id(333);
+    get_delete_bitmap_req.add_rowset_ids("0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+    get_delete_bitmap_req.add_begin_versions(0);
+    get_delete_bitmap_req.add_end_versions(num);
+    {
+        // get exceed max_get_delete_bitmap_byte limit
+        auto max_get_delete_bitmap_byte = config::max_get_delete_bitmap_byte;
+        config::max_get_delete_bitmap_byte = 1;
+        GetDeleteBitmapResponse get_delete_bitmap_res;
+        meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                        &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
+        ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::KV_TXN_GET_ERR);
+        config::max_get_delete_bitmap_byte = max_get_delete_bitmap_byte;
+    }
+    {
+        GetDeleteBitmapResponse get_delete_bitmap_res;
+        meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                        &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
+        ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(get_delete_bitmap_res.rowset_ids_size(), num);
+        ASSERT_EQ(get_delete_bitmap_res.versions_size(), num);
+        ASSERT_EQ(get_delete_bitmap_res.segment_ids_size(), num);
+        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), num);
+        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), large_value);
+        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(1), "1");
+        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(500), large_value);
+    }
+
+    // get delete bitmap v2
+    {
+        GetDeleteBitmapResponse get_delete_bitmap_res;
+        get_delete_bitmap_req.set_store_version(2);
+        meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                        &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
+        ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(get_delete_bitmap_res.delete_bitmap_storages_size(), 1);
+        auto& delete_bitmap_storage = get_delete_bitmap_res.delete_bitmap_storages(0);
+        ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+        auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+        ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), num);
+        ASSERT_EQ(delete_bitmap_pb.versions_size(), num);
+        ASSERT_EQ(delete_bitmap_pb.segment_ids_size(), num);
+        ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps_size(), num);
+        ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(0), large_value);
+        ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(1), "1");
+        ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(500), large_value);
+    }
 }
 
 static void set_partition_version(MetaServiceProxy* meta_service, std::string_view instance_id,
@@ -5753,6 +5953,10 @@ void testUpdateDeleteBitmap(int lock_version) {
     auto meta_service = get_meta_service();
     remove_delete_bitmap_lock(meta_service.get(), 112);
 
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
     // get delete bitmap update lock
     brpc::Controller cntl;
     GetDeleteBitmapUpdateLockRequest get_lock_req;
@@ -5769,6 +5973,7 @@ void testUpdateDeleteBitmap(int lock_version) {
     ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
 
     // first update delete bitmap
+    std::vector<std::string> delete_bitmap_keys;
     {
         UpdateDeleteBitmapRequest update_delete_bitmap_req;
         UpdateDeleteBitmapResponse update_delete_bitmap_res;
@@ -5783,32 +5988,92 @@ void testUpdateDeleteBitmap(int lock_version) {
         update_delete_bitmap_req.add_segment_ids(1);
         update_delete_bitmap_req.add_versions(2);
         update_delete_bitmap_req.add_segment_delete_bitmaps("abc0");
+        delete_bitmap_keys.emplace_back(meta_delete_bitmap_key({instance_id, 333, "123", 2, 1}));
 
         update_delete_bitmap_req.add_rowset_ids("123");
         update_delete_bitmap_req.add_segment_ids(0);
         update_delete_bitmap_req.add_versions(3);
         update_delete_bitmap_req.add_segment_delete_bitmaps("abc1");
+        delete_bitmap_keys.emplace_back(meta_delete_bitmap_key({instance_id, 333, "123", 3, 0}));
 
         update_delete_bitmap_req.add_rowset_ids("123");
         update_delete_bitmap_req.add_segment_ids(1);
         update_delete_bitmap_req.add_versions(3);
         update_delete_bitmap_req.add_segment_delete_bitmaps("abc2");
+        delete_bitmap_keys.emplace_back(meta_delete_bitmap_key({instance_id, 333, "123", 3, 1}));
 
         update_delete_bitmap_req.add_rowset_ids("124");
         update_delete_bitmap_req.add_segment_ids(0);
         update_delete_bitmap_req.add_versions(2);
         update_delete_bitmap_req.add_segment_delete_bitmaps("abc3");
+        delete_bitmap_keys.emplace_back(meta_delete_bitmap_key({instance_id, 333, "124", 2, 0}));
 
         std::string large_value = generate_random_string(300 * 1000);
         update_delete_bitmap_req.add_rowset_ids("124");
         update_delete_bitmap_req.add_segment_ids(1);
         update_delete_bitmap_req.add_versions(2);
         update_delete_bitmap_req.add_segment_delete_bitmaps(large_value);
+        delete_bitmap_keys.emplace_back(meta_delete_bitmap_key({instance_id, 333, "124", 2, 1}));
 
         update_delete_bitmap_req.add_rowset_ids("124");
         update_delete_bitmap_req.add_segment_ids(0);
         update_delete_bitmap_req.add_versions(3);
         update_delete_bitmap_req.add_segment_delete_bitmaps("abc4");
+        delete_bitmap_keys.emplace_back(meta_delete_bitmap_key({instance_id, 333, "124", 3, 0}));
+
+        // v2 update delete bitmap
+        {
+            DeleteBitmapPB delete_bitmap;
+            delete_bitmap.add_rowset_ids("123");
+            delete_bitmap.add_segment_ids(1);
+            delete_bitmap.add_versions(2);
+            delete_bitmap.add_segment_delete_bitmaps("abc0");
+
+            delete_bitmap.add_rowset_ids("123");
+            delete_bitmap.add_segment_ids(0);
+            delete_bitmap.add_versions(3);
+            delete_bitmap.add_segment_delete_bitmaps("abc1");
+
+            delete_bitmap.add_rowset_ids("123");
+            delete_bitmap.add_segment_ids(1);
+            delete_bitmap.add_versions(3);
+            delete_bitmap.add_segment_delete_bitmaps("abc2");
+
+            DeleteBitmapStoragePB delete_bitmap_storage_pb;
+            delete_bitmap_storage_pb.set_store_in_fdb(true);
+            *(delete_bitmap_storage_pb.mutable_delete_bitmap()) = std::move(delete_bitmap);
+            *(update_delete_bitmap_req.add_delete_bitmap_storages()) =
+                    std::move(delete_bitmap_storage_pb);
+            update_delete_bitmap_req.add_delta_rowset_ids("124");
+            delete_bitmap_keys.emplace_back(
+                    versioned::meta_delete_bitmap_key({instance_id, 333, "124"}));
+        }
+        {
+            DeleteBitmapPB delete_bitmap;
+            delete_bitmap.add_rowset_ids("124");
+            delete_bitmap.add_segment_ids(0);
+            delete_bitmap.add_versions(2);
+            delete_bitmap.add_segment_delete_bitmaps("abc3");
+
+            delete_bitmap.add_rowset_ids("124");
+            delete_bitmap.add_segment_ids(1);
+            delete_bitmap.add_versions(2);
+            delete_bitmap.add_segment_delete_bitmaps(large_value);
+
+            delete_bitmap.add_rowset_ids("124");
+            delete_bitmap.add_segment_ids(0);
+            delete_bitmap.add_versions(3);
+            delete_bitmap.add_segment_delete_bitmaps("abc4");
+
+            DeleteBitmapStoragePB delete_bitmap_storage_pb;
+            delete_bitmap_storage_pb.set_store_in_fdb(true);
+            *(delete_bitmap_storage_pb.mutable_delete_bitmap()) = std::move(delete_bitmap);
+            *(update_delete_bitmap_req.add_delete_bitmap_storages()) =
+                    std::move(delete_bitmap_storage_pb);
+            update_delete_bitmap_req.add_delta_rowset_ids("125");
+            delete_bitmap_keys.emplace_back(
+                    versioned::meta_delete_bitmap_key({instance_id, 333, "125"}));
+        }
 
         meta_service->update_delete_bitmap(
                 reinterpret_cast<google::protobuf::RpcController*>(&cntl),
@@ -5829,38 +6094,135 @@ void testUpdateDeleteBitmap(int lock_version) {
         get_delete_bitmap_req.add_begin_versions(0);
         get_delete_bitmap_req.add_end_versions(3);
 
+        get_delete_bitmap_req.add_rowset_ids("125");
+        get_delete_bitmap_req.add_begin_versions(0);
+        get_delete_bitmap_req.add_end_versions(3);
+
         meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
                                         &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
-        ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::OK);
-        ASSERT_EQ(get_delete_bitmap_res.rowset_ids_size(), 5);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), 5);
-        ASSERT_EQ(get_delete_bitmap_res.versions_size(), 5);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), 5);
+        auto check_v1_delete_bitmap = [&](GetDeleteBitmapResponse get_delete_bitmap_res) {
+            ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(get_delete_bitmap_res.rowset_ids_size(), 5);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), 5);
+            ASSERT_EQ(get_delete_bitmap_res.versions_size(), 5);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), 5);
 
-        ASSERT_EQ(get_delete_bitmap_res.rowset_ids(0), "123");
-        ASSERT_EQ(get_delete_bitmap_res.segment_ids(0), 0);
-        ASSERT_EQ(get_delete_bitmap_res.versions(0), 3);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), "abc1");
+            ASSERT_EQ(get_delete_bitmap_res.rowset_ids(0), "123");
+            ASSERT_EQ(get_delete_bitmap_res.segment_ids(0), 0);
+            ASSERT_EQ(get_delete_bitmap_res.versions(0), 3);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), "abc1");
 
-        ASSERT_EQ(get_delete_bitmap_res.rowset_ids(1), "123");
-        ASSERT_EQ(get_delete_bitmap_res.segment_ids(1), 1);
-        ASSERT_EQ(get_delete_bitmap_res.versions(1), 3);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(1), "abc2");
+            ASSERT_EQ(get_delete_bitmap_res.rowset_ids(1), "123");
+            ASSERT_EQ(get_delete_bitmap_res.segment_ids(1), 1);
+            ASSERT_EQ(get_delete_bitmap_res.versions(1), 3);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(1), "abc2");
 
-        ASSERT_EQ(get_delete_bitmap_res.rowset_ids(2), "124");
-        ASSERT_EQ(get_delete_bitmap_res.segment_ids(2), 0);
-        ASSERT_EQ(get_delete_bitmap_res.versions(2), 2);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(2), "abc3");
+            ASSERT_EQ(get_delete_bitmap_res.rowset_ids(2), "124");
+            ASSERT_EQ(get_delete_bitmap_res.segment_ids(2), 0);
+            ASSERT_EQ(get_delete_bitmap_res.versions(2), 2);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(2), "abc3");
 
-        ASSERT_EQ(get_delete_bitmap_res.rowset_ids(3), "124");
-        ASSERT_EQ(get_delete_bitmap_res.segment_ids(3), 1);
-        ASSERT_EQ(get_delete_bitmap_res.versions(3), 2);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(3), large_value);
+            ASSERT_EQ(get_delete_bitmap_res.rowset_ids(3), "124");
+            ASSERT_EQ(get_delete_bitmap_res.segment_ids(3), 1);
+            ASSERT_EQ(get_delete_bitmap_res.versions(3), 2);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(3), large_value);
 
-        ASSERT_EQ(get_delete_bitmap_res.rowset_ids(4), "124");
-        ASSERT_EQ(get_delete_bitmap_res.segment_ids(4), 0);
-        ASSERT_EQ(get_delete_bitmap_res.versions(4), 3);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(4), "abc4");
+            ASSERT_EQ(get_delete_bitmap_res.rowset_ids(4), "124");
+            ASSERT_EQ(get_delete_bitmap_res.segment_ids(4), 0);
+            ASSERT_EQ(get_delete_bitmap_res.versions(4), 3);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(4), "abc4");
+        };
+        check_v1_delete_bitmap(get_delete_bitmap_res);
+
+        // v2 get delete bitmap
+        auto check_v2_delete_bitmap = [&](GetDeleteBitmapResponse& get_delete_bitmap_res2) {
+            ASSERT_EQ(get_delete_bitmap_res2.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(get_delete_bitmap_res2.delete_bitmap_storages_size(), 2);
+            {
+                auto& delete_bitmap_storage = get_delete_bitmap_res2.delete_bitmap_storages(0);
+                ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+                auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), 3);
+                ASSERT_EQ(delete_bitmap_pb.versions_size(), 3);
+                ASSERT_EQ(delete_bitmap_pb.segment_ids_size(), 3);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps_size(), 3);
+
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(0), "123");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.versions(0), 2);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(0), "abc0");
+
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(1), "123");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(1), 0);
+                ASSERT_EQ(delete_bitmap_pb.versions(1), 3);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(1), "abc1");
+
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(2), "123");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(2), 1);
+                ASSERT_EQ(delete_bitmap_pb.versions(2), 3);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(2), "abc2");
+            }
+            {
+                auto& delete_bitmap_storage = get_delete_bitmap_res2.delete_bitmap_storages(1);
+                ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+                auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), 3);
+                ASSERT_EQ(delete_bitmap_pb.versions_size(), 3);
+                ASSERT_EQ(delete_bitmap_pb.segment_ids_size(), 3);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps_size(), 3);
+
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(0), "124");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(0), 0);
+                ASSERT_EQ(delete_bitmap_pb.versions(0), 2);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(0), "abc3");
+
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(1), "124");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(1), 1);
+                ASSERT_EQ(delete_bitmap_pb.versions(1), 2);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(1), large_value);
+
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(2), "124");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(2), 0);
+                ASSERT_EQ(delete_bitmap_pb.versions(2), 3);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(2), "abc4");
+            }
+        };
+        {
+            GetDeleteBitmapResponse get_delete_bitmap_res2;
+            get_delete_bitmap_req.set_store_version(2);
+
+            meta_service->get_delete_bitmap(
+                    reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                    &get_delete_bitmap_req, &get_delete_bitmap_res2, nullptr);
+            check_v2_delete_bitmap(get_delete_bitmap_res2);
+        }
+
+        // v1 and v2 get delete bitmap
+        {
+            GetDeleteBitmapResponse get_delete_bitmap_res3;
+            get_delete_bitmap_req.set_store_version(3);
+
+            meta_service->get_delete_bitmap(
+                    reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                    &get_delete_bitmap_req, &get_delete_bitmap_res3, nullptr);
+            check_v1_delete_bitmap(get_delete_bitmap_res3);
+            check_v2_delete_bitmap(get_delete_bitmap_res3);
+        }
+
+        // check pending delete bitmap key
+        {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, 333});
+            std::string pending_val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+            PendingDeleteBitmapPB pending_info;
+            ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+            ASSERT_EQ(pending_info.delete_bitmap_keys_size(), delete_bitmap_keys.size());
+            for (size_t i = 0; i < delete_bitmap_keys.size(); ++i) {
+                ASSERT_EQ(pending_info.delete_bitmap_keys(i), delete_bitmap_keys[i]);
+            }
+        }
     }
 
     // second update delete bitmap
@@ -6595,6 +6957,8 @@ TEST(MetaServiceTest, DeleteBimapCommitTxnTest) {
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
             tmp_rowset.set_partition_id(partition_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -6762,6 +7126,7 @@ TEST(MetaServiceTest, GetDeleteBitmapWithRetryTest2) {
     auto meta_service = get_meta_service();
     SyncPoint::get_instance()->enable_processing();
     size_t index = 0;
+    int store_version = 1;
     SyncPoint::get_instance()->set_call_back("get_delete_bitmap_test", [&](auto&& args) {
         auto* test = try_any_cast<bool*>(args[0]);
         *test = true;
@@ -6771,6 +7136,9 @@ TEST(MetaServiceTest, GetDeleteBitmapWithRetryTest2) {
         auto* round = try_any_cast<int64_t*>(args[0]);
         LOG(INFO) << "GET_DELETE_BITMAP_CODE,index=" << index << ",round=" << *round;
         if (*round > 2 && ++index < 2) {
+            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_TOO_OLD;
+        }
+        if (store_version == 2 && *round < 3) {
             *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_TOO_OLD;
         }
     });
@@ -6805,40 +7173,85 @@ TEST(MetaServiceTest, GetDeleteBitmapWithRetryTest2) {
         segment_delete_bitmaps[i] = generate_random_string(300 * 1000 * 3);
     }
     int count = 5;
+    DeleteBitmapPB delete_bitmap;
     for (int i = 0; i < count; i++) {
         update_delete_bitmap_req.add_rowset_ids(rowset_id);
         update_delete_bitmap_req.add_segment_ids(i);
         update_delete_bitmap_req.add_versions(i + 1);
         update_delete_bitmap_req.add_segment_delete_bitmaps(segment_delete_bitmaps[i]);
+
+        delete_bitmap.add_rowset_ids(rowset_id);
+        delete_bitmap.add_segment_ids(i);
+        delete_bitmap.add_versions(i + 1);
+        delete_bitmap.add_segment_delete_bitmaps(segment_delete_bitmaps[i]);
     }
+    // v2 update delete bitmap
+    DeleteBitmapStoragePB delete_bitmap_storage_pb;
+    delete_bitmap_storage_pb.set_store_in_fdb(true);
+    *(delete_bitmap_storage_pb.mutable_delete_bitmap()) = std::move(delete_bitmap);
+    *(update_delete_bitmap_req.add_delete_bitmap_storages()) = std::move(delete_bitmap_storage_pb);
+    update_delete_bitmap_req.add_delta_rowset_ids(rowset_id);
     meta_service->update_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
                                        &update_delete_bitmap_req, &update_delete_bitmap_res,
                                        nullptr);
     ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
 
+    // v1 get delete bitmap
     GetDeleteBitmapRequest get_delete_bitmap_req;
-    GetDeleteBitmapResponse get_delete_bitmap_res;
     get_delete_bitmap_req.set_cloud_unique_id("test_cloud_unique_id");
     get_delete_bitmap_req.set_tablet_id(333);
 
-    get_delete_bitmap_req.add_rowset_ids(rowset_id);
-    get_delete_bitmap_req.add_begin_versions(1);
+    // add a rowset which does not exist
+    get_delete_bitmap_req.add_rowset_ids(rowset_id + "_non");
+    get_delete_bitmap_req.add_begin_versions(0);
     get_delete_bitmap_req.add_end_versions(count);
 
-    meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
-                                    &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
-    ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::OK);
-    ASSERT_EQ(get_delete_bitmap_res.rowset_ids_size(), count);
-    ASSERT_EQ(get_delete_bitmap_res.segment_ids_size(), count);
-    ASSERT_EQ(get_delete_bitmap_res.versions_size(), count);
-    ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), count);
+    get_delete_bitmap_req.add_rowset_ids(rowset_id);
+    get_delete_bitmap_req.add_begin_versions(0);
+    get_delete_bitmap_req.add_end_versions(count);
+    {
+        GetDeleteBitmapResponse get_delete_bitmap_res;
+        meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                        &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
+        ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(get_delete_bitmap_res.rowset_ids_size(), count);
+        ASSERT_EQ(get_delete_bitmap_res.segment_ids_size(), count);
+        ASSERT_EQ(get_delete_bitmap_res.versions_size(), count);
+        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), count);
 
-    for (int i = 0; i < count; i++) {
-        ASSERT_EQ(get_delete_bitmap_res.rowset_ids(i), rowset_id);
-        ASSERT_EQ(get_delete_bitmap_res.segment_ids(i), i);
-        ASSERT_EQ(get_delete_bitmap_res.versions(i), i + 1);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(i), segment_delete_bitmaps[i]);
+        for (int i = 0; i < count; i++) {
+            ASSERT_EQ(get_delete_bitmap_res.rowset_ids(i), rowset_id);
+            ASSERT_EQ(get_delete_bitmap_res.segment_ids(i), i);
+            ASSERT_EQ(get_delete_bitmap_res.versions(i), i + 1);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(i), segment_delete_bitmaps[i]);
+        }
     }
+
+    // v2 get delete bitmap
+    {
+        store_version = 2;
+        get_delete_bitmap_req.set_store_version(2);
+        GetDeleteBitmapResponse get_delete_bitmap_res;
+        meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                        &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
+        ASSERT_EQ(get_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(get_delete_bitmap_res.delete_bitmap_storages_size(), 1);
+        auto& delete_bitmap_storage = get_delete_bitmap_res.delete_bitmap_storages(0);
+        ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+        auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+        ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), count);
+        ASSERT_EQ(delete_bitmap_pb.segment_ids_size(), count);
+        ASSERT_EQ(delete_bitmap_pb.versions_size(), count);
+        ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps_size(), count);
+
+        for (int i = 0; i < count; i++) {
+            ASSERT_EQ(delete_bitmap_pb.rowset_ids(i), rowset_id);
+            ASSERT_EQ(delete_bitmap_pb.segment_ids(i), i);
+            ASSERT_EQ(delete_bitmap_pb.versions(i), i + 1);
+            ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(i), segment_delete_bitmaps[i]);
+        }
+    }
+
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
@@ -6990,23 +7403,25 @@ TEST(MetaServiceTest, BatchGetVersion) {
                 insert_rowsets;
     };
 
+    // table ids: 2, 3, 4, 5
+    // partition ids: 6, 7, 8, 9
     std::vector<TestCase> cases = {
             // all version are missing
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {-1, -1, -1, -1}, {}},
-            // update table 1, partition 1
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, -1, -1}, {{1, 1, 1}}},
-            // update table 2, partition 1
-            // update table 3, partition 2
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, 2, 2}, {{2, 1, 3}, {3, 2, 4}}},
-            // update table 1, partition 2 twice
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, 3, 2, 2}, {{1, 2, 2}, {1, 2, 2}}},
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {-1, -1, -1, -1}, {}},
+            // update table 1, partition 6
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, -1, -1}, {{1, 6, 1}}},
+            // update table 2, partition 6
+            // update table 3, partition 7
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, 2, 2}, {{3, 8, 3}, {4, 9, 4}}},
+            // update table 1, partition 7 twice
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, 3, 2, 2}, {{2, 7, 2}, {2, 7, 2}}},
     };
 
     auto service = get_meta_service();
-    create_tablet(service.get(), 1, 1, 1, 1);
-    create_tablet(service.get(), 1, 1, 2, 2);
-    create_tablet(service.get(), 2, 1, 1, 3);
-    create_tablet(service.get(), 3, 1, 2, 4);
+    create_tablet(service.get(), 1, 1, 6, 1);
+    create_tablet(service.get(), 2, 1, 7, 2);
+    create_tablet(service.get(), 3, 1, 8, 3);
+    create_tablet(service.get(), 4, 1, 9, 4);
 
     size_t num_cases = cases.size();
     size_t label_index = 0;
@@ -7014,7 +7429,7 @@ TEST(MetaServiceTest, BatchGetVersion) {
         auto& [table_ids, partition_ids, expected_versions, insert_rowsets] = cases[i];
         for (auto [table_id, partition_id, tablet_id] : insert_rowsets) {
             LOG(INFO) << "insert rowset for table " << table_id << " partition " << partition_id
-                      << " table_id " << tablet_id;
+                      << " tablet_id " << tablet_id;
             insert_rowset(service.get(), 1, std::to_string(++label_index), table_id, partition_id,
                           tablet_id);
         }
@@ -7884,6 +8299,50 @@ TEST(MetaServiceTxnStoreRetryableTest, DoNotReturnRetryableCode) {
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
     config::txn_store_retry_times = retry_times;
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
+    size_t index = 0;
+    SyncPoint::get_instance()->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_MAYBE_COMMITTED;
+    });
+    SyncPoint::get_instance()->enable_processing();
+    int32_t retry_times = config::txn_store_retry_times;
+    bool enable_retry = config::enable_txn_store_retry;
+    int64_t max_txn_commit_byte = config::max_txn_commit_byte;
+    config::txn_store_retry_times = 2;
+    config::enable_txn_store_retry = true;
+    config::max_txn_commit_byte = 1;
+
+    auto service = get_meta_service();
+
+    brpc::Controller cntl;
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse resp;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(100);
+    req.set_partition_id(123);
+    req.set_lock_id(-3);
+    req.set_without_lock(true);
+    req.set_initiator(-1);
+    req.set_tablet_id(333);
+    req.add_rowset_ids("r1");
+    req.add_segment_ids(0);
+    req.add_versions(2);
+    req.add_segment_delete_bitmaps("abc");
+
+    service->update_delete_bitmap(&cntl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_MAYBE_COMMITTED)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+    config::txn_store_retry_times = retry_times;
+    config::enable_txn_store_retry = enable_retry;
+    config::max_txn_commit_byte = max_txn_commit_byte;
 }
 
 TEST(MetaServiceTest, GetClusterStatusTest) {
@@ -8974,6 +9433,141 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, CreateVersionedTablet) {
+    auto meta_service = get_meta_service(false);
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string instance_id = "test_instance";
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key;
+        std::string val;
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+
+        InstanceInfoPB instance;
+        instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+    }
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        brpc::Controller cntl;
+        CreateTabletsRequest req;
+        CreateTabletsResponse res;
+        req.set_cloud_unique_id(fmt::format("1:{}:1", instance_id));
+        req.set_db_id(db_id);
+        add_tablet(req, table_id, index_id, partition_id, tablet_id);
+        meta_service->create_tablets(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
+    }
+
+    Versionstamp commit_versionstamp;
+    {
+        // verify versioned tablet meta is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        std::string key = versioned::meta_tablet_key({instance_id, tablet_id});
+        ASSERT_EQ(versioned_get(txn.get(), key, &commit_versionstamp, &val), TxnErrorCode::TXN_OK)
+                << hex(key);
+        TabletMetaCloudPB versioned_tablet_meta;
+        versioned_tablet_meta.ParseFromString(val);
+        ASSERT_EQ(versioned_tablet_meta.table_id(), table_id);
+        ASSERT_EQ(versioned_tablet_meta.index_id(), index_id)
+                << versioned_tablet_meta.ShortDebugString();
+        ASSERT_EQ(versioned_tablet_meta.partition_id(), partition_id);
+        ASSERT_EQ(versioned_tablet_meta.tablet_id(), tablet_id);
+    }
+
+    {
+        // verify versioned tablet index/inverted index is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_index_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        TabletIndexPB tablet_index;
+        tablet_index.ParseFromString(val);
+        ASSERT_EQ(tablet_index.db_id(), db_id);
+        ASSERT_EQ(tablet_index.table_id(), table_id);
+        ASSERT_EQ(tablet_index.index_id(), index_id);
+        ASSERT_EQ(tablet_index.partition_id(), partition_id);
+        ASSERT_EQ(tablet_index.tablet_id(), tablet_id);
+
+        key = versioned::tablet_inverted_index_key(
+                {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // verify the first versioned rowset meta is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        int64_t end_version = 1; // from add_tablet
+        std::string key = versioned::meta_rowset_load_key({instance_id, tablet_id, end_version});
+        RowsetMetaCloudPB rowset_meta;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &rowset_meta, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+    }
+
+    {
+        // verify the tablet load stats is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        TabletStatsPB load_stats;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &load_stats, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+    }
+
+    {
+        // verify the tablet compact stats is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        TabletStatsPB compact_stats;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &compact_stats, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+        EXPECT_EQ(compact_stats.cumulative_point(), 2);
+    }
+
+    {
+        // verify the tablet schema is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::meta_schema_key({instance_id, index_id, 0});
+        doris::TabletSchemaCloudPB schema;
+        ASSERT_EQ(document_get(txn.get(), key, &schema), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(schema.schema_version(), 0);
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     auto meta_service = get_meta_service();
 
@@ -9091,6 +9685,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
     // try to use default vault
     {
         CreateTabletsRequest req;
+        req.set_db_id(1);
         req.set_cloud_unique_id("test_cloud_unique_id");
         req.set_storage_vault_name("");
         req.add_tablet_metas();
@@ -9890,6 +10485,16 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("compaction1");
         req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+
+        arena = res.GetArena();
+        req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
         meta_service->commit_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
@@ -9897,7 +10502,7 @@ TEST(MetaServiceTest, CheckJobExisted) {
         res.Clear();
     }
 
-    // commit rowset, job does not exist,
+    // prepare rowset, job does not exist,
     {
         constexpr auto table_id = 953101, index_id = 953102, partition_id = 953103,
                        tablet_id = 953104;
@@ -9915,14 +10520,14 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("compaction1");
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
         res.Clear();
     }
 
-    // commit rowset, compaction job exists, job id not match
+    // prepare rowset, compaction job exists, job id not match
     {
         constexpr auto table_id = 953201, index_id = 953202, partition_id = 953203,
                        tablet_id = 953204;
@@ -9946,14 +10551,14 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("compaction2");
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
         res.Clear();
     }
 
-    // do not set job id when commit rowset
+    // do not set job id when prepare rowset
     {
         constexpr auto table_id = 953301, index_id = 953302, partition_id = 953303,
                        tablet_id = 953304;
@@ -9976,14 +10581,14 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto arena = res.GetArena();
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         res.Clear();
     }
 
-    // job id is empty string when commit rowset
+    // job id is empty string when prepare rowset
     {
         constexpr auto table_id = 953401, index_id = 953402, partition_id = 953403,
                        tablet_id = 953404;
@@ -10007,7 +10612,7 @@ TEST(MetaServiceTest, CheckJobExisted) {
         auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
         req->set_tablet_job_id("");
         req->mutable_rowset_meta()->CopyFrom(rowset);
-        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
         if (!arena) delete req;
 
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
@@ -10072,11 +10677,13 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
+            << res.status().msg();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
-    ASSERT_TRUE(res.status().msg().find("txn is not in") != std::string::npos)
+    ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
 }
@@ -10382,4 +10989,1928 @@ TEST(MetaServiceTest, AlterS3StorageVaultWithRoleArnTest) {
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
+
+void scan_restore_job_rowset(
+        Transaction* txn, const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+        std::string& msg,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* restore_job_rs_metas);
+
+TEST(MetaServiceTest, RestoreJobTest) {
+    auto meta_service = get_meta_service();
+    ASSERT_NE(meta_service, nullptr);
+
+    std::string instance_id = "test_prepare_restore_job_instance_id";
+    auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto reset_meta_service = [&meta_service] { meta_service = get_meta_service(); };
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id = 10004;
+    constexpr int64_t version = 1;
+    constexpr int64_t txn_id = 0;
+
+    TabletIndexPB tablet_idx;
+    tablet_idx.set_table_id(table_id);
+    tablet_idx.set_index_id(index_id);
+    tablet_idx.set_partition_id(partition_id);
+    tablet_idx.set_tablet_id(tablet_id);
+    std::string tablet_idx_val;
+    tablet_idx.SerializeToString(&tablet_idx_val);
+
+    std::unique_ptr<Transaction> txn;
+    brpc::Controller cntl;
+    RestoreJobRequest req;
+    RestoreJobResponse res;
+
+    // ------------Test prepare restore job------------
+    // invalid args prepare restore job
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        // empty action
+        meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
+        req.set_action(RestoreJobRequest::PREPARE);
+
+        // empty tablet id
+        meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().msg(), "empty tablet_id");
+
+        // restore with empty tablet meta
+        req.set_tablet_id(tablet_id);
+        res.Clear();
+        meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().msg(), "no tablet meta");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        req.Clear();
+        res.Clear();
+    }
+    // normal prepare restore job
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        req.set_tablet_id(tablet_id);
+        req.set_expiration(time(nullptr) + 3600);
+        req.set_action(RestoreJobRequest::PREPARE);
+
+        // set tablet meta
+        auto* tablet_meta = req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+
+        meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+
+        RestoreJobCloudPB restore_job_pb;
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.tablet_id(), tablet_id);
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::PREPARED);
+        ASSERT_EQ(restore_job_pb.tablet_meta().schema_version(), 1);
+
+        std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, version});
+        ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+        RowsetMetaCloudPB rs_meta_pb;
+        ASSERT_TRUE(rs_meta_pb.ParseFromString(val));
+        ASSERT_EQ(rs_meta_pb.tablet_id(), tablet_id);
+        ASSERT_EQ(rs_meta_pb.rowset_id_v2(), rs_meta->rowset_id_v2());
+        req.Clear();
+        res.Clear();
+    }
+    // duplicate prepare restore job
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::PREPARE);
+
+        // set tablet meta
+        auto* tablet_meta = req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+
+        // first request
+        meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+
+        RestoreJobCloudPB restore_job_pb;
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.tablet_id(), tablet_id);
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::PREPARED);
+        ASSERT_EQ(restore_job_pb.version(), 0);
+
+        // second request
+        meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+
+        restore_job_pb.Clear();
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.tablet_id(), tablet_id);
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::PREPARED);
+        ASSERT_EQ(restore_job_pb.version(), 1);
+        req.Clear();
+        res.Clear();
+    }
+    // ------------Test commit restore job------------
+    // invalid args commit restore job
+    {
+        reset_meta_service();
+        // empty action
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
+        req.set_action(RestoreJobRequest::COMMIT);
+
+        // empty tablet_id
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().msg(), "empty tablet_id");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        req.Clear();
+        res.Clear();
+    }
+    // commit restore job not exits
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().msg(), "restore job not exists or has been recycled");
+        req.Clear();
+        res.Clear();
+    }
+    // normal commit restore job
+    for (int store_version = 0; store_version < 4; store_version++) {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // prepare restore job
+        RestoreJobRequest make_req;
+        RestoreJobResponse make_res;
+        make_req.set_tablet_id(tablet_id);
+        make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
+        auto* tablet_meta = make_req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+        auto* delete_bitmap = tablet_meta->mutable_delete_bitmap();
+        // 1
+        delete_bitmap->add_rowset_ids(rs_meta->rowset_id_v2());
+        delete_bitmap->add_versions(1);
+        delete_bitmap->add_segment_ids(1);
+        delete_bitmap->add_segment_delete_bitmaps("test_bitmap");
+        // 2
+        delete_bitmap->add_rowset_ids(rs_meta->rowset_id_v2());
+        delete_bitmap->add_versions(1);
+        delete_bitmap->add_segment_ids(2);
+        delete_bitmap->add_segment_delete_bitmaps("test_bitmap2");
+        // 3
+        delete_bitmap->add_rowset_ids(rs_meta->rowset_id_v2() + "2");
+        delete_bitmap->add_versions(1);
+        delete_bitmap->add_segment_ids(1);
+        delete_bitmap->add_segment_delete_bitmaps("test_bitmap3");
+
+        meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
+        ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK);
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, version});
+        ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+
+        // commit_restore_job
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
+        if (store_version > 0) {
+            req.set_store_version(store_version);
+        }
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        std::string tablet_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(tablet_key, &val), TxnErrorCode::TXN_OK);
+        TabletMetaCloudPB saved_tablet_meta;
+        ASSERT_TRUE(saved_tablet_meta.ParseFromString(val));
+        ASSERT_EQ(saved_tablet_meta.tablet_id(), tablet_id);
+        ASSERT_EQ(saved_tablet_meta.schema_version(), 1);
+        std::string rs_key = meta_rowset_key({instance_id, tablet_id, version});
+        ASSERT_EQ(txn->get(rs_key, &val), TxnErrorCode::TXN_OK);
+        RowsetMetaCloudPB saved_rs_meta;
+        ASSERT_TRUE(saved_rs_meta.ParseFromString(val));
+        ASSERT_EQ(saved_rs_meta.tablet_id(), tablet_id);
+        ASSERT_EQ(saved_rs_meta.rowset_id_v2(), rs_meta->rowset_id_v2());
+        // check delete bitmap
+        {
+            TxnErrorCode err = (store_version == 0 || store_version == 1 || store_version == 3)
+                                       ? TxnErrorCode::TXN_OK
+                                       : TxnErrorCode::TXN_KEY_NOT_FOUND;
+            std::string bitmap_key =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rs_meta->rowset_id_v2(), 1, 1});
+            ASSERT_EQ(txn->get(bitmap_key, &val), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                ASSERT_EQ(val, "test_bitmap");
+            }
+            bitmap_key =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rs_meta->rowset_id_v2(), 1, 2});
+            ASSERT_EQ(txn->get(bitmap_key, &val), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                ASSERT_EQ(val, "test_bitmap2");
+            }
+            bitmap_key = meta_delete_bitmap_key(
+                    {instance_id, tablet_id, rs_meta->rowset_id_v2() + "2", 1, 1});
+            ASSERT_EQ(txn->get(bitmap_key, &val), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                ASSERT_EQ(val, "test_bitmap3");
+            }
+        }
+        {
+            TxnErrorCode err = (store_version == 2 || store_version == 3)
+                                       ? TxnErrorCode::TXN_OK
+                                       : TxnErrorCode::TXN_KEY_NOT_FOUND;
+            std::string bitmap_key = versioned::meta_delete_bitmap_key(
+                    {instance_id, tablet_id, rs_meta->rowset_id_v2()});
+            ValueBuf val_buf;
+            ASSERT_EQ(cloud::blob_get(txn.get(), bitmap_key, &val_buf), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                DeleteBitmapStoragePB delete_bitmap_storage;
+                ASSERT_TRUE(val_buf.to_pb(&delete_bitmap_storage));
+                ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+                auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), 2);
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(0), rs_meta->rowset_id_v2());
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.versions(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(0), "test_bitmap");
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(1), rs_meta->rowset_id_v2());
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(1), 2);
+                ASSERT_EQ(delete_bitmap_pb.versions(1), 1);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(1), "test_bitmap2");
+            }
+            bitmap_key = versioned::meta_delete_bitmap_key(
+                    {instance_id, tablet_id, rs_meta->rowset_id_v2() + "2"});
+            ASSERT_EQ(cloud::blob_get(txn.get(), bitmap_key, &val_buf), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                DeleteBitmapStoragePB delete_bitmap_storage;
+                ASSERT_TRUE(val_buf.to_pb(&delete_bitmap_storage));
+                ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+                auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), 1);
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(0), rs_meta->rowset_id_v2() + "2");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.versions(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(0), "test_bitmap3");
+            }
+        }
+
+        // ths restore job key should not be removed, restore job rowset key should be found
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
+        MetaServiceCode code;
+        std::string msg;
+        scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
+                                &restore_job_rs_metas);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_EQ(restore_job_rs_metas.size(), 1);
+        req.Clear();
+        res.Clear();
+    }
+    // large commit restore job request with 10000 rowset meta
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // prepare restore job
+        RestoreJobRequest make_req;
+        RestoreJobResponse make_res;
+        make_req.set_tablet_id(tablet_id);
+        make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
+
+        auto* tablet_meta = make_req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+
+        // add 10000 rowset meta
+        constexpr int LARGE_ROWSET_COUNT = 10000;
+        for (int64_t ver = 1; ver <= LARGE_ROWSET_COUNT; ver++) {
+            auto* rs_meta = tablet_meta->add_rs_metas();
+            *rs_meta = create_rowset(txn_id, tablet_id, partition_id, ver);
+        }
+
+        meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
+        ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK) << make_res.status().msg();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int64_t ver = 1; ver <= LARGE_ROWSET_COUNT; ver++) {
+            std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, ver});
+            std::string val;
+            ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB rs_meta_pb;
+            ASSERT_TRUE(rs_meta_pb.ParseFromString(val));
+            ASSERT_EQ(rs_meta_pb.tablet_id(), tablet_id);
+            ASSERT_EQ(rs_meta_pb.start_version(), ver);
+            ASSERT_EQ(rs_meta_pb.end_version(), ver);
+        }
+
+        // commit_restore_job
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int64_t ver = 1; ver <= LARGE_ROWSET_COUNT; ver++) {
+            std::string rs_key = meta_rowset_key({instance_id, tablet_id, ver});
+            std::string val;
+            ASSERT_EQ(txn->get(rs_key, &val), TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB saved_rs_meta;
+            ASSERT_TRUE(saved_rs_meta.ParseFromString(val));
+            ASSERT_EQ(saved_rs_meta.tablet_id(), tablet_id);
+            ASSERT_EQ(saved_rs_meta.start_version(), ver);
+            ASSERT_EQ(saved_rs_meta.end_version(), ver);
+        }
+
+        // ths restore job key should not be removed, restore job rowset key should be found
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
+        MetaServiceCode code;
+        std::string msg;
+        scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
+                                &restore_job_rs_metas);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_EQ(restore_job_rs_metas.size(), 10000);
+        req.Clear();
+        res.Clear();
+    }
+    // ------------Test finish restore job------------
+    // invalid args finish restore job
+    {
+        reset_meta_service();
+        // empty action
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
+        req.set_action(RestoreJobRequest::COMPLETE);
+
+        // empty tablet_id
+        meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().msg(), "empty tablet_id");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        req.Clear();
+        res.Clear();
+    }
+    // finish restore job not exists
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMPLETE);
+        meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().msg(), "restore job not exists or has been recycled");
+        req.Clear();
+        res.Clear();
+    }
+    // finish restore job COMMITTED -> COMPLETED
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // prepare restore job
+        RestoreJobRequest make_req;
+        RestoreJobResponse make_res;
+        make_req.set_tablet_id(tablet_id);
+        make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
+
+        auto* tablet_meta = make_req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+        auto* delete_bitmap = tablet_meta->mutable_delete_bitmap();
+        delete_bitmap->add_rowset_ids(rs_meta->rowset_id_v2());
+        delete_bitmap->add_versions(1);
+        delete_bitmap->add_segment_ids(1);
+        delete_bitmap->add_segment_delete_bitmaps("test_bitmap");
+
+        meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
+        ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK);
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, version});
+        ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+
+        // finish_restore_job to COMPLETED
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMPLETE);
+        meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        // this restore job key should be in COMPLETED state
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        RestoreJobCloudPB restore_job_pb;
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::COMPLETED);
+        ASSERT_EQ(restore_job_pb.need_recycle_data(), false);
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
+        MetaServiceCode code;
+        std::string msg;
+        scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
+                                &restore_job_rs_metas);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_EQ(restore_job_rs_metas.size(), 1);
+        req.Clear();
+        res.Clear();
+    }
+    // finish restore job state PREPARED -> DROPPED
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // prepare restore job
+        RestoreJobRequest make_req;
+        RestoreJobResponse make_res;
+        make_req.set_tablet_id(tablet_id);
+        make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
+
+        auto* tablet_meta = make_req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+
+        meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
+        ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK);
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, version});
+        ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+
+        // finish_restore_job to DROPPED
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::ABORT);
+        meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        // this restore job key should be in DROPPED state
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        RestoreJobCloudPB restore_job_pb;
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::DROPPED);
+        ASSERT_EQ(restore_job_pb.need_recycle_data(), true);
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
+        MetaServiceCode code;
+        std::string msg;
+        scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
+                                &restore_job_rs_metas);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_EQ(restore_job_rs_metas.size(), 1);
+        req.Clear();
+        res.Clear();
+    }
+    // finish restore job invalid state PREPARED -> COMPLETED
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // prepare restore job
+        RestoreJobRequest make_req;
+        RestoreJobResponse make_res;
+        make_req.set_tablet_id(tablet_id);
+        make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
+
+        // set tablet meta
+        auto* tablet_meta = make_req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+
+        meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
+        ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK);
+
+        // finish_restore_job to COMPLETED
+        req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMPLETE);
+        meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid state to complete") != std::string::npos);
+    }
+}
+
+TEST(MetaServiceTest, SetSnapshotPropertyTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_snapshot_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Test case 1: Snapshot not ready (SNAPSHOT_SWITCH_DISABLED) - should fail
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("Snapshot is not ready") != std::string::npos);
+    }
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_snapshot_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Test case 2: Valid "enabled" property with "true" value (after initialization)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: Valid "enabled" property with "false" value
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "false";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 4: Invalid "enabled" property value
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "invalid";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 5: Valid "max_reserved_snapshots" property (minimum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "0";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 6: Valid "max_reserved_snapshots" property (maximum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "35";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 7: Valid "max_reserved_snapshots" property (middle value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 8: Invalid "max_reserved_snapshots" property (negative value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "-1";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 9: Invalid "max_reserved_snapshots" property (too large value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "36";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 10: Invalid "max_reserved_snapshots" property (non-numeric value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "abc";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 11: Valid "snapshot_interval_seconds" property (minimum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 12: Valid "snapshot_interval_seconds" property (large value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "14400";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 13: Invalid "snapshot_interval_seconds" property (too small value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3599";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 14: Invalid "snapshot_interval_seconds" property (non-numeric value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "invalid";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 15: Unsupported property key
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["unsupported_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 16: Empty properties map
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        // Don't add any properties - properties map will be empty
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 17: Multiple valid properties in single request
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "20";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 18: Mixed valid and invalid properties (should fail on first invalid)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
+        (*req.mutable_properties())["unsupported_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.ShortDebugString();
+    }
+
+    // Test case 19: Non-existent instance ID
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("non_existent_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::CLUSTER_NOT_FOUND);
+    }
+}
+
+TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_snapshot_config_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_snapshot_config_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest alter_req;
+        AlterInstanceResponse alter_res;
+        alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        alter_req.set_instance_id("test_snapshot_config_instance");
+        (*alter_req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &alter_req, &alter_res, nullptr);
+        ASSERT_EQ(alter_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(alter_res.status().msg().find("MULTI_VERSION_READ_WRITE") != std::string::npos);
+    }
+
+    // Set multi-version status to READ_WRITE
+    {
+        InstanceKeyInfo key_info {"test_snapshot_config_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Enable snapshot for this instance
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest alter_req;
+        AlterInstanceResponse alter_res;
+        alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        alter_req.set_instance_id("test_snapshot_config_instance");
+        (*alter_req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &alter_req, &alter_res, nullptr);
+        ASSERT_EQ(alter_res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Save original config values
+    int32_t orig_min_interval = config::snapshot_min_interval_seconds;
+    int32_t orig_max_reserved = config::snapshot_max_reserved_num;
+
+    // Temporarily modify config for testing
+    config::snapshot_min_interval_seconds = 1800; // 30 minutes
+    config::snapshot_max_reserved_num = 20;
+
+    // Test case 1: interval below minimum limit
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "1799"; // Below min limit
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("minimum is 1800") != std::string::npos);
+    }
+
+    // Test case 2: interval within limits should succeed
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600"; // Within limits
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: max_reserved_snapshots above maximum limit
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "21"; // Above max limit
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("maximum is 20") != std::string::npos);
+    }
+
+    // Test case 4: max_reserved_snapshots within limits should succeed
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10"; // Within limits
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 5: unknown property should fail
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())["unknown_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("unknown snapshot property: unknown_property") !=
+                    std::string::npos);
+    }
+
+    // Restore original config values
+    config::snapshot_min_interval_seconds = orig_min_interval;
+    config::snapshot_max_reserved_num = orig_max_reserved;
+}
+
+TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = "test_instance";
+            ret->second = true;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // First enable snapshot - should set default values
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify default values were set by checking instance
+    {
+        brpc::Controller cntl;
+        GetInstanceRequest req;
+        GetInstanceResponse res;
+        req.set_instance_id("test_instance");
+        req.set_cloud_unique_id("test_snapshot_defaults_unique_id");
+
+        meta_service->get_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                   &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        const auto& instance = res.instance();
+        ASSERT_EQ(instance.snapshot_switch_status(), SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON);
+        ASSERT_EQ(instance.snapshot_interval_seconds(), config::snapshot_min_interval_seconds);
+        ASSERT_EQ(instance.max_reserved_snapshot(), 0);
+    }
+}
+
+TEST(MetaServiceTest, CreateTabletIdempotentAndHandlingError) {
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    size_t case_num = 0;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("meta_service_test:get_meta_tablet_key_error", [&case_num](auto&& args) {
+        if (++case_num == 3) {
+            auto* code = try_any_cast<TxnErrorCode*>(args[0]);
+            *code = TxnErrorCode::TXN_INVALID_DATA;
+        }
+    });
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    CreateTabletsRequest req;
+    CreateTabletsResponse res;
+    int64_t table_id = 100;
+    int64_t index_id = 200;
+    int64_t partition_id = 300;
+    int64_t tablet_id = 400;
+    req.set_db_id(1); // default db_id
+    add_tablet(req, table_id, index_id, partition_id, tablet_id);
+    // normal create
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // idempotent
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // error handling
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::KV_TXN_GET_ERR);
+}
+
+TEST(MetaServiceTest, RowsetVisibleTimeTest) {
+    auto meta_service = get_meta_service();
+    using namespace std::chrono;
+    int64_t txn_id = -1;
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(666);
+        txn_info_pb.set_label("test_label");
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // mock rowset and tablet
+    int64_t tablet_id_base = 1103;
+    for (int i = 0; i < 5; ++i) {
+        create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+        CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(666);
+        req.set_txn_id(txn_id);
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    for (int i = 0; i < 5; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        int64_t ver = 2;
+        std::string rowset_key = meta_rowset_key({mock_instance, tablet_id, ver});
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(rowset_key, &val), TxnErrorCode::TXN_OK);
+        RowsetMetaCloudPB rowset_pb;
+        ASSERT_TRUE(rowset_pb.ParseFromString(val));
+        ASSERT_TRUE(rowset_pb.has_visible_ts_ms());
+        std::cout << rowset_pb.visible_ts_ms() << "\n";
+        ASSERT_GT(rowset_pb.visible_ts_ms(), 0);
+        auto visible_tp = time_point<system_clock>(milliseconds(rowset_pb.visible_ts_ms()));
+        std::time_t visible_time = system_clock::to_time_t(visible_tp);
+        std::cout << "visible time: "
+                  << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
+    }
+}
+
+TEST(MetaServiceTest, UpdatePackedFileInfoTest) {
+    auto meta_service = get_meta_service();
+
+    // case: normal update merge file info - success case
+    {
+        brpc::Controller cntl;
+        UpdatePackedFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_packed_file_path("/path/to/packed/file1");
+
+        // Set packed file info
+        auto* packed_info = req.mutable_packed_file_info();
+        packed_info->set_ref_cnt(5);
+        packed_info->set_total_slice_num(10);
+        packed_info->set_total_slice_bytes(1024000);
+        packed_info->set_remaining_slice_bytes(819200);
+        packed_info->set_created_at_sec(1666666666);
+        packed_info->set_corrected(false);
+        packed_info->set_state(PackedFileInfoPB::NORMAL);
+
+        // Add small files
+        auto* small_file = packed_info->add_slices();
+        small_file->set_path("/small/file1.txt");
+        small_file->set_offset(0);
+        small_file->set_size(512);
+        small_file->set_deleted(false);
+
+        small_file = packed_info->add_slices();
+        small_file->set_path("/small/file2.txt");
+        small_file->set_offset(512);
+        small_file->set_size(1024);
+        small_file->set_deleted(false);
+
+        UpdatePackedFileInfoResponse res;
+        meta_service->update_packed_file_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // case: missing cloud_unique_id - should fail
+    {
+        brpc::Controller cntl;
+        UpdatePackedFileInfoRequest req;
+        // req.set_cloud_unique_id("test_cloud_unique_id"); // missing cloud_unique_id
+        req.set_packed_file_path("/path/to/packed/file");
+
+        auto* packed_info = req.mutable_packed_file_info();
+        packed_info->set_ref_cnt(1);
+        packed_info->set_total_slice_num(1);
+
+        UpdatePackedFileInfoResponse res;
+        meta_service->update_packed_file_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("cloud_unique_id is required") != std::string::npos);
+    }
+
+    // case: empty cloud_unique_id - should fail
+    {
+        brpc::Controller cntl;
+        UpdatePackedFileInfoRequest req;
+        req.set_cloud_unique_id(""); // empty cloud_unique_id
+        req.set_packed_file_path("/path/to/merged/file");
+
+        auto* merge_info = req.mutable_packed_file_info();
+        merge_info->set_ref_cnt(1);
+
+        UpdatePackedFileInfoResponse res;
+        meta_service->update_packed_file_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("cloud_unique_id is required") != std::string::npos);
+    }
+
+    // case: missing packed_file_path - should fail
+    {
+        brpc::Controller cntl;
+        UpdatePackedFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        // req.set_packed_file_path("/path/to/merged/file"); // missing packed_file_path
+
+        auto* merge_info = req.mutable_packed_file_info();
+        merge_info->set_ref_cnt(1);
+
+        UpdatePackedFileInfoResponse res;
+        meta_service->update_packed_file_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("packed_file_path is required") != std::string::npos);
+    }
+
+    // case: empty packed_file_path - should fail
+    {
+        brpc::Controller cntl;
+        UpdatePackedFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_packed_file_path(""); // empty packed_file_path
+
+        auto* merge_info = req.mutable_packed_file_info();
+        merge_info->set_ref_cnt(1);
+
+        UpdatePackedFileInfoResponse res;
+        meta_service->update_packed_file_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("packed_file_path is required") != std::string::npos);
+    }
+
+    // case: missing packed_file_info - should fail
+    {
+        brpc::Controller cntl;
+        UpdatePackedFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_packed_file_path("/path/to/merged/file");
+        // No packed_file_info set
+
+        UpdatePackedFileInfoResponse res;
+        meta_service->update_packed_file_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("packed_file_info is required") != std::string::npos);
+    }
+
+    // case: test multiple operations - success case
+    {
+        brpc::Controller cntl;
+        UpdatePackedFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id_multi");
+        req.set_packed_file_path("/path/to/merged/file_multi");
+
+        // Set merge file info with multiple small files
+        auto* merge_info = req.mutable_packed_file_info();
+        merge_info->set_ref_cnt(3);
+        merge_info->set_total_slice_num(5);
+        merge_info->set_total_slice_bytes(2048000);
+        merge_info->set_remaining_slice_bytes(1638400);
+        merge_info->set_created_at_sec(1666666777);
+        merge_info->set_corrected(true);
+        merge_info->set_state(PackedFileInfoPB::NORMAL);
+
+        // Add multiple small files
+        for (int i = 1; i <= 5; ++i) {
+            auto* small_file = merge_info->add_slices();
+            small_file->set_path("/small/file" + std::to_string(i) + ".txt");
+            small_file->set_offset(i * 1000);
+            small_file->set_size(1000);
+            small_file->set_deleted(i > 3); // Mark some as deleted
+        }
+
+        UpdatePackedFileInfoResponse res;
+        meta_service->update_packed_file_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+}
+
+// Test: In versioned write mode, clean_txn_label should skip txn when recycle_key not found
+TEST(MetaServiceTest, CleanTxnLabelVersionedWriteSkipWithoutRecycleKey) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "clean_txn_label_versioned_write_skip_test";
+    int64_t db_id = 19872001;
+    std::string label = "test_versioned_write_skip_label";
+
+    // 1. Create versioned write instance
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Mock get_instance_id to return versioned write instance
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    int64_t txn_id = -1;
+
+    // 2. begin_txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // 3. Create tablet and rowset, then commit_txn
+    int64_t tablet_id = 110001;
+    create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id);
+    {
+        CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        CommitTxnResponse res;
+        meta_service->commit_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 4. Verify recycle_key does NOT exist (versioned write mode doesn't write it during commit)
+    std::string recycle_key_str = recycle_txn_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(recycle_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // 5. Call clean_txn_label
+    {
+        brpc::Controller cntl;
+        CleanTxnLabelRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.add_labels(label);
+        CleanTxnLabelResponse res;
+        meta_service->clean_txn_label(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 6. Verify txn_info still exists (should NOT be deleted because recycle_key not found)
+    std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_OK); // Still exists
+    }
+
+    // 7. Verify label still contains this txn_id (txn was skipped, added to survival_txn_ids)
+    std::string label_key_str = txn_label_key({instance_id, db_id, label});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_OK);
+        TxnLabelPB label_pb;
+        ASSERT_TRUE(label_pb.ParseFromArray(val.data(), val.size() - VERSION_STAMP_LEN));
+        ASSERT_EQ(label_pb.txn_ids_size(), 1);
+        ASSERT_EQ(label_pb.txn_ids(0), txn_id);
+    }
+}
+
+// Test: In versioned write mode, clean_txn_label should delete txn when recycle_key exists
+TEST(MetaServiceTest, CleanTxnLabelVersionedWriteDeleteWithRecycleKey) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "clean_txn_label_versioned_write_delete_test";
+    int64_t db_id = 19872002;
+    std::string label = "test_versioned_write_delete_label";
+
+    // 1. Create versioned write instance
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Mock get_instance_id
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    int64_t txn_id = -1;
+
+    // 2. begin_txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // 3. Create tablet and rowset, then commit_txn
+    int64_t tablet_id = 110002;
+    create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id);
+    {
+        CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        CommitTxnResponse res;
+        meta_service->commit_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 4. Manually write recycle_txn_key (simulate recycler has processed commit_txn_log)
+    std::string recycle_key_str = recycle_txn_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        RecycleTxnPB recycle_pb;
+        recycle_pb.set_creation_time(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count());
+        recycle_pb.set_label(label);
+        txn->put(recycle_key_str, recycle_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Verify recycle_key exists now
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(recycle_key_str, &val), TxnErrorCode::TXN_OK);
+    }
+
+    // 5. Call clean_txn_label
+    {
+        brpc::Controller cntl;
+        CleanTxnLabelRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.add_labels(label);
+        CleanTxnLabelResponse res;
+        meta_service->clean_txn_label(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 6. Verify txn_info is deleted
+    std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    // 7. Verify txn_index is deleted
+    std::string index_key_str = txn_index_key({instance_id, txn_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(index_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    // 8. Verify recycle_key is deleted
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(recycle_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    // 9. Verify label is deleted (all txns cleaned)
+    std::string label_key_str = txn_label_key({instance_id, db_id, label});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+}
+
+// Test: In versioned write mode with mixed txns, only txns with recycle_key are cleaned
+TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "clean_txn_label_versioned_write_mixed_test";
+    int64_t db_id = 19872003;
+    std::string label = "test_versioned_write_mixed_label";
+
+    // 1. Create versioned write instance
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Mock get_instance_id
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    // Create 3 txns with different labels
+    std::vector<int64_t> txn_ids;
+    std::vector<std::string> labels;
+    for (int i = 0; i < 3; ++i) {
+        int64_t txn_id = -1;
+        std::string txn_label = label + "_" + std::to_string(i);
+        labels.push_back(txn_label);
+
+        // begin_txn
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(txn_label);
+            txn_info_pb.add_table_ids(1234);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(&cntl, &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+        }
+
+        // Create tablet and commit
+        int64_t tablet_id = 110010 + i;
+        create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id);
+        {
+            CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            commit_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            CommitTxnResponse res;
+            meta_service->commit_txn(&cntl, &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        txn_ids.push_back(txn_id);
+    }
+
+    ASSERT_EQ(txn_ids.size(), 3);
+
+    // 2. Manually write recycle_key for txn_ids[0] and txn_ids[2] only (not txn_ids[1])
+    for (int i : {0, 2}) {
+        std::string recycle_key_str = recycle_txn_key({instance_id, db_id, txn_ids[i]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        RecycleTxnPB recycle_pb;
+        recycle_pb.set_creation_time(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count());
+        recycle_pb.set_label(labels[i]);
+        txn->put(recycle_key_str, recycle_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // 3. Call clean_txn_label for each label
+    for (int i = 0; i < 3; ++i) {
+        brpc::Controller cntl;
+        CleanTxnLabelRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.add_labels(labels[i]);
+        CleanTxnLabelResponse res;
+        meta_service->clean_txn_label(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // 4. Verify txn_ids[0] and txn_ids[2] are deleted (have recycle_key)
+    for (int i : {0, 2}) {
+        std::string info_key = txn_info_key({instance_id, db_id, txn_ids[i]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // 5. Verify txn_ids[1] still exists (no recycle_key)
+    {
+        std::string info_key = txn_info_key({instance_id, db_id, txn_ids[1]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(info_key, &val), TxnErrorCode::TXN_OK); // Still exists
+    }
+
+    // 6. Verify labels[0] and labels[2] are deleted, labels[1] still exists
+    for (int i : {0, 2}) {
+        std::string label_key_str = txn_label_key({instance_id, db_id, labels[i]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_KEY_NOT_FOUND); // Deleted
+    }
+
+    {
+        std::string label_key_str = txn_label_key({instance_id, db_id, labels[1]});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(label_key_str, &val), TxnErrorCode::TXN_OK); // Still exists
+        TxnLabelPB label_pb;
+        ASSERT_TRUE(label_pb.ParseFromArray(val.data(), val.size() - VERSION_STAMP_LEN));
+        ASSERT_EQ(label_pb.txn_ids_size(), 1);
+        ASSERT_EQ(label_pb.txn_ids(0), txn_ids[1]);
+    }
+}
+
 } // namespace doris::cloud

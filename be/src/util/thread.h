@@ -28,65 +28,43 @@
 #include <utility>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 
 namespace doris {
 class WebPageHandler;
 
-class Thread : public RefCountedThreadSafe<Thread> {
+class Thread {
 public:
-    enum CreateFlags { NO_FLAGS = 0, NO_STACK_WATCHDOG = 1 };
-
-    template <class F>
-    static Status create_with_flags(const std::string& category, const std::string& name,
-                                    const F& f, uint64_t flags, scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, f, flags, holder);
-    }
-
     template <class F>
     static Status create(const std::string& category, const std::string& name, const F& f,
-                         scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, f, NO_FLAGS, holder);
+                         std::shared_ptr<Thread>* holder) {
+        return start_thread(category, name, f, holder);
     }
 
     template <class F, class A1>
     static Status create(const std::string& category, const std::string& name, const F& f,
-                         const A1& a1, scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, std::bind(f, a1), NO_FLAGS, holder);
+                         const A1& a1, std::shared_ptr<Thread>* holder) {
+        return start_thread(category, name, std::bind(f, a1), holder);
     }
 
     template <class F, class A1, class A2>
     static Status create(const std::string& category, const std::string& name, const F& f,
-                         const A1& a1, const A2& a2, scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, std::bind(f, a1, a2), NO_FLAGS, holder);
+                         const A1& a1, const A2& a2, std::shared_ptr<Thread>* holder) {
+        return start_thread(category, name, std::bind(f, a1, a2), holder);
     }
 
     template <class F, class A1, class A2, class A3>
     static Status create(const std::string& category, const std::string& name, const F& f,
-                         const A1& a1, const A2& a2, const A3& a3, scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, std::bind(f, a1, a2, a3), NO_FLAGS, holder);
+                         const A1& a1, const A2& a2, const A3& a3,
+                         std::shared_ptr<Thread>* holder) {
+        return start_thread(category, name, std::bind(f, a1, a2, a3), holder);
     }
 
     template <class F, class A1, class A2, class A3, class A4>
     static Status create(const std::string& category, const std::string& name, const F& f,
                          const A1& a1, const A2& a2, const A3& a3, const A4& a4,
-                         scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, std::bind(f, a1, a2, a3, a4), NO_FLAGS, holder);
-    }
-
-    template <class F, class A1, class A2, class A3, class A4, class A5>
-    static Status create(const std::string& category, const std::string& name, const F& f,
-                         const A1& a1, const A2& a2, const A3& a3, const A4& a4, const A5& a5,
-                         scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, std::bind(f, a1, a2, a3, a4, a5), NO_FLAGS, holder);
-    }
-
-    template <class F, class A1, class A2, class A3, class A4, class A5, class A6>
-    static Status create(const std::string& category, const std::string& name, const F& f,
-                         const A1& a1, const A2& a2, const A3& a3, const A4& a4, const A5& a5,
-                         const A6& a6, scoped_refptr<Thread>* holder) {
-        return start_thread(category, name, std::bind(f, a1, a2, a3, a4, a5, a6), NO_FLAGS, holder);
+                         std::shared_ptr<Thread>* holder) {
+        return start_thread(category, name, std::bind(f, a1, a2, a3, a4), holder);
     }
 
     static void set_self_name(const std::string& name);
@@ -146,17 +124,9 @@ public:
     // unique and stable thread ID, not necessarily the system thread ID.
     static int64_t current_thread_id();
 
-private:
-    friend class ThreadJoiner;
-
-    enum {
-        INVALID_TID = -1,
-        PARENT_WAITING_TID = -2,
-    };
-
     // User function to be executed by this thread.
-    typedef std::function<void()> ThreadFunctor;
-    Thread(const std::string& category, const std::string& name, ThreadFunctor functor)
+    using ThreadFunctor = std::function<void()>;
+    Thread(std::string category, std::string name, ThreadFunctor functor)
             : _thread(0),
               _tid(INVALID_TID),
               _functor(std::move(functor)),
@@ -164,6 +134,14 @@ private:
               _name(std::move(name)),
               _done(1),
               _joinable(false) {}
+
+private:
+    friend class ThreadJoiner;
+
+    enum {
+        INVALID_TID = -1,
+        PARENT_WAITING_TID = -2,
+    };
 
     // Library-specific thread ID.
     pthread_t _thread;
@@ -177,7 +155,7 @@ private:
     //    thread has not yet begun running. Therefore the TID is not yet known
     //    but it will be set once the thread starts.
     // 3. <positive value>: the thread is running.
-    int64_t _tid;
+    std::atomic<int64_t> _tid;
 
     const ThreadFunctor _functor;
 
@@ -197,6 +175,10 @@ private:
     // thread is not a Thread.
     static __thread Thread* _tls;
 
+    // keep self do not released when thread is running
+    // release it after thread joined
+    std::shared_ptr<Thread> _shared_self;
+
     // Wait for the running thread to publish its tid.
     int64_t wait_for_tid() const;
 
@@ -205,8 +187,7 @@ private:
     // thread that initialisation is complete before returning. On success, stores a
     // reference to the thread in holder.
     static Status start_thread(const std::string& category, const std::string& name,
-                               const ThreadFunctor& functor, uint64_t flags,
-                               scoped_refptr<Thread>* holder);
+                               const ThreadFunctor& functor, std::shared_ptr<Thread>* holder);
 
     // Wrapper for the user-supplied function. Invoked from the new thread,
     // with the Thread as its only argument. Executes _functor, but before

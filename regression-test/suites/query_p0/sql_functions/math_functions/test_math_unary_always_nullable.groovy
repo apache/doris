@@ -70,6 +70,49 @@ suite("test_math_unary_alway_nullable") {
         select sqrt(-1.1), sqrt(-1.1) is NULL, number from numbers("number"="10")
     """
 
+    qt_factorial_1 """
+        select factorial(-1), factorial(-1) is null;
+    """
+    qt_factorial_2 """
+        select factorial(21), factorial(21) is null;
+    """
+    qt_factorial_3 """
+        select factorial(0), factorial(5), factorial(20);
+    """
+    qt_factorial_4 """
+        select factorial(-1), factorial(-1) is NULL, number from numbers("number"="10")
+    """
+
+    sql "drop table if exists test_math_unary_alway_nullable"
+
+    sql """
+        create table if not exists test_math_unary_alway_nullable (
+            rowid int,
+            val_null BIGINT NULL,
+            val_not_null BIGINT NOT NULL
+        )
+        distributed by hash(rowid) properties("replication_num" = "1");
+    """
+
+    sql """
+        insert into test_math_unary_alway_nullable values
+        (1, 5, 5), (2, 0, 0), (3, -1, -1), (4, 21, 21), (5, NULL, 10);
+    """
+
+    qt_factorial_col_nullable """
+        select rowid, factorial(val_null) from test_math_unary_alway_nullable order by rowid;
+    """
+
+    qt_factorial_col_not_nullable """
+        select rowid, factorial(val_not_null) from test_math_unary_alway_nullable order by rowid;
+    """
+
+    qt_factorial_literal_nullable_cast """
+        select factorial(CAST(5 as BIGINT));
+    """
+
+    sql "drop table if exists test_math_unary_alway_nullable"
+
     sql "drop table if exists test_math_unary_alway_nullable"
 
     sql """
@@ -108,6 +151,15 @@ suite("test_math_unary_alway_nullable") {
 
     qt_dsqrt_tbl_1 """
         select rowid, dsqrt(val), dsqrt(val) is null from test_math_unary_alway_nullable order by rowid;
+    """
+
+    sql """
+        insert into test_math_unary_alway_nullable values
+        (9, 1.2), (10, 2.2), (11, 3.4), (12, 5.6)
+    """
+
+    qt_dlog_tbl_1 """
+        select rowid, log(val), ln(val), log(3), ln(3) from test_math_unary_alway_nullable order by rowid;
     """
 
 }

@@ -190,7 +190,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
             sql """ insert into ${dbTableName} values (6, 'a', 'a'); """
         } catch (Exception e) {
             logger.info("exception: " + e)
-            assertTrue(e.toString().contains("Invalid number format"))
+            assertTrue(e.toString().contains("can't cast"))
         }
 
         try {
@@ -199,7 +199,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
             sql """ insert into ${dbTableName} values (7, 'a', 'a'); """
         } catch (Exception e) {
             logger.info("exception: " + e)
-            assertTrue(e.toString().contains("Invalid number format"))
+            assertTrue(e.toString().contains("can't cast"))
         }
 
         // TODO should throw exception?

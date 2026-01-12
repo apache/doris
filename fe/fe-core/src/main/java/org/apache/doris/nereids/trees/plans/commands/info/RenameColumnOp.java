@@ -18,8 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ColumnRenameClause;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -61,12 +60,11 @@ public class RenameColumnOp extends AlterTableOp {
             throw new AnalysisException("New column name is not set");
         }
 
-        FeNameFormat.checkColumnName(newColName);
-    }
+        if (colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+            throw new AnalysisException("Do not support rename hidden column");
+        }
 
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ColumnRenameClause(colName, newColName);
+        FeNameFormat.checkColumnName(newColName);
     }
 
     @Override

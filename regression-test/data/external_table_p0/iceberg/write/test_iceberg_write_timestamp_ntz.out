@@ -5,6 +5,12 @@
 -- !timestamp_tz --
 2025-02-07T20:12:01
 
+-- !desc01 --
+col	datetime(6)	Yes	true	\N	
+
+-- !desc02 --
+col	datetime(6)	Yes	true	\N	WITH_TIMEZONE
+
 -- !timestamp_ntz2 --
 2025-02-07T20:12
 

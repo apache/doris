@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctionParams;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -53,12 +54,19 @@ public class UnionCombinator extends AggregateFunction
         super(nested.getName() + AggCombinerFunctionBuilder.UNION_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        inputType = (AggStateType) arguments.get(0).getDataType();
+        this.inputType = (AggStateType) arguments.get(0).getDataType();
+    }
+
+    private UnionCombinator(AggregateFunctionParams functionParams, AggregateFunction nested) {
+        super(functionParams);
+
+        this.nested = Objects.requireNonNull(nested, "nested can not be null");
+        this.inputType = (AggStateType) functionParams.arguments.get(0).getDataType();
     }
 
     @Override
     public UnionCombinator withChildren(List<Expression> children) {
-        return new UnionCombinator(children, nested);
+        return new UnionCombinator(getFunctionParams(children), nested);
     }
 
     @Override
@@ -100,5 +108,10 @@ public class UnionCombinator extends AggregateFunction
     @Override
     public boolean canRollUp() {
         return true;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        nested.checkLegalityBeforeTypeCoercion();
     }
 }

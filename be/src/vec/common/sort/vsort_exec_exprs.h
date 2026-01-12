@@ -62,10 +62,6 @@ public:
 
     bool need_materialize_tuple() const { return _materialize_tuple; }
 
-    const std::vector<bool>& get_convert_nullable_flags() const {
-        return _need_convert_to_nullable_flags;
-    }
-
     Status clone(RuntimeState* state, VSortExecExprs& new_exprs);
 
 private:
@@ -80,10 +76,6 @@ private:
     // One expr per slot in the materialized tuple. Valid only if
     // _materialize_tuple is true.
     VExprContextSPtrs _sort_tuple_slot_expr_ctxs;
-
-    // for some reason, _sort_tuple_slot_expr_ctxs is not-null but _ordering_expr_ctxs is nullable
-    // this flag list would be used to convert column to nullable.
-    std::vector<bool> _need_convert_to_nullable_flags;
 
     // Initialize the ordering and (optionally) materialization expressions from the thrift
     // TExprs into the specified pool. sort_tuple_slot_exprs is NULL if the tuple is not

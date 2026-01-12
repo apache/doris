@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <atomic>
+#include <cstdint>
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
@@ -58,6 +56,8 @@ public:
 
     Dependency* finishdependency() override;
 
+    bool is_blockable() const override;
+
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
@@ -71,7 +71,14 @@ protected:
     Status _revoke_unpartitioned_block(RuntimeState* state,
                                        const std::shared_ptr<SpillContext>& spill_context);
 
+    Status _execute_spill_unpartitioned_block(RuntimeState* state, vectorized::Block&& build_block);
+
     Status _finish_spilling();
+
+    Status _finish_spilling_callback(RuntimeState* state, TUniqueId query_id,
+                                     const std::shared_ptr<SpillContext>& spill_context);
+
+    Status _execute_spill_partitioned_blocks(RuntimeState* state, TUniqueId query_id);
 
     Status _setup_internal_operator(RuntimeState* state);
 
@@ -118,7 +125,7 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         }

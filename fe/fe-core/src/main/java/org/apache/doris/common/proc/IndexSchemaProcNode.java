@@ -23,6 +23,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -80,8 +81,10 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             if (column.getGeneratedColumnInfo() != null) {
                 extras.add("STORED GENERATED");
             }
+            if (!Strings.isNullOrEmpty(column.getExtraInfo())) {
+                extras.add(column.getExtraInfo());
+            }
             String extraStr = StringUtils.join(extras, ",");
-            String comment = column.getComment();
 
             List<String> rowList = Lists.newArrayList(column.getDisplayName(),
                     column.getOriginType().hideVersionForVersionColumn(true),
@@ -89,7 +92,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                     ((Boolean) column.isKey()).toString(),
                     column.getDefaultValue() == null
                             ? FeConstants.null_string : column.getDefaultValue(),
-                    extraStr, comment);
+                    extraStr);
 
             for (String additionalColName : additionalColNames) {
                 switch (additionalColName.toLowerCase()) {

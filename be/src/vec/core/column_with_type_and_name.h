@@ -29,6 +29,7 @@
 
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 class PColumnMeta;
@@ -61,11 +62,17 @@ struct ColumnWithTypeAndName {
 
     void dump_structure(std::ostream& out) const;
     String dump_structure() const;
+    std::string to_string(size_t row_num,
+                          const vectorized::DataTypeSerDe::FormatOptions& format_options) const;
+#ifdef BE_TEST
     std::string to_string(size_t row_num) const;
+#endif
 
     void to_pb_column_meta(PColumnMeta* col_meta) const;
 
-    ColumnWithTypeAndName get_nested(bool replace_null_data_to_default = false) const;
+    ColumnWithTypeAndName unnest_nullable(bool replace_null_data_to_default = false) const;
+
+    Status check_type_and_column_match() const;
 };
 
 } // namespace doris::vectorized

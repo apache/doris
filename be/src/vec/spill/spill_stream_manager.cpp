@@ -77,12 +77,6 @@ Status SpillStreamManager::init() {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         }
     }
-    // Reduce min threads to 1, to avoid occupy too many threads at start time.
-    static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
-                              .set_min_threads(1)
-                              .set_max_threads(config::spill_io_thread_pool_thread_num)
-                              .set_max_queue_size(config::spill_io_thread_pool_queue_size)
-                              .build(&_spill_io_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
             "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
@@ -259,25 +253,6 @@ void SpillStreamManager::gc(int32_t max_work_time_ms) {
             }
         }
     }
-}
-
-void SpillStreamManager::async_cleanup_query(TUniqueId query_id) {
-    (void)get_spill_io_thread_pool()->submit_func([this, query_id] {
-        for (auto& [_, store] : _spill_store_map) {
-            std::string query_spill_dir = store->get_spill_data_path(print_id(query_id));
-            bool exists = false;
-            auto status = io::global_local_filesystem()->exists(query_spill_dir, &exists);
-            if (status.ok() && exists) {
-                auto gc_dir = fmt::format("{}/{}/{}-gc", store->path(), SPILL_GC_DIR_PREFIX,
-                                          print_id(query_id));
-                status = io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
-                if (!status.ok()) {
-                    static_cast<void>(
-                            io::global_local_filesystem()->delete_directory(query_spill_dir));
-                }
-            }
-        }
-    });
 }
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);

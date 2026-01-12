@@ -19,11 +19,11 @@ suite("test_array_index_write", "nonConcurrent"){
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
         def create_variant_index_table = { testTablex, parser ->
             def stmt = "CREATE TABLE IF NOT EXISTS " + testTablex + "(\n" +
-                    "  k1 INT NULL,\n" +
-                    "  c_arr VARIANT NULL COMMENT '',\n"
-                    
-            String strTmp = parser == "" ? "INDEX index_inverted_c_arr(c_arr) USING INVERTED COMMENT 'c_arr index',\n" :
-                                "INDEX index_inverted_c_arr(c_arr) USING INVERTED PROPERTIES( \"parser\"=\" " + parser + "\") COMMENT 'c_arr index',\n"
+                   "  k1 INT NULL,\n" +
+                   "  c_arr VARIANT<'c_arr' : array<text>> NULL COMMENT '',\n"
+                   
+            String strTmp = parser == "" ? "INDEX index_inverted_c_arr(c_arr) USING INVERTED PROPERTIES( \"field_pattern\"=\"c_arr\") COMMENT 'c_arr index',\n" :
+                            "INDEX index_inverted_c_arr(c_arr) USING INVERTED PROPERTIES( \"field_pattern\"=\"c_arr\", \"parser\"=\" " + parser + "\") COMMENT 'c_arr index',\n" 
                                 
             stmt += strTmp
             stmt = stmt.substring(0, stmt.length()-2)

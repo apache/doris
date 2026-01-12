@@ -147,7 +147,7 @@ suite("test_schema_change_ck") {
     /****** create mv ******/
     def mv_name = "k2_c3"
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-    createMV """ create materialized view ${mv_name} as select c1, k2, c2 from ${tableName}; """
+    createMV """ create materialized view ${mv_name} as select c1 as a1, k2 as a2, c2 as a3 from ${tableName}; """
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (211, 21, 38, 200), (210, 20, 39, 200) """
     order_qt_select_create_mv_base """select * from ${tableName}"""
     /*Awaitility.await().atMost(100, SECONDS).pollInterval(4, SECONDS).until(

@@ -42,10 +42,15 @@ public class FirstValue extends FirstOrLastValue {
         super("first_value", children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FirstValue(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FirstValue withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        return new FirstValue(children);
+        return new FirstValue(getFunctionParams(children));
     }
 
     @Override

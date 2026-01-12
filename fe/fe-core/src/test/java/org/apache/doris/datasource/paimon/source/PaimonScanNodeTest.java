@@ -19,8 +19,10 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -92,18 +94,26 @@ public class PaimonScanNodeTest {
             }
         }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
-        // Mock PaimonSource to return catalog
-        PaimonSource mockPaimonSource = Mockito.mock(PaimonSource.class);
-        Mockito.when(mockPaimonSource.getCatalog()).thenReturn(paimonFileExternalCatalog);
-        spyPaimonScanNode.setSource(mockPaimonSource);
+        long maxInitialSplitSize = 32L * 1024L * 1024L;
+        long maxSplitSize = 64L * 1024L * 1024L;
+        // Ensure fileSplitter is initialized on the spy as doInitialize() is not called in this unit test
+        FileSplitter fileSplitter = new FileSplitter(maxInitialSplitSize, maxSplitSize,
+                0);
+        try {
+            java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
+            field.setAccessible(true);
+            field.set(spyPaimonScanNode, fileSplitter);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to inject FileSplitter into PaimonScanNode test", e);
+        }
 
-        // Mock ExternalCatalog properties
-        CatalogProperty mockCatalogProperty = Mockito.mock(CatalogProperty.class);
-        Mockito.when(paimonFileExternalCatalog.getCatalogProperty()).thenReturn(mockCatalogProperty);
-        Mockito.when(mockCatalogProperty.getStoragePropertiesMap()).thenReturn(Collections.emptyMap());
+        // Note: The original PaimonSource is sufficient for this test
+        // No need to mock catalog properties since doInitialize() is not called in this test
         // Mock SessionVariable behavior
         Mockito.when(sv.isForceJniScanner()).thenReturn(false);
         Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.getMaxInitialSplitSize()).thenReturn(maxInitialSplitSize);
+        Mockito.when(sv.getMaxSplitSize()).thenReturn(maxSplitSize);
 
         // native
         mockNativeReader(spyPaimonScanNode);
@@ -133,18 +143,17 @@ public class PaimonScanNodeTest {
         // Test valid parameter combinations
 
         // 1. Only startSnapshotId
-        Map<String, String> params = new HashMap<>();
-        params.put("startSnapshotId", "5");
-        Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
-        Assert.assertEquals("5", result.get("scan.snapshot-id"));
-        Assert.assertNull(result.get("scan.mode"));
-        Assert.assertEquals(2, result.size());
+        Map<String, String> params1 = new HashMap<>();
+        params1.put("startSnapshotId", "5");
+        ExceptionChecker.expectThrowsWithMsg(UserException.class,
+                "endSnapshotId is required when using snapshot-based incremental read",
+                () -> PaimonScanNode.validateIncrementalReadParams(params1));
 
         // 2. Both startSnapshotId and endSnapshotId
-        params.clear();
+        Map<String, String> params = new HashMap<>();
         params.put("startSnapshotId", "1");
         params.put("endSnapshotId", "5");
-        result = PaimonScanNode.validateIncrementalReadParams(params);
+        Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1,5", result.get("incremental-between"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
         Assert.assertEquals(3, result.size());
@@ -234,46 +243,27 @@ public class PaimonScanNodeTest {
                     e.getMessage().contains("startSnapshotId is required when using snapshot-based incremental read"));
         }
 
-        // 11. Test invalid snapshot ID values (≤ 0)
-        params.clear();
-        params.put("startSnapshotId", "0");
-        try {
-            PaimonScanNode.validateIncrementalReadParams(params);
-            Assert.fail("Should throw exception for startSnapshotId ≤ 0");
-        } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("startSnapshotId must be greater than 0"));
-        }
-
+        // 11. Test invalid snapshot ID values < 0)
         params.clear();
         params.put("startSnapshotId", "-1");
         try {
             PaimonScanNode.validateIncrementalReadParams(params);
-            Assert.fail("Should throw exception for negative startSnapshotId");
+            Assert.fail("Should throw exception for startSnapshotId < 0");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("startSnapshotId must be greater than 0"));
+            Assert.assertTrue(e.getMessage().contains("startSnapshotId must be greater than or equal to 0"));
         }
 
         params.clear();
         params.put("startSnapshotId", "1");
-        params.put("endSnapshotId", "0");
+        params.put("endSnapshotId", "-1");
         try {
             PaimonScanNode.validateIncrementalReadParams(params);
-            Assert.fail("Should throw exception for endSnapshotId ≤ 0");
+            Assert.fail("Should throw exception for endSnapshotId < 0");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("endSnapshotId must be greater than 0"));
+            Assert.assertTrue(e.getMessage().contains("endSnapshotId must be greater than or equal to 0"));
         }
 
-        // 12. Test start ≥ end for snapshot IDs
-        params.clear();
-        params.put("startSnapshotId", "5");
-        params.put("endSnapshotId", "5");
-        try {
-            PaimonScanNode.validateIncrementalReadParams(params);
-            Assert.fail("Should throw exception when startSnapshotId = endSnapshotId");
-        } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("startSnapshotId must be less than endSnapshotId"));
-        }
-
+        // 12. Test start > end for snapshot IDs
         params.clear();
         params.put("startSnapshotId", "6");
         params.put("endSnapshotId", "5");
@@ -281,10 +271,19 @@ public class PaimonScanNodeTest {
             PaimonScanNode.validateIncrementalReadParams(params);
             Assert.fail("Should throw exception when startSnapshotId > endSnapshotId");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("startSnapshotId must be less than endSnapshotId"));
+            Assert.assertTrue(e.getMessage().contains("startSnapshotId must be less than or equal to endSnapshotId"));
         }
 
-        // 13. Test invalid timestamp values (≤ 0)
+        // 12.1. Test startSnapshotId == endSnapshotId (should be allowed, consistent with Spark Paimon behavior)
+        params.clear();
+        params.put("startSnapshotId", "5");
+        params.put("endSnapshotId", "5");
+        result = PaimonScanNode.validateIncrementalReadParams(params);
+        Assert.assertEquals("5,5", result.get("incremental-between"));
+        Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
+        Assert.assertEquals(3, result.size());
+
+        // 13. Test invalid timestamp values (< 0)
         params.clear();
         params.put("startTimestamp", "-1");
         try {

@@ -39,7 +39,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -202,18 +201,13 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .family_name = tmp_dt->get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32,
-            .should_align_right_in_pretty_formats = true,
-            .text_can_contain_only_valid_utf8 = true,
             .have_maximum_size_of_value = true,
             .size_of_value_in_memory = sizeof(Decimal32),
             .precision = tmp_dt->get_precision(),
             .scale = tmp_dt->get_scale(),
             .is_null_literal = false,
-            .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = Field::create_field<TYPE_DECIMAL32>(
-                    DecimalField<Decimal32>(0, tmp_dt->get_scale())),
+            .default_field = Field::create_field<TYPE_DECIMAL32>(Decimal32(0)),
     };
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
@@ -255,21 +249,13 @@ TEST_F(DataTypeDecimalTest, simple_func_test) {
     auto test_func = [](auto& dt) {
         using DataType = decltype(dt);
         using FieldType = typename std::remove_reference<DataType>::type::FieldType;
-        EXPECT_FALSE(dt.have_subtypes());
-        EXPECT_TRUE(dt.should_align_right_in_pretty_formats());
-        EXPECT_TRUE(dt.text_can_contain_only_valid_utf8());
-        EXPECT_TRUE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_represented_by_number());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
-        EXPECT_FALSE(dt.can_be_inside_low_cardinality());
 
         EXPECT_FALSE(dt.is_null_literal());
 
         EXPECT_TRUE(dt.equals(dt));
 
-        EXPECT_EQ(std::string(dt.get_family_name()), std::string("Decimal"));
         EXPECT_EQ(dt.do_get_name(), "Decimal(" + std::to_string(dt.get_precision()) + ", " +
                                             std::to_string(dt.get_scale()) + ")");
         EXPECT_EQ(dt.get_format_scale(), dt.get_scale());
@@ -357,11 +343,9 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         // binary: const flag| row num | real saved num| data
         auto content_uncompressed_size =
                 dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -380,11 +364,9 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         col_with_type->insert_many_defaults(count);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -406,18 +388,13 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         col_with_type->insert_many_defaults(count);
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size,
-                      17 + 8 +
-                              std::max(expected_data_size,
-                                       streamvbyte_max_compressedbytes(
-                                               cast_set<UInt32>(upper_int32(expected_data_size)))));
-        } else {
-            EXPECT_EQ(content_uncompressed_size,
-                      12 + std::max(expected_data_size,
-                                    streamvbyte_max_compressedbytes(
-                                            cast_set<UInt32>(upper_int32(expected_data_size)))));
-        }
+
+        EXPECT_EQ(content_uncompressed_size,
+                  17 + 8 +
+                          std::max(expected_data_size,
+                                   streamvbyte_max_compressedbytes(
+                                           cast_set<UInt32>(upper_int32(expected_data_size)))));
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -454,39 +431,20 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         }
     };
     test_func(dt_decimal32_1, *column_decimal32_1, USE_CONST_SERDE);
-    test_func(dt_decimal32_1, *column_decimal32_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_2, *column_decimal32_2, USE_CONST_SERDE);
-    test_func(dt_decimal32_2, *column_decimal32_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_3, *column_decimal32_3, USE_CONST_SERDE);
-    test_func(dt_decimal32_3, *column_decimal32_3, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_4, *column_decimal32_4, USE_CONST_SERDE);
-    test_func(dt_decimal32_4, *column_decimal32_4, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_5, *column_decimal32_5, USE_CONST_SERDE);
-    test_func(dt_decimal32_5, *column_decimal32_5, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal64_1, *column_decimal64_1, USE_CONST_SERDE);
-    test_func(dt_decimal64_1, *column_decimal64_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal64_2, *column_decimal64_2, USE_CONST_SERDE);
-    test_func(dt_decimal64_2, *column_decimal64_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal64_3, *column_decimal64_3, USE_CONST_SERDE);
-    test_func(dt_decimal64_3, *column_decimal64_3, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal128v2, *column_decimal128_v2, USE_CONST_SERDE);
-    test_func(dt_decimal128v2, *column_decimal128_v2, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal128v3_1, *column_decimal128v3_1, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_1, *column_decimal128v3_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal128v3_2, *column_decimal128v3_2, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_2, *column_decimal128v3_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal128v3_3, *column_decimal128v3_3, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_3, *column_decimal128v3_3, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal256_1, *column_decimal256_1, USE_CONST_SERDE);
-    test_func(dt_decimal256_1, *column_decimal256_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal256_2, *column_decimal256_2, USE_CONST_SERDE);
-    test_func(dt_decimal256_2, *column_decimal256_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal256_3, *column_decimal256_3, USE_CONST_SERDE);
-    test_func(dt_decimal256_3, *column_decimal256_3, AGGREGATION_2_1_VERSION);
 }
 TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     auto test_func = [](auto dt, PGenericType_TypeId expected_type) {
@@ -507,10 +465,8 @@ TEST_F(DataTypeDecimalTest, get_default) {
         using DataType = decltype(dt);
         using ColumnType = typename DataType::ColumnType;
         auto default_field = dt.get_default();
-        auto decimal_field =
-                default_field.template get<DecimalField<typename ColumnType::value_type>>();
-        EXPECT_EQ(decimal_field.get_scale(), dt.get_scale());
-        EXPECT_EQ(decimal_field.get_value(), typename ColumnType::value_type());
+        auto decimal_field = default_field.template get<typename ColumnType::value_type>();
+        EXPECT_EQ(decimal_field, typename ColumnType::value_type());
     };
     test_func(dt_decimal32_1);
     test_func(dt_decimal64_1);
@@ -549,10 +505,8 @@ TEST_F(DataTypeDecimalTest, get_field) {
             }
             expr_node.decimal_literal.value = line;
             auto field = dt.get_field(expr_node);
-            auto decimal_field =
-                    field.template get<DecimalField<typename ColumnType::value_type>>();
-            EXPECT_EQ(decimal_field.get_scale(), dt.get_scale());
-            res.push_back(decimal_field.get_value().to_string(dt.get_scale()));
+            auto decimal_field = field.template get<typename ColumnType::value_type>();
+            res.push_back(decimal_field.to_string(dt.get_scale()));
         }
         check_or_generate_res_file(output_file, {res});
     };
@@ -595,7 +549,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -605,7 +559,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -615,7 +569,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(col_with_type->get_element(i));
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -630,7 +584,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -672,10 +626,10 @@ TEST_F(DataTypeDecimalTest, scale_factor_for) {
 
     EXPECT_THROW(dt_decimal128v3_2.scale_factor_for(dt_decimal256_2), Exception);
 
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1).value, 1000);
-    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1).value, 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal64_1), 1000);
+    EXPECT_EQ(dt_decimal32_3.scale_factor_for(dt_decimal256_1), 1000);
 
-    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2).value,
+    EXPECT_EQ(dt_decimal64_3.scale_factor_for(dt_decimal64_2),
               std::pow(10, dt_decimal64_3.get_scale() - dt_decimal64_2.get_scale()));
 
     EXPECT_EQ(dt_decimal256_3.scale_factor_for(dt_decimal256_2),
@@ -768,6 +722,14 @@ TEST_F(DataTypeDecimalTest, SerdeArrowTest) {
     test_func(dt_decimal256_1_ptr, column_decimal256_1);
     test_func(dt_decimal256_2_ptr, column_decimal256_2);
     test_func(dt_decimal256_3_ptr, column_decimal256_3);
+}
+
+TEST_F(DataTypeDecimalTest, GetFieldWithDataTypeTest) {
+    auto column_decimal128v3_1 = dt_decimal128v3_1.create_column();
+    Field field_decimal128v3_1 = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1234567890));
+    column_decimal128v3_1->insert(field_decimal128v3_1);
+    EXPECT_EQ(dt_decimal128v3_1.get_field_with_data_type(*column_decimal128v3_1, 0).field,
+              field_decimal128v3_1);
 }
 
 } // namespace doris::vectorized

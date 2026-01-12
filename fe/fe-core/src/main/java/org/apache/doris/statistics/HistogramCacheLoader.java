@@ -20,7 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

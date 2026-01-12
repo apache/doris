@@ -51,8 +51,7 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     _tablet_finder =
             std::make_unique<vectorized::OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
     _tablet_sink_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tablet_sink_tuple_id);
-    _tablet_sink_row_desc =
-            state->obj_pool()->add(new RowDescriptor(_tablet_sink_tuple_desc, false));
+    _tablet_sink_row_desc = state->obj_pool()->add(new RowDescriptor(_tablet_sink_tuple_desc));
     auto& ctxs =
             _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>().tablet_sink_expr_ctxs();
     _tablet_sink_expr_ctxs.resize(ctxs.size());
@@ -89,13 +88,11 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
         return Status::OK();
     }
     std::fill(_hash_vals.begin(), _hash_vals.end(), -1);
-    bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     int64_t number_input_rows = _local_state->rows_input_counter()->value();
     std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-            number_input_rows));
+            *block, convert_block, filtered_rows, _row_part_tablet_ids, number_input_rows));
     if (_row_distribution.batching_rows() > 0) {
         SCOPED_TIMER(_local_state->send_new_partition_timer());
         RETURN_IF_ERROR(_send_new_partition_batch(state, block, eos));

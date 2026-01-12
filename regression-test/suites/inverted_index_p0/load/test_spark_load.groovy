@@ -151,15 +151,18 @@ suite("test_spark_load_with_index_p0", "p0") {
             try {
                 sql "DROP TABLE IF EXISTS ${testTable}"
                 sql "DROP TABLE IF EXISTS ${testTable2}"
+                try_sql("DROP RESOURCE IF EXISTS ${testResource}")
                 create_test_table.call(testTable)
                 create_test_table.call(testTable2)
+                create_spark_resource.call("spark", "yarn", "default")
                 def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-                load_from_hdfs.call(testTable, testTable2, test_load_label, hdfs_txt_file_path1, hdfs_txt_file_path2)
+                load_from_hdfs_use_spark.call(testTable, testTable2, test_load_label, hdfs_txt_file_path1, hdfs_txt_file_path2)
                 check_load_result.call(test_load_label, testTable, testTable2)
 
             } finally {
                 try_sql("DROP TABLE IF EXISTS ${testTable}")
                 try_sql("DROP TABLE IF EXISTS ${testTable2}")
+                try_sql("DROP RESOURCE IF EXISTS ${testResource}")
             }
         }
     }

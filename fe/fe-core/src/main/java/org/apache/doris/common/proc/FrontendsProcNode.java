@@ -48,9 +48,8 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
-            .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat")
-            .add("IsHelper").add("ErrMsg").add("Version")
-            .add("CurrentConnected")
+            .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
+            .add("Version").add("CurrentConnected").add("LiveSince")
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -168,6 +167,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getVersion());
             // To indicate which FE we currently connected
             info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
+            info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
 
             infos.add(info);
         }

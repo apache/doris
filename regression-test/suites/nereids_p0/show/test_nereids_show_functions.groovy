@@ -20,6 +20,7 @@ suite("test_nereids_show_functions") {
     String functionName = "zzzyyyxxx"
 
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+    sql """DROP FUNCTION IF EXISTS ${dbName}.${functionName}(INT);"""
     sql """CREATE ALIAS FUNCTION ${dbName}.${functionName}(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
 
     checkNereidsExecute("use ${dbName}; show builtin functions;")

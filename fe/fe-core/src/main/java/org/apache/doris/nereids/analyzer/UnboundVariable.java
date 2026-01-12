@@ -55,12 +55,34 @@ public class UnboundVariable extends Expression implements Unbound {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        UnboundVariable other = (UnboundVariable) o;
+        return name.equals(other.name) && type.equals(other.type);
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(name, type);
+    }
+
+    @Override
     public String toString() throws UnboundException {
         if (type == VariableType.USER) {
             return "@" + name;
         } else {
             return "@@" + name;
         }
+    }
+
+    @Override
+    public String toDigest() {
+        return toString();
     }
 
     /**

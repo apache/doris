@@ -20,6 +20,8 @@
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
+#include <unicode/dtfmtsym.h>
+#include <unicode/locid.h>
 
 #include <cctype>
 #include <cstddef>
@@ -30,7 +32,6 @@
 #include <algorithm>
 #include <chrono> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
-#include <cmath>
 #include <cstdint>
 #include <string_view>
 
@@ -40,9 +41,13 @@
 #include "common/status.h"
 #include "util/timezone_utils.h"
 #include "vec/common/int_exp.h"
+#include "vec/functions/cast/cast_parameters.h"
+#include "vec/functions/cast/cast_to_date_or_datetime_impl.hpp"
+#include "vec/functions/cast/cast_to_datetimev2_impl.hpp"
+#include "vec/functions/cast/cast_to_datev2_impl.hpp"
 
 namespace doris {
-
+#include "common/compile_check_avoid_begin.h"
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
@@ -59,15 +64,6 @@ uint8_t mysql_week_mode(uint32_t mode) {
 static bool check_space(char ch) {
     // \t, \n, \v, \f, \r are 9~13, respectively.
     return UNLIKELY(ch == ' ' || (ch >= 9 && ch <= 13));
-}
-
-static bool check_date_punct(char ch) {
-    return UNLIKELY(!(isdigit(ch) || isalpha(ch)));
-}
-
-static bool time_zone_begins(const char* ptr, const char* end) {
-    return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') ||
-           (isalpha(*ptr) && *ptr != 'T');
 }
 
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -90,173 +86,26 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
     return false;
 }
 
-// The interval format is that with no delimiters
-// YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
-// 0    1  2  3  4  5  6      7
 bool VecDateTimeValue::from_date_str(const char* date_str, size_t len) {
-    return from_date_str_base(date_str, len, nullptr);
+    vectorized::CastParameters params;
+    if (type() == TIME_DATE) {
+        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<false>(
+                {date_str, len}, *this, nullptr, params);
+    } else {
+        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<true>(
+                {date_str, len}, *this, nullptr, params);
+    }
 }
-//parse timezone to get offset
 bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
                                      const cctz::time_zone& local_time_zone) {
-    return from_date_str_base(date_str, len, &local_time_zone);
-}
-
-bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
-                                          const cctz::time_zone* local_time_zone) {
-    const char* ptr = date_str;
-    const char* end = date_str + len;
-    // ONLY 2, 6 can follow by a space
-    const static int allow_space_mask = 4 | 64;
-    const static int MAX_DATE_PARTS = 8;
-    uint32_t date_val[MAX_DATE_PARTS];
-    int32_t date_len[MAX_DATE_PARTS];
-
-    _neg = false;
-    // Skip space character
-    while (ptr < end && check_space(*ptr)) {
-        ptr++;
-    }
-    if (ptr == end || !isdigit(*ptr)) {
-        return false;
-    }
-    // Fix year length
-    const char* pos = ptr;
-    while (pos < end && (isdigit(*pos) || *pos == 'T')) {
-        pos++;
-    }
-    int year_len = 4;
-    int digits = pos - ptr;
-    bool is_interval_format = false;
-    bool has_bar = false;
-
-    // Compatible with MySQL.
-    // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
-    if (pos == end || *pos == '.') {
-        if (digits == 4 || digits == 8 || digits >= 14) {
-            year_len = 4;
-        } else {
-            year_len = 2;
-        }
-        is_interval_format = true;
-    }
-
-    int field_idx = 0;
-    int field_len = year_len;
-    long sec_offset = 0;
-    while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS - 1) {
-        const char* start = ptr;
-        int temp_val = 0;
-        bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
-        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) {
-            temp_val = temp_val * 10 + (*ptr++ - '0');
-        }
-        // Impossible
-        if (temp_val > 999999L) {
-            return false;
-        }
-        date_val[field_idx] = temp_val;
-        date_len[field_idx] = ptr - start;
-        field_len = 2;
-
-        if (ptr == end) {
-            field_idx++;
-            break;
-        }
-
-        // timezone
-        if (UNLIKELY((field_idx > 2 ||
-                      !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
-                     && time_zone_begins(ptr, end))) {
-            if (local_time_zone == nullptr) {
-                return false;
-            }
-            auto get_tz_offset = [&](const std::string& str_tz,
-                                     const cctz::time_zone* local_time_zone) -> long {
-                cctz::time_zone given_tz {};
-                if (!TimezoneUtils::find_cctz_time_zone(str_tz, given_tz)) {
-                    throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
-                }
-                auto given = cctz::convert(cctz::civil_second {}, given_tz);
-                auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
-                // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-                return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-            };
-            try {
-                sec_offset = get_tz_offset(std::string {ptr, end},
-                                           local_time_zone); // use the whole remain string
-            } catch ([[maybe_unused]] Exception& e) {
-                return false; // invalid format
-            }
-            field_idx++;
-            break;
-        }
-
-        if (field_idx == 2 && *ptr == 'T') {
-            // YYYYMMDDTHHMMDD, skip 'T' and continue
-            ptr++;
-            field_idx++;
-            continue;
-        }
-
-        // Second part
-        if (field_idx == 5) {
-            if (*ptr == '.') {
-                ptr++;
-                field_len = 6;
-            } else if (isdigit(*ptr)) {
-                field_idx++;
-                break;
-            }
-            field_idx++;
-            continue;
-        }
-        // escape separator
-        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
-            if (check_space(*ptr)) {
-                if (((1 << field_idx) & allow_space_mask) == 0) {
-                    return false;
-                }
-            }
-            if (*ptr == '-') {
-                has_bar = true;
-            }
-            ptr++;
-        }
-        field_idx++;
-    }
-    int num_field = field_idx;
-    if (num_field <= 3) {
-        _type = TIME_DATE;
+    vectorized::CastParameters params;
+    if (type() == TIME_DATE) {
+        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<false>(
+                {date_str, len}, *this, &local_time_zone, params);
     } else {
-        _type = TIME_DATETIME;
+        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<true>(
+                {date_str, len}, *this, &local_time_zone, params);
     }
-    if (!is_interval_format) {
-        year_len = date_len[0];
-    }
-    for (; field_idx < MAX_DATE_PARTS; ++field_idx) {
-        date_len[field_idx] = 0;
-        date_val[field_idx] = 0;
-    }
-
-    if (year_len == 2) {
-        if (date_val[0] < YY_PART_YEAR) {
-            date_val[0] += 2000;
-        } else {
-            date_val[0] += 1900;
-        }
-    }
-
-    if (num_field < 3) {
-        return false;
-    }
-    if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
-                                  date_val[5], _type)) {
-        return false;
-    }
-    return sec_offset ? date_add_interval<TimeUnit::SECOND>(
-                                TimeInterval {TimeUnit::SECOND, sec_offset, false})
-                      : true;
 }
 
 // [0, 101) invalid
@@ -1676,9 +1525,13 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
 template <TimeUnit unit>
 bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
     static_assert(
-            (unit == YEAR) || (unit == MONTH) || (unit == DAY) || (unit == HOUR) ||
-                    (unit == MINUTE) || (unit == SECOND),
+            (unit == YEAR) || (unit == QUARTER) || (unit == MONTH) || (unit == DAY) ||
+                    (unit == HOUR) || (unit == MINUTE) || (unit == SECOND),
             "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
+    if (interval.is_neg) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "date_set_interval only support positive interval");
+    }
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR)) {
         // This may change the day information
         int64_t seconds = interval.day * 86400L + interval.hour * 3600 + interval.minute * 60 +
@@ -1706,7 +1559,7 @@ bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
         _year = interval.year;
         _day = 1;
         _month = 1;
-    } else if constexpr (unit == MONTH) {
+    } else if constexpr (unit == MONTH || unit == QUARTER) {
         // This will change month and year information, maybe date.
         int64_t months = 12 * interval.year + interval.month;
         _year = months / 12;
@@ -1767,12 +1620,27 @@ const char* VecDateTimeValue::month_name() const {
     return s_month_name[_month];
 }
 
+const char* VecDateTimeValue::month_name_with_locale(const char* const* month_names) const {
+    if (_month < 1 || _month > 12) {
+        return nullptr;
+    }
+    return month_names[_month];
+}
+
 const char* VecDateTimeValue::day_name() const {
     int day = weekday();
     if (day < 0 || day >= 7) {
         return nullptr;
     }
     return s_day_name[day];
+}
+
+const char* VecDateTimeValue::day_name_with_locale(const char* const* day_names) const {
+    int day = weekday();
+    if (day < 0 || day >= 7) {
+        return nullptr;
+    }
+    return day_names[day];
 }
 
 VecDateTimeValue VecDateTimeValue::local_time() {
@@ -1935,250 +1803,31 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
     }
 }
 
-// The interval format is that with no delimiters
-// YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
-// 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/,
+bool DateV2Value<T>::from_date_str(const char* date_str, size_t len, int scale /* = -1*/,
                                    bool convert_zero) {
-    return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
+    vectorized::CastParameters params;
+    if constexpr (is_datetime) {
+        return vectorized::CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this,
+                                                                         nullptr, scale, params);
+    } else {
+        return vectorized::CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
+                                                                     nullptr, params);
+    }
 }
+
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len,
+bool DateV2Value<T>::from_date_str(const char* date_str, size_t len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,
                                    bool convert_zero) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
-}
-// if local_time_zone is null, only be able to parse time without timezone
-template <typename T>
-bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
-                                        const cctz::time_zone* local_time_zone, bool convert_zero) {
-    const char* ptr = date_str;
-    const char* end = date_str + len;
-    // ONLY 2, 6 can follow by a space
-    const static int allow_space_mask = 4 | 64;
-    uint32_t date_val[MAX_DATE_PARTS] = {0};
-    int32_t date_len[MAX_DATE_PARTS] = {0};
-
-    // Skip space character
-    while (ptr < end && check_space(*ptr)) {
-        ptr++;
+    vectorized::CastParameters params;
+    if constexpr (is_datetime) {
+        return vectorized::CastToDatetimeV2::from_string_non_strict_mode(
+                {date_str, len}, *this, &local_time_zone, scale, params);
+    } else {
+        return vectorized::CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
+                                                                     &local_time_zone, params);
     }
-    if (ptr == end || !isdigit(*ptr)) {
-        return false;
-    }
-    // Fix year length
-    const char* pos = ptr;
-    while (pos < end && (isdigit(*pos) || *pos == 'T')) {
-        pos++;
-    }
-    int year_len = 4;
-    int digits = pos - ptr;
-    bool is_interval_format = false;
-    bool has_bar = false;
-
-    // Compatible with MySQL.
-    // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
-    if (pos == end || *pos == '.' ||
-        time_zone_begins(pos, end)) { // no delimeter until ./Asia/Z/GMT...
-        if (digits == 4 || digits == 8 || digits >= 14) {
-            year_len = 4;
-        } else {
-            year_len = 2;
-        }
-        is_interval_format = true;
-    }
-
-    int field_idx = 0;
-    int field_len = year_len;
-    int sec_offset = 0;
-    bool need_use_timezone = false;
-
-    while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
-        const char* start = ptr;
-        int temp_val = 0;
-        bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
-        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) { // field_len <= 7
-            temp_val = temp_val * 10 + (*ptr - '0');
-            ptr++;
-        }
-
-        if (ptr == start) {
-            return false;
-        }
-
-        if (field_idx == 6) {
-            if constexpr (is_datetime) {
-                // round of microseconds
-                // 1. normalize to 7 digits for rounding
-                // 2. rounding
-                // 3. nomalize to 6 digits for storage
-                if (scale >= 0) {
-                    // do normalization
-                    const auto ms_digit_count = ptr - start;
-                    const auto normalizer = int_exp10(std::abs(7 - ms_digit_count));
-                    temp_val *= normalizer;
-
-                    // check round
-                    const auto rounder = int_exp10(std::abs(7 - scale));
-                    const auto reminder = temp_val % rounder;
-                    temp_val -= reminder;
-
-                    if (reminder >= 5 * normalizer) {
-                        temp_val += rounder;
-                    }
-
-                    // truncate to 6 digits
-                    if (temp_val == int_exp10(7)) {
-                        temp_val = 0;
-                        sec_offset += 1;
-                    } else {
-                        temp_val /= 10;
-                    }
-                }
-
-                // move ptr to start of timezone or end
-                while (ptr < end && isdigit(*ptr)) {
-                    ptr++;
-                }
-            } else {
-                // Microsecond
-                const auto ms_part = ptr - start;
-                temp_val *= int_exp10(std::max(0L, 6 - ms_part));
-            }
-        }
-
-        // Impossible
-        if (temp_val > 999999L) {
-            return false;
-        }
-
-        date_val[field_idx] = temp_val;
-
-        if (field_idx == 6) {
-            // select cast("2020-01-01 12:00:00.12345" as Datetime(4))
-            // ptr - start will be 5, but scale is 4
-            date_len[field_idx] = std::min(static_cast<int>(ptr - start), scale);
-        } else {
-            date_len[field_idx] = ptr - start;
-        }
-
-        field_len = 2;
-
-        if (ptr == end) {
-            field_idx++;
-            break;
-        }
-
-        // timezone
-        if (UNLIKELY((field_idx > 2 ||
-                      !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
-                     && time_zone_begins(ptr, end))) {
-            if (local_time_zone == nullptr) {
-                return false;
-            }
-            need_use_timezone = true;
-            field_idx++;
-            break;
-        }
-
-        if (field_idx == 2 && *ptr == 'T') {
-            // YYYYMMDDTHHMMDD, skip 'T' and continue
-            ptr++;
-            field_idx++;
-            continue;
-        }
-
-        // Second part
-        if (field_idx == 5) {
-            if (*ptr == '.') {
-                ptr++;
-                // for datetime, we need to discard the fraction part
-                // that beyond the scale + 1, and scale + 1 digit will
-                // be used to round the fraction part
-                if constexpr (is_datetime) {
-                    field_len = std::min(7, scale + 1);
-                } else {
-                    field_len = 6;
-                }
-            } else if (isdigit(*ptr)) {
-                field_idx++;
-                break;
-            }
-            field_idx++;
-            continue;
-        }
-        // escape separator
-        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
-            if (check_space(*ptr)) {
-                if (((1 << field_idx) & allow_space_mask) == 0) {
-                    return false;
-                }
-            }
-            if (*ptr == '-') {
-                has_bar = true;
-            }
-            ptr++;
-        }
-        field_idx++;
-    }
-
-    int num_field = field_idx;
-    if (!is_interval_format) {
-        year_len = date_len[0];
-    }
-    for (; field_idx < MAX_DATE_PARTS; ++field_idx) {
-        date_val[field_idx] = 0;
-    }
-
-    if (year_len == 2) {
-        if (date_val[0] < YY_PART_YEAR) {
-            date_val[0] += 2000;
-        } else {
-            date_val[0] += 1900;
-        }
-    }
-
-    if (num_field < 3) {
-        return false;
-    }
-    if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
-        if (date_val[0] == 0 && date_val[1] == 0 && date_val[2] == 0 && convert_zero) {
-            date_val[1] = 1;
-            date_val[2] = 1;
-        } else {
-            return false;
-        }
-    }
-
-    if (need_use_timezone) {
-        cctz::time_zone given_tz {};
-        if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
-            return false; // invalid format
-        }
-        if (is_invalid(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4], date_val[5],
-                       date_val[6])) {
-            return false;
-        }
-        // will carring on the bits in cctz::civil_second. if day is 70, will carry to month.
-        cctz::civil_second cs {date_val[0], date_val[1], date_val[2],
-                               date_val[3], date_val[4], date_val[5]};
-
-        auto given = cctz::convert(cs, given_tz);
-        auto local = cctz::convert(given, *local_time_zone);
-        date_val[0] = local.year();
-        date_val[1] = local.month();
-        date_val[2] = local.day();
-        date_val[3] = local.hour();
-        date_val[4] = local.minute();
-        date_val[5] = local.second();
-    }
-
-    return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
-                                    date_val[5], date_val[6]) &&
-           (sec_offset ? date_add_interval<TimeUnit::SECOND>(
-                                 TimeInterval {TimeUnit::SECOND, sec_offset, false})
-                       : true);
 }
 
 template <typename T>
@@ -2646,8 +2295,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
     if constexpr (is_datetime) {
-        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond,
-                                        !(part_used & ~TIME_PART));
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
@@ -2889,7 +2537,7 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
     } else if constexpr (unit == YEAR) {
         // This only change year information
         PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ +
-                                                                        interval.year));
+                                                                        sign * interval.year));
         if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
             !doris::is_leap(to_value.year())) {
             // add year. so if from Leap Year to Equal Year, use last day of Feb(29 to 28)
@@ -2898,7 +2546,7 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
     } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
-                         12 * interval.year + interval.month;
+                         sign * (12 * interval.year + interval.month);
         if (months < 0) {
             return false;
         }
@@ -2970,8 +2618,8 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
         }
     } else if constexpr (unit == YEAR) {
         // This only change year information
-        PROPAGATE_FALSE(
-                this->template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year));
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ +
+                                                                     sign * interval.year));
         if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
             !doris::is_leap(this->year())) {
             // add year. so if from Leap Year to Equal Year, use last day of Feb(29 to 28)
@@ -2980,7 +2628,7 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
     } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
-                         12 * interval.year + interval.month;
+                         sign * (12 * interval.year + interval.month);
         if (months < 0) {
             return false;
         }
@@ -3001,9 +2649,15 @@ template <typename T>
 template <TimeUnit unit>
 bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
     static_assert(
-            (unit == YEAR) || (unit == MONTH) || (unit == DAY) || (unit == HOUR) ||
-                    (unit == MINUTE) || (unit == SECOND),
+            (unit == YEAR) || (unit == QUARTER) || (unit == MONTH) || (unit == DAY) ||
+                    (unit == HOUR) || (unit == MINUTE) || (unit == SECOND),
             "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
+
+    if (interval.is_neg) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "date_set_interval only support positive interval");
+    }
+
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) || (unit == DAY)) {
         set_zero();
         // This may change the day information
@@ -3021,7 +2675,7 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
     } else if constexpr (unit == YEAR) {
         this->unchecked_set_time(0, 1, 1, 0, 0, 0, 0);
         PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(interval.year));
-    } else if constexpr (unit == MONTH) {
+    } else if constexpr (unit == MONTH || unit == QUARTER) {
         // This will change month and year information, maybe date.
         this->unchecked_set_time(0, 1, 1, 0, 0, 0, 0);
         int64_t months = 12 * interval.year + interval.month;
@@ -3270,6 +2924,23 @@ const char* DateV2Value<T>::day_name() const {
 }
 
 template <typename T>
+const char* DateV2Value<T>::month_name_with_locale(const char* const* month_names) const {
+    if (date_v2_value_.month_ < 1 || date_v2_value_.month_ > 12) {
+        return nullptr;
+    }
+    return month_names[date_v2_value_.month_];
+}
+
+template <typename T>
+const char* DateV2Value<T>::day_name_with_locale(const char* const* day_names) const {
+    int day = weekday();
+    if (day < 0 || day >= 7) {
+        return nullptr;
+    }
+    return day_names[day];
+}
+
+template <typename T>
 void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
                                         uint8_t minute, uint16_t second, uint32_t microsecond) {
     date_v2_value_.year_ = year;
@@ -3311,258 +2982,10 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;
     }
-    char* const begin = to; // to check written bytes
-    char buf[64];
-    char* pos = nullptr;
-    char* cursor = buf;
-    const char* ptr = format;
-    const char* end = format + len;
-    char ch = '\0';
 
-    while (ptr < end) {
-        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
-            return false;
-        }
-        if (*ptr != '%' || (ptr + 1) == end) {
-            *to++ = *ptr++;
-            continue;
-        }
-        // Skip '%'
-        ptr++;
-        switch (ch = *ptr++) {
-        case 'y':
-            // Year, numeric (two digits)
-            to = write_two_digits_to_string(this->year() % 100, to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'Y':
-            // Year, numeric, four digits
-            to = write_four_digits_to_string(this->year(), to);
-            cursor += 4;
-            pos = cursor;
-            break;
-        case 'd':
-            // Day of month (00...31)
-            to = write_two_digits_to_string(this->day(), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'H':
-            to = write_two_digits_to_string(this->hour(), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'i':
-            // Minutes, numeric (00..59)
-            to = write_two_digits_to_string(this->minute(), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'm':
-            to = write_two_digits_to_string(this->month(), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'h':
-        case 'I':
-            // Hour (01..12)
-            to = write_two_digits_to_string((this->hour() % 24 + 11) % 12 + 1, to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 's':
-        case 'S':
-            // Seconds (00..59)
-            to = write_two_digits_to_string(this->second(), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'a':
-            // Abbreviated weekday name
-            if (this->year() == 0 && this->month() == 0) {
-                return false;
-            }
-            to = append_string(s_ab_day_name[weekday()], to);
-            break;
-        case 'b':
-            // Abbreviated month name
-            if (this->month() == 0) {
-                return false;
-            }
-            to = append_string(s_ab_month_name[this->month()], to);
-            break;
-        case 'c':
-            // Month, numeric (0...12)
-            pos = int_to_str(this->month(), cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
-            break;
-        case 'D':
-            // Day of the month with English suffix (0th, 1st, ...)
-            pos = int_to_str(this->day(), cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
-            if (this->day() >= 10 && this->day() <= 19) {
-                to = append_string("th", to);
-            } else {
-                switch (this->day() % 10) {
-                case 1:
-                    to = append_string("st", to);
-                    break;
-                case 2:
-                    to = append_string("nd", to);
-                    break;
-                case 3:
-                    to = append_string("rd", to);
-                    break;
-                default:
-                    to = append_string("th", to);
-                    break;
-                }
-            }
-            break;
-        case 'e':
-            // Day of the month, numeric (0..31)
-            pos = int_to_str(this->day(), cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
-            break;
-        case 'f':
-            // Microseconds (000000..999999)
-            pos = int_to_str(this->microsecond(), cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 6, to);
-            break;
-        case 'j':
-            // Day of year (001..366)
-            pos = int_to_str(daynr() - doris::calc_daynr(this->year(), 1, 1) + 1, cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 3, to);
-            break;
-        case 'k':
-            // Hour (0..23)
-            pos = int_to_str(this->hour(), cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
-            break;
-        case 'l':
-            // Hour (1..12)
-            pos = int_to_str((this->hour() % 24 + 11) % 12 + 1, cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
-            break;
-        case 'M':
-            // Month name (January..December)
-            if (this->month() == 0) {
-                return false;
-            }
-            to = append_string(s_month_name[this->month()], to);
-            break;
-        case 'p':
-            // AM or PM
-            if ((this->hour() % 24) >= 12) {
-                to = append_string("PM", to);
-            } else {
-                to = append_string("AM", to);
-            }
-            break;
-        case 'r': {
-            // Time, 12-hour (hh:mm:ss followed by AM or PM)
-            *to++ = (char)('0' + (((this->hour() + 11) % 12 + 1) / 10));
-            *to++ = (char)('0' + (((this->hour() + 11) % 12 + 1) % 10));
-            *to++ = ':';
-            // Minute
-            *to++ = (char)('0' + (this->minute() / 10));
-            *to++ = (char)('0' + (this->minute() % 10));
-            *to++ = ':';
-            /* Second */
-            *to++ = (char)('0' + (this->second() / 10));
-            *to++ = (char)('0' + (this->second() % 10));
-            if ((this->hour() % 24) >= 12) {
-                to = append_string(" PM", to);
-            } else {
-                to = append_string(" AM", to);
-            }
-            break;
-        }
-        case 'T': {
-            // Time, 24-hour (hh:mm:ss)
-            *to++ = (char)('0' + ((this->hour() % 24) / 10));
-            *to++ = (char)('0' + ((this->hour() % 24) % 10));
-            *to++ = ':';
-            // Minute
-            *to++ = (char)('0' + (this->minute() / 10));
-            *to++ = (char)('0' + (this->minute() % 10));
-            *to++ = ':';
-            /* Second */
-            *to++ = (char)('0' + (this->second() / 10));
-            *to++ = (char)('0' + (this->second() % 10));
-            break;
-        }
-        case 'u':
-            // Week (00..53), where Monday is the first day of the week;
-            // WEEK() mode 1
-            to = write_two_digits_to_string(week(mysql_week_mode(1)), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'U':
-            // Week (00..53), where Sunday is the first day of the week;
-            // WEEK() mode 0
-            to = write_two_digits_to_string(week(mysql_week_mode(0)), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'v':
-            // Week (01..53), where Monday is the first day of the week;
-            // WEEK() mode 3; used with %x
-            to = write_two_digits_to_string(week(mysql_week_mode(3)), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'V':
-            // Week (01..53), where Sunday is the first day of the week;
-            // WEEK() mode 2; used with %X
-            to = write_two_digits_to_string(week(mysql_week_mode(2)), to);
-            cursor += 2;
-            pos = cursor;
-            break;
-        case 'w':
-            // Day of the week (0=Sunday..6=Saturday)
-            if (this->month() == 0 && this->year() == 0) {
-                return false;
-            }
-            pos = int_to_str(doris::calc_weekday(daynr(), true), cursor);
-            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
-            break;
-        case 'W':
-            // Weekday name (Sunday..Saturday)
-            to = append_string(s_day_name[weekday()], to);
-            break;
-        case 'x': {
-            // Year for the week, where Monday is the first day of the week,
-            // numeric, four digits; used with %v
-            uint16_t year = 0;
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(3),
-                      &year, true);
-            to = write_four_digits_to_string(year, to);
-            cursor += 4;
-            pos = cursor;
-            break;
-        }
-        case 'X': {
-            // Year for the week where Sunday is the first day of the week,
-            // numeric, four digits; used with %V
-            uint16_t year = 0;
-            calc_week(this->daynr(), this->year(), this->month(), this->day(), mysql_week_mode(2),
-                      &year);
-            to = write_four_digits_to_string(year, to);
-            cursor += 4;
-            pos = cursor;
-            break;
-        }
-        default:
-            // put it literal
-            *to++ = ch;
-            break;
-        }
-    }
-    *to++ = '\0';
-    return true;
+    return DatetimeValueUtil::to_format_string_without_check<false>(
+            format, len, to, max_valid_length, this->year(), this->month(), this->day(),
+            this->hour(), this->minute(), this->second(), this->microsecond());
 }
 
 template <typename T>
@@ -3679,6 +3102,10 @@ template <typename T>
 uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
                                   const uint8_t& month, const uint8_t& day, uint8_t mode,
                                   uint16_t* to_year, bool disable_lut) {
+    if (year == 0) [[unlikely]] {
+        *to_year = 0;
+        return 0;
+    }
     if (config::enable_time_lut && !disable_lut && mode == 3 && year >= 1950 && year < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->week_of_year_table[year - doris::LUT_START_YEAR][month - 1][day - 1];
@@ -3729,6 +3156,305 @@ uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
     }
 
     return days / 7 + 1;
+}
+
+template <bool only_time>
+bool DatetimeValueUtil::to_format_string_without_check(const char* format, size_t len, char* to,
+                                                       size_t max_valid_length, int16_t year,
+                                                       int8_t month, int8_t day, int hour,
+                                                       int minute, int second, int ms) {
+    char* const begin = to; // to check written bytes
+    char buf[64];
+    char* pos = nullptr;
+    char* cursor = buf;
+    const char* ptr = format;
+    const char* end = format + len;
+    char ch = '\0';
+
+    while (ptr < end) {
+        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
+            return false;
+        }
+        if (*ptr != '%' || (ptr + 1) == end) {
+            *to++ = *ptr++;
+            continue;
+        }
+        // Skip '%'
+        ptr++;
+        switch (ch = *ptr++) {
+        case 'y':
+            // Year, numeric (two digits)
+            to = write_two_digits_to_string(year % 100, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'Y':
+            // Year, numeric, four digits
+            to = write_four_digits_to_string(year, to);
+            cursor += 4;
+            pos = cursor;
+            break;
+        case 'd':
+            // Day of month (00...31)
+            to = write_two_digits_to_string(day, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'H':
+            // Hour (00...838)
+            pos = int_to_str(hour, cursor);
+            to = append_with_prefix(cursor, static_cast<int>(pos - cursor), '0', 2, to);
+            cursor += (pos - cursor);
+            pos = cursor;
+            break;
+        case 'i':
+            // Minutes, numeric (00..59)
+            to = write_two_digits_to_string(minute, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'm':
+            to = write_two_digits_to_string(month, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'h':
+        case 'I':
+            // Hour (01..12)
+            to = write_two_digits_to_string((hour % 24 + 11) % 12 + 1, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 's':
+        case 'S':
+            // Seconds (00..59)
+            to = write_two_digits_to_string(second, to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'a':
+            // Abbreviated weekday name
+            if constexpr (only_time) {
+                return false;
+            }
+            to = append_string(s_ab_day_name[calc_weekday(calc_daynr(year, month, day), false)],
+                               to);
+            break;
+        case 'b':
+            // Abbreviated month name
+            if constexpr (only_time) {
+                return false;
+            }
+            to = append_string(s_ab_month_name[month], to);
+            break;
+        case 'c':
+            // Month, numeric (0...12)
+            pos = int_to_str(month, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
+            break;
+        case 'D':
+            // Day of the month with English suffix (0th, 1st, ...)
+            if constexpr (only_time) {
+                return false;
+            }
+            pos = int_to_str(day, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
+            if (day >= 10 && day <= 19) {
+                to = append_string("th", to);
+            } else {
+                switch (day % 10) {
+                case 1:
+                    to = append_string("st", to);
+                    break;
+                case 2:
+                    to = append_string("nd", to);
+                    break;
+                case 3:
+                    to = append_string("rd", to);
+                    break;
+                default:
+                    to = append_string("th", to);
+                    break;
+                }
+            }
+            break;
+        case 'e':
+            // Day of the month, numeric (0..31)
+            pos = int_to_str(day, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
+            break;
+        case 'f':
+            // Microseconds (000000..999999)
+            pos = int_to_str(ms, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 6, to);
+            break;
+        case 'j':
+            // Day of year (001..366)
+            if constexpr (only_time) {
+                return false;
+            }
+            pos = int_to_str(calc_daynr(year, month, day) - calc_daynr(year, 1, 1) + 1, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 3, to);
+            break;
+        case 'k':
+            // Hour (0..838)
+            pos = int_to_str(hour, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
+            break;
+        case 'l':
+            // Hour (1..12)
+            pos = int_to_str((hour % 24 + 11) % 12 + 1, cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
+            break;
+        case 'M':
+            // Month name (January..December)
+            if constexpr (only_time) {
+                return false;
+            }
+            to = append_string(s_month_name[month], to);
+            break;
+        case 'p':
+            // AM or PM
+            if ((hour % 24) >= 12) {
+                to = append_string("PM", to);
+            } else {
+                to = append_string("AM", to);
+            }
+            break;
+        case 'r': {
+            // Time, 12-hour (hh:mm:ss followed by AM or PM)
+            *to++ = (char)('0' + (((hour + 11) % 12 + 1) / 10));
+            *to++ = (char)('0' + (((hour + 11) % 12 + 1) % 10));
+            *to++ = ':';
+            // Minute
+            *to++ = (char)('0' + (minute / 10));
+            *to++ = (char)('0' + (minute % 10));
+            *to++ = ':';
+            /* Second */
+            *to++ = (char)('0' + (second / 10));
+            *to++ = (char)('0' + (second % 10));
+            if ((hour % 24) >= 12) {
+                to = append_string(" PM", to);
+            } else {
+                to = append_string(" AM", to);
+            }
+            break;
+        }
+        case 'T': {
+            // Time, 24-hour (hh:mm:ss or hhh:mm:ss for TIME type)
+            if (hour < 100) {
+                *to++ = (char)('0' + (hour / 10));
+                *to++ = (char)('0' + (hour % 10));
+            } else {
+                pos = int_to_str(hour, cursor);
+                to = append_with_prefix(cursor, static_cast<int>(pos - cursor), '0', 2, to);
+            }
+            *to++ = ':';
+            // Minute
+            *to++ = (char)('0' + (minute / 10));
+            *to++ = (char)('0' + (minute % 10));
+            *to++ = ':';
+            /* Second */
+            *to++ = (char)('0' + (second / 10));
+            *to++ = (char)('0' + (second % 10));
+            break;
+        }
+        case 'u':
+            // Week (00..53), where Monday is the first day of the week;
+            // WEEK() mode 1
+            if constexpr (only_time) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(1)), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'U':
+            // Week (00..53), where Sunday is the first day of the week;
+            // WEEK() mode 0
+            if constexpr (only_time) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(0)), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'v':
+            // Week (01..53), where Monday is the first day of the week;
+            // WEEK() mode 3; used with %x
+            if constexpr (only_time) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(3)), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'V':
+            // Week (01..53), where Sunday is the first day of the week;
+            // WEEK() mode 2; used with %X
+            if constexpr (only_time) {
+                return false;
+            }
+            to = write_two_digits_to_string(week(year, month, day, mysql_week_mode(2)), to);
+            cursor += 2;
+            pos = cursor;
+            break;
+        case 'w':
+            // Day of the week (0=Sunday..6=Saturday)
+            if constexpr (only_time) {
+                return false;
+            }
+            pos = int_to_str(calc_weekday(calc_daynr(year, month, day), true), cursor);
+            to = append_with_prefix(cursor, pos - cursor, '0', 1, to);
+            break;
+        case 'W':
+            // Weekday name (Sunday..Saturday)
+            if constexpr (only_time) {
+                return false;
+            }
+            to = append_string(s_day_name[calc_weekday(calc_daynr(year, month, day), false)], to);
+            break;
+        case 'x': {
+            // Year for the week, where Monday is the first day of the week,
+            // numeric, four digits; used with %v
+            if constexpr (only_time) {
+                return false;
+            }
+            uint16_t year_to_write = 0;
+            calc_week(calc_daynr(year, month, day), year, month, day, mysql_week_mode(3),
+                      &year_to_write, true);
+            to = write_four_digits_to_string(year_to_write, to);
+            cursor += 4;
+            pos = cursor;
+            break;
+        }
+        case 'X': {
+            // Year for the week where Sunday is the first day of the week,
+            // numeric, four digits; used with %V
+            if constexpr (only_time) {
+                return false;
+            }
+            uint16_t year_to_write = 0;
+            calc_week(calc_daynr(year, month, day), year, month, day, mysql_week_mode(2),
+                      &year_to_write);
+            to = write_four_digits_to_string(year_to_write, to);
+            cursor += 4;
+            pos = cursor;
+            break;
+        }
+        default:
+            // put it literal
+            *to++ = ch;
+            break;
+        }
+    }
+    *to++ = '\0';
+    return true;
+}
+
+uint8_t DatetimeValueUtil::week(int16_t year, int8_t month, int8_t day, uint8_t mode) {
+    uint16_t year_to_write = 0;
+    return calc_week(calc_daynr(year, month, day), year, month, day, mode, &year_to_write);
 }
 
 template <typename T>
@@ -3933,6 +3659,7 @@ template bool VecDateTimeValue::date_set_interval<TimeUnit::MINUTE>(const TimeIn
 template bool VecDateTimeValue::date_set_interval<TimeUnit::HOUR>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_set_interval<TimeUnit::DAY>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_set_interval<TimeUnit::MONTH>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::QUARTER>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_set_interval<TimeUnit::YEAR>(const TimeInterval& interval);
 
 template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::SECOND>(
@@ -3944,6 +3671,8 @@ template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::HOUR>(
 template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::DAY>(
         const TimeInterval& interval);
 template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
 template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
@@ -3957,6 +3686,8 @@ template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::HOUR
 template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::DAY>(
         const TimeInterval& interval);
 template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
 template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
@@ -3989,4 +3720,12 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>()
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
+template bool DatetimeValueUtil::to_format_string_without_check<false>(const char*, size_t, char*,
+                                                                       size_t, int16_t, int8_t,
+                                                                       int8_t, int, int, int, int);
+
+template bool DatetimeValueUtil::to_format_string_without_check<true>(const char*, size_t, char*,
+                                                                      size_t, int16_t, int8_t,
+                                                                      int8_t, int, int, int, int);
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

@@ -23,22 +23,51 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 StringRef StringRef::trim() const {
     // Remove leading and trailing spaces.
-    int32_t begin = 0;
+    int64_t begin = 0;
 
     while (begin < size && data[begin] == ' ') {
         ++begin;
     }
 
-    int32_t end = size - 1;
+    int64_t end = size - 1;
 
     while (end > begin && data[end] == ' ') {
         --end;
     }
 
     return StringRef(data + begin, end - begin + 1);
+}
+
+StringRef StringRef::trim_whitespace() const {
+    // Remove leading and trailing whitespace.
+    int64_t begin = 0;
+
+    while (begin < size && std::isspace(data[begin])) {
+        ++begin;
+    }
+
+    int64_t end = size - 1;
+
+    while (end > begin && std::isspace(data[end])) {
+        --end;
+    }
+
+    return StringRef(data + begin, end - begin + 1);
+}
+
+StringRef StringRef::trim_quote() const {
+    if (size < 2) {
+        return *this;
+    }
+    if (data[0] == '\'' && data[size - 1] == '\'') {
+        return StringRef(data + 1, size - 2);
+    } else if (data[0] == '"' && data[size - 1] == '"') {
+        return StringRef(data + 1, size - 2);
+    }
+    return *this;
 }
 
 // TODO: rewrite in AVX2
@@ -96,4 +125,5 @@ bool StringRef::end_with(const StringRef& search_string) const {
     return 0 == memcmp(data + size - search_string.size, search_string.data, search_string.size);
 #endif
 }
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -22,6 +22,10 @@ age number(2),
 score number(3,1)
 );
 
+create SYNONYM DORIS_TEST.test_synonym_student for DORIS_TEST.STUDENT;
+create SYNONYM SYNONYM_TEST_USER.test_synonym_student for DORIS_TEST.STUDENT;
+create SYNONYM SYNONYM_TEST_USER.test_synonym_student2 for DORIS_TEST.STUDENT;
+
 create table doris_test.test_num (
 id int,
 n1 number,
@@ -254,3 +258,8 @@ create table doris_test.extreme_test_multi_block (
   t7 interval day(3) to second(6)
 );
 
+CREATE TABLE doris_test.varbinary_test(
+"id" NUMBER(5,0),
+"NAME" VARCHAR2(20),
+"BLOB_COL" BLOB
+);

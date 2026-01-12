@@ -47,15 +47,14 @@ class IcebergSysTableJniReader : public JniReader {
 public:
     IcebergSysTableJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile,
-                             const TIcebergMetadataParams& range_params);
+                             const TMetaScanRange& meta_scan_range);
 
     ~IcebergSysTableJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
 private:
-    const TIcebergMetadataParams& _range_params;
+    const TMetaScanRange& _meta_scan_range;
 };
 
 #include "common/compile_check_end.h"

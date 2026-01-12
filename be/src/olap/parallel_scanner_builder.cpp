@@ -23,6 +23,7 @@
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "olap/base_tablet.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/segment_loader.h"
 #include "pipeline/exec/olap_scan_operator.h"
@@ -34,7 +35,10 @@ using namespace vectorized;
 
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
-    if (_is_dup_mow_key) {
+    if (_scan_parallelism_by_per_segment) {
+        return _build_scanners_by_per_segment(scanners);
+    } else if (_is_dup_mow_key) {
+        // Default strategy for DUP/MOW tables: split by rowids within segments
         return _build_scanners_by_rowid(scanners);
     } else {
         // TODO: support to split by key range
@@ -57,7 +61,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
         // `rs_splits` in `entire read source` will be devided into several partitial read sources
         // to build several parallel scanners, based on segment rows number. All the partitial read sources
         // share the same delete predicates from their corresponding entire read source.
-        TabletReader::ReadSource partitial_read_source;
+        TabletReadSource partitial_read_source;
         int64_t rows_collected = 0;
         for (auto& rs_split : entire_read_source.rs_splits) {
             auto reader = rs_split.rs_reader;
@@ -84,7 +88,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                     auto rows_need = _rows_per_scanner - rows_collected;
 
                     // 0.9: try to avoid splitting the segments into excessively small parts.
-                    if (rows_need >= remaining_rows * 0.9) {
+                    if (rows_need >= remaining_rows * 9 / 10) {
                         rows_need = remaining_rows;
                     }
                     DCHECK_LE(rows_need, remaining_rows);
@@ -106,10 +110,11 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
 
                         partitial_read_source.rs_splits.emplace_back(std::move(split));
 
-                        scanners.emplace_back(
-                                _build_scanner(tablet, version, _key_ranges,
-                                               {std::move(partitial_read_source.rs_splits),
-                                                entire_read_source.delete_predicates}));
+                        scanners.emplace_back(_build_scanner(
+                                tablet, version, _key_ranges,
+                                {.rs_splits = std::move(partitial_read_source.rs_splits),
+                                 .delete_predicates = entire_read_source.delete_predicates,
+                                 .delete_bitmap = entire_read_source.delete_bitmap}));
 
                         partitial_read_source = {};
                         split = RowSetSplits(reader->clone());
@@ -150,9 +155,61 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                           split.segment_offsets.second - split.segment_offsets.first);
             }
 #endif
-            scanners.emplace_back(_build_scanner(tablet, version, _key_ranges,
-                                                 {std::move(partitial_read_source.rs_splits),
-                                                  entire_read_source.delete_predicates}));
+            scanners.emplace_back(
+                    _build_scanner(tablet, version, _key_ranges,
+                                   {.rs_splits = std::move(partitial_read_source.rs_splits),
+                                    .delete_predicates = entire_read_source.delete_predicates,
+                                    .delete_bitmap = entire_read_source.delete_bitmap}));
+        }
+    }
+
+    return Status::OK();
+}
+
+// Build scanners so that each segment is exclusively scanned by a single scanner.
+// This guarantees the number of scanners equals the number of segments across all rowsets
+// for the involved tablets. It preserves delete predicates and key ranges, and clones
+// RowsetReader per scanner to avoid sharing between scanners.
+Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerSPtr>& scanners) {
+    DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
+
+    for (auto&& [tablet, version] : _tablets) {
+        DCHECK(_all_read_sources.contains(tablet->tablet_id()));
+        auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
+
+        if (config::is_cloud_mode()) {
+            // FIXME(plat1ko): Avoid pointer cast
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+        }
+
+        // For each RowSet split in the read source, split by segment id and build
+        // one scanner per segment. Keep delete predicates shared.
+        for (auto& rs_split : entire_read_source.rs_splits) {
+            auto reader = rs_split.rs_reader;
+            auto rowset = reader->rowset();
+            const auto rowset_id = rowset->rowset_id();
+            const auto& segments_rows = _all_segments_rows[rowset_id];
+            if (segments_rows.empty() || rowset->num_rows() == 0) {
+                continue;
+            }
+
+            // Build scanners for [i, i+1) segment range, without row-range slicing.
+            for (int64_t i = 0; i < rowset->num_segments(); ++i) {
+                RowSetSplits split(reader->clone());
+                split.segment_offsets.first = i;
+                split.segment_offsets.second = i + 1;
+                // No row-ranges slicing; scan whole segment i.
+                DCHECK_GE(split.segment_offsets.second, split.segment_offsets.first + 1);
+
+                TabletReadSource partitial_read_source;
+                partitial_read_source.rs_splits.emplace_back(std::move(split));
+
+                scanners.emplace_back(
+                        _build_scanner(tablet, version, _key_ranges,
+                                       {.rs_splits = std::move(partitial_read_source.rs_splits),
+                                        .delete_predicates = entire_read_source.delete_predicates,
+                                        .delete_bitmap = entire_read_source.delete_bitmap}));
+            }
         }
     }
 
@@ -176,7 +233,7 @@ Status ParallelScannerBuilder::_load() {
 
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_rows;
-            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows));
+            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, &_builder_stats));
             auto segment_count = rowset->num_segments();
             for (int64_t i = 0; i != segment_count; i++) {
                 _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);
@@ -194,7 +251,7 @@ Status ParallelScannerBuilder::_load() {
 
 std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-        TabletReader::ReadSource&& read_source) {
+        TabletReadSource&& read_source) {
     OlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
                                 version, std::move(read_source), _limit,     _is_preaggregation};
     return OlapScanner::create_shared(_parent, std::move(params));

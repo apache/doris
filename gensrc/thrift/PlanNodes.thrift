@@ -60,7 +60,9 @@ enum TPlanNodeType {
   TEST_EXTERNAL_SCAN_NODE = 31,
   PARTITION_SORT_NODE = 32,
   GROUP_COMMIT_SCAN_NODE = 33,
-  MATERIALIZATION_NODE = 34
+  MATERIALIZATION_NODE = 34,
+  REC_CTE_NODE = 35,
+  REC_CTE_SCAN_NODE = 36
 }
 
 struct TKeyRange {
@@ -108,7 +110,8 @@ enum TFileFormatType {
     FORMAT_CSV_SNAPPYBLOCK = 14,
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
-    FORMAT_TEXT = 17
+    FORMAT_TEXT = 17,
+    FORMAT_NATIVE = 18
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -247,6 +250,7 @@ struct TFileTextScanRangeParams {
     5: optional i8 enclose;
     6: optional i8 escape;
     7: optional string null_format;
+    8: optional bool empty_field_as_null
 }
 
 struct TFileScanSlotInfo {
@@ -388,6 +392,15 @@ struct TTransactionalHiveDesc {
     2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
 }
 
+struct TRemoteDorisFileDesc {
+    1: optional string ip
+    2: optional string arrow_port
+    3: optional binary ticket
+    4: optional string location_uri
+    5: optional string user
+    6: optional string password
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -397,7 +410,8 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
-    9: optional i64 table_level_row_count
+    9: optional i64 table_level_row_count = -1
+    10: optional TRemoteDorisFileDesc remote_doris_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -463,7 +477,13 @@ struct TFileScanRangeParams {
     // This is used to represent the latest id.
     25: optional i64 current_schema_id;
     // All schema information used in the current query process
-    26: optional list<ExternalTableSchema.TSchema> history_schema_info 
+    26: optional list<ExternalTableSchema.TSchema> history_schema_info
+
+    // Paimon predicate from FE, used for jni scanner
+    // Set at ScanNode level to avoid redundant serialization in each split
+    27: optional string paimon_predicate
+    // enable mapping varbinary type for Doris external table and TVF
+    28: optional bool enable_mapping_varbinary = false;
 }
 
 struct TFileRangeDesc {
@@ -493,6 +513,8 @@ struct TFileRangeDesc {
     12: optional string fs_name
     13: optional TFileFormatType format_type;
     14: optional i64 self_split_weight
+    // whether the value of columns_from_path is null
+    15: optional list<bool> columns_from_path_is_null;
 }
 
 struct TSplitSource {
@@ -535,9 +557,25 @@ struct TDataGenScanRange {
 }
 
 
+// deprecated
 struct TIcebergMetadataParams {
-  1: optional string serialized_task
-  2: optional map<string, string> hadoop_props
+  1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
+}
+
+// deprecated
+struct TPaimonMetadataParams {
+  1: optional string db_name
+  2: optional string tbl_name
+  3: optional string query_type
+  4: optional i64 ctl_id
+  5: optional i64 db_id
+  6: optional i64 tbl_id
+  7: optional string serialized_split
+  8: optional map<string, string> hadoop_props
+  9: optional map<string, string> paimon_props
 }
 
 struct THudiMetadataParams {
@@ -595,9 +633,18 @@ struct TQueriesMetadataParams {
 struct TMetaCacheStatsParams {
 }
 
+struct TParquetMetadataParams {
+  1: optional list<string> paths
+  2: optional string mode
+  3: optional Types.TFileType file_type
+  4: optional map<string, string> properties
+  5: optional string bloom_column
+  6: optional string bloom_literal
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
-  2: optional TIcebergMetadataParams iceberg_params
+  2: optional TIcebergMetadataParams iceberg_params // deprecated
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
   5: optional TQueriesMetadataParams queries_params
@@ -608,6 +655,13 @@ struct TMetaScanRange {
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
   12: optional THudiMetadataParams hudi_params
+  13: optional TPaimonMetadataParams paimon_params // deprecated
+
+  // for quering sys tables for Paimon/Iceberg
+  14: optional map<string, string> hadoop_props
+  15: optional string serialized_table;
+  16: optional list<string> serialized_splits;
+  17: optional TParquetMetadataParams parquet_params;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -650,6 +704,7 @@ struct TJdbcScanNode {
   2: optional string table_name
   3: optional string query_string
   4: optional Types.TOdbcTableType table_type
+  5: optional bool is_tvf
 }
 
 struct TBrokerScanNode {
@@ -664,6 +719,29 @@ struct TBrokerScanNode {
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
     2: optional string table_name
+}
+
+struct TRecCTETarget {
+    1: optional Types.TNetworkAddress addr
+    2: optional Types.TUniqueId fragment_instance_id
+    3: optional i32 node_id
+}
+
+struct TRecCTEResetInfo {
+    1: optional Types.TNetworkAddress addr
+    2: optional i32 fragment_id
+}
+
+struct TRecCTENode {
+    1: optional bool is_union_all
+    2: optional list<TRecCTETarget> targets
+    3: optional list<TRecCTEResetInfo> fragments_to_reset
+    4: optional list<list<Exprs.TExpr>> result_expr_lists
+    5: optional list<i32> rec_side_runtime_filter_ids
+    6: optional bool is_used_by_other_rec_cte
+}
+
+struct TRecCTEScanNode {
 }
 
 struct TEsScanNode {
@@ -744,6 +822,7 @@ struct TSchemaScanNode {
   // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
   15: optional list<Types.TNetworkAddress> fe_addr_list
+  16: optional string frontend_conjuncts
 }
 
 struct TMetaScanNode {
@@ -766,9 +845,6 @@ struct TSortInfo {
   // Expressions evaluated over the input row that materialize the tuple to be sorted.
   // Contains one expr per slot in the materialized tuple.
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
-
-  // Indicates the nullable info of sort_tuple_slot_exprs is changed after substitute by child's smap
-  5: optional list<bool> slot_exprs_nullability_changed_flags
   // Indicates whether topn query using two phase read
   6: optional bool use_two_phase_read
 }
@@ -802,6 +878,10 @@ struct TOlapScanNode {
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
   18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
+  19: optional TSortInfo score_sort_info
+  20: optional i64 score_sort_limit
+  21: optional TSortInfo ann_sort_info
+  22: optional i64 ann_sort_limit
 }
 
 struct TEqJoinCondition {
@@ -1031,6 +1111,7 @@ struct TSortNode {
   10: optional bool is_colocate
   11: optional TSortAlgorithm algorithm
   12: optional bool use_local_merge
+  13: optional i64 full_sort_max_buffered_bytes
 }
 
 enum TopNAlgorithm {
@@ -1129,16 +1210,10 @@ struct TAnalyticNode {
   // order_by_exprs are empty
   7: optional Types.TTupleId buffered_tuple_id
 
-  // predicate that checks: child tuple is in the same partition as the buffered tuple,
-  // i.e. each partition expr is equal or both are not null. Only set if
-  // buffered_tuple_id is set; should be evaluated over a row that is composed of the
-  // child tuple and the buffered tuple
+  // Deprecated
   8: optional Exprs.TExpr partition_by_eq
 
-  // predicate that checks: the order_by_exprs are equal or both NULL when evaluated
-  // over the child tuple and the buffered tuple. only set if buffered_tuple_id is set;
-  // should be evaluated over a row that is composed of the child tuple and the buffered
-  // tuple
+  // Deprecated
   9: optional Exprs.TExpr order_by_eq
 
   10: optional bool is_colocate
@@ -1363,7 +1438,7 @@ struct TPlanNode {
   4: required i64 limit
   5: required list<Types.TTupleId> row_tuples
 
-  // nullable_tuples[i] is true if row_tuples[i] is nullable
+  // Deprecated
   6: required list<bool> nullable_tuples
   7: optional list<Exprs.TExpr> conjuncts
 
@@ -1398,6 +1473,7 @@ struct TPlanNode {
   36: optional list<TRuntimeFilterDesc> runtime_filters
   37: optional TGroupCommitScanNode group_commit_scan_node
   38: optional TMaterializationNode materialization_node
+  39: optional TRecCTENode rec_cte_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct
@@ -1420,6 +1496,8 @@ struct TPlanNode {
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
+  52: optional TRecCTEScanNode rec_cte_scan_node
+
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

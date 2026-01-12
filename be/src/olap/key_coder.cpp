@@ -77,12 +77,15 @@ private:
         add_mapping<FieldType::OLAP_FIELD_TYPE_BOOL>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DATEV2>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>();
+        add_mapping<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL32>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL64>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL256>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_IPV4>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_IPV6>();
+        add_mapping<FieldType::OLAP_FIELD_TYPE_FLOAT>();
+        add_mapping<FieldType::OLAP_FIELD_TYPE_DOUBLE>();
     }
 
     template <FieldType field_type>

@@ -81,16 +81,17 @@ public class ShowGrantsCommand extends ShowCommand {
                 userIdent = ConnectContext.get().getCurrentUserIdentity();
             }
         }
+        boolean isSelf = userIdent != null && ConnectContext.get().getCurrentUserIdentity().equals(userIdent);
         Preconditions.checkState(isAll || userIdent != null);
-        UserIdentity self = ConnectContext.get().getCurrentUserIdentity();
-
         // if show all grants, or show other user's grants, need global GRANT priv.
-        if (isAll || !self.equals(userIdent)) {
+        if (isAll || !isSelf) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         }
-        if (userIdent != null && !Env.getCurrentEnv().getAccessManager().getAuth().doesUserExist(userIdent)) {
+        // ldap user not exist in userManager, so should not check
+        if (userIdent != null && !isSelf && !Env.getCurrentEnv().getAccessManager().getAuth()
+                .doesUserExist(userIdent)) {
             throw new AnalysisException(String.format("User: %s does not exist", userIdent));
         }
         List<List<String>> infos = Env.getCurrentEnv().getAuth().getAuthInfo(userIdent);

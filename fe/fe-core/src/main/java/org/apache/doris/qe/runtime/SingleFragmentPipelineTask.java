@@ -82,6 +82,10 @@ public class SingleFragmentPipelineTask extends LeafRuntimeTask {
         return fragmentId;
     }
 
+    public Integer getInstanceNum() {
+        return instanceIds.size();
+    }
+
     public List<FragmentInstanceInfo> buildFragmentInstanceInfo() {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
         List<FragmentInstanceInfo> infos = Lists.newArrayListWithCapacity(instanceIds.size());

@@ -148,9 +148,9 @@ void EvHttpServer::stop() {
         for (int i = 0; i < _num_workers; ++i) {
             event_base_loopbreak(_event_bases[i].get());
         }
-        _event_bases.clear();
     }
     _workers->shutdown();
+    _event_bases.clear();
     close(_server_fd);
     _started = false;
 }

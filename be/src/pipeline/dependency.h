@@ -17,6 +17,11 @@
 
 #pragma once
 
+#ifdef __APPLE__
+#include <netinet/in.h>
+#include <sys/_types/_u_int.h>
+#endif
+
 #include <concurrentqueue.h>
 #include <sqltypes.h>
 
@@ -278,10 +283,7 @@ struct RuntimeFilterTimerQueue {
 struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
-    AggSharedState() {
-        agg_data = std::make_unique<AggregatedDataVariants>();
-        agg_arena_pool = std::make_unique<vectorized::Arena>();
-    }
+    AggSharedState() { agg_data = std::make_unique<AggregatedDataVariants>(); }
     ~AggSharedState() override {
         if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
@@ -303,7 +305,6 @@ public:
 
     AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<AggregateDataContainer> aggregate_data_container;
-    ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
@@ -381,31 +382,31 @@ public:
     // Refresh the top limit heap with a new row
     void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
 
+    vectorized::Arena agg_arena_pool;
+    vectorized::Arena agg_profile_arena;
+
 private:
     vectorized::MutableColumns _get_keys_hash_table();
 
     void _close_with_serialized_key() {
-        std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
-                                             // Do nothing
-                                         },
-                                         [&](auto& agg_method) -> void {
-                                             auto& data = *agg_method.hash_table;
-                                             data.for_each_mapped([&](auto& mapped) {
-                                                 if (mapped) {
-                                                     static_cast<void>(_destroy_agg_status(mapped));
-                                                     mapped = nullptr;
-                                                 }
-                                             });
-                                             if (data.has_null_key_data()) {
-                                                 auto st = _destroy_agg_status(
-                                                         data.template get_null_key_data<
-                                                                 vectorized::AggregateDataPtr>());
-                                                 if (!st) {
-                                                     throw Exception(st.code(), st.to_string());
-                                                 }
-                                             }
-                                         }},
-                   agg_data->method_variant);
+        std::visit(
+                vectorized::Overload {[&](std::monostate& arg) -> void {
+                                          // Do nothing
+                                      },
+                                      [&](auto& agg_method) -> void {
+                                          auto& data = *agg_method.hash_table;
+                                          data.for_each_mapped([&](auto& mapped) {
+                                              if (mapped) {
+                                                  _destroy_agg_status(mapped);
+                                                  mapped = nullptr;
+                                              }
+                                          });
+                                          if (data.has_null_key_data()) {
+                                              _destroy_agg_status(data.template get_null_key_data<
+                                                                  vectorized::AggregateDataPtr>());
+                                          }
+                                      }},
+                agg_data->method_variant);
     }
 
     void _close_without_key() {
@@ -413,11 +414,11 @@ private:
         //but finally call close to destory agg data, if agg data has bitmapValue
         //will be core dump, it's not initialized
         if (agg_data_created_without_key) {
-            static_cast<void>(_destroy_agg_status(agg_data->without_key));
+            _destroy_agg_status(agg_data->without_key);
             agg_data_created_without_key = false;
         }
     }
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
+    void _destroy_agg_status(vectorized::AggregateDataPtr data);
 };
 
 struct BasicSpillSharedState {
@@ -533,6 +534,8 @@ struct SpillSortSharedState : public BasicSharedState,
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
+    int64_t limit = -1;
+    int64_t offset = 0;
     std::atomic_bool is_closed = false;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
@@ -577,6 +580,7 @@ public:
     std::mutex buffer_mutex;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    vectorized::Arena agg_arena_pool;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -638,7 +642,7 @@ struct PartitionedHashJoinSharedState
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
-    bool need_to_spill = false;
+    bool is_spilled = false;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
@@ -699,13 +703,15 @@ public:
 
     std::atomic<bool> ready_for_read = false;
 
+    vectorized::Arena arena;
+
     /// called in setup_local_state
     Status hash_table_init();
 };
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
-    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
+    // Shuffle data by Crc32CHashPartitioner
     HASH_SHUFFLE = 1,
     // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,
@@ -810,38 +816,5 @@ public:
     }
 };
 
-struct FetchRpcStruct {
-    std::shared_ptr<PBackendService_Stub> stub;
-    PMultiGetRequestV2 request;
-    std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
-    MonotonicStopWatch rpc_timer;
-};
-
-struct MaterializationSharedState : public BasicSharedState {
-    ENABLE_FACTORY_CREATOR(MaterializationSharedState)
-public:
-    MaterializationSharedState() = default;
-
-    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
-    Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
-    Status merge_multi_response(vectorized::Block* block);
-
-    void create_counter_dependency(int operator_id, int node_id, const std::string& name);
-
-    bool rpc_struct_inited = false;
-    AtomicStatus rpc_status;
-
-    bool last_block = false;
-    // empty materialization sink block not need to merge block
-    bool need_merge_block = true;
-    vectorized::Block origin_block;
-    // The rowid column of the origin block. should be replaced by the column of the result block.
-    std::vector<int> rowid_locs;
-    std::vector<vectorized::MutableBlock> response_blocks;
-    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
-    // Register each line in which block to ensure the order of the result.
-    // Zero means NULL value.
-    std::vector<std::vector<int64_t>> block_order_results;
-};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -71,19 +71,18 @@ public class Sm4Encrypt extends Sm4CryptoFunction {
         super("sm4_encrypt", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sm4Encrypt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sm4Encrypt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2 && children.size() <= 4);
-        if (children.size() == 2) {
-            return new Sm4Encrypt(children.get(0), children.get(1));
-        } else if (children().size() == 3) {
-            return new Sm4Encrypt(children.get(0), children.get(1), children.get(2));
-        } else {
-            return new Sm4Encrypt(children.get(0), children.get(1), children.get(2), children.get(3));
-        }
+        return new Sm4Encrypt(getFunctionParams(children));
     }
 
     @Override

@@ -292,6 +292,18 @@ public class TimeUtils {
         return d.atZone(timeZone.toZoneId()).toInstant().toEpochMilli();
     }
 
+    public static long msTimeStringToLong(String timeStr, TimeZone timeZone) {
+        DateTimeFormatter dateFormatTimeZone = getDatetimeMsFormatWithTimeZone();
+        dateFormatTimeZone.withZone(timeZone.toZoneId());
+        LocalDateTime d;
+        try {
+            d = LocalDateTime.parse(timeStr, dateFormatTimeZone);
+        } catch (DateTimeParseException e) {
+            return -1;
+        }
+        return d.atZone(timeZone.toZoneId()).toInstant().toEpochMilli();
+    }
+
     // Check if the time zone_value is valid
     public static String checkTimeZoneValidAndStandardize(String value) throws DdlException {
         Function<String, String> standardizeValue = s -> {

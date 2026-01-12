@@ -49,7 +49,7 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         createMTMVInfo.analyze(ctx);
-        Env.getCurrentEnv().createTable(createMTMVInfo.translateToLegacyStmt());
+        Env.getCurrentEnv().createTable(this.createMTMVInfo);
     }
 
     @Override
@@ -60,6 +60,10 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
+    }
+
+    public CreateMTMVInfo getCreateMTMVInfo() {
+        return createMTMVInfo;
     }
 
 }

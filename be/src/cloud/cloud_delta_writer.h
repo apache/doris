@@ -58,6 +58,9 @@ private:
     // Convert `_rowset_builder` from `BaseRowsetBuilder` to `CloudRowsetBuilder`
     CloudRowsetBuilder* rowset_builder();
 
+    // Handle commit for empty rowset (when no data is written)
+    Status _commit_empty_rowset();
+
     bthread::Mutex _mtx;
     CloudStorageEngine& _engine;
     std::shared_ptr<ResourceContext> _resource_ctx;

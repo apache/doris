@@ -208,8 +208,8 @@ suite("test_txn_insert") {
 
     // test table with multi indexes
     logger.info("=== Test 12: table with multi indexes ===")
-    target_sql """ create materialized view mv_${txnTableName}_3 as select id from ${txnTableName}_3; """
-    createMV """ create materialized view mv_${txnTableName}_3 as select id from ${txnTableName}_3; """
+    target_sql """ create materialized view mv_${txnTableName}_3 as select id as id1 from ${txnTableName}_3; """
+    createMV """ create materialized view mv_${txnTableName}_3 as select id as id1 from ${txnTableName}_3; """
     res = sql """ select id from ${txnTableName}_3 """
     assertEquals(res.size(), 7)
     res = target_sql """ select id from ${txnTableName}_3 """

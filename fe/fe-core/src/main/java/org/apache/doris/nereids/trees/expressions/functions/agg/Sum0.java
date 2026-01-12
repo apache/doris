@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -56,7 +57,7 @@ import java.util.List;
  */
 public class Sum0 extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
-        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
+        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct, NeedSessionVarGuard {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
@@ -66,22 +67,30 @@ public class Sum0 extends NotNullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
      * constructor with 1 argument.
      */
     public Sum0(Expression arg) {
-        this(false, arg);
+        this(false, false, arg);
+    }
+
+    public Sum0(boolean distinct, Expression arg) {
+        this(distinct, false, arg);
     }
 
     /**
      * constructor with 2 argument.
      */
-    public Sum0(boolean distinct, Expression arg) {
-        super("sum0", distinct, arg);
+    public Sum0(boolean distinct, boolean isSkew, Expression arg) {
+        super("sum0", distinct, isSkew, arg);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Sum0(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -106,7 +115,12 @@ public class Sum0 extends NotNullableAggregateFunction
     @Override
     public Sum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum0(distinct, children.get(0));
+        return new Sum0(getFunctionParams(distinct, children));
+    }
+
+    @Override
+    public Expression withIsSkew(boolean isSkew) {
+        return new Sum0(getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
@@ -121,7 +135,8 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        if (getArgument(0).getDataType() instanceof NullType) {
+        if (getArgument(0).getDataType() instanceof NullType
+                || getArgument(0).getDataType() instanceof BooleanType) {
             return FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE);
         } else if (getArgument(0).getDataType() instanceof DecimalV2Type) {
             return FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD);
@@ -131,7 +146,7 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new Sum0(this.distinct, param);
+        return new Sum0(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

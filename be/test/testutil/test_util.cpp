@@ -43,10 +43,31 @@
 
 #include "absl/strings/substitute.h"
 #include "gflags/gflags.h"
-#include "gutil/strings/numbers.h"
 #include "olap/olap_common.h"
 
 DEFINE_bool(gen_out, false, "generate expected check data for test");
+DEFINE_bool(
+        gen_regression_case, false,
+        "generate regression test cases corrresponding to ut cases for ut cases that support it");
+
+const std::string kApacheLicenseHeader =
+        R"(// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+)";
 
 namespace doris {
 
@@ -138,7 +159,8 @@ std::string rand_rng_by_type(FieldType fieldType) {
 
 void load_columns_data_from_file(vectorized::MutableColumns& columns,
                                  vectorized::DataTypeSerDeSPtrs serders, char col_spliter,
-                                 std::set<int> idxes, const std::string& column_data_file) {
+                                 std::set<int> idxes, const std::string& column_data_file,
+                                 const cctz::time_zone* tz) {
     ASSERT_EQ(serders.size(), columns.size());
     // Load column data and expected data from CSV files
     std::vector<std::vector<std::string>> res;
@@ -146,14 +168,14 @@ void load_columns_data_from_file(vectorized::MutableColumns& columns,
     if (stat(column_data_file.c_str(), &buff) == 0) {
         if (S_ISREG(buff.st_mode)) {
             // file
-            load_data_from_csv(serders, columns, column_data_file, col_spliter, idxes);
+            load_data_from_csv(serders, columns, column_data_file, col_spliter, idxes, tz);
         } else if (S_ISDIR(buff.st_mode)) {
             // dir
             std::filesystem::path fs_path(column_data_file);
             for (const auto& entry : std::filesystem::directory_iterator(fs_path)) {
                 std::string file_path = entry.path().string();
                 std::cout << "load data from file: " << file_path << std::endl;
-                load_data_from_csv(serders, columns, file_path, col_spliter, idxes);
+                load_data_from_csv(serders, columns, file_path, col_spliter, idxes, tz);
             }
         }
     }
@@ -162,7 +184,7 @@ void load_columns_data_from_file(vectorized::MutableColumns& columns,
 // Helper function to load data from CSV, with index which splited by spliter and load to columns
 void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
                         vectorized::MutableColumns& columns, const std::string& file_path,
-                        const char spliter, const std::set<int> idxes) {
+                        const char spliter, const std::set<int> idxes, const cctz::time_zone* tz) {
     ASSERT_EQ(serders.size(), columns.size())
             << "serder size: " << serders.size() << " column size: " << columns.size();
     ASSERT_EQ(serders.size(), idxes.size())
@@ -177,6 +199,7 @@ void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
 
     std::string line;
     vectorized::DataTypeSerDe::FormatOptions options;
+    options.timezone = tz;
     while (std::getline(file, line)) {
         std::stringstream lineStream(line);
         std::string value;

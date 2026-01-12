@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,6 +34,7 @@ import java.util.Objects;
  * Literal for DecimalV3 Type
  */
 public class DecimalV3Literal extends FractionalLiteral {
+    private static final Logger logger = Logger.getLogger(Literal.class);
 
     private final BigDecimal value;
 
@@ -54,7 +57,22 @@ public class DecimalV3Literal extends FractionalLiteral {
         Objects.requireNonNull(value, "value not be null");
         checkPrecisionAndScale(precision, scale, value);
         BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(scale, RoundingMode.HALF_UP);
+        logger.info("DecimalV3Literal orig bigDecimal: " + value
+                + ", targetType: " + dataType + ", result big decimal: " + adjustedValue);
         this.value = Objects.requireNonNull(adjustedValue);
+    }
+
+    // In some scenarios, when enable_decimal256=false, the creation of DecimalV3Literal with
+    // a precision exceeding 38 is not allowed, such as during the parsing stage.
+    public static DecimalV3Literal createWithCheck256(BigDecimal value) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(value), value);
+    }
+
+    // In some scenarios, even when enable_decimal256=false, it is still possible
+    // to create DecimalV3Literal with a precision exceeding 38,
+    // for example, intermediate steps in constant folding calculations and expression simplification.
+    public static DecimalV3Literal createWithoutCheck256(BigDecimal value) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeNotCheck256(value), value);
     }
 
     @Override
@@ -91,7 +109,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.CEILING));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.CEILING));
     }
 
     /**
@@ -103,7 +121,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.FLOOR));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.FLOOR));
     }
 
     /**
@@ -115,7 +133,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         if (newScale >= this.getValue().scale()) {
             return this;
         }
-        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.HALF_UP));
+        return createWithoutCheck256(value.setScale(newScale, RoundingMode.HALF_UP));
     }
 
     /**
@@ -123,6 +141,9 @@ public class DecimalV3Literal extends FractionalLiteral {
      */
     private static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
         Preconditions.checkNotNull(value);
+        if (value.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
         int realPrecision = value.precision();
         int realScale = value.scale();
         boolean valid = true;
@@ -135,7 +156,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         }
 
         if (!valid) {
-            throw new AnalysisException(
+            throw new CastException(
                     String.format("Invalid precision and scale - expect (%d, %d), but (%d, %d)",
                             precision, scale, realPrecision, realScale));
         }

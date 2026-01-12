@@ -17,8 +17,42 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import com.google.common.collect.Maps;
+
+import java.util.Map;
+import java.util.Optional;
+
 /**
  * For iceberg External Table
  */
 public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandContext {
+    private Optional<String> branchName = Optional.empty();
+    // Static partition key-value pairs for INSERT OVERWRITE ... PARTITION
+    // (col='val', ...)
+    private Map<String, String> staticPartitionValues = Maps.newHashMap();
+
+    public Optional<String> getBranchName() {
+        return branchName;
+    }
+
+    public void setBranchName(Optional<String> branchName) {
+        this.branchName = branchName;
+    }
+
+    public Map<String, String> getStaticPartitionValues() {
+        return staticPartitionValues;
+    }
+
+    public void setStaticPartitionValues(Map<String, String> staticPartitionValues) {
+        this.staticPartitionValues = staticPartitionValues != null
+                ? Maps.newHashMap(staticPartitionValues)
+                : Maps.newHashMap();
+    }
+
+    /**
+     * Check if this is a static partition overwrite
+     */
+    public boolean isStaticPartitionOverwrite() {
+        return isOverwrite() && !staticPartitionValues.isEmpty();
+    }
 }

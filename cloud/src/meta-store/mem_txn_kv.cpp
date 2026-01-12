@@ -28,6 +28,7 @@
 #include <ranges>
 #include <string>
 
+#include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-store/txn_kv_error.h"
 #include "txn_kv.h"
@@ -158,17 +159,16 @@ TxnErrorCode MemTxnKv::get_kv(const std::string& begin, const std::string& end, 
         do {
             --end_iter; // end always excludes the last key
 
-            // Find the appropriate version (use reverse iterator for versions)
-            for (auto iter = end_iter->second.rbegin(); iter != end_iter->second.rend(); ++iter) {
-                if (iter->commit_version > version) {
+            for (auto&& entry : end_iter->second) {
+                if (entry.commit_version > version) {
                     continue;
                 }
 
-                if (!iter->value.has_value()) {
+                if (!entry.value.has_value()) {
                     break;
                 }
 
-                temp_results.emplace_back(end_iter->first, *iter->value);
+                temp_results.emplace_back(end_iter->first, *entry.value);
                 break;
             }
 
@@ -195,7 +195,9 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
         if (iter != log_kv_.end()) {
             auto log_item = iter->second;
             if (log_item.front().commit_version_ > read_version) {
-                LOG(WARNING) << "commit conflict";
+                LOG(WARNING) << "commit conflict, key: " << k
+                             << ", log_version: " << log_item.front().commit_version_
+                             << ", read_version: " << read_version;
                 //keep the same behaviour with fdb.
                 return TxnErrorCode::TXN_CONFLICT;
             }
@@ -205,6 +207,7 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
     ++committed_version_;
 
     int16_t seq = 0;
+    std::set<std::string> modified_keys; // Track which keys were modified
     for (const auto& vec : op_list) {
         const auto& [op_type, k, v] = vec;
         LogItem log_item {op_type, committed_version_, k, v};
@@ -212,18 +215,21 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
         switch (op_type) {
         case memkv::ModifyOpType::PUT: {
             mem_kv_[k].push_front(Version {committed_version_, v});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::ATOMIC_SET_VER_KEY: {
             std::string ver_key(k);
             gen_version_timestamp(committed_version_, seq, &ver_key);
             mem_kv_[ver_key].push_front(Version {committed_version_, v});
+            modified_keys.insert(ver_key);
             break;
         }
         case memkv::ModifyOpType::ATOMIC_SET_VER_VAL: {
             std::string ver_val(v);
             gen_version_timestamp(committed_version_, seq, &ver_val);
             mem_kv_[k].push_front(Version {committed_version_, ver_val});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::ATOMIC_ADD: {
@@ -237,10 +243,12 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
             int64_t res = *(int64_t*)org_val.data() + *(int64_t*)v.data();
             std::memcpy(org_val.data(), &res, 8);
             mem_kv_[k].push_front(Version {committed_version_, org_val});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::REMOVE: {
             mem_kv_[k].push_front(Version {committed_version_, std::nullopt});
+            modified_keys.insert(k);
             break;
         }
         case memkv::ModifyOpType::REMOVE_RANGE: {
@@ -248,6 +256,7 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
             auto end_iter = mem_kv_.lower_bound(v);
             while (begin_iter != end_iter) {
                 mem_kv_[begin_iter->first].push_front(Version {committed_version_, std::nullopt});
+                modified_keys.insert(begin_iter->first);
                 begin_iter++;
             }
             break;
@@ -255,6 +264,11 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
         default:
             break;
         }
+    }
+
+    // Trigger watches for all modified keys
+    for (const auto& key : modified_keys) {
+        trigger_watches(key);
     }
 
     *committed_version = committed_version_;
@@ -314,6 +328,51 @@ std::unique_ptr<FullRangeGetIterator> MemTxnKv::full_range_get(std::string begin
                                                          std::move(opts));
 }
 
+void MemTxnKv::register_watch(const std::string& key, std::shared_ptr<WatchInfo> watch_info) {
+    std::lock_guard<std::mutex> l(lock_);
+    watches_[key].push_back(std::move(watch_info));
+}
+
+void MemTxnKv::trigger_watches(const std::string& key) {
+    // Must be called with lock_ held
+    auto it = watches_.find(key);
+    if (it == watches_.end()) {
+        return;
+    }
+
+    // Get the current version for this key
+    int64_t current_version = -1;
+    auto kv_it = mem_kv_.find(key);
+    if (kv_it != mem_kv_.end() && !kv_it->second.empty()) {
+        current_version = kv_it->second.front().commit_version;
+    }
+
+    // Trigger and remove watches where the version has changed
+    std::vector<std::shared_ptr<WatchInfo>> to_trigger;
+    auto& watch_list = it->second;
+    for (auto iter = watch_list.begin(); iter != watch_list.end();) {
+        auto& watch = *iter;
+        // Trigger if the current version is greater than the watch version
+        // This means the key has been modified since the watch was set
+        if (current_version > watch->watch_version) {
+            to_trigger.push_back(watch);
+            iter = watch_list.erase(iter);
+        } else {
+            ++iter;
+        }
+    }
+
+    if (watch_list.empty()) {
+        watches_.erase(it);
+    }
+
+    for (auto& watch : to_trigger) {
+        std::lock_guard<std::mutex> watch_lock(watch->mutex);
+        watch->triggered = true;
+        watch->cv.notify_all();
+    }
+}
+
 } // namespace doris::cloud
 
 namespace doris::cloud::memkv {
@@ -339,6 +398,7 @@ void Transaction::put(std::string_view key, std::string_view val) {
     op_list_.emplace_back(ModifyOpType::PUT, k, v);
     ++num_put_keys_;
     kv_->put_count_++;
+    kv_->put_bytes_ += key.size() + val.size();
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() + val.size();
 }
@@ -362,8 +422,6 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     RangeGetOptions options = opts;
     TEST_SYNC_POINT_CALLBACK("memkv::Transaction::get", &options.batch_limit);
     std::lock_guard<std::mutex> l(lock_);
-    num_get_keys_++;
-    kv_->get_count_++;
     std::string begin_k(begin.data(), begin.size());
     std::string end_k(end.data(), end.size());
     // TODO: figure out what happen if range_get has part of unreadable_keys
@@ -383,6 +441,8 @@ std::unique_ptr<cloud::FullRangeGetIterator> Transaction::full_range_get(
 }
 
 TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bool snapshot) {
+    num_get_keys_++;
+    kv_->get_count_++;
     // Read your writes.
     auto it = writes_.find(key);
     if (it != writes_.end()) {
@@ -401,6 +461,8 @@ TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bo
             return TxnErrorCode::TXN_KEY_NOT_FOUND;
         }
     }
+    get_bytes_ += val->size() + key.size();
+    kv_->get_bytes_ += val->size() + key.size();
     return TxnErrorCode::TXN_OK;
 }
 
@@ -501,6 +563,10 @@ TxnErrorCode Transaction::inner_get(const std::string& begin, const std::string&
 
     num_get_keys_ += kv_list.size();
     kv_->get_count_ += kv_list.size();
+    for (auto& [k, v] : kv_list) {
+        get_bytes_ += k.size() + v.size();
+        kv_->get_bytes_ += k.size() + v.size();
+    }
     *iter = std::make_unique<memkv::RangeGetIterator>(std::move(kv_list), more);
     return TxnErrorCode::TXN_OK;
 }
@@ -520,6 +586,8 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_KEY, k, v);
 
     ++num_put_keys_;
+
+    kv_->put_bytes_ += k.size() + val.size();
     put_bytes_ += k.size() + val.size();
     approximate_bytes_ += k.size() + val.size();
 }
@@ -559,6 +627,7 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     op_list_.emplace_back(ModifyOpType::ATOMIC_SET_VER_VAL, k, v);
 
     ++num_put_keys_;
+    kv_->put_bytes_ += key.size() + value.size();
     put_bytes_ += key.size() + value.size();
     approximate_bytes_ += key.size() + value.size();
 }
@@ -573,6 +642,7 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
 
     ++num_put_keys_;
     put_bytes_ += key.size() + 8;
+    kv_->put_bytes_ += key.size() + 8;
     approximate_bytes_ += key.size() + 8;
 }
 
@@ -596,6 +666,7 @@ void Transaction::remove(std::string_view key) {
     op_list_.emplace_back(ModifyOpType::REMOVE, k, "");
 
     ++num_del_keys_;
+    kv_->del_bytes_ += key.size();
     delete_bytes_ += key.size();
     approximate_bytes_ += key.size();
 }
@@ -605,6 +676,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
     std::string begin_k(begin.data(), begin.size());
     std::string end_k(end.data(), end.size());
     if (begin_k >= end_k) {
+        LOG(WARNING) << "invalid remove range: [" << hex(begin_k) << ", " << hex(end_k) << ")";
         aborted_ = true;
     } else {
         // ATTN: we do not support read your writes about delete range.
@@ -617,6 +689,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
     kv_->del_count_ += 2;
     // same as normal txn
     num_del_keys_ += 2;
+    kv_->del_bytes_ += begin.size() + end.size();
     delete_bytes_ += begin.size() + end.size();
     approximate_bytes_ += begin.size() + end.size();
 }
@@ -624,13 +697,23 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
 TxnErrorCode Transaction::commit() {
     std::lock_guard<std::mutex> l(lock_);
     if (aborted_) {
+        LOG(WARNING) << "transaction aborted, cannot commit";
         return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
     }
     auto code = kv_->update(read_set_, op_list_, read_version_, &committed_version_);
     if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "transaction commit failed, code=" << static_cast<int>(code);
         return code;
     }
     commited_ = true;
+
+    // Generate versionstamp if enabled
+    if (versionstamp_enabled_) {
+        // For MemTxnKv, generate a fake versionstamp based on committed_version_
+        // In real FDB, this would be the actual 10-byte versionstamp
+        versionstamp_result_ = Versionstamp(static_cast<uint64_t>(committed_version_), 0);
+    }
+
     op_list_.clear();
     read_set_.clear();
     writes_.clear();
@@ -653,7 +736,64 @@ TxnErrorCode Transaction::get_committed_version(int64_t* version) {
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::watch_key(std::string_view key) {
+    std::string k(key.data(), key.size());
+
+    // Commit the transaction
+    auto commit_code = commit();
+    if (commit_code != TxnErrorCode::TXN_OK) {
+        return commit_code;
+    }
+
+    int64_t watch_version = read_version_;
+    auto watch_info = std::make_shared<MemTxnKv::WatchInfo>();
+    watch_info->watch_version = watch_version;
+
+    // Register the watch and check if the key has already changed
+    // This is done atomically to avoid race condition
+    {
+        std::lock_guard<std::mutex> l(kv_->lock_);
+
+        // Check if the key has been modified after our watch version
+        auto kv_it = kv_->mem_kv_.find(k);
+        if (kv_it != kv_->mem_kv_.end() && !kv_it->second.empty()) {
+            const auto& latest_version = kv_it->second.front();
+            if (latest_version.commit_version > watch_version) {
+                // Key has already changed, return immediately without blocking
+                return TxnErrorCode::TXN_OK;
+            }
+        }
+
+        // Register the watch only if the key hasn't changed yet
+        kv_->watches_[k].push_back(watch_info);
+    }
+
+    // Wait for the watch to be triggered
+    std::unique_lock<std::mutex> watch_lock(watch_info->mutex);
+    watch_info->cv.wait(watch_lock, [&watch_info] { return watch_info->triggered; });
+
+    return TxnErrorCode::TXN_OK;
+}
 TxnErrorCode Transaction::abort() {
+    return TxnErrorCode::TXN_OK;
+}
+
+void Transaction::enable_get_versionstamp() {
+    versionstamp_enabled_ = true;
+}
+
+TxnErrorCode Transaction::get_versionstamp(Versionstamp* versionstamp) {
+    if (!versionstamp_enabled_) {
+        LOG(WARNING) << "get_versionstamp called but versionstamp not enabled";
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    if (versionstamp_result_ == Versionstamp()) {
+        LOG(WARNING) << "versionstamp not available, commit may not have been called or failed";
+        return TxnErrorCode::TXN_KEY_NOT_FOUND;
+    }
+
+    *versionstamp = versionstamp_result_;
     return TxnErrorCode::TXN_OK;
 }
 
@@ -677,6 +817,49 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
     }
     kv_->get_count_ += keys.size();
     num_get_keys_ += keys.size();
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::batch_scan(
+        std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+        const std::vector<std::pair<std::string, std::string>>& ranges,
+        const BatchGetOptions& opts) {
+    if (ranges.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+    std::lock_guard<std::mutex> l(lock_);
+    res->reserve(ranges.size());
+
+    for (const auto& [start_key, end_key] : ranges) {
+        if (unreadable_keys_.count(start_key) != 0) {
+            aborted_ = true;
+            LOG(WARNING) << "read unreadable key, abort";
+            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+        }
+
+        RangeGetOptions range_opts;
+        range_opts.snapshot = opts.snapshot;
+        range_opts.batch_limit = 1;
+        range_opts.reverse = opts.reverse;
+        range_opts.begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        range_opts.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+
+        std::unique_ptr<cloud::RangeGetIterator> iter;
+        auto ret = inner_get(start_key, end_key, &iter, range_opts);
+        if (ret != TxnErrorCode::TXN_OK) {
+            return ret;
+        }
+
+        if (iter->has_next()) {
+            auto [found_key, found_value] = iter->next();
+            res->push_back(std::make_pair(std::string(found_key), std::string(found_value)));
+        } else {
+            res->push_back(std::nullopt);
+        }
+    }
+
+    kv_->get_count_ += ranges.size();
+    num_get_keys_ += ranges.size();
     return TxnErrorCode::TXN_OK;
 }
 

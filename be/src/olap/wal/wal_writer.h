@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 
 namespace doris {
 
@@ -32,7 +33,7 @@ public:
     explicit WalWriter(const std::string& file_name);
     ~WalWriter();
 
-    Status init();
+    Status init(const io::FileSystemSPtr& fs);
     Status finalize();
 
     Status append_blocks(const PBlockArray& blocks);
@@ -49,5 +50,7 @@ private:
     std::string _file_name;
     io::FileWriterPtr _file_writer;
 };
+
+Status determine_wal_fs(int64_t db_id, int64_t tb_id, io::FileSystemSPtr& fs);
 
 } // namespace doris

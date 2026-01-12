@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/obj_lru_cache.h"
 
@@ -34,13 +35,22 @@ public:
 
     ObjLRUCache& cache() { return _cache; }
 
-    Status get_parquet_footer(io::FileReaderSPtr file_reader, io::IOContext* io_ctx, int64_t mtime,
-                              size_t* meta_size, ObjLRUCache::CacheHandle* handle);
+    static std::string get_key(const std::string file_name, int64_t modification_time,
+                               int64_t file_size);
 
-    Status get_orc_footer() {
-        // TODO: implement
-        return Status::OK();
+    static std::string get_key(io::FileReaderSPtr file_reader,
+                               const io::FileDescription& _file_description);
+
+    bool lookup(const std::string& key, ObjLRUCache::CacheHandle* handle) {
+        return _cache.lookup({key}, handle);
     }
+
+    template <typename T>
+    void insert(const std::string& key, T* value, ObjLRUCache::CacheHandle* handle) {
+        _cache.insert({key}, value, handle);
+    }
+
+    bool enabled() const { return _cache.enabled(); }
 
 private:
     ObjLRUCache _cache;

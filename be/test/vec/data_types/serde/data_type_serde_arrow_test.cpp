@@ -164,10 +164,10 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 Int32 val;
                 StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                 i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
-                                     "1234567.56", 11, type_desc->get_precision(),
+                                     "1234567.56", 10, type_desc->get_precision(),
                                      type_desc->get_scale(), &result)
                            : val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
-                                     "-1234567.56", 12, type_desc->get_precision(),
+                                     "-1234567.56", 11, type_desc->get_precision(),
                                      type_desc->get_scale(), &result);
                 EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
                 data.push_back(val);
@@ -292,8 +292,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {
-                column_vector_datetimev2->insert(
-                        Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val()));
+                column_vector_datetimev2->insert(Field::create_field<TYPE_DATETIMEV2>(value));
             }
             vectorized::DataTypePtr datetimev2_type(
                     std::make_shared<vectorized::DataTypeDateTimeV2>(3));

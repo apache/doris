@@ -556,7 +556,7 @@ TEST_F(DorisFSDirectoryTest, FSIndexOutputV2FlushBufferError) {
     Status s = _fs->create_file(file_path, &writer);
     EXPECT_TRUE(s.ok());
 
-    auto* output = _directory->createOutputV2(writer.get());
+    auto output = _directory->createOutputV2(writer.get());
 
     // Write small chunks to fill the buffer and trigger flush
     // BufferedIndexOutput buffer size is 1024 bytes
@@ -573,7 +573,6 @@ TEST_F(DorisFSDirectoryTest, FSIndexOutputV2FlushBufferError) {
     } catch (...) {
         // Ignore close errors in cleanup
     }
-    delete output;
 }
 
 // Test 38: FSIndexOutputV2 flushBuffer with null writer
@@ -819,6 +818,27 @@ TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalTimer) {
 
     _CLDELETE(input2);
     _CLDELETE(input1);
+}
+
+TEST_F(DorisFSDirectoryTest, PrivGetFN) {
+    {
+        std::string file_name = "my_file.txt";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
+    {
+        std::string file_name = "";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
+    {
+        std::string file_name = "subdir/another_file.log";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
 }
 
 } // namespace doris::segment_v2

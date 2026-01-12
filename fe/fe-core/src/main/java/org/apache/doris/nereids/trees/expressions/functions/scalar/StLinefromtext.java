@@ -50,13 +50,18 @@ public class StLinefromtext extends ScalarFunction
         super("st_linefromtext", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StLinefromtext(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StLinefromtext withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StLinefromtext(children.get(0));
+        return new StLinefromtext(getFunctionParams(children));
     }
 
     @Override

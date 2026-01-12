@@ -49,6 +49,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(web_sales web_page time_dim household_demographics ) leading(web_sales web_page time_dim household_demographics ) leading(at pt )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

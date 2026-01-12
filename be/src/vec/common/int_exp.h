@@ -24,7 +24,7 @@
 #include <limits>
 #include <utility>
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 
 namespace exp_details {
 
@@ -293,6 +293,24 @@ constexpr inline int64_t max_i64(int digit_count) {
     return values[digit_count];
 }
 
+constexpr inline int count_digits_fast(int64_t n) {
+    uint64_t abs_n = (n < 0 ? uint64_t(-n) : uint64_t(n));
+    if (abs_n == 0) [[unlikely]] {
+        return 1;
+    }
+
+    int bits = 64 - __builtin_clzll(abs_n);
+    int d = (bits * 1233) >> 12;
+
+    if (abs_n < int_exp10(d)) {
+        --d;
+    } else if (abs_n >= int_exp10(d + 1)) {
+        ++d;
+    }
+
+    return d + 1;
+}
+
 constexpr inline __int128 max_i128(int digit_count) {
     DCHECK(digit_count > 0);
     constexpr __int128 values[] = {
@@ -338,7 +356,7 @@ constexpr inline __int128 max_i128(int digit_count) {
     return values[digit_count];
 }
 
-inline wide::Int256 max_i256(int digit_count) {
+constexpr inline wide::Int256 max_i256(int digit_count) {
     if (digit_count < 0) {
         return 0;
     }
@@ -346,8 +364,8 @@ inline wide::Int256 max_i256(int digit_count) {
         return std::numeric_limits<wide::Int256>::max();
     }
 
-    static constexpr wide::Int256 i10e18 {1000000000000000000LL};
-    static const wide::Int256 values[] = {
+    constexpr wide::Int256 i10e18 {1000000000000000000LL};
+    constexpr wide::Int256 values[] = {
             static_cast<wide::Int256>(0LL),
             static_cast<wide::Int256>(9LL),
             static_cast<wide::Int256>(99LL),

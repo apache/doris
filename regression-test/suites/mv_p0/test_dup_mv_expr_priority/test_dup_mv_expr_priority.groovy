@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_expr_priority") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS table_ngrambf;"""
 
     sql """
@@ -34,21 +37,15 @@ suite ("test_dup_mv_expr_priority") {
 
     sql """insert into table_ngrambf values(1,1,"123_abc_中国");"""
 
-    createMV ("""create materialized view test_mv_1 as select element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf ;""")
+    createMV ("""create materialized view test_mv_1 as select element_at(split_by_string(username,"_"),1) as a1 ,element_at(split_by_string(username,"_"),2) as a2 ,element_at(split_by_string(username,"_"),3) as a3  ,siteid as a4,citycode as a5 from table_ngrambf ;""")
 
     sql """insert into table_ngrambf values(1,1,"123_def_美国");"""
 
     sql """analyze table table_ngrambf with sync;"""
-    sql """set enable_stats=false;"""
 
-    mv_rewrite_success("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
+    // the row count in based table and mv is same, so we do not need to check cbo chosen
+    mv_rewrite_success_without_check_chosen("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
     "test_mv_1")
 
     qt_select_mv """select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;"""
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
-            "test_mv_1")
-
-
 }

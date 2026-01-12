@@ -17,24 +17,34 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <cstddef>
 
 namespace doris {
 namespace segment_v2 {
 
-static constexpr size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
 static constexpr size_t STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536;
+static constexpr size_t STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE = 256 * 1024l;
 
 constexpr long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384; // default row store page size: 16KB
 
-struct PageBuilderOptions {
-    size_t data_page_size = DEFAULT_PAGE_SIZE;
+struct EncodingPreference {
+    bool integer_type_default_use_plain_encoding {false};
+    BinaryPlainEncodingTypePB binary_plain_encoding_default_impl {
+            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
+};
 
-    size_t dict_page_size = DEFAULT_PAGE_SIZE;
+struct PageBuilderOptions {
+    size_t data_page_size = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+
+    size_t dict_page_size = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
 
     bool need_check_bitmap = true;
 
     bool is_dict_page = false; // page used for saving dictionary
+
+    EncodingPreference encoding_preference {};
 };
 
 struct PageDecoderOptions {

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Except;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -40,7 +41,7 @@ import java.util.Optional;
 /**
  * Logical Except.
  */
-public class LogicalExcept extends LogicalSetOperation {
+public class LogicalExcept extends LogicalSetOperation implements Except {
 
     public LogicalExcept(Qualifier qualifier, List<Plan> inputs) {
         super(PlanType.LOGICAL_EXCEPT, qualifier, inputs);
@@ -65,6 +66,15 @@ public class LogicalExcept extends LogicalSetOperation {
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
                 "stats", statistics);
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(child(0).toDigest()).append(")");
+        sb.append(" EXCEPT ").append(qualifier).append(" ");
+        sb.append("(").append(child(1).toDigest()).append(")");
+        return sb.toString();
     }
 
     @Override

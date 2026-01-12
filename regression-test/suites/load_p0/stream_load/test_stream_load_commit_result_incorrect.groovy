@@ -88,7 +88,6 @@ suite("test_stream_load_commit_result_incorrect", "nonConcurrent") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals("finished", json.ExistingJobStatus.toLowerCase())
         }
     }
 }

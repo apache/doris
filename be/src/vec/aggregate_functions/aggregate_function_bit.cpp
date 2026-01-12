@@ -20,6 +20,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_bit.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 
@@ -27,15 +28,17 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
+    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT>;
     factory.register_function_both(
-            "group_bit_or", creator_with_integer_type::creator<AggregateFunctionBitwise,
-                                                               AggregateFunctionGroupBitOrData>);
+            "group_bit_or",
+            creator::creator<AggregateFunctionBitwise, AggregateFunctionGroupBitOrData>);
     factory.register_function_both(
-            "group_bit_and", creator_with_integer_type::creator<AggregateFunctionBitwise,
-                                                                AggregateFunctionGroupBitAndData>);
+            "group_bit_and",
+            creator::creator<AggregateFunctionBitwise, AggregateFunctionGroupBitAndData>);
     factory.register_function_both(
-            "group_bit_xor", creator_with_integer_type::creator<AggregateFunctionBitwise,
-                                                                AggregateFunctionGroupBitXorData>);
+            "group_bit_xor",
+            creator::creator<AggregateFunctionBitwise, AggregateFunctionGroupBitXorData>);
 }
 
 } // namespace doris::vectorized

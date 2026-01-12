@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -26,10 +27,12 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -86,8 +89,8 @@ public class ExplainInsertCommandTest extends TestWithFeService {
                 + "distributed BY hash(k1) buckets 3\n"
                 + "properties(\"replication_num\" = \"1\")");
 
-        createMv("create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1");
-        createMv("create materialized view mv3 as select k1, k2 + k3 from agg_have_dup_base group by k1, k2 + k3");
+        createMv("create materialized view k12s3m as select k1 as a1,sum(k2) as a2,max(k2) as a3 from agg_have_dup_base group by k1");
+        createMv("create materialized view mv3 as select k1 as a4, k2 + k3 as a5 from agg_have_dup_base group by k1, k2 + k3");
     }
 
     @Test
@@ -117,7 +120,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         sql = "explain insert into t2 values(1, 1, 1, 1), (2, 2, 2, 2), (3, 3, 3, 3)";
         Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
         sql = "explain insert into agg_have_dup_base values(-4, -4, -4, 'd')";
-        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
+        Assertions.assertEquals(9, getOutputFragment(sql).getOutputExprs().size());
     }
 
     @Test
@@ -129,9 +132,25 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     @Test
     public void testWithMV() throws Exception {
         String sql = "explain insert into agg_have_dup_base select -4, -4, -4, 'd'";
-        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
+        Assertions.assertEquals(9, getOutputFragment(sql).getOutputExprs().size());
         sql = "explain insert into agg_have_dup_base select -4, k2, -4, 'd' from agg_have_dup_base";
-        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
+        Assertions.assertEquals(9, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void explainNone() throws Exception {
+        String sql = "explain insert into agg_have_dup_base select -4, -4, -4, 'd'";
+        connectContext.getSessionVariable().enableExplainNone = false;
+        StmtExecutor sqlStmtExecutor = getSqlStmtExecutor(sql);
+        String explainString = sqlStmtExecutor.planner()
+                .getExplainString(new ExplainOptions(ExplainLevel.VERBOSE, false));
+        Assertions.assertNotEquals("", explainString);
+
+        connectContext.getSessionVariable().enableExplainNone = true;
+        sqlStmtExecutor = getSqlStmtExecutor(sql);
+        explainString = sqlStmtExecutor.planner()
+                .getExplainString(new ExplainOptions(ExplainLevel.VERBOSE, false));
+        Assertions.assertEquals("", explainString);
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

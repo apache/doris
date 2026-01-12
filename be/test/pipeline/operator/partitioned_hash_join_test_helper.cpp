@@ -46,8 +46,6 @@ TPlanNode PartitionedHashJoinTestHelper::create_test_plan_node() {
 
     tnode.row_tuples.push_back(0);
     tnode.row_tuples.push_back(1);
-    tnode.nullable_tuples.push_back(false);
-    tnode.nullable_tuples.push_back(false);
     tnode.node_type = TPlanNodeType::HASH_JOIN_NODE;
     tnode.hash_join_node.join_op = TJoinOp::INNER_JOIN;
     tnode.__isset.hash_join_node = true;
@@ -125,10 +123,10 @@ PartitionedHashJoinTestHelper::create_operators() {
     auto [probe_pipeline, _] = generate_hash_join_pipeline(probe_operator, probe_side_sink_operator,
                                                            sink_operator, child_operator);
 
-    RowDescriptor row_desc(runtime_state->desc_tbl(), {1}, {false});
+    RowDescriptor row_desc(runtime_state->desc_tbl(), {1});
     child_operator->_row_descriptor = row_desc;
 
-    RowDescriptor row_desc_probe(runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc_probe(runtime_state->desc_tbl(), {0});
     probe_side_source_operator->_row_descriptor = row_desc_probe;
 
     EXPECT_TRUE(probe_operator->set_child(probe_side_source_operator));
@@ -171,7 +169,7 @@ PartitionedHashJoinProbeLocalState* PartitionedHashJoinTestHelper::create_probe_
     shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
     local_state->init_counters();
     local_state->_shared_state = shared_state.get();
-    shared_state->need_to_spill = true;
+    shared_state->is_spilled = true;
 
     ADD_TIMER(local_state->common_profile(), "ExecTime");
     local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
@@ -184,8 +182,6 @@ PartitionedHashJoinProbeLocalState* PartitionedHashJoinTestHelper::create_probe_
     local_state->_partitioned_blocks.resize(probe_operator->_partition_count);
     local_state->_probe_spilling_streams.resize(probe_operator->_partition_count);
 
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinProbeOperatorTestSpillDep", true);
     shared_state->spilled_streams.resize(probe_operator->_partition_count);
     shared_state->partitioned_build_blocks.resize(probe_operator->_partition_count);
 
@@ -205,7 +201,7 @@ PartitionedHashJoinSinkLocalState* PartitionedHashJoinTestHelper::create_sink_lo
     shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
     local_state->init_spill_counters();
     local_state->_shared_state = shared_state.get();
-    shared_state->need_to_spill = true;
+    shared_state->is_spilled = true;
 
     ADD_TIMER(local_state->common_profile(), "ExecTime");
     local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
@@ -214,9 +210,6 @@ PartitionedHashJoinSinkLocalState* PartitionedHashJoinTestHelper::create_sink_lo
     local_state->_dependency = shared_state->create_sink_dependency(
             sink_operator->dests_id().front(), sink_operator->operator_id(),
             "PartitionedHashJoinTestDep");
-
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinSinkOperatorTestSpillDep", true);
 
     shared_state->spilled_streams.resize(sink_operator->_partition_count);
     shared_state->partitioned_build_blocks.resize(sink_operator->_partition_count);

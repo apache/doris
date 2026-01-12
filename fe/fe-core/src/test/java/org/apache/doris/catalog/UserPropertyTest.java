@@ -82,6 +82,8 @@ public class UserPropertyTest {
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
         properties.add(Pair.of("cpu_resource_limit", "2"));
         properties.add(Pair.of("query_timeout", "500"));
+        properties.add(Pair.of("enable_prefer_cached_rowset", "true"));
+        properties.add(Pair.of("query_freshness_tolerance_ms", "4500"));
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -92,6 +94,8 @@ public class UserPropertyTest {
         Assert.assertEquals(2, userProperty.getCpuResourceLimit());
         Assert.assertEquals(500, userProperty.getQueryTimeout());
         Assert.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
+        Assert.assertEquals(true, userProperty.getEnablePreferCachedRowset());
+        Assert.assertEquals(4500, userProperty.getQueryFreshnessToleranceMs());
 
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
@@ -141,6 +145,18 @@ public class UserPropertyTest {
             Assert.assertTrue(e.getMessage().contains("is not valid"));
         }
         Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
+        // we should allow query_timeout  < 0, otherwise, not have command reset query_timeout of user
+        properties = Lists.newArrayList();
+        properties.add(Pair.of("query_timeout", "-2"));
+        userProperty = new UserProperty();
+        userProperty.update(properties);
+        Assert.assertEquals(-2, userProperty.getQueryTimeout());
+        // we should allow insert_timeout  < 0, otherwise, not have command reset insert_timeout of user
+        properties = Lists.newArrayList();
+        properties.add(Pair.of("insert_timeout", "-2"));
+        userProperty = new UserProperty();
+        userProperty.update(properties);
+        Assert.assertEquals(-2, userProperty.getInsertTimeout());
     }
 
     @Test

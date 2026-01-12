@@ -34,7 +34,8 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
         'write_buffer_size=10240',
-        'write_buffer_size_for_agg=10240'
+        'write_buffer_size_for_agg=10240',
+        'enable_packed_file=false',
     ]
     options.setFeNum(3)
     options.setBeNum(3)
@@ -46,7 +47,8 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
 
     def selectTriggerRehash = { ->
         for (int i = 0; i < 5; i++) {
-            sql """
+            sleep(1000) 
+            try_sql """
                 select count(*) from $table
             """
         }
@@ -84,7 +86,7 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
         }
 
         cluster.stopBackends(choseDeadBeIndex)
-        dockerAwaitUntil(50) {
+        awaitUntil(50) {
             def showTablets = sql_return_maparray("SHOW TABLETS FROM ${table}")
             def bes = showTablets
                 .collect { it.BackendId }
@@ -109,7 +111,7 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
         def afterGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
         logger.info("after stop one be, rehash fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
 
-        dockerAwaitUntil(50) {
+        awaitUntil(50) {
             def showTablets = sql_return_maparray("SHOW TABLETS FROM ${table}")
             def bes = showTablets
                 .collect { it.BackendId }

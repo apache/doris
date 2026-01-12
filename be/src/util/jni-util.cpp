@@ -22,11 +22,9 @@
 #include <jni.h>
 #include <jni_md.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -34,6 +32,7 @@
 #include <vector>
 
 #include "absl/strings/substitute.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
@@ -42,11 +41,15 @@
 using std::string;
 
 namespace doris {
-
-namespace {
+#include "common/compile_check_begin.h"
+namespace Jni {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
 [[maybe_unused]] std::once_flag g_jvm_conf_once;
+__thread JNIEnv* Env::tls_env_ = nullptr;
+jclass Env::jni_util_cl_ = nullptr;
+jmethodID Env::throwable_to_string_id_ = nullptr;
+jmethodID Env::throwable_to_stack_trace_id_ = nullptr;
 
 const std::string GetDorisJNIDefaultClasspath() {
     const auto* doris_home = getenv("DORIS_HOME");
@@ -101,7 +104,7 @@ const std::string GetKerb5ConfPath() {
     std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     CHECK(libhdfs_opts != "") << "LIBHDFS_OPTS is not set";
     libhdfs_opts += fmt::format(" {} ", GetKerb5ConfPath());
-    libhdfs_opts += fmt::format(" -Djdk.lang.processReaperUseDefaultStackSize{}",
+    libhdfs_opts += fmt::format(" -Djdk.lang.processReaperUseDefaultStackSize={}",
                                 config::jdk_process_reaper_use_default_stack_size);
     setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
     LOG(INFO) << "set final LIBHDFS_OPTS: " << libhdfs_opts;
@@ -120,7 +123,7 @@ const std::string GetKerb5ConfPath() {
                     GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
                     fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
                     fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
-                    fmt::format("-Djdk.lang.processReaperUseDefaultStackSize{}",
+                    fmt::format("-Djdk.lang.processReaperUseDefaultStackSize={}",
                                 config::jdk_process_reaper_use_default_stack_size),
 #ifdef __APPLE__
                     // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
@@ -139,6 +142,7 @@ const std::string GetKerb5ConfPath() {
         options.push_back(GetKerb5ConfPath());
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
+            // To convert a string to a char*, const_cast is used.
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
         }
 
@@ -146,7 +150,7 @@ const std::string GetKerb5ConfPath() {
         JavaVMInitArgs vm_args;
         vm_args.version = JNI_VERSION_1_8;
         vm_args.options = jvm_options.get();
-        vm_args.nOptions = options.size();
+        vm_args.nOptions = cast_set<int>(options.size());
         // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
         vm_args.ignoreUnrecognized = JNI_FALSE;
 
@@ -161,54 +165,91 @@ const std::string GetKerb5ConfPath() {
     }
 }
 
-} // anonymous namespace
+Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
+    DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
-bool JniUtil::jvm_inited_ = false;
-__thread JNIEnv* JniUtil::tls_env_ = nullptr;
-jclass JniUtil::internal_exc_cl_ = nullptr;
-jclass JniUtil::jni_util_cl_ = nullptr;
-jclass JniUtil::jni_native_method_exc_cl_ = nullptr;
-jmethodID JniUtil::throwable_to_string_id_ = nullptr;
-jmethodID JniUtil::throwable_to_stack_trace_id_ = nullptr;
-jmethodID JniUtil::get_jvm_metrics_id_ = nullptr;
-jmethodID JniUtil::get_jvm_threads_id_ = nullptr;
-jmethodID JniUtil::get_jmx_json_ = nullptr;
-jobject JniUtil::jni_scanner_loader_obj_ = nullptr;
-jmethodID JniUtil::jni_scanner_loader_method_ = nullptr;
-jlong JniUtil::max_jvm_heap_memory_size_ = 0;
-jmethodID JniUtil::_clean_udf_cache_method_id = nullptr;
-
-Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
-    DCHECK(jstr != nullptr);
-    DCHECK(!env->ExceptionCheck());
-    jboolean is_copy;
-    const char* utf_chars = env->GetStringUTFChars(jstr, &is_copy);
-    bool exception_check = static_cast<bool>(env->ExceptionCheck());
-    if (utf_chars == nullptr || exception_check) {
-        if (exception_check) env->ExceptionClear();
-        if (utf_chars != nullptr) env->ReleaseStringUTFChars(jstr, utf_chars);
-        auto fail_message = "GetStringUTFChars failed. Probable OOM on JVM side";
-        LOG(WARNING) << fail_message;
-        return Status::InternalError(fail_message);
+#ifdef USE_LIBHDFS3
+    std::call_once(g_vm_once, FindOrCreateJavaVM);
+    int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
+    if (rc == JNI_EDETACHED) {
+        rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
     }
-    out->env = env;
-    out->jstr = jstr;
-    out->utf_chars = utf_chars;
+    if (rc != 0 || tls_env_ == nullptr) {
+        return Status::JniError("Unable to get JVM: {}", rc);
+    }
+#else
+    // the hadoop libhdfs will do all the stuff
+    std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
+    tls_env_ = getJNIEnv();
+#endif
+    *env = tls_env_;
     return Status::OK();
 }
 
-Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
-    DCHECK(env_ == nullptr);
-    DCHECK_GT(max_local_ref, 0);
-    if (env->PushLocalFrame(max_local_ref) < 0) {
+Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix) {
+    jthrowable exc = env->ExceptionOccurred();
+    Defer def {[&]() { env->DeleteLocalRef(exc); }};
+    if (exc == nullptr) {
+        return Status::OK();
+    }
+    env->ExceptionClear();
+    DCHECK(throwable_to_string_id_ != nullptr);
+    const char* oom_msg_template =
+            "$0 threw an unchecked exception. The JVM is likely out "
+            "of memory (OOM).";
+    jstring msg = static_cast<jstring>(
+            env->CallStaticObjectMethod(jni_util_cl_, throwable_to_string_id_, exc));
+    if (env->ExceptionOccurred()) {
         env->ExceptionClear();
-        return Status::InternalError("failed to push frame");
+        string oom_msg = absl::Substitute(oom_msg_template, "throwableToString");
+        LOG(WARNING) << oom_msg;
+        return Status::JniError(oom_msg);
     }
-    env_ = env;
-    return Status::OK();
+
+    std::string return_msg;
+    auto* msg_str = env->GetStringUTFChars(msg, nullptr);
+    return_msg += msg_str;
+    env->ReleaseStringUTFChars((jstring)msg, msg_str);
+
+    if (log_stack) {
+        jstring stack = static_cast<jstring>(
+                env->CallStaticObjectMethod(jni_util_cl_, throwable_to_stack_trace_id_, exc));
+        if (env->ExceptionOccurred()) {
+            env->ExceptionClear();
+            string oom_msg = absl::Substitute(oom_msg_template, "throwableToStackTrace");
+            LOG(WARNING) << oom_msg;
+            return Status::JniError(oom_msg);
+        }
+
+        auto* stask_str = env->GetStringUTFChars(stack, nullptr);
+        LOG(WARNING) << stask_str;
+        env->ReleaseStringUTFChars(stack, stask_str);
+    }
+
+    return Status::JniError("{}{}", prefix, return_msg);
 }
 
-void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
+bool Util::jvm_inited_ = false;
+
+jlong Util::max_jvm_heap_memory_size_ = 0;
+GlobalObject Util::jni_scanner_loader_obj_;
+MethodId Util::jni_scanner_loader_method_;
+MethodId Util::_clean_udf_cache_method_id;
+GlobalClass Util::hashmap_class;
+MethodId Util::hashmap_constructor;
+MethodId Util::hashmap_put;
+GlobalClass Util::mapClass;
+MethodId Util::mapEntrySetMethod;
+GlobalClass Util::mapEntryClass;
+MethodId Util::getEntryKeyMethod;
+MethodId Util::getEntryValueMethod;
+GlobalClass Util::setClass;
+MethodId Util::iteratorSetMethod;
+GlobalClass Util::iteratorClass;
+MethodId Util::iteratorHasNextMethod;
+MethodId Util::iteratorNextMethod;
+
+void Util::_parse_max_heap_memory_size_from_jvm() {
     // The start_be.sh would set JAVA_OPTS inside LIBHDFS_OPTS
     std::string java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     std::istringstream iss(java_opts);
@@ -245,287 +286,108 @@ void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
     LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
 }
 
-size_t JniUtil::get_max_jni_heap_memory_size() {
+size_t Util::get_max_jni_heap_memory_size() {
 #if defined(USE_LIBHDFS3) || defined(BE_TEST)
     return std::numeric_limits<size_t>::max();
 #else
-    static std::once_flag parse_max_heap_memory_size_from_jvm_flag;
-    std::call_once(parse_max_heap_memory_size_from_jvm_flag, parse_max_heap_memory_size_from_jvm,
-                   tls_env_);
+    static std::once_flag _parse_max_heap_memory_size_from_jvm_flag;
+    std::call_once(_parse_max_heap_memory_size_from_jvm_flag, _parse_max_heap_memory_size_from_jvm);
     return max_jvm_heap_memory_size_;
 #endif
 }
 
-Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
-    DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
-
-#ifdef USE_LIBHDFS3
-    std::call_once(g_vm_once, FindOrCreateJavaVM);
-    int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
-    if (rc == JNI_EDETACHED) {
-        rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
-    }
-    if (rc != 0 || tls_env_ == nullptr) {
-        return Status::InternalError("Unable to get JVM: {}", rc);
-    }
-#else
-    // the hadoop libhdfs will do all the stuff
-    std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
-    tls_env_ = getJNIEnv();
-#endif
-    *env = tls_env_;
-    return Status::OK();
-}
-
-Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix) {
-    jthrowable exc = env->ExceptionOccurred();
-    if (exc == nullptr) {
-        return Status::OK();
-    }
-    env->ExceptionClear();
-    DCHECK(throwable_to_string_id() != nullptr);
-    const char* oom_msg_template =
-            "$0 threw an unchecked exception. The JVM is likely out "
-            "of memory (OOM).";
-    jstring msg = static_cast<jstring>(
-            env->CallStaticObjectMethod(jni_util_class(), throwable_to_string_id(), exc));
-    if (env->ExceptionOccurred()) {
-        env->ExceptionClear();
-        string oom_msg = absl::Substitute(oom_msg_template, "throwableToString");
-        LOG(WARNING) << oom_msg;
-        return Status::InternalError(oom_msg);
-    }
-    JniUtfCharGuard msg_str_guard;
-    RETURN_IF_ERROR(JniUtfCharGuard::create(env, msg, &msg_str_guard));
-    if (log_stack) {
-        jstring stack = static_cast<jstring>(
-                env->CallStaticObjectMethod(jni_util_class(), throwable_to_stack_trace_id(), exc));
-        if (env->ExceptionOccurred()) {
-            env->ExceptionClear();
-            string oom_msg = absl::Substitute(oom_msg_template, "throwableToStackTrace");
-            LOG(WARNING) << oom_msg;
-            return Status::RuntimeError(oom_msg);
-        }
-        JniUtfCharGuard c_stack_guard;
-        RETURN_IF_ERROR(JniUtfCharGuard::create(env, stack, &c_stack_guard));
-        LOG(WARNING) << c_stack_guard.get();
-    }
-
-    env->DeleteLocalRef(exc);
-    return Status::RuntimeError("{}{}", prefix, msg_str_guard.get());
-}
-
-jobject JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map) {
-    //TODO: ADD EXCEPTION CHECK.
-    jclass hashmap_class = env->FindClass("java/util/HashMap");
-    jmethodID hashmap_constructor = env->GetMethodID(hashmap_class, "<init>", "(I)V");
-    jobject hashmap_object = env->NewObject(hashmap_class, hashmap_constructor, map.size());
-    jmethodID hashmap_put = env->GetMethodID(
-            hashmap_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-    for (const auto& it : map) {
-        jstring key = env->NewStringUTF(it.first.c_str());
-        jstring value = env->NewStringUTF(it.second.c_str());
-        env->CallObjectMethod(hashmap_object, hashmap_put, key, value);
-        env->DeleteLocalRef(key);
-        env->DeleteLocalRef(value);
-    }
-    env->DeleteLocalRef(hashmap_class);
-    return hashmap_object;
-}
-
-std::map<std::string, std::string> JniUtil::convert_to_cpp_map(JNIEnv* env, jobject map) {
-    std::map<std::string, std::string> resultMap;
-
-    // Get the class and method ID of the java.util.Map interface
-    jclass mapClass = env->FindClass("java/util/Map");
-    jmethodID entrySetMethod = env->GetMethodID(mapClass, "entrySet", "()Ljava/util/Set;");
-
-    // Get the class and method ID of the java.util.Set interface
-    jclass setClass = env->FindClass("java/util/Set");
-    jmethodID iteratorSetMethod = env->GetMethodID(setClass, "iterator", "()Ljava/util/Iterator;");
-
-    // Get the class and method ID of the java.util.Iterator interface
-    jclass iteratorClass = env->FindClass("java/util/Iterator");
-    jmethodID hasNextMethod = env->GetMethodID(iteratorClass, "hasNext", "()Z");
-    jmethodID nextMethod = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
-
-    // Get the class and method ID of the java.util.Map.Entry interface
-    jclass entryClass = env->FindClass("java/util/Map$Entry");
-    jmethodID getKeyMethod = env->GetMethodID(entryClass, "getKey", "()Ljava/lang/Object;");
-    jmethodID getValueMethod = env->GetMethodID(entryClass, "getValue", "()Ljava/lang/Object;");
-
-    // Call the entrySet method to get the set of key-value pairs
-    jobject entrySet = env->CallObjectMethod(map, entrySetMethod);
-
-    // Call the iterator method on the set to iterate over the key-value pairs
-    jobject iteratorSet = env->CallObjectMethod(entrySet, iteratorSetMethod);
-
-    // Iterate over the key-value pairs
-    while (env->CallBooleanMethod(iteratorSet, hasNextMethod)) {
-        // Get the current entry
-        jobject entry = env->CallObjectMethod(iteratorSet, nextMethod);
-
-        // Get the key and value from the entry
-        jobject javaKey = env->CallObjectMethod(entry, getKeyMethod);
-        jobject javaValue = env->CallObjectMethod(entry, getValueMethod);
-
-        // Convert the key and value to C++ strings
-        const char* key = env->GetStringUTFChars(static_cast<jstring>(javaKey), nullptr);
-        const char* value = env->GetStringUTFChars(static_cast<jstring>(javaValue), nullptr);
-
-        // Store the key-value pair in the map
-        resultMap[key] = value;
-
-        // Release the string references
-        env->ReleaseStringUTFChars(static_cast<jstring>(javaKey), key);
-        env->ReleaseStringUTFChars(static_cast<jstring>(javaValue), value);
-
-        // Delete local references
-        env->DeleteLocalRef(entry);
-        env->DeleteLocalRef(javaKey);
-        env->DeleteLocalRef(javaValue);
-    }
-
-    // Delete local references
-    env->DeleteLocalRef(iteratorSet);
-    env->DeleteLocalRef(entrySet);
-    env->DeleteLocalRef(mapClass);
-    env->DeleteLocalRef(setClass);
-    env->DeleteLocalRef(iteratorClass);
-    env->DeleteLocalRef(entryClass);
-
-    return resultMap;
-}
-
-Status JniUtil::GetGlobalClassRef(JNIEnv* env, const char* class_str, jclass* class_ref) {
-    *class_ref = NULL;
-    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(jclass, local_cl, env, FindClass(class_str));
-    RETURN_IF_ERROR(LocalToGlobalRef(env, local_cl, reinterpret_cast<jobject*>(class_ref)));
-    return Status::OK();
-}
-
-Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global_ref) {
-    *global_ref = env->NewGlobalRef(local_ref);
-    // NewGlobalRef:
-    // Returns a global reference to the given obj.
-    //
-    //May return NULL if:
-    //  obj refers to null
-    //  the system has run out of memory
-    //  obj was a weak global reference and has already been garbage collected
-    if (*global_ref == NULL) {
-        return Status::InternalError(
-                "LocalToGlobalRef fail,global ref is NULL,maybe the system has run out of memory.");
-    }
-
-    //NewGlobalRef not throw exception,maybe we just need check NULL.
-    RETURN_ERROR_IF_EXC(env);
-    return Status::OK();
-}
-
-Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
-    // Get scanner loader;
-    jclass jni_scanner_loader_cls;
+Status Util::_init_jni_scanner_loader() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    LocalClass jni_scanner_loader_cls;
     std::string jni_scanner_loader_str = "org/apache/doris/common/classloader/ScannerLoader";
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, jni_scanner_loader_str.c_str(),
-                                               &jni_scanner_loader_cls));
-    jmethodID jni_scanner_loader_constructor =
-            env->GetMethodID(jni_scanner_loader_cls, "<init>", "()V");
-    RETURN_ERROR_IF_EXC(env);
-    jni_scanner_loader_method_ = env->GetMethodID(jni_scanner_loader_cls, "getLoadedClass",
-                                                  "(Ljava/lang/String;)Ljava/lang/Class;");
-    if (jni_scanner_loader_method_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find ScannerLoader.getLoadedClass method.");
-    }
-    RETURN_ERROR_IF_EXC(env);
-    jmethodID load_jni_scanner =
-            env->GetMethodID(jni_scanner_loader_cls, "loadAllScannerJars", "()V");
-    RETURN_ERROR_IF_EXC(env);
+    RETURN_IF_ERROR(find_class(env, jni_scanner_loader_str.c_str(), &jni_scanner_loader_cls));
 
-    jni_scanner_loader_obj_ =
-            env->NewObject(jni_scanner_loader_cls, jni_scanner_loader_constructor);
-    RETURN_ERROR_IF_EXC(env);
-    if (jni_scanner_loader_obj_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to create ScannerLoader object.");
-    }
-    env->CallVoidMethod(jni_scanner_loader_obj_, load_jni_scanner);
-    RETURN_ERROR_IF_EXC(env);
+    MethodId jni_scanner_loader_constructor;
+    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(env, "<init>", "()V",
+                                                      &jni_scanner_loader_constructor));
 
-    _clean_udf_cache_method_id = env->GetMethodID(jni_scanner_loader_cls, "cleanUdfClassLoader",
-                                                  "(Ljava/lang/String;)V");
-    if (_clean_udf_cache_method_id == nullptr) {
-        if (env->ExceptionOccurred()) {
-            env->ExceptionDescribe();
-        }
-        return Status::InternalError("Failed to find removeUdfClassLoader method.");
-    }
-    RETURN_ERROR_IF_EXC(env);
+    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(env, "getLoadedClass",
+                                                      "(Ljava/lang/String;)Ljava/lang/Class;",
+                                                      &jni_scanner_loader_method_));
+
+    MethodId load_jni_scanner;
+    RETURN_IF_ERROR(
+            jni_scanner_loader_cls.get_method(env, "loadAllScannerJars", "()V", &load_jni_scanner));
+
+    RETURN_IF_ERROR(jni_scanner_loader_cls.get_method(
+            env, "cleanUdfClassLoader", "(Ljava/lang/String;)V", &_clean_udf_cache_method_id));
+
+    RETURN_IF_ERROR(jni_scanner_loader_cls.new_object(env, jni_scanner_loader_constructor)
+                            .call(&jni_scanner_loader_obj_));
+
+    RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, load_jni_scanner).call());
     return Status::OK();
 }
 
-Status JniUtil::clean_udf_class_load_cache(const std::string& function_signature) {
+Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    env->CallVoidMethod(jni_scanner_loader_obj_, _clean_udf_cache_method_id,
-                        env->NewStringUTF(function_signature.c_str()));
-    RETURN_ERROR_IF_EXC(env);
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+
+    LocalString function_signature_jstr;
+    RETURN_IF_ERROR(
+            LocalString::new_string(env, function_signature.c_str(), &function_signature_jstr));
+
+    RETURN_IF_ERROR(jni_scanner_loader_obj_.call_void_method(env, _clean_udf_cache_method_id)
+                            .with_arg(function_signature_jstr)
+                            .call());
+
     return Status::OK();
 }
 
-Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
-                                      jclass* jni_scanner_class) {
-    // Get JNI scanner class by class name;
-    jobject loaded_class_obj = env->CallObjectMethod(
-            jni_scanner_loader_obj_, jni_scanner_loader_method_, env->NewStringUTF(classname));
-    RETURN_ERROR_IF_EXC(env);
-    *jni_scanner_class = reinterpret_cast<jclass>(env->NewGlobalRef(loaded_class_obj));
-    RETURN_ERROR_IF_EXC(env);
-    return Status::OK();
-}
-
-Status JniUtil::Init() {
-    // RETURN_IF_ERROR(LibJVMLoader::instance().load());
-
-    // Get the JNIEnv* corresponding to current thread.
+Status Util::_init_collect_class() {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    // for hashmap
+    RETURN_IF_ERROR(find_class(env, "java/util/HashMap", &hashmap_class));
+    RETURN_IF_ERROR(hashmap_class.get_method(env, "<init>", "(I)V", &hashmap_constructor));
+    RETURN_IF_ERROR(hashmap_class.get_method(
+            env, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", &hashmap_put));
 
-    if (env == NULL) return Status::InternalError("Failed to get/create JVM");
-    // Find JniUtil class and create a global ref.
-    jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
-    if (local_jni_util_cl == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil class.");
-    }
-    jni_util_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_util_cl));
-    if (jni_util_cl_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to create global reference to JniUtil class.");
-    }
-    env->DeleteLocalRef(local_jni_util_cl);
-    if (env->ExceptionOccurred()) {
-        return Status::InternalError("Failed to delete local reference to JniUtil class.");
-    }
+    //for map
+    RETURN_IF_ERROR(find_class(env, "java/util/Map", &mapClass));
+    RETURN_IF_ERROR(mapClass.get_method(env, "entrySet", "()Ljava/util/Set;", &mapEntrySetMethod));
 
-    // Find InternalException class and create a global ref.
-    jclass local_internal_exc_cl =
-            env->FindClass("org/apache/doris/common/exception/InternalException");
-    if (local_internal_exc_cl == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil class.");
-    }
-    internal_exc_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_internal_exc_cl));
-    if (internal_exc_cl_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to create global reference to JniUtil class.");
-    }
-    env->DeleteLocalRef(local_internal_exc_cl);
-    if (env->ExceptionOccurred()) {
-        return Status::InternalError("Failed to delete local reference to JniUtil class.");
-    }
+    //for set
+    RETURN_IF_ERROR(find_class(env, "java/util/Set", &setClass));
+    RETURN_IF_ERROR(
+            setClass.get_method(env, "iterator", "()Ljava/util/Iterator;", &iteratorSetMethod));
 
+    // for iterator
+    RETURN_IF_ERROR(find_class(env, "java/util/Iterator", &iteratorClass));
+    RETURN_IF_ERROR(iteratorClass.get_method(env, "hasNext", "()Z", &iteratorHasNextMethod));
+    RETURN_IF_ERROR(
+            iteratorClass.get_method(env, "next", "()Ljava/lang/Object;", &iteratorNextMethod));
+
+    //for map entry
+    RETURN_IF_ERROR(find_class(env, "java/util/Map$Entry", &mapEntryClass));
+    RETURN_IF_ERROR(
+            mapEntryClass.get_method(env, "getKey", "()Ljava/lang/Object;", &getEntryKeyMethod));
+
+    RETURN_IF_ERROR(mapEntryClass.get_method(env, "getValue", "()Ljava/lang/Object;",
+                                             &getEntryValueMethod));
+
+    return Status::OK();
+}
+
+Status Util::Init() {
+    RETURN_IF_ERROR(Env::Init());
+    RETURN_IF_ERROR(_init_register_natives());
+    RETURN_IF_ERROR(_init_collect_class());
+    RETURN_IF_ERROR(_init_jni_scanner_loader());
+    jvm_inited_ = true;
+    DorisMetrics::instance()->init_jvm_metrics();
+    return Status::OK();
+}
+
+Status Util::_init_register_natives() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
     // Find JNINativeMethod class and create a global ref.
     jclass local_jni_native_exc_cl =
             env->FindClass("org/apache/doris/common/jni/utils/JNINativeMethod");
@@ -533,77 +395,35 @@ Status JniUtil::Init() {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
-        return Status::InternalError("Failed to find JNINativeMethod class.");
+        return Status::JniError("Failed to find JNINativeMethod class.");
     }
-    jni_native_method_exc_cl_ =
-            reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_native_exc_cl));
-    if (jni_native_method_exc_cl_ == nullptr) {
-        if (env->ExceptionOccurred()) {
-            env->ExceptionDescribe();
-        }
-        return Status::InternalError("Failed to create global reference to JNINativeMethod class.");
-    }
-    env->DeleteLocalRef(local_jni_native_exc_cl);
-    if (env->ExceptionOccurred()) {
-        return Status::InternalError("Failed to delete local reference to JNINativeMethod class.");
-    }
-    std::string resize_column_name = "resizeStringColumn";
-    std::string resize_column_sign = "(JI)J";
-    std::string memory_alloc_name = "memoryTrackerMalloc";
-    std::string memory_alloc_sign = "(J)J";
-    std::string memory_free_name = "memoryTrackerFree";
-    std::string memory_free_sign = "(J)V";
+
+    static char memory_alloc_name[] = "memoryTrackerMalloc";
+    static char memory_alloc_sign[] = "(J)J";
+    static char memory_free_name[] = "memoryTrackerFree";
+    static char memory_free_sign[] = "(J)V";
+    static char memory_alloc_batch_name[] = "memoryTrackerMallocBatch";
+    static char memory_alloc_batch_sign[] = "([I)[J";
+    static char memory_free_batch_name[] = "memoryTrackerFreeBatch";
+    static char memory_free_batch_sign[] = "([J)V";
     static JNINativeMethod java_native_methods[] = {
-            {const_cast<char*>(resize_column_name.c_str()),
-             const_cast<char*>(resize_column_sign.c_str()),
-             (void*)&JavaNativeMethods::resizeStringColumn},
-            {const_cast<char*>(memory_alloc_name.c_str()),
-             const_cast<char*>(memory_alloc_sign.c_str()), (void*)&JavaNativeMethods::memoryMalloc},
-            {const_cast<char*>(memory_free_name.c_str()),
-             const_cast<char*>(memory_free_sign.c_str()), (void*)&JavaNativeMethods::memoryFree},
+            {memory_alloc_name, memory_alloc_sign, (void*)&JavaNativeMethods::memoryMalloc},
+            {memory_free_name, memory_free_sign, (void*)&JavaNativeMethods::memoryFree},
+            {memory_alloc_batch_name, memory_alloc_batch_sign,
+             (void*)&JavaNativeMethods::memoryMallocBatch},
+            {memory_free_batch_name, memory_free_batch_sign,
+             (void*)&JavaNativeMethods::memoryFreeBatch},
     };
 
-    int res = env->RegisterNatives(jni_native_method_exc_cl_, java_native_methods,
+    int res = env->RegisterNatives(local_jni_native_exc_cl, java_native_methods,
                                    sizeof(java_native_methods) / sizeof(java_native_methods[0]));
     DCHECK_EQ(res, 0);
-
-    // Throwable toString()
-    throwable_to_string_id_ = env->GetStaticMethodID(jni_util_cl_, "throwableToString",
-                                                     "(Ljava/lang/Throwable;)Ljava/lang/String;");
-    if (throwable_to_string_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.throwableToString method.");
+    if (res) [[unlikely]] {
+        return Status::JniError("Failed to RegisterNatives.");
     }
-
-    // throwableToStackTrace()
-    throwable_to_stack_trace_id_ = env->GetStaticMethodID(
-            jni_util_cl_, "throwableToStackTrace", "(Ljava/lang/Throwable;)Ljava/lang/String;");
-    if (throwable_to_stack_trace_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.throwableToFullStackTrace method.");
-    }
-
-    get_jvm_metrics_id_ = env->GetStaticMethodID(jni_util_cl_, "getJvmMemoryMetrics", "()[B");
-    if (get_jvm_metrics_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.getJvmMemoryMetrics method.");
-    }
-
-    get_jvm_threads_id_ = env->GetStaticMethodID(jni_util_cl_, "getJvmThreadsInfo", "([B)[B");
-    if (get_jvm_threads_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.getJvmThreadsInfo method.");
-    }
-
-    get_jmx_json_ = env->GetStaticMethodID(jni_util_cl_, "getJMXJson", "()[B");
-    if (get_jmx_json_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.getJMXJson method.");
-    }
-    RETURN_IF_ERROR(init_jni_scanner_loader(env));
-    jvm_inited_ = true;
-    DorisMetrics::instance()->init_jvm_metrics(env);
     return Status::OK();
 }
 
+} // namespace Jni
+#include "common/compile_check_end.h"
 } // namespace doris

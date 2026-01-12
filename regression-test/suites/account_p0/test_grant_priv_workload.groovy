@@ -41,7 +41,7 @@ suite("test_grant_priv_workload") {
     sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
     sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
 
-    sql "create workload group if not exists ${workload1} ${forComputeGroupStr} properties('cpu_share'='123')"
+    sql "create workload group if not exists ${workload1} ${forComputeGroupStr} properties('min_cpu_percent'='0')"
 
     // test only have USAGE_PRIV, can not grant to other user
     sql """grant USAGE_PRIV on WORKLOAD GROUP ${workload1} to ${user1}"""

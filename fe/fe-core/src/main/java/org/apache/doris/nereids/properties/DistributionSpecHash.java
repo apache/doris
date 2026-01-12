@@ -313,6 +313,7 @@ public class DistributionSpecHash extends DistributionSpec {
         EXECUTION_BUCKETED,
         // output, for shuffle by storage hash method
         STORAGE_BUCKETED,
+        // require, need to satisfy the distribution spec by equals.
+        REQUIRE_EQUAL
     }
-
 }

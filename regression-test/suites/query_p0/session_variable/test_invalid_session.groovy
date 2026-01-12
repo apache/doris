@@ -21,4 +21,26 @@ suite("test_invalid_session") {
     } catch (Exception ex) {
         assert("${ex}".contains("parallel_pipeline_task_num value should greater than or equal 0, you set value is: -1"))
     }
+
+    // test invalid full_sort_max_buffered_bytes
+    try {
+        sql "set full_sort_max_buffered_bytes = 0;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("full_sort_max_buffered_bytes value should between"))
+    }
+    try {
+        sql "set full_sort_max_buffered_bytes = -1;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("full_sort_max_buffered_bytes value should between"))
+    }
+    try {
+        sql "set full_sort_max_buffered_bytes = 16777215;" // test 16MB - 1
+    } catch (Exception ex) {
+        assert("${ex}".contains("full_sort_max_buffered_bytes value should between"))
+    }
+    try {
+        sql "set full_sort_max_buffered_bytes = 1073741825;" // test 1GB + 1
+    } catch (Exception ex) {
+        assert("${ex}".contains("full_sort_max_buffered_bytes value should between"))
+    }
 }

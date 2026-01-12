@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDecimalLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -35,7 +34,6 @@ import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
@@ -48,18 +46,14 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
-        this(value, Config.enable_decimal_conversion);
-    }
-
-    public DecimalLiteral(BigDecimal value, boolean isDecimalV3) {
-        init(value, isDecimalV3);
-        analysisDone();
+        init(value, Config.enable_decimal_conversion);
+        this.nullable = false;
     }
 
     public DecimalLiteral(BigDecimal value, Type type) {
         this.value = value;
         this.type = type;
-        analysisDone();
+        this.nullable = false;
     }
 
     public DecimalLiteral(String value) throws AnalysisException {
@@ -70,21 +64,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         init(v);
-        analysisDone();
-    }
-
-    public DecimalLiteral(String value, int scale) throws AnalysisException {
-        BigDecimal v = null;
-        try {
-            v = new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid floating-point literal: " + value, e);
-        }
-        if (scale >= 0) {
-            v = v.setScale(scale, RoundingMode.HALF_UP);
-        }
-        init(v);
-        analysisDone();
+        this.nullable = false;
     }
 
     protected DecimalLiteral(DecimalLiteral other) {
@@ -302,25 +282,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
         msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 
-    @Override
-    public void swapSign() throws NotImplementedException {
-        // swapping sign does not change the type
-        value = value.negate();
-    }
-
-    @Override
-    protected void compactForLiteral(Type type) throws AnalysisException {
-        if (type.isDecimalV3()) {
-            int scale = Math.max(this.value.scale(), ((ScalarType) type).decimalScale());
-            int integerPart = Math.max(this.value.precision() - this.value.scale(),
-                    type.getPrecision() - ((ScalarType) type).decimalScale());
-            this.type = ScalarType.createDecimalV3Type(integerPart + scale, scale);
-            BigDecimal adjustedValue = value.scale() < 0 ? value
-                    : value.setScale(scale, RoundingMode.HALF_UP);
-            this.value = Objects.requireNonNull(adjustedValue);
-        }
-    }
-
     // To be compatible with OLAP, only need 9 digits.
     // Note: the return value is negative if value is negative.
     public int getFracValue() {
@@ -332,73 +293,9 @@ public class DecimalLiteral extends NumericLiteralExpr {
         return fracPart.intValue();
     }
 
-    public void roundCeiling(int newScale) {
-        value = value.setScale(newScale, RoundingMode.CEILING);
-        type = ScalarType.createDecimalType(((ScalarType) type)
-                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
-    }
-
-    public void roundFloor(int newScale) {
-        value = value.setScale(newScale, RoundingMode.FLOOR);
-        type = ScalarType.createDecimalType(((ScalarType) type)
-                .getPrimitiveType(), ((ScalarType) type).getScalarPrecision(), newScale);
-    }
-
-    @Override
-    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDecimalV2() && type.isDecimalV2()) {
-            setType(targetType);
-            return this;
-        } else if ((targetType.isDecimalV3() && type.isDecimalV3()
-                && (((ScalarType) targetType).decimalPrecision() >= value.precision())
-                && (((ScalarType) targetType).decimalScale() >= value.scale()))
-                || (targetType.isDecimalV3() && type.isDecimalV2()
-                && (((ScalarType) targetType).decimalScale() >= value.scale()))) {
-            // If target type is DECIMALV3, we should set type for literal
-            setType(targetType);
-            return this;
-        } else if (targetType.isFloatingPointType()) {
-            return new FloatLiteral(value.doubleValue(), targetType);
-        } else if (targetType.isIntegerType()) {
-            // If the integer part of BigDecimal is too big to fit into long,
-            // longValue() will only return the low-order 64-bit value.
-            if (value.compareTo(BigDecimal.valueOf(Long.MAX_VALUE)) > 0
-                    || value.compareTo(BigDecimal.valueOf(Long.MIN_VALUE)) < 0) {
-                throw new AnalysisException("Integer part of " + value + " exceeds storage range of Long Type.");
-            }
-            return new IntLiteral(value.longValue(), targetType);
-        } else if (targetType.isStringType()) {
-            return new StringLiteral(value.toString());
-        } else if (targetType.isLargeIntType()) {
-            return new LargeIntLiteral(value.toBigInteger().toString());
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    public Expr castToDecimalV3ByDivde(Type targetType) {
-        // onlye use in DecimalLiteral divide DecimalV3
-        CastExpr expr = new CastExpr(targetType, this);
-        expr.setNotFold(true);
-        return expr;
-    }
-
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        int len = getParmLen(data);
-        BigDecimal v = null;
-        try {
-            byte[] bytes = new byte[len];
-            data.get(bytes);
-            String value = new String(bytes);
-            v = new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            // throw new AnalysisException("Invalid floating-point literal: " + value, e);
-        }
-        init(v);
-    }
 }

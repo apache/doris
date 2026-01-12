@@ -59,17 +59,18 @@ public class Truncate extends ScalarFunction
         super("truncate", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Truncate(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Truncate withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new Truncate(children.get(0));
-        } else {
-            return new Truncate(children.get(0), children.get(1));
-        }
+        return new Truncate(getFunctionParams(children));
     }
 
     @Override

@@ -66,6 +66,11 @@ public class GroupBitOr extends NullableAggregateFunction
         super("group_bit_or", false, alwaysNullable, child);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private GroupBitOr(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(IntegerType.INSTANCE);
@@ -77,12 +82,12 @@ public class GroupBitOr extends NullableAggregateFunction
     @Override
     public GroupBitOr withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitOr(distinct, alwaysNullable, children.get(0));
+        return new GroupBitOr(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupBitOr(distinct, alwaysNullable, children.get(0));
+        return new GroupBitOr(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

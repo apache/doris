@@ -95,7 +95,8 @@ public:
     virtual std::string update_cluster(
             const std::string& instance_id, const ClusterInfo& cluster,
             std::function<bool(const ClusterPB&)> filter,
-            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+            std::function<std::string(ClusterPB&, std::vector<ClusterPB>& clusters_in_instance)>
+                    action,
             bool replace_if_existing_empty_target_cluster = false);
 
     /**
@@ -135,6 +136,47 @@ public:
                                     bool check_master_num, bool check_cluster_name);
 
     /**
+     * Validates the cluster name against a regex pattern.
+     *
+     * @param cluster The ClusterPB object containing the cluster information.
+     * @param err Output parameter to store error message if validation fails.
+     * @param need check cluster name
+     * @return true if the cluster name is valid, false otherwise.
+     */
+    bool validate_cluster_name(const ClusterPB& cluster, std::string* err, bool check_cluster_name);
+
+    /**
+     * Validates the nodes in the cluster, checking for cloud unique IDs
+     * and counting master and follower nodes.
+     *
+     * @param cluster The ClusterPB object containing the cluster information.
+     * @param err Output parameter to store error message if validation fails.
+     * @param check_master_num Flag indicating whether to check master and follower counts.
+     * @return true if the nodes are valid, false otherwise.
+     */
+    bool validate_nodes(const ClusterPB& cluster, std::string* err, bool check_master_num);
+
+    /**
+     * Validates the counts of master and follower nodes for SQL clusters.
+     *
+     * @param master_num The number of master nodes.
+     * @param follower_num The number of follower nodes.
+     * @param err Output parameter to store error message if validation fails.
+     * @return true if the counts are valid, false otherwise.
+     */
+    bool validate_master_follower_count(int master_num, int follower_num, std::string* err);
+
+    /**
+     * Validates the specifics of virtual clusters, including cluster names
+     * and policies.
+     *
+     * @param cluster The ClusterPB object containing the cluster information.
+     * @param err Output parameter to store error message if validation fails.
+     * @return true if the virtual cluster is valid, false otherwise.
+     */
+    bool validate_virtual_cluster(const ClusterPB& cluster, std::string* err);
+
+    /**
      * Check cloud_unique_id is degraded format, and get instance_id from cloud_unique_id
      * degraded format : "${version}:${instance_id}:${unique_id}"
      * @param degraded cloud_unique_id
@@ -163,23 +205,42 @@ public:
     virtual std::pair<MetaServiceCode, std::string> refresh_instance(
             const std::string& instance_id);
 
+    /**
+     * Refreshes the cache of given instance from provided InstanceInfoPB. This process
+     * removes the instance in cache and then replaces it with provided instance state.
+     *
+     * @param instance_id instance to manipulate
+     * @param instance the instance info to refresh from
+     */
+    virtual void refresh_instance(const std::string& instance_id, const InstanceInfoPB& instance);
+
+    virtual bool is_version_read_enabled(std::string_view instance_id) const;
+
+    virtual bool is_version_write_enabled(std::string_view instance_id) const;
+
+    virtual bool get_source_snapshot_info(const std::string& instance_id,
+                                          std::string* source_instance_id,
+                                          Versionstamp* source_snapshot_version);
+
+    std::pair<MetaServiceCode, std::string> validate_sub_clusters(
+            const std::vector<std::string>& check_clusters,
+            const std::vector<ClusterPB>& clusters_in_instance);
+
 private:
-    void add_cluster_to_index(const std::string& instance_id, const ClusterPB& cluster);
-
-    void remove_cluster_from_index(const std::string& instance_id, const ClusterPB& cluster);
-
-    void update_cluster_to_index(const std::string& instance_id, const ClusterPB& original,
-                                 const ClusterPB& now);
-
-    void remove_cluster_from_index_no_lock(const std::string& instance_id,
-                                           const ClusterPB& cluster);
-
     void add_cluster_to_index_no_lock(const std::string& instance_id, const ClusterPB& cluster);
 
-private:
-    std::shared_mutex mtx_;
+    MultiVersionStatus get_instance_multi_version_status(std::string_view instance_id) const;
+
+    mutable std::shared_mutex mtx_;
     // cloud_unique_id -> NodeInfo
     std::multimap<std::string, NodeInfo> node_info_;
+
+    // instance_id -> MultiVersionStatus
+    std::unordered_map<std::string, MultiVersionStatus> instance_multi_version_status_;
+
+    // instance_id -> (source_instance_id, source_snapshot_version)
+    std::unordered_map<std::string, std::pair<std::string, Versionstamp>>
+            instance_source_snapshot_info_;
 
     std::shared_ptr<TxnKv> txn_kv_;
 };

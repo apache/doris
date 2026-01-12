@@ -12,10 +12,10 @@
 0
 
 -- !TestTimestampWithTimeZone_5 --
-2020-05-10 12:34:56.000000
+2020-05-10 14:49:56.000000
 
 -- !TestTimestampWithTimeZone_6 --
-2020-05-10 12:34:56.000000
+2020-05-10 14:49:56.000000
 
 -- !TestTimestampWithTimeZone_7 --
 1000

@@ -17,11 +17,8 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.BaseTableRef;
-import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -33,7 +30,6 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -55,12 +51,12 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
@@ -81,14 +77,12 @@ import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -176,6 +170,7 @@ public class OlapScanNode extends ScanNode {
     private ArrayList<Long> scanReplicaIds = Lists.newArrayList();
 
     private Set<Long> sampleTabletIds = Sets.newHashSet();
+    private Set<Long> nereidsPrunedTabletIds = Sets.newHashSet();
     private TableSample tableSample;
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
@@ -184,17 +179,14 @@ public class OlapScanNode extends ScanNode {
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
     public Map<Integer, Long> bucketSeq2Bytes = Maps.newLinkedHashMap();
 
-    // For point query
-    private Map<SlotRef, Expr> pointQueryEqualPredicats;
-    private DescriptorTable descTable;
-
     private Set<Integer> distributionColumnIds;
 
-    private boolean shouldColoScan = false;
-
-    protected List<Expr> rewrittenProjectList;
-
     private long maxVersion = -1L;
+    private SortInfo annSortInfo = null;
+    private long annSortLimit = -1;
+
+    private SortInfo scoreSortInfo = null;
+    private long scoreSortLimit = -1;
 
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
@@ -208,7 +200,7 @@ public class OlapScanNode extends ScanNode {
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
+        super(id, desc, planNodeName);
         olapTable = (OlapTable) desc.getTable();
         distributionColumnIds = Sets.newTreeSet();
 
@@ -236,14 +228,24 @@ public class OlapScanNode extends ScanNode {
         return scanBackendIds;
     }
 
-    public void setSampleTabletIds(List<Long> sampleTablets) {
-        if (sampleTablets != null) {
-            this.sampleTabletIds.addAll(sampleTablets);
-        }
-    }
-
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
+    }
+
+    public Set<Long> getNereidsPrunedTabletIds() {
+        return nereidsPrunedTabletIds;
+    }
+
+    public void setNereidsPrunedTabletIds(Set<Long> nereidsPrunedTabletIds) {
+        this.nereidsPrunedTabletIds = nereidsPrunedTabletIds;
+    }
+
+    public long getTotalTabletsNum() {
+        return totalTabletsNum;
+    }
+
+    public boolean getForceOpenPreAgg() {
+        return forceOpenPreAgg;
     }
 
     public ArrayList<Long> getScanTabletIds() {
@@ -260,6 +262,22 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
+    }
+
+    public void setScoreSortInfo(SortInfo scoreSortInfo) {
+        this.scoreSortInfo = scoreSortInfo;
+    }
+
+    public void setScoreSortLimit(long scoreSortLimit) {
+        this.scoreSortLimit = scoreSortLimit;
+    }
+
+    public void setAnnSortInfo(SortInfo annSortInfo) {
+        this.annSortInfo = annSortInfo;
+    }
+
+    public void setAnnSortLimit(long annSortLimit) {
+        this.annSortLimit = annSortLimit;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -291,14 +309,6 @@ public class OlapScanNode extends ScanNode {
         return olapTable;
     }
 
-    @Override
-    protected String debugString() {
-        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-        helper.addValue(super.debugString());
-        helper.addValue("olapTable=" + olapTable.getName());
-        return helper.toString();
-    }
-
     /**
      * Init OlapScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
@@ -324,13 +334,13 @@ public class OlapScanNode extends ScanNode {
 
 
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
-            PartitionNames partitionNames) throws AnalysisException {
+            PartitionNamesInfo partitionNamesInfo) throws AnalysisException {
         PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
-        if (partitionNames != null) {
+        if (partitionNamesInfo != null) {
             keyItemMap = Maps.newHashMap();
-            for (String partName : partitionNames.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                Partition partition = olapTable.getPartition(partName, partitionNamesInfo.isTemp());
                 if (partition == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
                 }
@@ -360,18 +370,25 @@ public class OlapScanNode extends ScanNode {
     }
 
     private Collection<Long> distributionPrune(
-            MaterializedIndex table,
-            DistributionInfo distributionInfo) throws AnalysisException {
+            List<Column> schema,
+            List<Long> tabletIdsInOrder,
+            DistributionInfo distributionInfo,
+            boolean pruneTablesByNereids) throws AnalysisException {
+        if (pruneTablesByNereids) {
+            return nereidsPrunedTabletIds.isEmpty()
+                    ? null
+                    : new ArrayList<>(nereidsPrunedTabletIds);
+        }
         DistributionPruner distributionPruner = null;
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
-                distributionPruner = new HashDistributionPruner(table.getTabletIdsInOrder(),
+                distributionPruner = new HashDistributionPruner(schema, tabletIdsInOrder,
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
                         getSelectedIndexId() == olapTable.getBaseIndexId());
-                return distributionPruner.prune();
+                return new ArrayList<>(distributionPruner.prune());
             }
             case RANDOM: {
                 return null;
@@ -452,7 +469,7 @@ public class OlapScanNode extends ScanNode {
         boolean isInvalidComputeGroup = ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup);
         boolean isNotCloudComputeGroup = computeGroup != null && !Config.isCloudMode();
 
-        ImmutableMap<Long, Backend> allBackends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
         long partitionVisibleVersion = visibleVersion;
         String partitionVisibleVersionStr = fastToString(visibleVersion);
         for (Tablet tablet : tablets) {
@@ -654,12 +671,6 @@ public class OlapScanNode extends ScanNode {
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
             scanRangeLocations.add(locations);
         }
-
-        if (tablets.isEmpty()) {
-            desc.setCardinality(0);
-        } else {
-            desc.setCardinality(cardinality);
-        }
     }
 
     private String fastToString(long version) {
@@ -686,7 +697,7 @@ public class OlapScanNode extends ScanNode {
     private void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
-        PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
+        PartitionNamesInfo partitionNames = desc.getRef().getPartitionNamesInfo();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
@@ -713,7 +724,6 @@ public class OlapScanNode extends ScanNode {
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
         if (selectedPartitionIds.isEmpty()) {
-            desc.setCardinality(0);
             return;
         }
         Preconditions.checkState(selectedIndexId != -1);
@@ -849,7 +859,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(scanBackendIds.isEmpty());
         Preconditions.checkState(scanTabletIds.isEmpty());
         Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
-        for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
+        for (Backend backend : olapTable.getAllBackendsByAllCluster().values()) {
             Set<Long> hashSet = Sets.newLinkedHashSet();
             for (DiskInfo diskInfo : backend.getDisks().values()) {
                 if (diskInfo.isAlive()) {
@@ -859,34 +869,42 @@ public class OlapScanNode extends ScanNode {
             backendAlivePathHashs.put(backend.getId(), hashSet);
         }
 
+        ConnectContext connectContext = ConnectContext.get();
+        boolean isNereids = connectContext != null && connectContext.getState().isNereids();
+        boolean isPointQuery = connectContext != null
+                && connectContext.getStatementContext() != null
+                && connectContext.getStatementContext().isShortCircuitQuery();
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
+            List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
+            // point query need prune tablets at this place
+            Collection<Long> prunedTabletIds = distributionPrune(olapTable.getSchemaByIndexId(selectedIndexId),
+                    allTabletIds, partition.getDistributionInfo(), isNereids && !isPointQuery);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("distribution prune tablets: {}", tabletIds);
+                LOG.debug("distribution prune tablets: {}", prunedTabletIds);
             }
             if (!sampleTabletIds.isEmpty()) {
-                if (tabletIds != null) {
-                    tabletIds.retainAll(sampleTabletIds);
+                if (prunedTabletIds != null) {
+                    prunedTabletIds.retainAll(sampleTabletIds);
                 } else {
-                    tabletIds = sampleTabletIds;
+                    prunedTabletIds = sampleTabletIds;
                 }
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("after sample tablets: {}", tabletIds);
+                    LOG.debug("after sample tablets: {}", prunedTabletIds);
                 }
             }
 
-            List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
-            if (tabletIds != null) {
-                for (Long id : tabletIds) {
+            boolean notExistsSampleAndPrunedTablets = sampleTabletIds.isEmpty() && nereidsPrunedTabletIds.isEmpty();
+            if (prunedTabletIds != null) {
+                for (Long id : prunedTabletIds) {
                     if (selectedTable.getTablet(id) != null) {
                         tablets.add(selectedTable.getTablet(id));
                         scanTabletIds.add(id);
-                    } else {
+                    } else if (notExistsSampleAndPrunedTablets) {
                         // The tabletID specified in query does not exist in this partition, skip scan partition.
-                        Preconditions.checkState(!sampleTabletIds.isEmpty());
+                        throw new IllegalStateException("tablet " + id + " does not exist");
                     }
                 }
             } else {
@@ -968,13 +986,33 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortInfo != null) {
             output.append(prefix).append("SORT INFO:\n");
-            sortInfo.getMaterializedOrderingExprs().forEach(expr -> {
+            sortInfo.getOrderingExprs().forEach(expr -> {
                 output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
             });
         }
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
+        if (scoreSortInfo != null) {
+            output.append(prefix).append("SCORE SORT INFO:\n");
+            scoreSortInfo.getOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (scoreSortLimit != -1) {
+            output.append(prefix).append("SCORE SORT LIMIT: ").append(scoreSortLimit).append("\n");
+        }
+
+        if (annSortInfo != null) {
+            output.append(prefix).append("ANN SORT INFO:\n");
+            annSortInfo.getOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (annSortLimit != -1) {
+            output.append(prefix).append("ANN SORT LIMIT: ").append(annSortLimit).append("\n");
+        }
+
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
@@ -1012,11 +1050,8 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("SHORT-CIRCUIT\n");
         }
 
-        if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
-            output.append(prefix).append("rewrittenProjectList: ").append(
-                    getExplainString(rewrittenProjectList)).append("\n");
-        }
-        output.append(prefix).append("desc: ").append(desc.getId().asInt()).append("\n");
+        printNestedColumns(output, prefix, getTupleDesc());
+
         return output.toString();
     }
 
@@ -1055,15 +1090,7 @@ public class OlapScanNode extends ScanNode {
                     .map(Column::getName).collect(Collectors.toSet());
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
                     materializedColumnNames);
-            TColumn tColumn = globalRowIdColumn.toThrift();
-            tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
-            tColumn.setIsKey(false);
-            tColumn.setIsAllowNull(false);
-            // keep compatibility
-            tColumn.setVisible(false);
-            tColumn.setColUniqueId(Integer.MAX_VALUE);
-            columnsDesc.add(tColumn);
+            columnsDesc.add(globalRowIdColumn.toThrift());
         } else {
             olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
@@ -1083,6 +1110,16 @@ public class OlapScanNode extends ScanNode {
                 columnsDesc.add(tColumn);
             }
         }
+
+        // Add virtual column to ColumnsDesc so that backend could
+        // get correct table_schema.
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                TColumn tColumn = slot.getColumn().toThrift();
+                columnsDesc.add(tColumn);
+            }
+        }
+
         for (Index index : olapTable.getIndexes()) {
             TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
             indexDesc.add(tIndex);
@@ -1107,15 +1144,36 @@ public class OlapScanNode extends ScanNode {
                     Expr.treesToThrift(sortInfo.getOrderingExprs()),
                     sortInfo.getIsAscOrder(),
                     sortInfo.getNullsFirst());
-            if (sortInfo.getSortTupleSlotExprs() != null) {
-                tSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(sortInfo.getSortTupleSlotExprs()));
-            }
             msg.olap_scan_node.setSortInfo(tSortInfo);
         }
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
         }
-        msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        if (scoreSortInfo != null) {
+            TSortInfo tScoreSortInfo = new TSortInfo(
+                    Expr.treesToThrift(scoreSortInfo.getOrderingExprs()),
+                    scoreSortInfo.getIsAscOrder(),
+                    scoreSortInfo.getNullsFirst());
+            msg.olap_scan_node.setScoreSortInfo(tScoreSortInfo);
+        }
+        if (scoreSortLimit != -1) {
+            msg.olap_scan_node.setScoreSortLimit(scoreSortLimit);
+        }
+        if (annSortInfo != null) {
+            TSortInfo tAnnSortInfo = new TSortInfo(
+                    Expr.treesToThrift(annSortInfo.getOrderingExprs()),
+                    annSortInfo.getIsAscOrder(),
+                    annSortInfo.getNullsFirst());
+            msg.olap_scan_node.setAnnSortInfo(tAnnSortInfo);
+        }
+        if (annSortLimit != -1) {
+            msg.olap_scan_node.setAnnSortLimit(annSortLimit);
+        }
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setKeyType(olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType().toThrift());
+        } else {
+            msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        }
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
             tableName = tableName + "(" + getSelectedIndexName() + ")";
@@ -1251,6 +1309,19 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
+        // Update SlotDescriptor before construction of thrift message.
+        int virtualColumnIdx = 0;
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                virtualColumnIdx++;
+                // Set the name of virtual column to be unique.
+                Column column = new Column("__DORIS_VIRTUAL_COL__" + virtualColumnIdx, slot.getType());
+                // Just make sure the unique id is not conflict with other columns.
+                column.setUniqueId(Integer.MAX_VALUE - virtualColumnIdx);
+                column.setIsAllowNull(slot.getIsNullable());
+                slot.setColumn(column);
+            }
+        }
     }
 
     private void computeStatsForNereids() {
@@ -1282,6 +1353,11 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
+        // Do not add input slots of virtual columns into outputColumnUniqueIds.
+        // Backend can decide whether the underlying source columns are truly needed
+        // (e.g., ANN distance index-only scan can produce the virtual distance without
+        // reading the source vector column). Keeping only the real projected slots here
+        // avoids forcing unnecessary reads in BE.
     }
 
     @Override
@@ -1299,5 +1375,13 @@ public class OlapScanNode extends ScanNode {
 
     public void setGlobalRowIdColumn(Column globalRowIdColumn) {
         this.globalRowIdColumn = globalRowIdColumn;
+    }
+
+    @Override
+    public long getCatalogId() {
+        if (olapTable != null) {
+            return olapTable.getCatalogId();
+        }
+        return super.getCatalogId();
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,14 +43,20 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     /**
      * Constructor for LogicalJdbcScan.
      */
-    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
-                           Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier, groupExpression, logicalProperties);
+    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier, List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            String tableAlias) {
+        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
+                groupExpression, logicalProperties, tableAlias);
+    }
+
+    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier, List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        this(id, table, qualifier, virtualColumns, groupExpression, logicalProperties, "");
     }
 
     public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+        this(id, table, qualifier, ImmutableList.of(), Optional.empty(), Optional.empty(), "");
     }
 
     @Override
@@ -61,26 +69,33 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalJdbcScan",
-            "qualified", qualifiedName(),
-            "output", getOutput()
-        );
+                "qualified", qualifiedName(),
+                "alias", tableAlias,
+                "output", getOutput());
     }
 
     @Override
     public LogicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression,
-            Optional.of(getLogicalProperties()));
+        return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns,
+                groupExpression, Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns,
+                groupExpression, logicalProperties, tableAlias);
     }
 
     @Override
     public LogicalJdbcScan withRelationId(RelationId relationId) {
-        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+        return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns,
+                Optional.empty(), Optional.empty(), tableAlias);
+    }
+
+    public LogicalJdbcScan withTableAlias(String tableAlias) {
+        return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override

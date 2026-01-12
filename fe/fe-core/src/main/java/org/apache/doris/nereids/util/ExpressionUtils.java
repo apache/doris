@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -52,11 +52,16 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -64,11 +69,12 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
-import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -217,7 +223,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.TRUE;
         } else if (exprList.size() == 1) {
@@ -265,7 +271,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.FALSE;
         } else if (exprList.size() == 1) {
@@ -277,7 +283,7 @@ public class ExpressionUtils {
 
     public static Expression falseOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new And(new IsNull(expression), new NullLiteral(BooleanType.INSTANCE));
+            return new And(new IsNull(expression), NullLiteral.BOOLEAN_INSTANCE);
         } else {
             return BooleanLiteral.FALSE;
         }
@@ -285,10 +291,14 @@ public class ExpressionUtils {
 
     public static Expression trueOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
+            return new Or(new Not(new IsNull(expression)), NullLiteral.BOOLEAN_INSTANCE);
         } else {
             return BooleanLiteral.TRUE;
         }
+    }
+
+    public static Expression notIsNull(Expression expression) {
+        return new Not(new IsNull(expression));
     }
 
     public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
@@ -300,13 +310,12 @@ public class ExpressionUtils {
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
-                plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression), plan).get(0);
     }
 
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet);
+        return shuttleExpressionWithLineage(expressions, plan);
     }
 
     /**
@@ -319,24 +328,17 @@ public class ExpressionUtils {
      * todo to get from plan struct info
      */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan,
-            Set<TableType> targetTypes,
-            Set<String> tableIdentifiers,
-            BitSet tableBitSet) {
+            Plan plan) {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                new ExpressionLineageReplacer.ExpressionReplaceContext(
-                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
-                        targetTypes,
-                        tableIdentifiers,
-                        tableBitSet);
+                new ExpressionLineageReplacer.ExpressionReplaceContext(expressions);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-        if (expressions.size() != replacedExpressions.size()) {
+        List<? extends Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (replacedExpressions == null || expressions.size() != replacedExpressions.size()) {
             throw new NereidsException("shuttle expression fail",
                     new MaterializedViewException("shuttle expression fail"));
         }
@@ -428,6 +430,65 @@ public class ExpressionUtils {
     }
 
     /**
+     * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
+     */
+    public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
+            Predicate<Expression> predicate, boolean stopWhenNotMatched) {
+        return expr.rewriteDownShortCircuitDown(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            return replacedExpr == null ? e : replacedExpr;
+        }, predicate, stopWhenNotMatched);
+    }
+
+    public static Set<Expression> replaceWithCounter(Set<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap, Map<Expression, Integer> counterMap) {
+        ImmutableSet.Builder<Expression> result = ImmutableSet.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    public static List<Expression> replaceWithCounter(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     * This function gives counter map to record replace count.
+     * For example.
+     * <pre>
+     * input expression: a > 1
+     * replaceMap: a -> b + c
+     *
+     * output:
+     * b + c > 1
+     * </pre>
+     */
+    public static Expression replaceWithCounter(Expression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        return expr.rewriteDownShortCircuit(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr != null) {
+                if (!counterMap.containsKey(e)) {
+                    counterMap.put(e, 1);
+                } else {
+                    counterMap.put(e, counterMap.get(e) + 1);
+                }
+                return replacedExpr;
+            }
+            return e;
+        });
+    }
+
+    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
@@ -489,6 +550,32 @@ public class ExpressionUtils {
     }
 
     /**
+     * replaceNullAware, if could not be replaced by map, the return null
+     */
+    public static Expression replaceNullAware(Expression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Set<Boolean> containNull = new HashSet<>();
+        Expression finalReplacedExpr = expr.rewriteDownShortCircuit(e -> {
+            if (!containNull.isEmpty()) {
+                return e;
+            }
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr == null && e instanceof SlotReference
+                    && e.getDataType() instanceof VariantType) {
+                // this is valid, because the variant expression would be extended in expression rewrite
+                return e;
+            }
+            if (replacedExpr == null && e instanceof NamedExpression) {
+                // if replace named expression failed, return null directly
+                containNull.add(true);
+                return e;
+            }
+            return replacedExpr == null ? e : replacedExpr;
+        });
+        return containNull.isEmpty() ? finalReplacedExpr : null;
+    }
+
+    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      */
     public static List<NamedExpression> replaceNamedExpressions(List<? extends NamedExpression> namedExpressions,
@@ -505,6 +592,14 @@ public class ExpressionUtils {
         return replaceExprs.build();
     }
 
+    /**
+     * set ignore unique id for unique functions
+     */
+    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+        return expression.rewriteDownShortCircuit(e ->
+                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
+    }
+
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
             Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
         ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
@@ -512,22 +607,6 @@ public class ExpressionUtils {
             result.add((E) expr.rewriteDownShortCircuit(rewriteFunction));
         }
         return result.build();
-    }
-
-    private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
-        public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
-
-        private ExpressionReplacer() {
-        }
-
-        @Override
-        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
-            }
-            return super.visit(expr, replaceMap);
-        }
     }
 
     /**
@@ -570,40 +649,10 @@ public class ExpressionUtils {
         return true;
     }
 
-    /** matchNumericType */
-    public static boolean matchNumericType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isNumericType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** matchDateLikeType */
-    public static boolean matchDateLikeType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isDateLikeType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     /** hasNullLiteral */
     public static boolean hasNullLiteral(List<Expression> children) {
         for (Expression child : children) {
             if (child instanceof NullLiteral) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** hasOnlyMetricType */
-    public static boolean hasOnlyMetricType(List<Expression> children) {
-        for (Expression child : children) {
-            if (child.getDataType().isOnlyMetricType()) {
                 return true;
             }
         }
@@ -624,7 +673,7 @@ public class ExpressionUtils {
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
         ImmutableList<Literal> literals =
-                ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
+                ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
         List<MarkJoinSlotReference> markJoinSlotReferenceList =
                 new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
@@ -728,6 +777,12 @@ public class ExpressionUtils {
         return newPredicates.build();
     }
 
+    public static boolean isGeneratedNotNull(Expression expression) {
+        return expression instanceof Not
+                && ((Not) expression).isGeneratedIsNotNull()
+                && ((Not) expression).child() instanceof IsNull;
+    }
+
     /** flatExpressions */
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;
@@ -820,7 +875,16 @@ public class ExpressionUtils {
             Predicate<TreeNode<Expression>> predicate) {
         ImmutableSet.Builder<E> set = ImmutableSet.builder();
         for (Expression expr : expressions) {
-            set.addAll(expr.collectToList(predicate));
+            set.addAll(expr.collect(predicate));
+        }
+        return set.build();
+    }
+
+    public static <E> Set<E> collectWithTest(Collection<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate, Predicate<TreeNode<Expression>> test) {
+        ImmutableSet.Builder<E> set = ImmutableSet.builder();
+        for (Expression expr : expressions) {
+            set.addAll(expr.collectWithTest(predicate, test));
         }
         return set.build();
     }
@@ -1073,6 +1137,22 @@ public class ExpressionUtils {
         return true;
     }
 
+    /** check constant value the expression */
+    public static Optional<Literal> checkConstantExpr(Expression expr, Optional<ExpressionRewriteContext> context) {
+        if (expr instanceof Literal) {
+            return Optional.of((Literal) expr);
+        } else if (expr instanceof Alias) {
+            return checkConstantExpr(((Alias) expr).child(), context);
+        } else if (expr.isConstant() && context.isPresent()) {
+            Expression evalExpr = FoldConstantRule.evaluate(expr, context.get());
+            if (evalExpr instanceof Literal) {
+                return Optional.of((Literal) evalExpr);
+            }
+        }
+
+        return Optional.empty();
+    }
+
     /** analyze the unbound expression and fold it to literal */
     public static Literal analyzeAndFoldToLiteral(ConnectContext ctx, Expression expression) throws UserException {
         Scope scope = new Scope(new ArrayList<>());
@@ -1152,5 +1232,72 @@ public class ExpressionUtils {
         }
         shapeBuilder.append(")");
         return shapeBuilder.toString();
+    }
+
+    /**
+     * check whether the expression contains CaseWhen like type
+     */
+    public static boolean containsCaseWhenLikeType(Expression expression) {
+        return expression.containsType(CaseWhen.class, If.class, NullIf.class, Nvl.class);
+    }
+
+    /**
+     * get the results of each branch in CaseWhen like expression
+     */
+    public static Optional<List<Expression>> getCaseWhenLikeBranchResults(Expression expression) {
+        if (expression instanceof CaseWhen) {
+            CaseWhen caseWhen = (CaseWhen) expression;
+            ImmutableList.Builder<Expression> builder
+                    = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
+            for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+                builder.add(whenClause.getResult());
+            }
+            builder.add(caseWhen.getDefaultValue().orElse(new NullLiteral(caseWhen.getDataType())));
+            return Optional.of(builder.build());
+        } else if (expression instanceof If) {
+            If ifExpr = (If) expression;
+            return Optional.of(ImmutableList.of(ifExpr.getTrueValue(), ifExpr.getFalseValue()));
+        } else if (expression instanceof NullIf) {
+            NullIf nullIf = (NullIf) expression;
+            return Optional.of(ImmutableList.of(new NullLiteral(nullIf.getDataType()), nullIf.left()));
+        } else if (expression instanceof Nvl) {
+            Nvl nvl = (Nvl) expression;
+            return Optional.of(ImmutableList.of(nvl.left(), nvl.right()));
+        } else {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Collection<? extends Expression> expressions) {
+        for (Expression expression : expressions) {
+            if (hasNonWindowAggregateFunction(expression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Expression expression) {
+        return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
+    }
+
+    /**
+     * check if the expressions contain a unique function which exists multiple times
+     */
+    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
+        Set<UniqueFunction> counterSet = Sets.newHashSet();
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(
+                    expr -> expr instanceof UniqueFunction && !counterSet.add((UniqueFunction) expr))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -447,5 +447,14 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         order_qt_part2_q8 """ SELECT audit_flag FROM `mc_parts2` WHERE `ds` != '2027-01-09';""" 
         qt_part2_q9 """ desc  mc_parts2 """
 
+
+        qt_where_1 """ WITH active_us_sites AS (SELECT web_site_sk,         web_site_id,         web_name,         web_open_date_sk,         web_close_date_sk,         web_company_name,         web_city,        
+              web_state,         web_country,         CONCAT_WS(' ', web_street_number, web_street_name, web_street_type, web_suite_number) AS full_address, COUNT(1) OVER (PARTITION BY web_site_id) AS a     FROM web_site ) 
+              SELECT      web_site_sk,     web_site_id,     web_name,     web_company_name,     full_address,     CONCAT(web_city, ', ', web_state) AS city_state,    
+               web_country , a FROM active_us_sites where a>=1   ORDER BY web_site_sk;"""
+
+        qt_where_2 """select * from web_site where web_mkt_id > 100000000000000 ORDER BY web_site_sk;"""
+        qt_where_3 """ select * from web_site where  web_close_date_sk >  CURRENT_DATE() ORDER BY web_site_sk; """
+        qt_where_4 """ select * from web_site where  web_rec_end_date  <  CURRENT_DATE() ORDER BY web_site_sk; """
     }
 }

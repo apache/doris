@@ -49,13 +49,18 @@ public class BitmapToArray extends ScalarFunction
         super("bitmap_to_array", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapToArray(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapToArray withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapToArray(children.get(0));
+        return new BitmapToArray(getFunctionParams(children));
     }
 
     @Override

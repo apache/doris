@@ -22,12 +22,12 @@ suite("nereids_timestamp_arithmetic") {
 
     test {
         sql = "select bitmap_empty() + interval 1 year;"
-        exception = "timestamp arithmetic could not contains object type"
+        exception = " Can not find the compatibility function signature: years_add(BITMAP, TINYINT)"
     }
 
     test {
         sql = "select date '20200808' + interval array() day;"
-        exception = "timestamp arithmetic could not contains complex type"
+        exception = "Can not find the compatibility function signature: days_add(DATEV2, ARRAY<NULL>)"
     }
 
     sql """
@@ -55,7 +55,7 @@ suite("nereids_timestamp_arithmetic") {
     """
 
     sql """
-        INSERT INTO nereids_test_ta VALUES (1, '0001-01-01', '0001-01-01', '0001-01-01 00:01:01', '0001-01-01: 00:01:01.001', '0001-01-01 00:01:01.00305');
+        INSERT INTO nereids_test_ta VALUES (1, '0001-01-01', '0001-01-01', '0001-01-01 00:01:01', '0001-01-01 00:01:01.001', '0001-01-01 00:01:01.00305');
     """
 
     qt_test_add """

@@ -64,16 +64,18 @@ public abstract class PlanTreeRewriteJob extends Job {
                     NereidsTracer.logRewriteEvent(rule.toString(), pattern, plan, newPlan);
                     String traceBefore = null;
                     if (showPlanProcess) {
-                        traceBefore = getCurrentPlanTreeString();
+                        traceBefore = getCurrentPlanTreeString(rewriteJobContext, null);
                     }
                     rewriteJobContext.result = newPlan;
                     context.setRewritten(true);
                     rule.acceptPlan(newPlan);
                     if (showPlanProcess) {
-                        String traceAfter = getCurrentPlanTreeString();
+                        String traceAfter = getCurrentPlanTreeString(rewriteJobContext, newPlan);
                         PlanProcess planProcess = new PlanProcess(rule.getRuleType().name(), traceBefore, traceAfter);
                         cascadesContext.addPlanProcess(planProcess);
                     }
+                    // if rewrite success, record the rule type
+                    context.getCascadesContext().getStatementContext().ruleSetApplied(rule.getRuleType());
                     return new RewriteResult(true, newPlan);
                 }
             }
@@ -128,11 +130,11 @@ public abstract class PlanTreeRewriteJob extends Job {
         }
     }
 
-    private String getCurrentPlanTreeString() {
-        return context.getCascadesContext()
+    private String getCurrentPlanTreeString(RewriteJobContext rewriteJobContext, Plan rewrittenPlan) {
+        Plan newestPlan = context.getCascadesContext()
                 .getCurrentRootRewriteJobContext().get()
-                .getNewestPlan()
-                .treeString(true);
+                .getNewestPlan();
+        return newestPlan.treeString(true, rewrittenPlan == null ? rewriteJobContext.tmpPlan : rewrittenPlan);
     }
 
     static class RewriteResult {

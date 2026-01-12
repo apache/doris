@@ -31,7 +31,6 @@
 #include <string>
 #include <vector>
 
-#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
@@ -40,11 +39,11 @@
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_helper.h"
 #include "runtime/runtime_state.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
@@ -173,7 +172,11 @@ public:
         // Test EQUAL query for each value
         for (size_t i = 0; i < values.size(); i++) {
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &values[i],
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
+            auto status = bkd_reader->query(context, "c1", &values[i],
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -195,7 +198,11 @@ public:
         // Test LESS_THAN query
         std::shared_ptr<roaring::Roaring> less_than_bitmap = std::make_shared<roaring::Roaring>();
         int32_t test_value = 200;
-        auto status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &test_value,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto status = bkd_reader->query(context, "c1", &test_value,
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -214,7 +221,7 @@ public:
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &test_value,
+        status = bkd_reader->query(context, "c1", &test_value,
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -333,9 +340,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values
@@ -350,7 +357,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -395,9 +404,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add null values
@@ -418,7 +427,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -469,9 +480,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -484,7 +495,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // For BKD index, we need to verify using BkdIndexReader instead of check_terms_stats
@@ -536,9 +549,9 @@ public:
         config::enable_inverted_index_correct_term_write = enable_correct_term_write;
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
@@ -560,7 +573,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Restore original config value
@@ -600,9 +615,13 @@ public:
         for (size_t i = 0; i < values.size(); i++) {
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             StringRef str_ref(values[i].data, values[i].size);
-            auto query_status =
-                    inverted_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                           InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
+            auto query_status = inverted_reader->query(context, field_name, &str_ref,
+                                                       InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             // For regular strings, both should work the same
             if (i == 0 || i == 4) {
@@ -711,18 +730,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     bool original_config_value = config::enable_inverted_index_correct_term_write;
 
     // Create column writers with different settings
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer_enabled, column_writer_disabled;
+    std::unique_ptr<IndexColumnWriter> column_writer_enabled, column_writer_disabled;
 
     // Set config to enabled for first writer
     config::enable_inverted_index_correct_term_write = true;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer_enabled,
-                                                    index_file_writer_enabled.get(), &idx_meta);
+    auto status = IndexColumnWriter::create(field.get(), &column_writer_enabled,
+                                            index_file_writer_enabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Set config to disabled for second writer
     config::enable_inverted_index_correct_term_write = false;
-    status = InvertedIndexColumnWriter::create(field.get(), &column_writer_disabled,
-                                               index_file_writer_disabled.get(), &idx_meta);
+    status = IndexColumnWriter::create(field.get(), &column_writer_disabled,
+                                       index_file_writer_disabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add string values with Unicode characters above 0xFFFF
@@ -745,12 +764,16 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Finish and close both writers
     status = column_writer_enabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_enabled->close();
+    status = index_file_writer_enabled->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer_enabled->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 
     status = column_writer_disabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_disabled->close();
+    status = index_file_writer_disabled->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer_disabled->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 
     // Restore original config value
@@ -798,13 +821,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
         std::shared_ptr<roaring::Roaring> bitmap_enabled = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> bitmap_disabled = std::make_shared<roaring::Roaring>();
 
-        auto query_status_enabled = inverted_reader_enabled->query(
-                &io_ctx, &stats, &runtime_state, field_name, &values[i],
-                InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status_enabled =
+                inverted_reader_enabled->query(context, field_name, &values[i],
+                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
 
         auto query_status_disabled = inverted_reader_disabled->query(
-                &io_ctx, &stats, &runtime_state, field_name, &values[i],
-                InvertedIndexQueryType::EQUAL_QUERY, bitmap_disabled);
+                context, field_name, &values[i], InvertedIndexQueryType::EQUAL_QUERY,
+                bitmap_disabled);
 
         EXPECT_TRUE(query_status_enabled.ok()) << query_status_enabled;
         EXPECT_TRUE(query_status_disabled.ok()) << query_status_disabled;
@@ -862,9 +890,9 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Test with empty values array to trigger certain error paths
@@ -883,7 +911,9 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -939,9 +969,9 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Construct arrays with mixed null and non-null elements (reference inverted_index_array_test.cpp)
@@ -1007,7 +1037,9 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1067,9 +1099,9 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Construct numeric arrays (reference inverted_index_array_test.cpp)
@@ -1141,7 +1173,9 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1181,9 +1215,9 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some values to create index files
@@ -1195,7 +1229,9 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1235,9 +1271,9 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Create collection values for testing
@@ -1252,7 +1288,8 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     CollectionValue collection1;
     collection1.set_data(reinterpret_cast<uint8_t*>(slices.data()));
     collection1.set_length(3);
-    collection1.set_null_signs(nullptr);
+    bool null_signs[] = {false, false, false};
+    collection1.set_null_signs(null_signs);
     collections.push_back(collection1);
 
     // Test add_array_values with CollectionValue
@@ -1263,7 +1300,9 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1307,9 +1346,9 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some numeric values with edge cases
@@ -1327,7 +1366,9 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     status = column_writer->finish();
     EXPECT_TRUE(status.ok()) << status;
 
-    status = index_file_writer->close();
+    status = index_file_writer->begin_close();
+    EXPECT_TRUE(status.ok()) << status;
+    status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
 }
 
@@ -1367,9 +1408,9 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                    index_file_writer.get(), &idx_meta);
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    auto status = IndexColumnWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                            &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some values to ensure files are created

@@ -118,8 +118,8 @@ public:
         DataPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
-                                 num_shards, DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, true, true) {
-        }
+                                 num_shards, /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                                 /*is lru-k*/ true) {}
     };
 
     class IndexPageCache : public LRUCachePolicy {
@@ -127,7 +127,8 @@ public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
                                  LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
-                                 num_shards) {}
+                                 num_shards, /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                                 /*is lru-k*/ false) {}
     };
 
     class PKIndexPageCache : public LRUCachePolicy {
@@ -135,7 +136,9 @@ public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
                 : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
                                  LRUCacheType::SIZE,
-                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
+                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards,
+                                 /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                                 /*is lru-k*/ false) {}
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;
@@ -184,6 +187,12 @@ public:
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker(segment_v2::PageTypePB page_type) {
         return _get_page_cache(page_type)->mem_tracker();
+    }
+
+    // Erase the page with key from this cache.
+    void erase(const CacheKey& key, segment_v2::PageTypePB page_type) {
+        auto* cache = _get_page_cache(page_type);
+        cache->erase(key.encode());
     }
 
 private:

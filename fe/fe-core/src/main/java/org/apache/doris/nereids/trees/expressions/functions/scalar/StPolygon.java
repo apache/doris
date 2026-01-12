@@ -50,13 +50,18 @@ public class StPolygon extends ScalarFunction
         super("st_polygon", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StPolygon(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StPolygon withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StPolygon(children.get(0));
+        return new StPolygon(getFunctionParams(children));
     }
 
     @Override

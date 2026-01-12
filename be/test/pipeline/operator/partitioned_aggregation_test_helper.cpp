@@ -97,7 +97,6 @@ TPlanNode PartitionedAggregationTestHelper::create_test_plan_node() {
     fn_child_node.type.types.emplace_back(type_node);
 
     tnode.row_tuples.push_back(0);
-    tnode.nullable_tuples.push_back(false);
 
     return tnode;
 }
@@ -175,7 +174,7 @@ PartitionedAggregationTestHelper::create_operators() {
     auto [source_pipeline, _] = generate_agg_pipeline(source_operator, source_side_sink_operator,
                                                       sink_operator, child_operator);
 
-    RowDescriptor row_desc(runtime_state->desc_tbl(), {0}, {false});
+    RowDescriptor row_desc(runtime_state->desc_tbl(), {0});
     child_operator->_row_descriptor = row_desc;
 
     EXPECT_TRUE(sink_operator->set_child(child_operator));
@@ -205,9 +204,6 @@ PartitionedAggLocalState* PartitionedAggregationTestHelper::create_source_local_
     local_state->_copy_shared_spill_profile = false;
     local_state->_internal_runtime_profile = std::make_unique<RuntimeProfile>("inner_test");
 
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinProbeOperatorTestSpillDep", true);
-
     state->emplace_local_state(probe_operator->operator_id(), std::move(local_state_uptr));
     return local_state;
 }
@@ -228,8 +224,6 @@ PartitionedAggSinkLocalState* PartitionedAggregationTestHelper::create_sink_loca
             sink_operator->dests_id().front(), sink_operator->operator_id(),
             "PartitionedHashJoinTestDep");
 
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinSinkOperatorTestSpillDep", true);
     shared_state->setup_shared_profile(local_state->custom_profile());
 
     state->emplace_sink_local_state(sink_operator->operator_id(), std::move(local_state_uptr));

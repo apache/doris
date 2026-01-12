@@ -180,10 +180,10 @@ public class PartitionRange {
         public boolean init(Type type, LiteralExpr expr) {
             switch (type.getPrimitiveType()) {
                 case BOOLEAN:
-                case TIME:
                 case TIMEV2:
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMPTZ:
                 case FLOAT:
                 case DOUBLE:
                 case DECIMALV2:

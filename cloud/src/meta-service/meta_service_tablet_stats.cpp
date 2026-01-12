@@ -30,9 +30,12 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 
 namespace doris::cloud {
 
@@ -168,17 +171,141 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
     stats.set_segment_size(stats.segment_size() + detached_stats.segment_size);
 }
 
+void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats) {
+    detached_stats.data_size = stats.data_size();
+    detached_stats.num_rows = stats.num_rows();
+    detached_stats.num_rowsets = stats.num_rowsets();
+    detached_stats.num_segs = stats.num_segments();
+    detached_stats.index_size = stats.index_size();
+    detached_stats.segment_size = stats.segment_size();
+}
+
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, bool snapshot) {
     TabletStats detached_stats;
     internal_get_tablet_stats(code, msg, txn, instance_id, idx, stats, detached_stats, snapshot);
-    merge_tablet_stats(stats, detached_stats);
+    if (code == MetaServiceCode::OK) {
+        merge_tablet_stats(stats, detached_stats);
+    }
+}
+
+void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
+                                    CloneChainReader& meta_reader, Transaction* txn,
+                                    const std::string& instance_id, const TabletIndexPB& tablet_idx,
+                                    TabletStatsPB& stats, bool snapshot) {
+    int64_t tablet_id = tablet_idx.tablet_id();
+    Versionstamp versionstamp;
+
+    // Try to read existing versioned tablet stats
+    TxnErrorCode err =
+            meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // If versioned stats doesn't exist, read from single version
+        TabletStatsPB compact_stats;
+        TabletStats detached_stats;
+        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
+                                  detached_stats, snapshot);
+        if (code == MetaServiceCode::OK) {
+            // Only the detached stats are valid for load tablet stats.
+            merge_tablet_stats(stats, detached_stats);
+        }
+    } else if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get versioned tablet stats, err={}", err);
+        LOG(WARNING) << msg << " tablet_id=" << tablet_id;
+        return;
+    }
+}
+
+void internal_get_load_tablet_stats_batch(
+        MetaServiceCode& code, std::string& msg, CloneChainReader& meta_reader, Transaction* txn,
+        const std::string& instance_id,
+        const std::unordered_map<int64_t, TabletIndexPB>& tablet_indexes,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats, bool snapshot) {
+    if (tablet_indexes.empty()) {
+        return;
+    }
+
+    // Collect all tablet_ids
+    std::vector<int64_t> tablet_ids;
+    tablet_ids.reserve(tablet_indexes.size());
+    for (const auto& [tablet_id, _] : tablet_indexes) {
+        tablet_ids.push_back(tablet_id);
+    }
+
+    // Batch get versioned tablet load stats
+    std::unordered_map<int64_t, TabletStatsPB> versioned_stats;
+    std::unordered_map<int64_t, Versionstamp> versionstamps;
+    TxnErrorCode err = meta_reader.get_tablet_load_stats(txn, tablet_ids, &versioned_stats,
+                                                         &versionstamps, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to batch get versioned tablet stats, err={}", err);
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    // For tablets found in versioned stats, add them to output
+    for (const auto& [tablet_id, stats] : versioned_stats) {
+        (*tablet_stats)[tablet_id] = stats;
+    }
+
+    // For tablets not found in versioned stats, fall back to single version detached stats
+    std::vector<int64_t> fallback_tablet_ids;
+    for (int64_t tablet_id : tablet_ids) {
+        if (!versioned_stats.contains(tablet_id)) {
+            fallback_tablet_ids.push_back(tablet_id);
+        }
+    }
+
+    if (!fallback_tablet_ids.empty()) {
+        LOG(INFO) << "fallback to single version detached stats for " << fallback_tablet_ids.size()
+                  << " tablets";
+
+        // Fall back to single version for each tablet
+        for (int64_t tablet_id : fallback_tablet_ids) {
+            auto it = tablet_indexes.find(tablet_id);
+            if (it == tablet_indexes.end()) {
+                continue;
+            }
+            const TabletIndexPB& tablet_idx = it->second;
+
+            TabletStatsPB compact_stats;
+            TabletStats detached_stats;
+            internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
+                                      detached_stats, snapshot);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "failed to get detached tablet stats for fallback, tablet_id="
+                             << tablet_id << " code=" << code << " msg=" << msg;
+                return;
+            }
+
+            // Only the detached stats are valid for load tablet stats.
+            TabletStatsPB stats_pb;
+            merge_tablet_stats(stats_pb, detached_stats);
+            (*tablet_stats)[tablet_id] = std::move(stats_pb);
+        }
+    }
+}
+
+void internal_get_load_tablet_stats_batch(MetaServiceCode& code, std::string& msg,
+                                          CloneChainReader& meta_reader, Transaction* txn,
+                                          const std::string& instance_id,
+                                          const std::map<int64_t, TabletIndexPB>& tablet_indexes,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          bool snapshot) {
+    // Convert std::map to std::unordered_map and delegate to the main implementation
+    std::unordered_map<int64_t, TabletIndexPB> unordered_indexes(tablet_indexes.begin(),
+                                                                 tablet_indexes.end());
+    internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn, instance_id,
+                                         unordered_indexes, tablet_stats, snapshot);
 }
 
 MetaServiceResponseStatus parse_fix_tablet_stats_param(
         std::shared_ptr<ResourceManager> resource_mgr, const std::string& table_id_str,
-        const std::string& cloud_unique_id_str, int64_t& table_id, std::string& instance_id) {
+        const std::string& cloud_unique_id_str, const std::string& tablet_id_str, int64_t& table_id,
+        std::string& instance_id, int64_t& tablet_id) {
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg;
     MetaServiceResponseStatus st;
@@ -191,6 +318,16 @@ MetaServiceResponseStatus parse_fix_tablet_stats_param(
         st.set_code(MetaServiceCode::INVALID_ARGUMENT);
         st.set_msg("Invalid table_id, table_id: " + table_id_str);
         return st;
+    }
+
+    if (!tablet_id_str.empty()) {
+        try {
+            tablet_id = std::stoll(tablet_id_str);
+        } catch (...) {
+            st.set_code(MetaServiceCode::INVALID_ARGUMENT);
+            st.set_msg("Invalid tablet_id, tablet_id: " + tablet_id_str);
+            return st;
+        }
     }
 
     instance_id = get_instance_id(resource_mgr, cloud_unique_id_str);
@@ -510,6 +647,165 @@ MetaServiceResponseStatus check_new_tablet_stats(
     }
 
     return st;
+}
+
+std::pair<MetaServiceCode, std::string> fix_versioned_tablet_stats_internal(
+        TxnKv* txn_kv, const std::string& instance_id, const TabletIndexPB& tablet_idx,
+        bool is_versioned_read, bool is_versioned_write, ResourceManager* resource_mgr) {
+    int64_t tablet_id = tablet_idx.tablet_id();
+    std::unique_ptr<Transaction> txn;
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        return {code, msg};
+    }
+
+    TabletStatsPB original_tablet_stat;
+    TabletStatsPB existing_compact_stats;
+    TabletStatsPB existing_load_stats;
+    Versionstamp compact_versionstamp;
+    Versionstamp load_versionstamp;
+    GetRowsetResponse resp;
+
+    CloneChainReader meta_reader(instance_id, resource_mgr);
+    if (is_versioned_read) {
+        // Get existing compact stats
+        err = meta_reader.get_tablet_compact_stats(txn.get(), tablet_id, &existing_compact_stats,
+                                                   &compact_versionstamp, true);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get versioned compact stats, tablet_id={}, err={}",
+                              tablet_id, err);
+            return {code, msg};
+        }
+
+        // Get existing load stats
+        err = meta_reader.get_tablet_load_stats(txn.get(), tablet_id, &existing_load_stats,
+                                                &load_versionstamp, true);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get versioned load stats, tablet_id={}, err={}", tablet_id,
+                              err);
+            return {code, msg};
+        }
+        MetaReader::merge_tablet_stats(existing_compact_stats, existing_load_stats,
+                                       &original_tablet_stat);
+
+        std::vector<RowsetMetaCloudPB> rowset_metas;
+        int64_t start = 0, end = std::numeric_limits<int64_t>::max() - 1;
+        err = meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end, &rowset_metas);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get versioned rowset, err={}, tablet_id={}", err,
+                              tablet_id);
+            return {code, msg};
+        }
+
+        std::move(rowset_metas.begin(), rowset_metas.end(),
+                  google::protobuf::RepeatedPtrFieldBackInserter(resp.mutable_rowset_meta()));
+    } else {
+        internal_get_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
+                                  original_tablet_stat, true);
+        if (code != MetaServiceCode::OK) {
+            return {code, msg};
+        }
+        // get rowsets in tablet and accumulate disk size
+        internal_get_rowset(txn.get(), 0, std::numeric_limits<int64_t>::max() - 1, instance_id,
+                            tablet_id, code, msg, &resp);
+        if (code != MetaServiceCode::OK) {
+            return {code, msg};
+        }
+    }
+
+    int64_t table_id = original_tablet_stat.idx().table_id();
+    int64_t index_id = original_tablet_stat.idx().index_id();
+    int64_t partition_id = original_tablet_stat.idx().partition_id();
+
+    int64_t total_disk_size = 0;
+    int64_t index_disk_size = 0;
+    int64_t data_disk_size = 0;
+    for (const auto& rs_meta : resp.rowset_meta()) {
+        total_disk_size += rs_meta.total_disk_size();
+        index_disk_size += rs_meta.index_disk_size();
+        data_disk_size += rs_meta.data_disk_size();
+    }
+
+    // set new disk size to tabletPB and write it back
+    TabletStatsPB tablet_stat;
+    tablet_stat.CopyFrom(original_tablet_stat);
+    tablet_stat.set_data_size(total_disk_size);
+    tablet_stat.set_index_size(index_disk_size);
+    tablet_stat.set_segment_size(data_disk_size);
+
+    // Write single version stats
+    std::string tablet_stat_key;
+    std::string tablet_stat_value;
+    tablet_stat_key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    if (!tablet_stat.SerializeToString(&tablet_stat_value)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize tablet stat";
+        return {code, msg};
+    }
+    txn->put(tablet_stat_key, tablet_stat_value);
+
+    std::string num_segs_key =
+            stats_tablet_num_segs_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string num_rows_key =
+            stats_tablet_num_rows_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string num_rowsets_key = stats_tablet_num_rowsets_key(
+            {instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string data_size_key =
+            stats_tablet_data_size_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string index_size_key =
+            stats_tablet_index_size_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string segment_size_key = stats_tablet_segment_size_key(
+            {instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->remove(num_segs_key);
+    txn->remove(num_rows_key);
+    txn->remove(num_rowsets_key);
+    txn->remove(data_size_key);
+    txn->remove(index_size_key);
+    txn->remove(segment_size_key);
+
+    if (is_versioned_write) {
+        // Write compact stats (aggregate stats with accurate disk sizes)
+        std::string compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        TabletStatsPB compact_stats = tablet_stat; // Use the fixed stats with accurate disk sizes
+        versioned_put(txn.get(), compact_stats_key, compact_versionstamp, tablet_stat_value);
+        LOG(INFO) << "put versioned tablet compact stats key=" << hex(compact_stats_key)
+                  << " tablet_id=" << tablet_id << " with existing versionstamp";
+
+        // Write load stats (detached stats, set to 0 since we recalculated from rowsets)
+        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        TabletStatsPB load_stats;
+        load_stats.mutable_idx()->CopyFrom(tablet_stat.idx());
+
+        std::string load_stats_value;
+        if (!load_stats.SerializeToString(&load_stats_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to serialize load stats";
+            return {code, msg};
+        }
+
+        // Overwrite with existing versionstamp
+        versioned_put(txn.get(), load_stats_key, load_versionstamp, load_stats_value);
+        LOG(INFO) << "put versioned tablet load stats key=" << hex(load_stats_key)
+                  << " tablet_id=" << tablet_id << " with existing versionstamp";
+    }
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = "failed to commit txn";
+        return {code, msg};
+    }
+
+    return {MetaServiceCode::OK, ""};
 }
 
 } // namespace doris::cloud

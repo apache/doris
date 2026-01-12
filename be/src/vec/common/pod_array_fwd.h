@@ -33,7 +33,7 @@ inline constexpr size_t integerRoundUp(size_t value, size_t dividend) {
 }
 
 template <typename T, size_t initial_bytes = 4096,
-          typename TAllocator = Allocator<false, false, false, NoTrackingDefaultMemoryAllocator>,
+          typename TAllocator = Allocator<false, false, false, DefaultMemoryAllocator, false>,
           size_t pad_right_ = 0, size_t pad_left_ = 0>
 class PODArray;
 
@@ -42,7 +42,7 @@ class PODArray;
   *       Padding in internal data structures increased to 64 bytes., support AVX-512 simd.
   */
 template <typename T, size_t initial_bytes = 4096,
-          typename TAllocator = Allocator<false, false, false, NoTrackingDefaultMemoryAllocator>>
+          typename TAllocator = Allocator<false, false, false, DefaultMemoryAllocator, false>>
 using PaddedPODArray = PODArray<T, initial_bytes, TAllocator, 16, 15>;
 
 /** A helper for declaring PODArray that uses inline memory.
@@ -53,7 +53,7 @@ template <typename T, size_t inline_bytes,
           size_t rounded_bytes = integerRoundUp(inline_bytes, sizeof(T))>
 using PODArrayWithStackMemory = PODArray<
         T, rounded_bytes,
-        AllocatorWithStackMemory<Allocator<false, false, false, NoTrackingDefaultMemoryAllocator>,
+        AllocatorWithStackMemory<Allocator<false, false, false, DefaultMemoryAllocator, false>,
                                  rounded_bytes, alignof(T)>>;
 
 } // namespace doris::vectorized

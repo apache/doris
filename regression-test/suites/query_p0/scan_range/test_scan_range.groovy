@@ -21,6 +21,7 @@ suite("test_scan_range", "query,p0") {
 
     def tableName = "test_scan_range_tbl"
 
+    sql "drop TABLE if exists `${tableName}`;"
     sql """
         CREATE TABLE `${tableName}` (
           `k1` INT NULL,

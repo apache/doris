@@ -103,9 +103,9 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
             }
         }
 
-        order_qt_select_entries """select status, sequence_number, file_sequence_number, readable_metrics from ${systableName}"""
+        order_qt_select_entries """select status, sequence_number, file_sequence_number from ${systableName}"""
         order_qt_select_entries_count """select count(*) from ${systableName}"""
-        order_qt_select_entries_where """select status, sequence_number, file_sequence_number, readable_metrics from ${systableName} where status="0";"""
+        order_qt_select_entries_where """select status, sequence_number, file_sequence_number from ${systableName} where status="0";"""
         order_qt_select_entries_where_count """select count(status) from ${systableName} where status="0";"""
     }
 
@@ -125,9 +125,9 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
             }
         }
 
-        order_qt_select_files """select content, file_format, record_count, lower_bounds, upper_bounds, readable_metrics from ${systableName}"""
+        order_qt_select_files """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName}"""
         order_qt_select_files_count """select count(*) from ${systableName}"""
-        order_qt_select_files_where """select content, file_format, record_count, lower_bounds, upper_bounds, readable_metrics from ${systableName} where content="0";"""
+        order_qt_select_files_where """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName} where content="0";"""
         order_qt_select_files_where_count """select count(content) from ${systableName} where content="0";"""
     }
 
@@ -390,4 +390,23 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         sql """select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots"""
     }
     try_sql("DROP USER ${user}")
+
+    sql """drop catalog if exists test_iceberg_varbinary_sys"""
+    sql """
+    CREATE CATALOG test_iceberg_varbinary_sys PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1",
+        'enable.mapping.varbinary' = 'true'
+    );"""
+
+    sql """switch test_iceberg_varbinary_sys """
+    sql """use ${db_name}"""
+
+    order_qt_varbinary_sys_table_desc """desc test_iceberg_systable_unpartitioned\$files"""
+    order_qt_varbinary_sys_table_select """select content, file_format, record_count, lower_bounds, upper_bounds from test_iceberg_systable_unpartitioned\$files;"""
 }

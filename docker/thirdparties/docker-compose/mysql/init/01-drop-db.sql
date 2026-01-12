@@ -17,3 +17,4 @@
 
 drop database if exists doris_test;
 drop database if exists show_test_do_not_modify;
+drop database if exists test_varbinary_db;

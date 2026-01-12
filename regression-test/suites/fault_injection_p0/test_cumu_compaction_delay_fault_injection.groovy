@@ -18,11 +18,17 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_cumu_compaction_delay_fault_injection","nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllBEs()
     String backend_id;
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    if (backendId_to_backendIP.size() > 3) {
+        logger.info("Skip test_cumu_compaction_delay_fault_injection because backend count is " + backendId_to_backendIP.size())
+        return
+    }
 
     backend_id = backendId_to_backendIP.keySet()[0]
 

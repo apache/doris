@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
@@ -24,35 +25,46 @@ namespace doris::segment_v2 {
 
 struct InvertedIndexParam {
     std::string column_name;
+    vectorized::DataTypePtr column_type;
     const void* query_value;
     InvertedIndexQueryType query_type;
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
     bool skip_try = false;
+
+    // Pointer to analyzer context (can be nullptr if not needed)
+    // Used by FullTextIndexReader for tokenization
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
 };
 
 class InvertedIndexIterator : public IndexIterator {
 public:
-    InvertedIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                          RuntimeState* runtime_state, const IndexReaderPtr& reader);
+    InvertedIndexIterator();
     ~InvertedIndexIterator() override = default;
 
-    IndexType type() override { return IndexType::INVERTED; }
-    IndexReaderPtr get_reader() override { return _index_reader; }
+    void add_reader(InvertedIndexReaderType type, const InvertedIndexReaderPtr& reader);
 
+    // Note: analyzer_ctx is now passed via InvertedIndexParam.analyzer_ctx
     Status read_from_index(const IndexParam& param) override;
+
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override;
-    bool has_null() override;
+
+    [[nodiscard]] Result<bool> has_null() override;
+
+    IndexReaderPtr get_reader(IndexReaderType reader_type) const override;
+
+    Result<InvertedIndexReaderPtr> select_best_reader(const vectorized::DataTypePtr& column_type,
+                                                      InvertedIndexQueryType query_type);
+    Result<InvertedIndexReaderPtr> select_best_reader();
 
 private:
-    Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                        InvertedIndexQueryType query_type, uint32_t* count);
-
-    InvertedIndexReaderPtr _index_reader;
-
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 
-    friend class InvertedIndexReaderTest;
+    Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
+                                        const std::string& column_name, const void* query_value,
+                                        InvertedIndexQueryType query_type, size_t* count);
+
+    std::unordered_map<IndexReaderType, InvertedIndexReaderPtr> _readers;
 };
 
 } // namespace doris::segment_v2

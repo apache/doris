@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -51,6 +53,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -99,12 +103,31 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     }
 
     @Override
-    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeepCopierContext context) {
-        if (context.getRelationReplaceMap().containsKey(relation.getRelationId())) {
-            return context.getRelationReplaceMap().get(relation.getRelationId());
+    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(catalogRelation.getRelationId())) {
+            return context.getRelationReplaceMap().get(catalogRelation.getRelationId());
         }
-        LogicalCatalogRelation newRelation = (LogicalCatalogRelation) visitLogicalRelation(relation, context);
-        return updateOperativeSlots(relation, newRelation);
+        LogicalCatalogRelation newRelation =
+                catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
+        updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
+        List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
+                .map(e -> {
+                    if (e instanceof Alias) {
+                        return new Alias(((Alias) e).child(), e.getName());
+                    }
+                    return e;
+                })
+                .collect(ImmutableList.toImmutableList());
+        for (int i = 0; i < virtualColumns.size(); i++) {
+            context.exprIdReplaceMap.put(catalogRelation.getVirtualColumns().get(i).getExprId(),
+                    virtualColumns.get(i).getExprId());
+        }
+        virtualColumns = virtualColumns.stream()
+                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                .collect(ImmutableList.toImmutableList());
+        newRelation = newRelation.withVirtualColumns(virtualColumns);
+        context.putRelation(catalogRelation.getRelationId(), newRelation);
+        return updateOperativeSlots(catalogRelation, newRelation);
     }
 
     @Override
@@ -165,7 +188,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
+        LogicalAggregate<Plan> copiedAggregate = aggregate.withChildGroupByAndOutput(groupByExpressions,
+                outputExpressions, child);
+        Optional<LogicalRepeat<?>> childRepeat =
+                copiedAggregate.collectFirst(LogicalRepeat.class::isInstance);
+        return childRepeat.isPresent() ? aggregate.withChildGroupByAndOutputAndSourceRepeat(
+                groupByExpressions, outputExpressions, child, childRepeat)
+                : aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
     }
 
     @Override
@@ -179,7 +208,9 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = repeat.getOutputExpressions().stream()
                 .map(e -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(e, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalRepeat<>(groupingSets, outputExpressions, child);
+        SlotReference groupingId = (SlotReference) ExpressionDeepCopier.INSTANCE
+                .deepCopy(repeat.getGroupingId().get(), context);
+        return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, child);
     }
 
     @Override
@@ -286,8 +317,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                     .deepCopy(join.getMarkJoinSlotReference().get(), context));
 
         }
+        DistributeHint hint = join.getDistributeHint();
+        if (hint.getSkewInfo() != null) {
+            Expression skewExpr = ExpressionDeepCopier.INSTANCE.deepCopy(hint.getSkewExpr(), context);
+            hint.setSkewInfo(hint.getSkewInfo().withSkewExpr(skewExpr));
+        }
         return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                join.getDistributeHint(), markJoinSlotReference, children, join.getJoinReorderContext());
+                hint, markJoinSlotReference, children, join.getJoinReorderContext());
     }
 
     @Override
@@ -326,6 +362,30 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         return new LogicalUnion(union.getQualifier(), outputs, childrenOutputs,
                 constantExprsList, union.hasPushedFilter(), children);
+    }
+
+    @Override
+    public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, DeepCopierContext context) {
+        List<Plan> children = recursiveCte.children().stream()
+                .map(c -> c.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
+        List<NamedExpression> outputs = recursiveCte.getOutputs().stream()
+                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                .collect(ImmutableList.toImmutableList());
+        List<List<SlotReference>> childrenOutputs = recursiveCte.getRegularChildrenOutputs().stream()
+                .map(childOutputs -> childOutputs.stream()
+                        .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalRecursiveCte(recursiveCte.getCteName(), recursiveCte.isUnionAll(), outputs,
+                childrenOutputs, children);
+    }
+
+    @Override
+    public Plan visitLogicalRecursiveCteRecursiveChild(LogicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
+            DeepCopierContext context) {
+        Plan child = recursiveChild.child().accept(this, context);
+        return new LogicalRecursiveCteRecursiveChild<>(recursiveChild.getCteName(), child);
     }
 
     @Override

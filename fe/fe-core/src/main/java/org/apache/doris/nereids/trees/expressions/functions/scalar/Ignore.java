@@ -47,6 +47,11 @@ public class Ignore extends ScalarFunction implements CustomSignature, AlwaysNot
         super("ignore", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ignore(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         return FunctionSignature.of(BooleanType.INSTANCE, true, getArgumentsTypes());
@@ -57,9 +62,8 @@ public class Ignore extends ScalarFunction implements CustomSignature, AlwaysNot
      */
     @Override
     public Ignore withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Ignore(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Ignore(getFunctionParams(children));
     }
 
     @Override

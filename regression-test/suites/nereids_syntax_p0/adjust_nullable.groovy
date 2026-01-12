@@ -18,7 +18,7 @@
 suite("adjust_nullable") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-
+    sql "set runtime_filter_mode=OFF"
     sql """
         DROP TABLE IF EXISTS agg_subquery_table
        """

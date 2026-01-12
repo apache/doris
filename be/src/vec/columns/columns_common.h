@@ -68,15 +68,6 @@ template <typename T, typename OT>
 size_t filter_arrays_impl_only_data(PaddedPODArray<T>& data, PaddedPODArray<OT>& offsets,
                                     const IColumn::Filter& filter);
 
-inline void column_match_offsets_size(size_t size, size_t offsets_size) {
-    if (size != offsets_size) {
-        throw doris::Exception(
-                ErrorCode::COLUMN_NO_MATCH_OFFSETS_SIZE,
-                "Size of offsets doesn't match size of column: size={}, offsets.size={}", size,
-                offsets_size);
-    }
-}
-
 inline void column_match_filter_size(size_t size, size_t filter_size) {
     if (size != filter_size) {
         throw doris::Exception(

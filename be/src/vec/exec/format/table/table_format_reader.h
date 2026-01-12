@@ -46,13 +46,14 @@ class TableFormatReader : public GenericReader {
 public:
     TableFormatReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeState* state,
                       RuntimeProfile* profile, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx)
+                      const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
             : _file_format_reader(std::move(file_format_reader)),
               _state(state),
               _profile(profile),
               _params(params),
               _range(range),
               _io_ctx(io_ctx) {
+        _meta_cache = meta_cache;
         if (range.table_format_params.__isset.table_level_row_count) {
             _table_level_row_count = range.table_format_params.table_level_row_count;
         } else {
@@ -103,6 +104,8 @@ public:
 
     virtual Status init_row_filters() = 0;
 
+    bool count_read_rows() override { return _file_format_reader->count_read_rows(); }
+
 protected:
     std::string _table_format;                          // hudi, iceberg, paimon
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
@@ -123,12 +126,18 @@ class TableSchemaChangeHelper {
 public:
     ~TableSchemaChangeHelper() = default;
 
-public:
     class Node {
     public:
         virtual ~Node() = default;
         virtual std::shared_ptr<Node> get_children_node(std::string table_column_name) const {
             throw std::logic_error("get_children_node should not be called on base TableInfoNode");
+        };
+
+        virtual std::shared_ptr<Node> get_children_node_by_file_column_name(
+                std::string file_column_name) const {
+            throw std::logic_error(
+                    "get_children_node_by_file_column_name should not be called on base "
+                    "TableInfoNode");
         };
 
         virtual std::string children_file_column_name(std::string table_column_name) const {
@@ -166,40 +175,57 @@ public:
     class ScalarNode : public Node {};
 
     class StructNode : public Node {
-        using ChildrenType = std::tuple<std::shared_ptr<Node>, std::string, bool>;
+        struct StructChild {
+            const std::shared_ptr<Node> node;
+            const std::string column_name;
+            const bool exists;
+        };
 
         // table column name -> { node, file_column_name, exists_in_file}
-        std::map<std::string, ChildrenType> children;
+        std::map<std::string, StructChild> children;
 
     public:
         std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
-            return std::get<0>(children.at(table_column_name));
+            return children.at(table_column_name).node;
+        }
+
+        std::shared_ptr<Node> get_children_node_by_file_column_name(
+                std::string file_column_name) const override {
+            // Search for the child by file column name
+            for (const auto& [table_name, child] : children) {
+                if (child.exists && child.column_name == file_column_name) {
+                    return child.node;
+                }
+            }
+            // Not found - throw or return nullptr
+            throw std::runtime_error("File column name '" + file_column_name +
+                                     "' not found in struct children");
         }
 
         std::string children_file_column_name(std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
-            return std::get<1>(children.at(table_column_name));
+            return children.at(table_column_name).column_name;
         }
 
         bool children_column_exists(std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
-            return std::get<2>(children.at(table_column_name));
+            return children.at(table_column_name).exists;
         }
 
         void add_not_exist_children(std::string table_column_name) override {
-            children.emplace(table_column_name, std::make_tuple(nullptr, "", false));
+            children.emplace(table_column_name, StructChild {nullptr, "", false});
         }
 
         void add_children(std::string table_column_name, std::string file_column_name,
                           std::shared_ptr<Node> children_node) override {
             children.emplace(table_column_name,
-                             std::make_tuple(children_node, file_column_name, true));
+                             StructChild {children_node, file_column_name, true});
         }
 
-        const std::map<std::string, ChildrenType>& get_childrens() const { return children; }
+        const std::map<std::string, StructChild>& get_children() const { return children; }
     };
 
     class ArrayNode : public Node {
@@ -229,6 +255,11 @@ public:
         // you can use constNode (of course, you need to pay attention to case sensitivity).
     public:
         std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
+            return get_instance();
+        };
+
+        std::shared_ptr<Node> get_children_node_by_file_column_name(
+                std::string file_column_name) const override {
             return get_instance();
         };
 
@@ -327,7 +358,8 @@ public:
         // for hive parquet : The table column names passed from fe are lowercase, so use lowercase file column names to match table column names.
         static Status by_parquet_name(const TupleDescriptor* table_tuple_descriptor,
                                       const FieldDescriptor& parquet_field_desc,
-                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+                                      const std::set<TSlotId>* is_file_slot = nullptr);
 
         // for hive parquet
         static Status by_parquet_name(const DataTypePtr& table_data_type,
@@ -337,7 +369,8 @@ public:
         // for hive orc: The table column names passed from fe are lowercase, so use lowercase file column names to match table column names.
         static Status by_orc_name(const TupleDescriptor* table_tuple_descriptor,
                                   const orc::Type* orc_type_ptr,
-                                  std::shared_ptr<TableSchemaChangeHelper::Node>& node);
+                                  std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+                                  const std::set<TSlotId>* is_file_slot = nullptr);
         // for hive orc
         static Status by_orc_name(const DataTypePtr& table_data_type, const orc::Type* orc_root,
                                   std::shared_ptr<TableSchemaChangeHelper::Node>& node);
@@ -378,6 +411,17 @@ public:
                                       std::shared_ptr<TableSchemaChangeHelper::Node>& node,
                                       bool& exist_field_id);
     };
+};
+
+struct ColumnIdResult {
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+
+    ColumnIdResult() = default; // Add default constructor
+
+    ColumnIdResult(std::set<uint64_t> column_ids_, std::set<uint64_t> filter_column_ids_)
+            : column_ids(std::move(column_ids_)),
+              filter_column_ids(std::move(filter_column_ids_)) {}
 };
 
 #include "common/compile_check_end.h"

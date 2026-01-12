@@ -36,10 +36,72 @@ std::string IColumn::dump_structure() const {
         res << ", " << subcolumn->dump_structure();
     };
 
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
     const_cast<IColumn*>(this)->for_each_subcolumn(callback);
 
     res << ")";
     return res.str();
+}
+
+int IColumn::count_const_column() const {
+    int count = is_column_const(*this) ? 1 : 0;
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        count += subcolumn->count_const_column();
+    };
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    return count;
+}
+
+bool IColumn::const_nested_check() const {
+    auto const_cnt = count_const_column();
+    if (const_cnt == 0) {
+        return true;
+    }
+    // A const column is not allowed to be nested; it may only appear as the outermost (top-level) column.
+    return const_cnt == 1 && is_column_const(*this);
+}
+
+bool IColumn::null_map_check() const {
+    auto check_null_map_is_zero_or_one = [&](const IColumn& subcolumn) {
+        if (is_column_nullable(subcolumn)) {
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(subcolumn);
+            const auto& null_map = nullable_col.get_null_map_data();
+            for (size_t i = 0; i < null_map.size(); ++i) {
+                if (null_map[i] != 0 && null_map[i] != 1) {
+                    LOG_WARNING("null map check failed at index {} with value {}", i, null_map[i])
+                            .tag("column structure", subcolumn.dump_structure());
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    bool is_valid = check_null_map_is_zero_or_one(*this);
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        if (!subcolumn->null_map_check()) {
+            is_valid = false;
+        }
+    };
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    return is_valid;
+}
+
+Status IColumn::column_self_check() const {
+#ifndef NDEBUG
+    // check const nested
+    if (!const_nested_check()) {
+        return Status::InternalError("const nested check failed for column: {} , {}", get_name(),
+                                     dump_structure());
+    }
+    // check null map
+    if (!null_map_check()) {
+        return Status::InternalError("null map check failed for column: {}", get_name());
+    }
+#endif
+    return Status::OK();
 }
 
 void IColumn::insert_from(const IColumn& src, size_t n) {
@@ -69,6 +131,47 @@ void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_di
             }
         }
         begin = simd::find_zero(cmp_res, end + 1);
+    }
+}
+
+void IColumn::serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                      const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            if (null_map[i]) {
+                // is null
+                *dest = true;
+                keys[i].size += sizeof(UInt8);
+                continue;
+            }
+            // not null
+            *dest = false;
+            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            *dest = false;
+            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
+        }
+    }
+}
+
+void IColumn::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                        PaddedPODArray<UInt8>& null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map.push_back(is_null);
+        keys[i].data += sizeof(UInt8);
+        keys[i].size -= sizeof(UInt8);
+        if (is_null) {
+            insert_default();
+            continue;
+        }
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
     }
 }
 

@@ -201,11 +201,7 @@ endif()
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -ggdb -Wno-unused-local-typedefs")
-
-if (USE_DWARF)
-    set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
-endif()
+set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -ggdb -Wno-unused-local-typedefs -gdwarf-5")
 
 # For CMAKE_BUILD_TYPE=Debug
 set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
@@ -266,26 +262,25 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
+option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
+if (ENABLE_HDFS_STORAGE_VAULT)
+    add_compile_definitions(ENABLE_HDFS_STORAGE_VAULT)
+    if ("${DORIS_JAVA_HOME}" STREQUAL "")
+        set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
+    endif()
 
-include_directories(${DORIS_JAVA_HOME}/include)
-if (NOT OS_MACOSX)
-    include_directories(${DORIS_JAVA_HOME}/include/linux)
-else()
-    include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    include_directories(${DORIS_JAVA_HOME}/include)
+    if (NOT OS_MACOSX)
+        include_directories(${DORIS_JAVA_HOME}/include/linux)
+    else()
+        include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    endif()
 endif()
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
 # Set Doris libraries
-set(DORIS_LINK_LIBS
-    ${WL_START_GROUP}
-    ${WL_END_GROUP}
-)
-
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
@@ -316,30 +311,22 @@ set(DORIS_DEPENDENCIES
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
-
 # Add all external dependencies. They should come after the project's libs.
 # static link gcc's lib
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    ${WL_START_GROUP}
-    CloudGen
-    Common
-    MetaService
-    MetaStore
-    ResourceManager
-    Recycler
-    RateLimiter
-    ${WL_END_GROUP}
+set(DORIS_LINK_LIBS
     CommonCPP
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
     -lresolv
-    -L${DORIS_JAVA_HOME}/lib/server
-    -ljvm
 )
+
+if (ENABLE_HDFS_STORAGE_VAULT)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -L${DORIS_JAVA_HOME}/lib/server
+        -ljvm)
+endif()
+
 if (NOT (USE_LIBCPP AND COMPILER_CLANG))
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
 endif()
@@ -389,15 +376,6 @@ if(BUILD_CHECK_META STREQUAL "ON")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lmysqlclient)
 endif ()
 
-# Set libraries for test
-set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
-    ${WL_START_GROUP}
-    gmock
-    gtest
-    gtest_main
-    ${WL_END_GROUP}
-)
-
 # Only build static libs
 set(BUILD_SHARED_LIBS OFF)
 
@@ -416,68 +394,31 @@ if (ENABLE_INJECTION_POINT)
     add_definitions(-DENABLE_INJECTION_POINT)
 endif()
 
-# Add libs if needed, download to current dir -- ${BUILD_DIR}
-set(FDB_LIB "fdb_lib_7_1_23.tar.xz")
-if (ARCH_AARCH64)
-    set(FDB_LIB "fdb_lib_7_1_57.aarch64.tar.xz")
-endif ()
-file(GLOB RELEASE_FILE_LIST LIST_DIRECTORIES false "/etc/*release*")
-execute_process(COMMAND "cat" ${RELEASE_FILE_LIST}
-                RESULT_VARIABLE CAT_RET_CODE
-                OUTPUT_VARIABLE CAT_RET_CONTENT)
-string(TOUPPER "${CAT_RET_CONTENT}" CAT_RET_CONTENT)
-
-if (ARCH_AARCH64)
-        message("Centos OS")
-        SET(OS_RELEASE "Centos")
-        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/aarch64/")
-        string(APPEND FDB_LIB_URL "${FDB_LIB}")
-        set(FDB_LIB_MD5SUM "2d01a431b7a7465077e4ae5520f89693")
-else ()
-    if ("${CAT_RET_CONTENT}" MATCHES "UBUNTU")
-        message("Ubuntu OS")
-        SET(OS_RELEASE "Ubuntu")
-        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/ubuntu/")
-        string(APPEND FDB_LIB_URL "${FDB_LIB}")
-        set(FDB_LIB_MD5SUM "a00fe45da95cfac4e0caffa274bb2b30")
-    else()
-        # If it is not ubuntu, it is regarded as centos by default
-        message("Centos OS")
-        SET(OS_RELEASE "Centos")
-        set(FDB_LIB_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/centos/")
-        string(APPEND FDB_LIB_URL "${FDB_LIB}")
-        set(FDB_LIB_MD5SUM "f9839a564849c0232a351143b4340de0")
-    endif()
-endif()
-
-if (NOT EXISTS "${THIRDPARTY_SRC}/${FDB_LIB}")
-    file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-    execute_process(COMMAND curl --retry 10 --retry-delay 2 --retry-max-time 30 ${FDB_LIB_URL}
-                            -o ${THIRDPARTY_SRC}/${FDB_LIB} -k
-                    RESULTS_VARIABLE DOWNLOAD_RET)
-    if (NOT ${DOWNLOAD_RET} STREQUAL "0")
-        execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${FDB_LIB}")
-        message(FATAL_ERROR "Failed to download dependency of fdb ${FDB_LIB_URL}, remove it")
-    endif ()
-endif ()
-
-# Add fdb dependencies
-add_definitions(-DFDB_API_VERSION=710)
-if (NOT EXISTS ${THIRDPARTY_DIR}/include/foundationdb)
-    execute_process(COMMAND "md5sum" "${THIRDPARTY_SRC}/${FDB_LIB}"
-                    RESULT_VARIABLE MD5SUM_RET_CODE
-                    OUTPUT_VARIABLE MD5SUM_CONTENT)
-    if (NOT "${MD5SUM_CONTENT}" MATCHES "${FDB_LIB_MD5SUM}")
-        execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${FDB_LIB}")
-        message(FATAL_ERROR "${THIRDPARTY_SRC}/${FDB_LIB} md5sum check failed, remove it")
-    endif ()
-    execute_process(COMMAND tar xf ${THIRDPARTY_SRC}/${FDB_LIB} -C ${THIRDPARTY_DIR}/)
-endif ()
-
 # enable glog custom prefix
 add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 
+set(FDB_VERSIONS "7.1.57" "7.3.69")
+set(FDB_DEFAULT_VERSION "7.1.57")
+include(install_fdb)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
+
+set(DORIS_CLOUD_LIBS
+    CloudGen
+    Common
+    MetaService
+    MetaStore
+    ResourceManager
+    Recycler
+    RateLimiter
+    Snapshot
+)
+
+if (EXISTS ${SRC_DIR}/enterprise/CMakeLists.txt)
+    add_subdirectory(${SRC_DIR}/enterprise)
+    if (DORIS_ADDITIONAL_DEFINITIONS)
+        add_definitions(${DORIS_ADDITIONAL_DEFINITIONS})
+    endif()
+endif()
 
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/gen-cpp)
@@ -486,6 +427,23 @@ add_subdirectory(${SRC_DIR}/meta-store)
 add_subdirectory(${SRC_DIR}/recycler)
 add_subdirectory(${SRC_DIR}/rate-limiter)
 add_subdirectory(${SRC_DIR}/resource-manager)
+add_subdirectory(${SRC_DIR}/snapshot)
+
+# Set libraries for doris_cloud
+set(DORIS_LINK_LIBS
+    ${WL_START_GROUP}
+    ${DORIS_CLOUD_LIBS}
+    ${WL_END_GROUP}
+    ${DORIS_LINK_LIBS})
+
+# Set libraries for test
+set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
+    ${WL_START_GROUP}
+    gmock
+    gtest
+    gtest_main
+    ${WL_END_GROUP}
+)
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})
@@ -532,6 +490,9 @@ install(FILES
 
 install(FILES
     ${BASE_DIR}/conf/doris_cloud.conf
+    ${BASE_DIR}/conf/asan_suppr.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
+    ${BASE_DIR}/conf/ubsan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES
@@ -540,3 +501,17 @@ install(FILES
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE
     DESTINATION ${OUTPUT_DIR}/lib)
+
+foreach(version ${FDB_VERSIONS})
+    if (version STREQUAL ${FDB_DEFAULT_VERSION})
+        continue()
+    endif()
+
+    string(REPLACE "." "_" version_underscored ${version})
+    install(FILES
+        ${FDB_INSTALL_DIR_${version_underscored}}/lib64/libfdb_c.so
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_WRITE GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+        DESTINATION ${OUTPUT_DIR}/lib/fdb/${version})
+endforeach()

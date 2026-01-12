@@ -46,6 +46,7 @@ import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -82,6 +83,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
         TYPE_STRING_MAP.put(PrimitiveType.DATEV2, "datev2");
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
+        TYPE_STRING_MAP.put(PrimitiveType.TIMESTAMPTZ, "timestamptz");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.JSONB, "json");
@@ -574,6 +576,9 @@ public class Util {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
             return TFileFormatType.FORMAT_ARROW;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_NATIVE)) {
+            // Doris Native binary columnar format
+            return TFileFormatType.FORMAT_NATIVE;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }
@@ -609,15 +614,19 @@ public class Util {
         }
     }
 
-    public static TFileCompressType getFileCompressType(String compressType) {
+    public static TFileCompressType getFileCompressType(String compressType) throws AnalysisException {
         if (Strings.isNullOrEmpty(compressType)) {
             return TFileCompressType.UNKNOWN;
         }
         final String upperCaseType = compressType.toUpperCase();
         try {
+            // for compatibility, convert lz4 to lz4frame
+            if (upperCaseType.equals("LZ4")) {
+                return TFileCompressType.LZ4FRAME;
+            }
             return TFileCompressType.valueOf(upperCaseType);
         } catch (IllegalArgumentException e) {
-            return TFileCompressType.UNKNOWN;
+            throw new AnalysisException("Unknown compression type: " + compressType);
         }
     }
 
@@ -649,15 +658,18 @@ public class Util {
 
     public static String getRootCauseMessage(Throwable t) {
         String rootCause = "unknown";
+        if (t == null) {
+            return rootCause;
+        }
         Throwable p = t;
-        while (p != null) {
-            String message = p.getMessage();
-            if (message == null) {
-                rootCause = p.getClass().getName();
-            } else {
-                rootCause = p.getClass().getName() + ": " + p.getMessage();
-            }
+        while (p.getCause() != null) {
             p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + message;
         }
         return rootCause;
     }
@@ -711,9 +723,14 @@ public class Util {
     public static long sha256long(String str) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(str.getBytes());
+            byte[] hash = digest.digest(str.getBytes(StandardCharsets.UTF_8));
             ByteBuffer buffer = ByteBuffer.wrap(hash);
-            return buffer.getLong();
+            long result = buffer.getLong();
+            // Handle Long.MIN_VALUE case to ensure non-negative ID generation
+            if (result == Long.MIN_VALUE) {
+                return str.hashCode();
+            }
+            return result;
         } catch (NoSuchAlgorithmException e) {
             return str.hashCode();
         }
@@ -751,5 +768,32 @@ public class Util {
 
     public static boolean isTempTableInCurrentSession(String tableName) {
         return getTempTableSessionId(tableName).equals(ConnectContext.get().getSessionId());
+    }
+
+    // randomly return the Long from given long arrays
+    public static Long getRandomLong(long... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the Long from given long arrays
+    public static Integer getRandomInt(int... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the String from given String arrays
+    public static String getRandomString(String... strs) {
+        if (strs == null || strs.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * strs.length);
+        return strs[index];
     }
 }

@@ -21,8 +21,8 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>

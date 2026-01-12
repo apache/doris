@@ -179,7 +179,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size
     const auto* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
-        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
+        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, _arena));
         _values.push_back(new_value);
         ++v;
     }
@@ -317,6 +317,8 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
     case TYPE:                                                                   \
         res->reset(new BloomFilterIndexWriterImpl<TYPE>(bf_options, type_info)); \
         break;
+        M(FieldType::OLAP_FIELD_TYPE_BOOL)
+        M(FieldType::OLAP_FIELD_TYPE_TINYINT)
         M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
         M(FieldType::OLAP_FIELD_TYPE_INT)
         M(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT)
@@ -330,6 +332,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
         M(FieldType::OLAP_FIELD_TYPE_DATEV2)
         M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+        M(FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)

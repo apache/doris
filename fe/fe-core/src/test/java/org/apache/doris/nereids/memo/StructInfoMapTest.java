@@ -34,6 +34,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -61,12 +63,13 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getStructInfoMap().refresh(root, c1, new HashSet<>());
+        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                    Set<String> relatedPartitions) {
+                    Map<List<String>, Set<String>> queryUsedPartitions) {
                 return true;
             }
         };
@@ -79,6 +82,7 @@ class StructInfoMapTest extends SqlTestBase {
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
 
+        dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -91,12 +95,15 @@ class StructInfoMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getStructInfoMap().refresh(root, c1, new HashSet<>());
+        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -125,13 +132,15 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getStructInfoMap().refresh(root, c1, new HashSet<>());
-        root.getStructInfoMap().refresh(root, c1, new HashSet<>());
+        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
+        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                    Set<String> relatedPartitions) {
+                    Map<List<String>, Set<String>> queryUsedPartitions) {
                 return true;
             }
         };
@@ -143,6 +152,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -155,12 +165,15 @@ class StructInfoMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getStructInfoMap().refresh(root, c1, new HashSet<>());
+        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getStructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -185,7 +198,7 @@ class StructInfoMapTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                    Set<String> relatedPartitions) {
+                    Map<List<String>, Set<String>> queryUsedPartitions) {
                 return true;
             }
         };
@@ -197,6 +210,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -209,21 +223,25 @@ class StructInfoMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
-        root.getStructInfoMap().refresh(root, c1, new HashSet<>());
+        root.getStructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         StructInfoMap structInfoMap = root.getStructInfoMap();
         Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
         BitSet mvMap = structInfoMap.getTableMaps().stream()
                 .filter(b -> b.cardinality() == 2)
                 .collect(Collectors.toList()).get(0);
-        StructInfo structInfo = structInfoMap.getStructInfo(c1, mvMap, root, null);
+        StructInfo structInfo = structInfoMap.getStructInfo(c1, mvMap, root, null,
+                connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         for (CatalogRelation relation : structInfo.getRelations()) {
-            bitSet.set(c1.getStatementContext().getTableId(relation.getTable()).asInt());
+            bitSet.set(relation.getRelationId().asInt());
         }
         Assertions.assertEquals(bitSet, mvMap);
         dropMvByNereids("drop materialized view mv1");

@@ -47,7 +47,7 @@ public:
         _data_type = data_type;
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         *result_column_id = _column_id;
         return Status::OK();
     }
@@ -62,6 +62,8 @@ public:
     }
     const std::string& expr_name() const override { return _name; }
 
+    void set_expr_name(String s) { _name = s; }
+
     static VExprContextSPtrs create_mock_contexts(DataTypePtr data_type);
 
     static VExprContextSPtrs create_mock_contexts(int column_id, DataTypePtr data_type);
@@ -71,7 +73,7 @@ public:
     static VExprContextSPtrs create_mock_contexts(DataTypes data_types);
 
 private:
-    const std::string _name = "MockSlotRef";
+    std::string _name = "MockSlotRef";
 };
 
 } // namespace vectorized

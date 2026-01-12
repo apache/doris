@@ -148,17 +148,28 @@ private:
 
     void _calc_tablets_to_commit();
 
-    std::unordered_set<std::shared_ptr<LoadStreamStub>> _incremental_streams();
-
     std::unordered_set<std::shared_ptr<LoadStreamStub>> _non_incremental_streams();
 
-    Status _close_wait(std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams);
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> _all_streams();
+
+    Status _close_wait(std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams,
+                       bool need_wait_after_quorum_success);
+
+    bool _quorum_success(
+            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
+            const std::unordered_set<int64_t>& need_finish_tablets);
+
+    int _load_required_replicas_num(int64_t tablet_id);
 
     Status _check_timeout();
 
     Status _check_streams_finish(
             std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams, Status& status,
             const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node);
+
+    int64_t _calc_max_wait_time_ms(
+            const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node,
+            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams);
 
     void _cancel(Status status);
 
@@ -219,6 +230,7 @@ private:
     RuntimeProfile::Counter* _close_writer_timer = nullptr;
     RuntimeProfile::Counter* _close_load_timer = nullptr;
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
+    RuntimeProfile::Counter* _load_back_pressure_version_time_ms = nullptr;
 
     std::mutex _close_mutex;
     bool _is_closed = false;
@@ -233,6 +245,7 @@ private:
 
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_node;
 
     std::shared_ptr<LoadStreamMap> _load_stream_map;
 
@@ -244,6 +257,8 @@ private:
 
     // tablet_id -> <total replicas num, load required replicas num>
     std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+
+    std::atomic<int64_t> _load_back_pressure_version_block_ms {0};
 };
 
 } // namespace vectorized

@@ -27,4 +27,6 @@ public interface JobProcessor {
     void cancel(Status cancelReason);
 
     void updateFragmentExecStatus(TReportExecStatusParams params);
+
+    void tryFinishSchedule();
 }

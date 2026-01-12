@@ -33,7 +33,7 @@ namespace doris::vectorized {
 
 TEST(FunctionDictGetTest, test_without_dict_function) {
     FunctionBasePtr function = SimpleFunctionFactory::instance().get_function(
-            "dict_get", ColumnsWithTypeAndName {}, {}, {.enable_decimal256 = false},
+            "dict_get", ColumnsWithTypeAndName {}, {}, {},
             BeExecVersionManager::get_newest_version());
 
     EXPECT_TRUE(function);
@@ -57,7 +57,7 @@ TEST(FunctionDictGetTest, test_without_dict_function) {
 
 TEST(FunctionDictGetTest, test_without_dict_id) {
     FunctionBasePtr function = SimpleFunctionFactory::instance().get_function(
-            "dict_get", ColumnsWithTypeAndName {}, {}, {.enable_decimal256 = false},
+            "dict_get", ColumnsWithTypeAndName {}, {}, {},
             BeExecVersionManager::get_newest_version());
 
     EXPECT_TRUE(function);

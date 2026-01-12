@@ -22,7 +22,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -62,6 +64,7 @@ public class TableProperty implements GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
+    private int partitionRetentionCount = -1;
     private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
@@ -103,6 +106,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
+    private long storageDictPageSize = PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
     private long timeSeriesCompactionGoalSizeMbytes
@@ -122,8 +127,12 @@ public class TableProperty implements GsonPostProcessable {
 
     private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
 
+    private TEncryptionAlgorithm encryptionAlgorithm = TEncryptionAlgorithm.PLAINTEXT;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
+
+    // name mapping for show, it will be translated to unique id mapping when create tablet
+    private Map<String, List<String>> columnSeqMapping = null;
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -163,6 +172,8 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
                 buildAutoAnalyzeProperty();
+                buildPartitionRetentionCount();
+                buildColumnSeqMapping();
                 break;
             default:
                 break;
@@ -187,6 +198,8 @@ public class TableProperty implements GsonPostProcessable {
         if (!reserveReplica) {
             setReplicaAlloc(replicaAlloc);
         }
+        // reset storage vault
+        clearStorageVault();
         return this;
     }
 
@@ -235,13 +248,36 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public TableProperty clearStorageVault() {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
+        return this;
+    }
+
     public TableProperty buildTTLSeconds() {
         ttlSeconds = Long.parseLong(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0"));
         return this;
     }
 
+    public TableProperty buildPartitionRetentionCount() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+        if (value != null) {
+            try {
+                int n = Integer.parseInt(value);
+                partitionRetentionCount = n > 0 ? n : -1;
+            } catch (NumberFormatException e) {
+                partitionRetentionCount = -1;
+            }
+        }
+        return this;
+    }
+
     public long getTTLSeconds() {
         return ttlSeconds;
+    }
+
+    public int getPartitionRetentionCount() {
+        return partitionRetentionCount;
     }
 
     public TableProperty buildEnableLightSchemaChange() {
@@ -262,10 +298,30 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public void buildTDEAlgorithm() {
+        String tdeAlgorithmName = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM,
+                TEncryptionAlgorithm.PLAINTEXT.name());
+        encryptionAlgorithm = TEncryptionAlgorithm.valueOf(tdeAlgorithmName);
+    }
+
+    public TEncryptionAlgorithm getTDEAlgorithm() {
+        return encryptionAlgorithm;
+    }
+
+    public EncryptionAlgorithmPB getTDEAlgorithmPB() {
+        switch (encryptionAlgorithm) {
+            case AES256:
+                return EncryptionAlgorithmPB.AES_256_CTR;
+            case SM4:
+                return EncryptionAlgorithmPB.SM4_128_CTR;
+            default:
+                return EncryptionAlgorithmPB.PLAINTEXT;
+        }
+    }
+
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
     }
-
 
     public TableProperty buildVariantEnableFlattenNested() {
         variantEnableFlattenNested = Boolean.parseBoolean(
@@ -329,6 +385,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public long storagePageSize() {
         return storagePageSize;
+    }
+
+    public TableProperty buildStorageDictPageSize() {
+        storageDictPageSize = Long.parseLong(
+            properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE,
+                Long.toString(PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long storageDictPageSize() {
+        return storageDictPageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -526,8 +593,12 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildCompressionType() {
-        compressionType = TCompressionType.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPRESSION,
-                TCompressionType.LZ4F.name()));
+        try {
+            compressionType = PropertyAnalyzer.getCompressionTypeFromProperties(properties);
+        } catch (AnalysisException e) {
+            LOG.error("failed to analyze compression type", e);
+            compressionType = TCompressionType.ZSTD;
+        }
         return this;
     }
 
@@ -693,6 +764,88 @@ public class TableProperty implements GsonPostProcessable {
         }
     }
 
+    public void buildColumnSeqMapping() {
+        String propertyPrefix = PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".";
+        Map<String, List<String>> columnSeqMapping = Maps.newHashMap();
+        for (String key : properties.keySet()) {
+            if (key.startsWith(propertyPrefix)) {
+                String seqName = key.substring(propertyPrefix.length());
+                String[] columnNames = properties.get(key).split(",");
+                if (columnNames.length == 1 && columnNames[0].isEmpty()) {
+                    columnSeqMapping.put(seqName, Lists.newArrayList());
+                } else {
+                    columnSeqMapping.put(seqName, Lists.newArrayList(columnNames));
+                }
+            }
+        }
+        if (columnSeqMapping.isEmpty()) {
+            // save memory if property is empty
+            this.columnSeqMapping = null;
+        } else {
+            this.columnSeqMapping = columnSeqMapping;
+        }
+    }
+
+    public void setColumnSeqMapping(Map<String, List<String>> columnSeqMapping) {
+        // remove old mapping
+        String propertyPrefix = PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".";
+        List<String> oldMappingKeys = Lists.newArrayList();
+        for (String key : properties.keySet()) {
+            if (key.startsWith(propertyPrefix)) {
+                oldMappingKeys.add(key);
+            }
+        }
+        oldMappingKeys.forEach(key -> {
+            properties.remove(key);
+        });
+        // add new mapping
+        if (columnSeqMapping != null && !columnSeqMapping.isEmpty()) {
+            for (Map.Entry<String, List<String>> entry : columnSeqMapping.entrySet()) {
+                String seqColumnName = entry.getKey();
+                String valueColumnNames = Joiner.on(",").join(entry.getValue());
+                modifyTableProperties(propertyPrefix + seqColumnName,
+                        valueColumnNames);
+            }
+        }
+        this.columnSeqMapping = columnSeqMapping;
+    }
+
+    public Map<String, List<String>> getColumnSeqMapping() {
+        return this.columnSeqMapping == null ? Maps.newHashMap() : this.columnSeqMapping;
+    }
+
+    public boolean hasColumnSeqMapping() {
+        return columnSeqMapping != null && !columnSeqMapping.isEmpty();
+    }
+
+    public boolean isSeqMappingKeyColumn(String column) {
+        Map<String, List<String>> columnSeqMapping = this.columnSeqMapping == null ? Maps.newHashMap()
+                : this.columnSeqMapping;
+        return columnSeqMapping.containsKey(column);
+    }
+
+    public boolean isSeqMappingValueColumn(String column) {
+        Map<String, List<String>> columnSeqMapping = this.columnSeqMapping == null ? Maps.newHashMap()
+                : this.columnSeqMapping;
+        for (List<String> valueColumns : columnSeqMapping.values()) {
+            if (valueColumns.contains(column)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public String getSeqMappingKey(String column) {
+        Map<String, List<String>> columnSeqMapping = this.columnSeqMapping == null ? Maps.newHashMap()
+                : this.columnSeqMapping;
+        for (Map.Entry<String, List<String>> columnSeq : columnSeqMapping.entrySet()) {
+            if (columnSeq.getValue().contains(column)) {
+                return columnSeq.getKey();
+            }
+        }
+        throw new IllegalArgumentException("can't find the corresponding seq mapping key");
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
@@ -724,6 +877,7 @@ public class TableProperty implements GsonPostProcessable {
         buildRowStoreColumns();
         buildRowStorePageSize();
         buildStoragePageSize();
+        buildStorageDictPageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();
@@ -736,8 +890,11 @@ public class TableProperty implements GsonPostProcessable {
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
+        buildPartitionRetentionCount();
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
+        buildTDEAlgorithm();
+        buildColumnSeqMapping();
     }
 
     // For some historical reason,

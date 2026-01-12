@@ -49,13 +49,18 @@ public class Left extends ScalarFunction
         super("left", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Left(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Left withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Left(children.get(0), children.get(1));
+        return new Left(getFunctionParams(children));
     }
 
     @Override

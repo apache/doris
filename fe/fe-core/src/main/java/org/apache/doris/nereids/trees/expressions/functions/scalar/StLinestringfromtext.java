@@ -49,13 +49,18 @@ public class StLinestringfromtext extends ScalarFunction
         super("st_linestringfromtext", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StLinestringfromtext(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StLinestringfromtext withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StLinestringfromtext(children.get(0));
+        return new StLinestringfromtext(getFunctionParams(children));
     }
 
     @Override

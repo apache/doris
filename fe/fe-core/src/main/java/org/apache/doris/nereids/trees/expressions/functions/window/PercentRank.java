@@ -38,6 +38,11 @@ public class PercentRank extends WindowFunction implements AlwaysNotNullable, Le
         super("percent_rank");
     }
 
+    /** constructor for withChildren and reuse signature */
+    private PercentRank(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(FunctionSignature.ret(DoubleType.INSTANCE).args());
@@ -50,8 +55,8 @@ public class PercentRank extends WindowFunction implements AlwaysNotNullable, Le
 
     @Override
     public PercentRank withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0);
-        return new PercentRank();
+        Preconditions.checkArgument(children.isEmpty());
+        return new PercentRank(getFunctionParams(children));
     }
 
     @Override

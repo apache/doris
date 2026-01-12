@@ -41,10 +41,29 @@ public:
     using Base = PipelineXLocalState<>;
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
+    ~ExchangeLocalState() override;
+
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
+
+    Status reset(RuntimeState* state) {
+        if (stream_recvr) {
+            stream_recvr->close();
+        }
+        create_stream_recvr(state);
+
+        is_ready = false;
+        num_rows_skipped = 0;
+
+        const auto& queues = stream_recvr->sender_queues();
+        for (size_t i = 0; i < queues.size(); i++) {
+            deps[i]->block();
+            queues[i]->set_dependency(deps[i]);
+        }
+        return Status::OK();
+    }
 
     std::vector<Dependency*> dependencies() const override {
         std::vector<Dependency*> dep_vec;
@@ -81,6 +100,8 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
+    Status reset(RuntimeState* state);
+
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     std::string debug_string(int indentation_level = 0) const override;
@@ -91,7 +112,7 @@ public:
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<ExchangeLocalState>::is_serial_operator()) {
             return {ExchangeType::NOOP};
         }

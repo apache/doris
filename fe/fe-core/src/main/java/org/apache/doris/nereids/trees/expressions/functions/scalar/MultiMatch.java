@@ -45,10 +45,15 @@ public class MultiMatch extends ScalarFunction
         super("multi_match", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MultiMatch(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MultiMatch withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 3);
-        return new MultiMatch(children.toArray(new Expression[0]));
+        return new MultiMatch(getFunctionParams(children));
     }
 
     @Override

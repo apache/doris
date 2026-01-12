@@ -27,7 +27,6 @@
 #include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
@@ -82,8 +81,11 @@ public:
         auto nested_column_ptr = ColumnInt64::create(input_rows_count, 0);
         DataTypePtr expr_type = block.get_by_position(arguments[0]).type;
 
-        _execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets, *nested_column_ptr,
-                         expr_type);
+        if (!_execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets,
+                              *nested_column_ptr, expr_type)) {
+            return Status::InvalidArgument("Unsupported type for width_bucket: {}",
+                                           expr_type->get_name());
+        }
 
         block.replace_by_position(result, std::move(nested_column_ptr));
         return Status::OK();
@@ -120,7 +122,7 @@ private:
         }
     }
 
-    void _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
+    bool _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
                           const IColumn& max_value_column, const int64_t num_buckets,
                           IColumn& nested_column_column, DataTypePtr& expr_type) const {
         switch (expr_type->get_primitive_type()) {
@@ -148,45 +150,11 @@ private:
             _execute<ColumnFloat64>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
             break;
-        case PrimitiveType::TYPE_DECIMAL32:
-            _execute<ColumnDecimal32>(expr_column, min_value_column, max_value_column, num_buckets,
-                                      nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DECIMAL64:
-            _execute<ColumnDecimal64>(expr_column, min_value_column, max_value_column, num_buckets,
-                                      nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DECIMALV2:
-            _execute<ColumnDecimal128V2>(expr_column, min_value_column, max_value_column,
-                                         num_buckets, nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DECIMAL128I:
-            _execute<ColumnDecimal128V3>(expr_column, min_value_column, max_value_column,
-                                         num_buckets, nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DECIMAL256:
-            _execute<ColumnDecimal256>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DATE:
-            _execute<ColumnDate>(expr_column, min_value_column, max_value_column, num_buckets,
-                                 nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DATEV2:
-            _execute<ColumnDateV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                   nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DATETIME:
-            _execute<ColumnDateTime>(expr_column, min_value_column, max_value_column, num_buckets,
-                                     nested_column_column);
-            break;
-        case PrimitiveType::TYPE_DATETIMEV2:
-            _execute<ColumnDateTimeV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
-            break;
         default:
+            return false;
             break;
         }
+        return true;
     }
 };
 

@@ -40,7 +40,7 @@ suite("test_mv_alias_table_name") {
 
     createMV( """
         create materialized view mv_table as
-        select day,aid,lid,
+        select day as a1,aid as a2,lid as a3,
             bitmap_union(to_bitmap(mh)) as wu,     
             bitmap_union(to_bitmap(my)) as mu 
         from original_table 

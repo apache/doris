@@ -59,12 +59,12 @@ class OutputUtils {
         if (dataType == "FLOAT" || dataType == "DOUBLE" || dataType == "DECIMAL") {
             Boolean expectNull = expectCell.equals("\\\\N")
             Boolean actualNull = realCell.equals("\\\\N")
-            Boolean expectNan = expectCell.equals("nan")
-            Boolean actualNan = realCell.equals("nan")
-            Boolean expectInf = expectCell.equals("inf")
-            Boolean actualInf = realCell.equals("inf")
-            Boolean expectMinusInf = expectCell.equals("-inf")
-            Boolean actualMinusInf = realCell.equals("-inf")
+            Boolean expectNan = expectCell.equalsIgnoreCase("nan") || expectCell.equalsIgnoreCase("-nan")
+            Boolean actualNan = realCell.equalsIgnoreCase("nan") || realCell.equalsIgnoreCase("-nan")
+            Boolean expectInf = expectCell.equalsIgnoreCase("inf") || expectCell.equalsIgnoreCase("infinity")
+            Boolean actualInf = realCell.equalsIgnoreCase("inf") || realCell.equalsIgnoreCase("infinity")
+            Boolean expectMinusInf = expectCell.equalsIgnoreCase("-inf") || expectCell.equalsIgnoreCase("-infinity")
+            Boolean actualMinusInf = realCell.equalsIgnoreCase("-inf") || realCell.equalsIgnoreCase("-infinity")
 
             if (expectNull != actualNull || expectNan != actualNan || expectInf != actualInf || expectMinusInf != actualMinusInf) {
                 return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
@@ -78,6 +78,10 @@ class OutputUtils {
 
                 double realRelativeError = Math.abs(expectDouble - realDouble) / Math.abs(realDouble)
                 double expectRelativeError = 1e-8
+                if (dataType == "FLOAT") {
+                    // For FLOAT, we use 1e-6 as the relative error
+                    expectRelativeError = 1e-6
+                }
 
                 if (expectRelativeError < realRelativeError) {
                     // Keep the scale of low precision data to solve TPCH cases like:
@@ -138,6 +142,52 @@ class OutputUtils {
                     String expectCell = toCsvString(expectList[i - 1])
                     String realCell = toCsvString(realList[i - 1])
                     String dataType = meta.getColumnTypeName(i)
+
+                    def res = checkCell(info, line, expectCell, realCell, dataType)
+                    if(res != null) {
+                        res += "\nline ${line} mismatch\nExpectRow: ${expectRaw}\nRealRow  : ${realRaw}";
+                        return res
+                    }
+                }
+            } else {
+                def expectCsvString = transform1.apply(expectRaw)
+                def realCsvString = transform2.apply(realRaw)
+                if (!expectCsvString.equals(realCsvString)) {
+                    return "${info}, line ${line} mismatch.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
+                }
+            }
+
+            line++
+        }
+    }
+
+    static <T1, T2> String checkOutput(Iterator<T1> expect, Iterator<T2> real,
+                                       Function<T1, String> transform1, Function<T2, String> transform2,
+                                       String info, ResultSetMetaData meta1, ResultSetMetaData meta2) {
+        int line = 1
+        while (true) {
+            if (expect.hasNext() && !real.hasNext()) {
+                return "${info}, line ${line} mismatch, right line is empty, but left is ${transform1(expect.next())}"
+            }
+            if (!expect.hasNext() && real.hasNext()) {
+                return "${info}, line ${line} mismatch, left line is empty, but right is ${transform2(real.next())}"
+            }
+            if (!expect.hasNext() && !real.hasNext()) {
+                break
+            }
+
+            def expectRaw = expect.next()
+            def realRaw = real.next()
+
+            if (expectRaw instanceof List && meta1 != null) {
+                List<String> expectList = castList(expectRaw)
+                List<String> realList = castList(realRaw)
+
+                def columnCount = meta1.columnCount
+                for (int i = 1; i <= columnCount; i++) {
+                    String expectCell = toCsvString(expectList[i - 1])
+                    String realCell = toCsvString(realList[i - 1])
+                    String dataType = meta1.getColumnTypeName(i)
 
                     def res = checkCell(info, line, expectCell, realCell, dataType)
                     if(res != null) {

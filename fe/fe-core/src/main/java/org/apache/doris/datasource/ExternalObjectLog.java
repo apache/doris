@@ -21,17 +21,16 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-@NoArgsConstructor
 @Getter
 @Data
 public class ExternalObjectLog implements Writable {
@@ -50,14 +49,63 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "tableName")
     private String tableName;
 
+    @SerializedName(value = "ntn")
+    private String newTableName; // for rename table op
+
     @SerializedName(value = "invalidCache")
     private boolean invalidCache;
 
     @SerializedName(value = "partitionNames")
     private List<String> partitionNames;
 
+    @SerializedName(value = "newPartitionNames")
+    private List<String> newPartitionNames;
+
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
+
+    private ExternalObjectLog() {
+
+    }
+
+    public static ExternalObjectLog createForRefreshDb(long catalogId, String dbName) {
+        ExternalObjectLog externalObjectLog = new ExternalObjectLog();
+        externalObjectLog.setCatalogId(catalogId);
+        externalObjectLog.setDbName(dbName);
+        return externalObjectLog;
+    }
+
+    public static ExternalObjectLog createForRefreshTable(long catalogId, String dbName, String tblName,
+            long updateTime) {
+        ExternalObjectLog externalObjectLog = new ExternalObjectLog();
+        externalObjectLog.setCatalogId(catalogId);
+        externalObjectLog.setDbName(dbName);
+        externalObjectLog.setTableName(tblName);
+        externalObjectLog.setLastUpdateTime(updateTime);
+        return externalObjectLog;
+    }
+
+    public static ExternalObjectLog createForRefreshPartitions(long catalogId, String dbName, String tblName,
+            List<String> modifiedPartNames, List<String> newPartNames, long updateTime) {
+        ExternalObjectLog externalObjectLog = new ExternalObjectLog();
+        externalObjectLog.setCatalogId(catalogId);
+        externalObjectLog.setDbName(dbName);
+        externalObjectLog.setTableName(tblName);
+        externalObjectLog.setPartitionNames(modifiedPartNames);
+        externalObjectLog.setNewPartitionNames(newPartNames);
+        externalObjectLog.setLastUpdateTime(updateTime);
+        return externalObjectLog;
+    }
+
+    public static ExternalObjectLog createForRenameTable(long catalogId, String dbName, String tblName,
+            String newTblName) {
+        ExternalObjectLog externalObjectLog = new ExternalObjectLog();
+        externalObjectLog.setCatalogId(catalogId);
+        externalObjectLog.setDbName(dbName);
+        externalObjectLog.setTableName(tblName);
+        externalObjectLog.setNewTableName(newTblName);
+        return externalObjectLog;
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {
@@ -67,5 +115,38 @@ public class ExternalObjectLog implements Writable {
     public static ExternalObjectLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalObjectLog.class);
+    }
+
+    public String debugForRefreshDb() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[catalogId: " + catalogId + ", ");
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("dbName: " + dbName + "]");
+        } else {
+            sb.append("dbId: " + dbId + "]");
+        }
+        return sb.toString();
+    }
+
+    public String debugForRefreshTable() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[catalogId: " + catalogId + ", ");
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("dbName: " + dbName + ", ");
+        } else {
+            sb.append("dbId: " + dbId + ", ");
+        }
+        if (!Strings.isNullOrEmpty(tableName)) {
+            sb.append("tableName: " + tableName + "]");
+        } else {
+            sb.append("tableId: " + tableId + "]");
+        }
+        if (partitionNames != null && !partitionNames.isEmpty()) {
+            sb.append(", partitionNames: " + partitionNames);
+        }
+        if (newPartitionNames != null && !newPartitionNames.isEmpty()) {
+            sb.append(", newPartitionNames: " + newPartitionNames);
+        }
+        return sb.toString();
     }
 }

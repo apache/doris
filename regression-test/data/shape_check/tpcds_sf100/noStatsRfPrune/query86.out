@@ -24,5 +24,5 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalProject
 ----------------------------------filter((d1.d_month_seq <= 1235) and (d1.d_month_seq >= 1224))
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim(d1)]
 

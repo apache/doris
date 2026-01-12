@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileCompressType;
 
@@ -93,8 +94,8 @@ public class TextFileFormatPropertiesTest {
     public void testAnalyzeFileFormatPropertiesInvalidCompressType() {
         Map<String, String> properties = new HashMap<>();
         properties.put(TextFileFormatProperties.PROP_COMPRESS_TYPE, "invalid");
-        textFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(TFileCompressType.UNKNOWN, textFileFormatProperties.getCompressionType());
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unknown compression type: invalid",
+                () -> textFileFormatProperties.analyzeFileFormatProperties(properties, true));
     }
 
     @Test

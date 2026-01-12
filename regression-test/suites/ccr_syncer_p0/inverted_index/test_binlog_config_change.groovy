@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.ClusterOptions
+
 suite("test_binlog_config_change_index") {
 
     def syncer = getSyncer()

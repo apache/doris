@@ -54,8 +54,34 @@ public:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
     std::string name_suffix() const override;
+    int max_scanners_concurrency(RuntimeState* state) const override;
+    int min_scanners_concurrency(RuntimeState* state) const override;
+    vectorized::ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
 
 private:
+    friend class vectorized::FileScanner;
+    PushDownType _should_push_down_bloom_filter() const override {
+        return PushDownType::PARTIAL_ACCEPTABLE;
+    }
+    PushDownType _should_push_down_topn_filter() const override {
+        return PushDownType::PARTIAL_ACCEPTABLE;
+    }
+    PushDownType _should_push_down_bitmap_filter() const override {
+        return PushDownType::PARTIAL_ACCEPTABLE;
+    }
+    PushDownType _should_push_down_is_null_predicate(
+            vectorized::VectorizedFnCall* fn_call) const override {
+        return fn_call->fn().name.function_name == "is_null_pred" ||
+                               fn_call->fn().name.function_name == "is_not_null_pred"
+                       ? PushDownType::PARTIAL_ACCEPTABLE
+                       : PushDownType::UNACCEPTABLE;
+    }
+    PushDownType _should_push_down_in_predicate() const override {
+        return PushDownType::PARTIAL_ACCEPTABLE;
+    }
+    PushDownType _should_push_down_binary_predicate(
+            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+            StringRef* constant_val, const std::set<std::string> fn_name) const override;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components
@@ -79,11 +105,9 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    bool is_file_scan_operator() const override { return true; }
-
     // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
-    int query_parallel_instance_num() const override {
-        return _batch_split_mode ? 1 : _query_parallel_instance_num;
+    int parallelism(RuntimeState* state) const override {
+        return _batch_split_mode ? 1 : ScanOperatorX<FileScanLocalState>::parallelism(state);
     }
 
 private:

@@ -81,7 +81,7 @@ public:
     Status set_cluster_id(int32_t cluster_id);
     void health_check();
 
-    uint64_t get_shard() {
+    int32_t get_shard() {
         return _current_shard.fetch_add(1, std::memory_order_relaxed) % MAX_SHARD_NUM;
     }
 
@@ -184,8 +184,8 @@ private:
     // This flag will be set true if this store was not in root path when reloading
     bool _to_be_deleted;
 
-    static constexpr uint64_t MAX_SHARD_NUM = 1024;
-    std::atomic<uint64_t> _current_shard {0};
+    static constexpr int32_t MAX_SHARD_NUM = 1024;
+    std::atomic<int32_t> _current_shard {0};
     // used to protect and _tablet_set
     mutable std::mutex _mutex;
     std::set<TabletInfo> _tablet_set;

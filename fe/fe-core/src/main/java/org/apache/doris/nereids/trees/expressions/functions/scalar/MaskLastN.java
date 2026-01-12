@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -54,23 +53,18 @@ public class MaskLastN extends ScalarFunction implements ExplicitlyCastableSigna
         super("mask_last_n", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MaskLastN(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MaskLastN withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        if (children.size() == 1) {
-            return new MaskLastN(children.get(0));
-        }
-        return new MaskLastN(children.get(0), children.get(1));
-    }
-
-    @Override
-    public void checkLegalityAfterRewrite() {
-        if (arity() == 2 && !child(1).isLiteral()) {
-            throw new AnalysisException("mask_last_n must accept literal for 2nd argument");
-        }
+        Preconditions.checkArgument(!children.isEmpty());
+        return new MaskLastN(getFunctionParams(children));
     }
 
     @Override

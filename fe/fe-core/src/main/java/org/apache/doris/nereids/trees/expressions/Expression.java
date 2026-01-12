@@ -21,12 +21,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.AnalysisException.ErrorCode;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -179,12 +181,13 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     private void checkLimit() {
         if (depth > Config.expr_depth_limit) {
-            throw new AnalysisException(String.format("Exceeded the maximum depth of an "
-                    + "expression tree (%s).", Config.expr_depth_limit));
+            throw new AnalysisException(ErrorCode.EXPRESSION_EXCEEDS_LIMIT,
+                    String.format("Exceeded the maximum depth of an expression tree (%s).", Config.expr_depth_limit));
         }
         if (width > Config.expr_children_limit) {
-            throw new AnalysisException(String.format("Exceeded the maximum children of an "
-                    + "expression tree (%s).", Config.expr_children_limit));
+            throw new AnalysisException(ErrorCode.EXPRESSION_EXCEEDS_LIMIT,
+                    String.format("Exceeded the maximum children of an expression tree (%s).",
+                            Config.expr_children_limit));
         }
     }
 
@@ -418,6 +421,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public boolean isKeyColumnFromTable() {
         return (this instanceof SlotReference) && ((SlotReference) this).getOriginalColumn().isPresent()
                 && ((SlotReference) this).getOriginalColumn().get().isKey();
+    }
+
+    public boolean containsUniqueFunction() {
+        return containsType(UniqueFunction.class);
     }
 
     /** containsNullLiteralChildren */

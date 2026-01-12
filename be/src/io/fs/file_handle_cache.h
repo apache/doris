@@ -188,7 +188,7 @@ private:
 
     /// Thread to check for unused file handles to evict. This thread will exit when
     /// the _shut_down_promise is set.
-    scoped_refptr<Thread> _eviction_thread;
+    std::shared_ptr<Thread> _eviction_thread;
     std::atomic<bool> _is_shut_down = {false};
 };
 

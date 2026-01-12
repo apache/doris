@@ -49,10 +49,18 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     private ArrayList<String> colLabels;
     private List<FieldInfo> fieldInfos;
     private List<String> viewDdlSqls;
+    private String digest = "";
 
+    /**
+     * constructor
+     */
     public LogicalPlanAdapter(LogicalPlan logicalPlan, StatementContext statementContext) {
         this.logicalPlan = logicalPlan;
         this.statementContext = statementContext;
+        if (statementContext != null && statementContext.getConnectContext() != null
+                && !statementContext.getConnectContext().isProxy()) {
+            digest = logicalPlan == null ? "" : logicalPlan.toDigest();
+        }
     }
 
     @Override
@@ -79,7 +87,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
                     fileSink.getProperties()
             );
             try {
-                outFile.analyze(null, Lists.newArrayList(), Lists.newArrayList());
+                outFile.analyze(Lists.newArrayList(), Lists.newArrayList(), false);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -137,8 +145,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     }
 
     public String toDigest() {
-        // TODO: generate real digest
-        return "";
+        return digest;
     }
 
     public static LogicalPlanAdapter of(Plan plan) {

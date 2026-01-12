@@ -118,8 +118,7 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                                 .castIfNotSameType(new BigIntLiteral(1), f.getDataType())));
                     } else {
                         newOutput.add((NamedExpression) ne.withChildren(
-                                new If(new IsNull(f.child(0)), new BigIntLiteral(0),
-                                        new BigIntLiteral(1))));
+                                ifNullElse(f.child(0), new BigIntLiteral(0), new BigIntLiteral(1))));
                     }
                 } else if (f instanceof Sum0) {
                     Coalesce coalesce = new Coalesce(f.child(0),
@@ -127,14 +126,14 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                     newOutput.add((NamedExpression) ne.withChildren(
                             TypeCoercionUtils.castIfNotSameType(coalesce, f.getDataType())));
                 } else if (supportedTwoArgsFunctions.contains(f.getClass())) {
-                    If ifFunc = new If(new IsNull(f.child(1)), new NullLiteral(f.child(0).getDataType()),
+                    Expression expr = ifNullElse(f.child(1), new NullLiteral(f.child(0).getDataType()),
                             f.child(0));
                     newOutput.add((NamedExpression) ne.withChildren(
-                            TypeCoercionUtils.castIfNotSameType(ifFunc, f.getDataType())));
+                            TypeCoercionUtils.castIfNotSameType(expr, f.getDataType())));
                 } else if (supportedDevLikeFunctions.contains(f.getClass())) {
-                    If ifFunc = new If(new IsNull(f.child(0)), new NullLiteral(DoubleType.INSTANCE),
+                    Expression expr = ifNullElse(f.child(0), new NullLiteral(DoubleType.INSTANCE),
                             new DoubleLiteral(0));
-                    newOutput.add((NamedExpression) ne.withChildren(ifFunc));
+                    newOutput.add((NamedExpression) ne.withChildren(expr));
                 } else {
                     return null;
                 }
@@ -153,5 +152,9 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
             return ((Count) f).isStar() || 1 == f.arity();
         }
         return false;
+    }
+
+    private Expression ifNullElse(Expression conditionExpr, Expression ifExpr, Expression elseExpr) {
+        return conditionExpr.nullable() ? new If(new IsNull(conditionExpr), ifExpr, elseExpr) : elseExpr;
     }
 }

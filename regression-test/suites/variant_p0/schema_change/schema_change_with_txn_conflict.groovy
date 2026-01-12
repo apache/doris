@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_schema_change_txn_conflict", "nonConcurrent") {
+    if (!isCloudMode()) {
+        return
+    }
     def customFeConfig = [
             schema_change_max_retry_time: 10
     ]

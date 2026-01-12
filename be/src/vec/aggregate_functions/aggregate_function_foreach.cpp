@@ -21,13 +21,10 @@
 #include "vec/aggregate_functions/aggregate_function_foreach.h"
 
 #include <memory>
-#include <ostream>
 
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -36,7 +33,8 @@ namespace doris::vectorized {
 
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =
-            [&](const std::string& name, const DataTypes& types, const bool result_is_nullable,
+            [&](const std::string& name, const DataTypes& types, const DataTypePtr& result_type,
+                const bool result_is_nullable,
                 const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
         const std::string& suffix = AggregateFunctionForEach::AGG_FOREACH_SUFFIX;
         DataTypes transform_arguments;
@@ -45,10 +43,13 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
                     assert_cast<const DataTypeArray*>(remove_nullable(t).get())->get_nested_type();
             transform_arguments.push_back((item_type));
         }
+        auto result_item_type =
+                assert_cast<const DataTypeArray*>(remove_nullable(result_type).get())
+                        ->get_nested_type();
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
         auto nested_function =
-                factory.get(nested_function_name, transform_arguments, result_is_nullable,
-                            BeExecVersionManager::get_newest_version(), attr);
+                factory.get(nested_function_name, transform_arguments, result_item_type,
+                            result_is_nullable, BeExecVersionManager::get_newest_version(), attr);
         if (!nested_function) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
@@ -56,7 +57,8 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
                     "name {} , args {}",
                     nested_function_name, types_name(types));
         }
-        return creator_without_type::create<AggregateFunctionForEach>(types, true, nested_function);
+        return creator_without_type::create<AggregateFunctionForEach>(types, true, attr,
+                                                                      nested_function);
     };
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEach::AGG_FOREACH_SUFFIX, true);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
@@ -25,14 +26,14 @@ import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 //fehost:port/metrics
 //fehost:port/metrics?type=core
@@ -46,6 +47,7 @@ public class MetricsAction extends RestBaseController {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
         }
+        Env.getCurrentEnv().debugBlockAllOnGlobalLock("FE.BLOCK_IMPORT_LOCK");
 
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;

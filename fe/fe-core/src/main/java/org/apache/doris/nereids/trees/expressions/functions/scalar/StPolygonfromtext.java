@@ -49,13 +49,18 @@ public class StPolygonfromtext extends ScalarFunction
         super("st_polygonfromtext", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StPolygonfromtext(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StPolygonfromtext withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StPolygonfromtext(children.get(0));
+        return new StPolygonfromtext(getFunctionParams(children));
     }
 
     @Override

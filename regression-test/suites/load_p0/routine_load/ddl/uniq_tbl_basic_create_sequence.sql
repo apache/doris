@@ -10,8 +10,8 @@ CREATE TABLE routine_load_uniq_tbl_basic_sequence
     k07 LARGEINT        NULL,
     k08 FLOAT           NULL,
     k09 DOUBLE          NULL,
-    k10 DECIMAL(9,1)    NULL,
-    k11 DECIMALV3(9,1)  NULL,
+    k10 DECIMAL(10,1)    NULL,
+    k11 DECIMALV3(10,1)  NULL,
     k12 DATETIME        NULL,
     k13 DATEV2          NULL,
     k14 DATETIMEV2      NULL,
@@ -38,11 +38,11 @@ CREATE TABLE routine_load_uniq_tbl_basic_sequence
     kd17 STRING          NOT NULL DEFAULT "我能吞下玻璃而不伤身体",
     kd18 JSON            NULL,
 
-    INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
-    INDEX idx_bitmap_k110 (`kd01`) USING BITMAP,
-    INDEX idx_bitmap_k113 (`k13`) USING BITMAP,
-    INDEX idx_bitmap_k114 (`k14`) USING BITMAP,
-    INDEX idx_bitmap_k117 (`k17`) USING BITMAP
+    INDEX idx_bitmap_k104 (`k02`) USING INVERTED,
+    INDEX idx_bitmap_k110 (`kd01`) USING INVERTED,
+    INDEX idx_bitmap_k113 (`k13`) USING INVERTED,
+    INDEX idx_bitmap_k114 (`k14`) USING INVERTED,
+    INDEX idx_bitmap_k117 (`k17`) USING INVERTED
 )
 UNIQUE KEY(k00,k01)
 DISTRIBUTED BY HASH(k00) BUCKETS 32

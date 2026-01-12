@@ -19,10 +19,10 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
 ----------------------filter((dt.d_moy = 11))
-------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[date_dim(dt)]
 
 Hint log:
-Used: leading(store_sales broadcast item broadcast dt ) 
+Used: leading(store_sales broadcast item broadcast dt )
 UnUsed:
 SyntaxError:
 

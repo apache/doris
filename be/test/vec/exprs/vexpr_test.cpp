@@ -29,6 +29,7 @@
 #include <cmath>
 #include <limits>
 #include <new>
+#include <string>
 #include <type_traits>
 
 #include "common/object_pool.h"
@@ -42,6 +43,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "util/timezone_utils.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -49,6 +51,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/time_value.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -62,7 +65,7 @@ TEST(TEST_VEXPR, ABSTEST) {
     doris::DescriptorTbl* desc_tbl = builder.build();
 
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    doris::RowDescriptor row_desc(tuple_desc, false);
+    doris::RowDescriptor row_desc(tuple_desc);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     doris::TExpr exprx = apache::thrift::from_json_string<doris::TExpr>(expr_json);
@@ -153,7 +156,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
             {"k1", TYPE_INT, sizeof(int32_t), false}};
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
-    RowDescriptor row_desc(tuple_desc, false);
+    RowDescriptor row_desc(tuple_desc);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     TExpr exprx = apache::thrift::from_json_string<TExpr>(expr_json);
@@ -220,7 +223,7 @@ struct literal_traits<TYPE_FLOAT> {
 
 template <>
 struct literal_traits<TYPE_DOUBLE> {
-    const static TPrimitiveType::type ttype = TPrimitiveType::FLOAT;
+    const static TPrimitiveType::type ttype = TPrimitiveType::DOUBLE;
     const static TExprNodeType::type tnode_type = TExprNodeType::FLOAT_LITERAL;
     using CXXType = float;
 };
@@ -234,6 +237,13 @@ struct literal_traits<TYPE_DATETIME> {
 template <>
 struct literal_traits<TYPE_DATETIMEV2> {
     const static TPrimitiveType::type ttype = TPrimitiveType::DATETIMEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
+    using CXXType = std::string;
+};
+
+template <>
+struct literal_traits<TYPE_TIMESTAMPTZ> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::TIMESTAMPTZ;
     const static TExprNodeType::type tnode_type = TExprNodeType::DATE_LITERAL;
     using CXXType = std::string;
 };
@@ -275,7 +285,7 @@ template <>
 struct literal_traits<TYPE_TIMEV2> {
     const static TPrimitiveType::type ttype = TPrimitiveType::TIMEV2;
     const static TExprNodeType::type tnode_type = TExprNodeType::TIMEV2_LITERAL;
-    using CXXType = std::string;
+    using CXXType = double;
 };
 
 //======================== set literal ===================================
@@ -318,6 +328,14 @@ void set_literal(TExprNode& node, const U& value) {
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_TIMESTAMPTZ)
+void set_literal(TExprNode& node, const U& value) {
+    TDateLiteral date_literal;
+    date_literal.__set_value(value);
+    node.__set_date_literal(date_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
     requires(T == TYPE_DATE)
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
@@ -350,7 +368,7 @@ void set_literal(TExprNode& node, const U& value) {
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
-    requires std::numeric_limits<U>::is_iec559
+    requires(std::numeric_limits<U>::is_iec559 && T != TYPE_TIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TFloatLiteral floatLiteral;
     floatLiteral.__set_value(value);
@@ -369,9 +387,7 @@ template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
     requires(T == TYPE_TIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TTimeV2Literal timev2_literal;
-    double v;
-    TimeValue::timev2_to_double_from_str(value.c_str(), v);
-    timev2_literal.__set_value(v);
+    timev2_literal.__set_value(value);
     node.__set_timev2_literal(timev2_literal);
 }
 
@@ -409,6 +425,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<uint8_t>();
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_BOOLEAN, 0, 0), true);
+        EXPECT_EQ("1", node->value());
     }
     // smallint
     {
@@ -420,6 +440,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<int16_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_SMALLINT, 0, 0), true);
+        EXPECT_EQ("1024", node->value());
     }
     // int
     {
@@ -431,6 +455,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<int32_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_INT, 0, 0), true);
+        EXPECT_EQ("1024", node->value());
     }
     // bigint
     {
@@ -442,6 +470,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<int64_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_BIGINT, 0, 0), true);
+        EXPECT_EQ("1024", node->value());
     }
     // large int
     {
@@ -453,6 +485,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<__int128_t>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_LARGEINT, 0, 0), true);
+        EXPECT_EQ("1024", node->value());
     }
     // float
     {
@@ -461,9 +497,13 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<double>();
+        auto v = (*ctn.column)[0].get<float>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
         EXPECT_EQ("1024", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_FLOAT, 0, 0), true);
+        EXPECT_EQ("1024", node->value());
     }
     // double
     {
@@ -473,8 +513,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
-        EXPECT_FLOAT_EQ(v, 1024.0);
-        EXPECT_EQ("1024", literal.value());
+        EXPECT_FLOAT_EQ(v, 1024.0) << ctn.column->get_name();
+        EXPECT_EQ("1024", literal.value()) << ctn.column->get_name();
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_DOUBLE, 0, 0), true);
+        EXPECT_EQ("1024", node->value());
     }
     // datetime
     {
@@ -492,6 +536,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07 00:00:00", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_DATETIME, 0, 0), true);
+        EXPECT_EQ("2021-04-07 00:00:00", node->value());
     }
     // datetimev2
     {
@@ -504,21 +552,62 @@ TEST(TEST_VEXPR, LITERALTEST) {
         uint32_t microsecond = 999999; // target scale is 4, so the microsecond will be rounded up
         DateV2Value<DateTimeV2ValueType> datetime_v2;
         datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
-        std::string date = datetime_v2.debug_string();
+        std::string date = datetime_v2.to_string();
 
         VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
         Block block;
         int ret = -1;
         EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
         EXPECT_EQ("1997-11-18 09:12:47.0000", literal.value());
+
+        auto ctn = block.safe_get_by_position(ret);
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_DATETIMEV2, 0, 4), true);
+        EXPECT_EQ("1997-11-18 09:12:47.0000", node->value());
+    }
+    // timestamptz
+    {
+        TimezoneUtils::load_timezones_to_cache();
+        uint16_t year = 1997;
+        uint8_t month = 11;
+        uint8_t day = 18;
+        uint8_t hour = 9;
+        uint8_t minute = 12;
+        uint8_t second = 46;
+        uint32_t microsecond = 999999; // target scale is 4, so the microsecond will be rounded up
+        int scale = 6;
+        std::string tz_str = "+08:00";
+        cctz::time_zone tz;
+        TimezoneUtils::find_cctz_time_zone(tz_str, tz);
+        DateV2Value<DateTimeV2ValueType> datetime_v2;
+        datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
+        TimestampTzValue tz_value;
+        tz_value.from_datetime(datetime_v2, tz, scale, scale);
+        std::string tz_value_str = tz_value.to_string(tz, scale);
+
+        VLiteral literal(create_literal<TYPE_TIMESTAMPTZ, std::string>(tz_value_str, scale));
+        Block block;
+        int ret = -1;
+        EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
+        EXPECT_EQ("1997-11-18 01:12:46.999999+00:00", literal.value());
+
+        auto ctn = block.safe_get_by_position(ret);
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_TIMESTAMPTZ, 0, scale), true);
+        EXPECT_EQ("1997-11-18 01:12:46.999999+00:00", node->value());
+
+        node = std::make_shared<VLiteral>(
+                create_texpr_node_from(&tz_value, TYPE_TIMESTAMPTZ, 0, scale), true);
+        EXPECT_EQ("1997-11-18 01:12:46.999999+00:00", node->value());
     }
     // date
     {
-        VecDateTimeValue data_time_value;
+        VecDateTimeValue date_time_value;
+        date_time_value.set_type(TIME_DATE);
         const char* date = "20210407";
-        data_time_value.from_date_str(date, strlen(date));
+        date_time_value.from_date_str(date, strlen(date));
         __int64_t dt;
-        memcpy(&dt, &data_time_value, sizeof(__int64_t));
+        memcpy(&dt, &date_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATE, std::string>(std::string(date)));
         Block block;
         int ret = -1;
@@ -527,6 +616,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_DATE, 0, 0), true);
+        EXPECT_EQ("2021-04-07", node->value());
     }
     // datev2
     {
@@ -543,7 +636,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<uint32_t>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_DATEV2, 0, 0), true);
+        EXPECT_EQ("2021-04-07", node->value());
     }
+    config::allow_zero_date = true;
     {
         DateV2Value<DateV2ValueType> data_time_value;
         const char* date = "00000000";
@@ -554,7 +652,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
         EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
 
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), true);
     }
     {
         DateV2Value<DateTimeV2ValueType> data_time_value;
@@ -566,7 +664,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
         EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
 
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), true);
     }
     // jsonb
     {
@@ -589,6 +687,10 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<String>();
         EXPECT_EQ(v, s);
         EXPECT_EQ(s, literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_STRING, 0, 0), true);
+        EXPECT_EQ(s, node->value());
     }
     // decimalv2
     {
@@ -597,19 +699,101 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
-        EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        auto v = (*ctn.column)[0].get<Decimal128V2>();
+        EXPECT_FLOAT_EQ(((double)v) / (std::pow(10, 9)), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_DECIMALV2, 27, 9), true);
+        EXPECT_EQ("1234.560000000", node->value());
     }
     // timev2
     {
-        VLiteral literal(create_literal<TYPE_TIMEV2, std::string>(std::string("12:00:00.0000"), 4));
+        VLiteral literal(create_literal<TYPE_TIMEV2, double>(12123400, 4));
         Block block;
         int ret = -1;
         EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<Float64>();
-        EXPECT_FLOAT_EQ(v / 1000000, 12 * 60 * 60);
-        EXPECT_EQ("12:00:00.0000", literal.value());
+        EXPECT_FLOAT_EQ(v / 1000000, 12.1234);
+        EXPECT_EQ("00:00:12.1234", literal.value());
+
+        auto node = std::make_shared<VLiteral>(
+                create_texpr_node_from((*ctn.column)[0], TYPE_TIMEV2, 0, 0), true);
+        EXPECT_EQ("00:00:12", node->value());
     }
+    // deciaml32
+    {
+        auto src_col = ColumnDecimal32::create(9, 2);
+        auto& src_data = src_col->get_data();
+        src_data.resize(0);
+        src_data.push_back(Decimal32(12345));  // 123.45
+        src_data.push_back(Decimal32(-12345)); // -123.45
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](0), TYPE_DECIMAL32, 9, 2), true);
+            EXPECT_EQ("123.45", node->value());
+        }
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](1), TYPE_DECIMAL32, 9, 2), true);
+            EXPECT_EQ("-123.45", node->value());
+        }
+    }
+
+    // decimal64
+    {
+        auto src_col = ColumnDecimal64::create(18, 4);
+        auto& src_data = src_col->get_data();
+        src_data.resize(0);
+        src_data.push_back(Decimal64(123456789));  // 12345.6789
+        src_data.push_back(Decimal64(-123456789)); // -12345.6789
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](0), TYPE_DECIMAL64, 18, 4), true);
+            EXPECT_EQ("12345.6789", node->value());
+        }
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](1), TYPE_DECIMAL64, 18, 4), true);
+            EXPECT_EQ("-12345.6789", node->value());
+        }
+    }
+    // decimal128
+    {
+        auto src_col = ColumnDecimal128V3::create(38, 6);
+        auto& src_data = src_col->get_data();
+        src_data.resize(0);
+        src_data.push_back(Decimal128V3(123456789012345));
+        src_data.push_back(Decimal128V3(-123456789012345));
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](0), TYPE_DECIMAL128I, 38, 6), true);
+            EXPECT_EQ("123456789.012345", node->value());
+        }
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](1), TYPE_DECIMAL128I, 38, 6), true);
+            EXPECT_EQ("-123456789.012345", node->value());
+        }
+    }
+    // decimal256
+    {
+        auto src_col = ColumnDecimal256::create(76, 8);
+        auto& src_data = src_col->get_data();
+        src_data.resize(0);
+        src_data.push_back(Decimal256(1));
+        src_data.push_back(Decimal256(123456789));
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](0), TYPE_DECIMAL256, 76, 8), true);
+            EXPECT_EQ("0.00000001", node->value());
+        }
+        {
+            auto node = std::make_shared<VLiteral>(
+                    create_texpr_node_from(src_col->operator[](1), TYPE_DECIMAL256, 76, 8), true);
+            EXPECT_EQ("1.23456789", node->value());
+        }
+    }
+    config::allow_zero_date = false;
 }

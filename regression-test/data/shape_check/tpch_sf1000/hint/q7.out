@@ -20,7 +20,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[supplier]
 --------------------------PhysicalProject
 ----------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
-------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalOlapScan[nation(n1)]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
 ----------------------PhysicalProject
@@ -31,10 +31,10 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[customer]
 --------------------------PhysicalProject
 ----------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
-------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalOlapScan[nation(n2)]
 
 Hint log:
-Used: leading(lineitem broadcast { supplier broadcast n1 } { orders shuffle { customer broadcast n2 } } )  
-UnUsed: 
+Used: leading(lineitem broadcast { supplier broadcast n1 } { orders shuffle { customer broadcast n2 } } )
+UnUsed:
 SyntaxError:
 

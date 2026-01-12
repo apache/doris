@@ -25,6 +25,7 @@ import org.apache.doris.regression.json.PartitionRecords
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.regression.util.SyncerUtils
+import org.apache.doris.regression.util.S3RepoValidate
 import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.doris.thrift.TBinlog
 import org.apache.doris.regression.json.BinlogData
@@ -146,7 +147,36 @@ class Syncer {
                     case TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ:
                     case TStatusCode.OK:
                         if (result.isSetBinlogs()) {
-                            binlog = result.getBinlogs().first()
+                            List<TBinlog> binlogs = result.getBinlogs()
+                            // Prefer a binlog that contains tableRecords for requested table to avoid NPE on ingest
+                            if (update && binlogs != null && !binlogs.isEmpty()) {
+                                Long preferTableId = -1
+                                if (!table.isEmpty() && context.sourceTableMap.containsKey(table)) {
+                                    preferTableId = context.sourceTableMap.get(table).id
+                                }
+                                for (TBinlog b : binlogs) {
+                                    if (!b.isSetData()) {
+                                        continue
+                                    }
+                                    try {
+                                        Gson gson = new Gson()
+                                        BinlogData parsed = gson.fromJson(b.getData(), BinlogData.class)
+                                        if (parsed != null && parsed.tableRecords != null) {
+                                            if (preferTableId == -1 || parsed.tableRecords.containsKey(preferTableId)) {
+                                                binlog = b
+                                                break
+                                            }
+                                        }
+                                    } catch (Throwable t) {
+                                        // fallback to default first binlog if parsing fails
+                                    }
+                                }
+                                if (binlog == null) {
+                                    binlog = binlogs.first()
+                                }
+                            } else if (binlogs != null && !binlogs.isEmpty()) {
+                                binlog = binlogs.first()
+                            }
                         }
                         break
                     case TStatusCode.BINLOG_DISABLE:
@@ -808,6 +838,12 @@ class Syncer {
 
         BinlogData binlogData = context.lastBinlog
 
+        // Guard: If current binlog has no tableRecords (e.g., ADD_PARTITION/DDL), skip ingest to avoid NPE
+        if (binlogData == null || binlogData.tableRecords == null || binlogData.tableRecords.isEmpty()) {
+            logger.info("Skip ingest: lastBinlog has no tableRecords. lastBinlog=${binlogData}")
+            return true
+        }
+
         // step 2: Begin ingest binlog
         // step 2.1: ingest each table in meta
 
@@ -936,13 +972,13 @@ class Syncer {
         "doris_build_backup_restore/${id}"
     }
 
-    void createS3Repository(String name, boolean readOnly = false) {
+    void createS3Repository(String name, boolean readOnly = false, String prefix = null) {
         String ak = suite.getS3AK()
         String sk = suite.getS3SK()
         String endpoint = suite.getS3Endpoint()
         String region = suite.getS3Region()
         String bucket = suite.getS3BucketName()
-        String prefix = externalStoragePrefix()
+        prefix = prefix == null ? externalStoragePrefix() : prefix
 
         suite.try_sql "DROP REPOSITORY `${name}`"
         suite.sql """
@@ -957,6 +993,19 @@ class Syncer {
             "s3.secret_key" = "${sk}"
         )
             """
+    }
+
+    String createS3ValidateRepository(String suiteName, String validateVersion, boolean readOnly = false) {
+        S3RepoValidate s3RepoValidate = new S3RepoValidate(suite, validateVersion, context.config)
+        String repoName = s3RepoValidate.findMatchingRepoName(suiteName)
+        if (repoName == null) {
+            String errorMsg = "No matching repository found for ${suiteName}, version: ${validateVersion}"
+            logger.error(errorMsg)
+            throw new Exception(errorMsg)
+        }
+        String prefix = "${context.config.validateBackupPrefix}/${s3RepoValidate.version}"
+        createS3Repository(repoName, readOnly, prefix)
+        return repoName
     }
 
     void createHdfsRepository(String name, boolean readOnly = false) {

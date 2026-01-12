@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -52,7 +54,7 @@ public abstract class AlterJobStatusCommand extends Command implements ForwardWi
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate();
+        validate(ctx);
         doRun(ctx, executor);
     }
 
@@ -61,12 +63,23 @@ public abstract class AlterJobStatusCommand extends Command implements ForwardWi
         return visitor.visitAlterJobStatusCommand(this, context);
     }
 
-    private void validate() throws Exception {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
+    private void validate(ConnectContext ctx) throws Exception {
+        checkAuth(ctx);
         if (jobName.startsWith(excludeJobNamePrefix)) {
             throw new AnalysisException("Can't alter inner job status");
+        }
+    }
+
+    protected void checkAuth(ConnectContext ctx) throws Exception {
+        AbstractJob job = ctx.getEnv().getJobManager().getJobByName(jobName);
+        if (job instanceof StreamingInsertJob) {
+            StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+            streamingJob.checkPrivilege(ConnectContext.get());
+            return;
+        }
+
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
 

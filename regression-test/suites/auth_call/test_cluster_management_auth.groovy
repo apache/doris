@@ -61,6 +61,10 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
     String user = 'test_cluster_management_auth_user'
     String pwd = 'C123_567p'
 
+    try_sql("DROP USER ${user}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    sql """grant select_priv on regression_test to ${user}"""
+
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -69,17 +73,10 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
-    try_sql("DROP USER ${user}")
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on regression_test to ${user}"""
-
     // pipeline can't support delete node, it can affect other case
     if (is_exists_follower()) {
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            test {
-                sql """show frontends"""
-                exception "denied"
-            }
+            sql """show frontends"""
             test {
                 sql """ALTER SYSTEM add FOLLOWER '${follower_ip}:${follower_host}'"""
                 exception "denied"
@@ -93,10 +90,7 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
 
     if (is_exists_observer()) {
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            test {
-                sql """show frontends"""
-                exception "denied"
-            }
+            sql """show frontends"""
             test {
                 sql """ALTER SYSTEM add OBSERVER '${observer_ip}:${observer_host}'"""
                 exception "denied"
@@ -110,10 +104,8 @@ suite ("test_cluster_management_auth","nonConcurrent,p0,auth_call") {
 
     if (is_exists_backends()) {
         connect(user, "${pwd}", context.config.jdbcUrl) {
-            test {
-                sql """show backends"""
-                exception "denied"
-            }
+            sql """show backends"""
+
             test {
                 sql """ALTER SYSTEM add backend '${backend_ip}:${backend_host}'"""
                 exception "denied"

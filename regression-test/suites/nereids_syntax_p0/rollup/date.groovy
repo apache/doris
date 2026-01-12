@@ -39,10 +39,10 @@ suite("date", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    createMV("CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;")
-    createMV("CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;")
-    createMV("CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;")
-    createMV("CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max1 AS SELECT store_id as a1, max(sale_date1) as a2 FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max2 AS SELECT store_id as a3, max(sale_datetime1) as a4 FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max3 AS SELECT store_id as a5, max(sale_datetime2) as a6 FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max4 AS SELECT store_id as a7, max(sale_datetime3) as a8 FROM ${tbName1} GROUP BY store_id;")
 
 
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
@@ -51,17 +51,8 @@ suite("date", "rollup") {
     Thread.sleep(2000)
 
     sql "analyze table ${tbName1} with sync;"
-    sql """set enable_stats=false;"""
-
-    mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
-
-    mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")
-
-    mv_rewrite_success("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id", "amt_max3")
-
-    mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
-    sql """set enable_stats=true;"""
     sql """alter table test_materialized_view_date1 modify column record_id set stats ('row_count'='2');"""
+
     mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
 
     mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")

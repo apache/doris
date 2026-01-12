@@ -23,6 +23,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -69,6 +72,27 @@ public class JdbcMySQLClient extends JdbcClient {
         super(jdbcClientConfig);
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         this.dbType = dbType;
+    }
+
+    @Override
+    public String getTableComment(String remoteDbName, String remoteTableName) {
+        ImmutableList.Builder<String> tableCommentBuilder = ImmutableList.builder();
+        String[] tableTypes = getTableTypes();
+        processTable(remoteDbName, remoteTableName, tableTypes, (rs) -> {
+            try {
+                while (rs.next()) {
+                    tableCommentBuilder.add(Strings.nullToEmpty(rs.getString("REMARKS")));
+                }
+            } catch (SQLException e) {
+                throw new JdbcClientException(
+                    "failed to get table's comment for remote database: `%s`, remote table: `%s`",
+                    e, remoteDbName, remoteTableName);
+            }
+        });
+
+        ImmutableList<String> tableComment = tableCommentBuilder.build();
+        Preconditions.checkArgument(tableComment.size() == 1, "Multiple tables `%s` are matched", remoteTableName);
+        return tableComment.get(0);
     }
 
     @Override
@@ -159,6 +183,27 @@ public class JdbcMySQLClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
+    }
+
+    @Override
+    public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> primaryKeys = Lists.newArrayList();
+        try {
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            rs = databaseMetaData.getPrimaryKeys(remoteDbName, null, remoteTableName);
+            while (rs.next()) {
+                String fieldName = rs.getString("COLUMN_NAME");
+                primaryKeys.add(fieldName);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+        } finally {
+            close(rs, conn);
+        }
+        return primaryKeys;
     }
 
     protected String getCatalogName(Connection conn) throws SQLException {
@@ -259,6 +304,14 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "VARCHAR":
                 return ScalarType.createVarcharType(fieldSchema.requiredColumnSize());
+            case "TINYBLOB":
+            case "BLOB":
+            case "MEDIUMBLOB":
+            case "LONGBLOB":
+            case "BINARY":
+            case "VARBINARY":
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
+                        : ScalarType.createStringType();
             case "BIT":
                 if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;
@@ -271,14 +324,8 @@ public class JdbcMySQLClient extends JdbcClient {
             case "TEXT":
             case "MEDIUMTEXT":
             case "LONGTEXT":
-            case "TINYBLOB":
-            case "BLOB":
-            case "MEDIUMBLOB":
-            case "LONGBLOB":
             case "STRING":
             case "SET":
-            case "BINARY":
-            case "VARBINARY":
             case "ENUM":
                 return ScalarType.createStringType();
             default:
@@ -287,8 +334,10 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     private boolean isConvertDatetimeToNull(JdbcClientConfig jdbcClientConfig) {
-        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
-        return jdbcClientConfig.getJdbcUrl().contains("zeroDateTimeBehavior=convertToNull");
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull" or "zeroDateTimeBehavior=convert_to_null"
+        String jdbcUrl = jdbcClientConfig.getJdbcUrl().toLowerCase();
+        return jdbcUrl.contains("zerodatetimebehavior=converttonull")
+                || jdbcUrl.contains("zerodatetimebehavior=convert_to_null");
     }
 
     /**
@@ -301,9 +350,9 @@ public class JdbcMySQLClient extends JdbcClient {
         Map<String, String> fieldToType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(remoteTableName);
+        queryBuf.append("`").append(remoteTableName).append("`");
         queryBuf.append(" FROM ");
-        queryBuf.append(remoteDbName);
+        queryBuf.append("`").append(remoteDbName).append("`");
         try {
             conn = getConnection();
             stmt = conn.createStatement();
@@ -394,6 +443,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createHllType();
             case "BITMAP":
                 return Type.BITMAP;
+            case "VARBINARY":
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             default:
                 return Type.UNSUPPORTED;
         }

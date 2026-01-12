@@ -45,12 +45,12 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
             sql """switch ${catalog_name}"""
 
             def res_dbs_log = sql "show databases;"
-            for (int i = 0; i < res_dbs_log.size(); i++) {
-                def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-                log.info("database = ${res_dbs_log[i][0]} => tables = " + tbs.toString())
-            }
+            // for (int i = 0; i < res_dbs_log.size(); i++) {
+            //     def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
+            //     log.info("database = ${res_dbs_log[i][0]} => tables = " + tbs.toString())
+            // }
             try {
-                order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey limit 1;"""
+                order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey,l_partkey limit 1;"""
                 order_qt_3 """select * from ${catalog_name}.${ex_db_name}.parquet_delta_binary_packed order by int_value limit 1;"""
                 order_qt_4 """select * from ${catalog_name}.${ex_db_name}.parquet_alltypes_tiny_pages  order by id desc  limit 5;"""
                 order_qt_5 """select * from ${catalog_name}.${ex_db_name}.orc_all_types_partition order by bigint_col desc limit 3;"""
@@ -148,12 +148,12 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
                 order_qt_parquet11 """ select decimals from ${catalog_name}.${ex_db_name}.parquet_decimal_bool 
 					where decimals is not null and decimals > 1  order by decimals limit 7 """
             } finally {
-                res_dbs_log = sql "show databases;"
-                for (int i = 0; i < res_dbs_log.size(); i++) {
-                    def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-                    log
-                            .info("database = ${res_dbs_log[i][0]} => tables  =  " + tbs.toString())
-                }
+                // res_dbs_log = sql "show databases;"
+                // for (int i = 0; i < res_dbs_log.size(); i++) {
+                //     def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
+                //     log
+                //             .info("database = ${res_dbs_log[i][0]} => tables  =  " + tbs.toString())
+                // }
             }
             //sql """drop catalog if exists ${catalog_name} """
         }

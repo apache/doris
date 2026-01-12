@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
@@ -30,24 +29,16 @@ import java.util.Optional;
 public class ColumnRefExpr extends Expr {
     private String columnName;
     private int columnId;
-    private boolean isNullable;
 
-    public ColumnRefExpr() {
+    public ColumnRefExpr(boolean nullable) {
         super();
-    }
-
-    public ColumnRefExpr(int columnId, String columnName, boolean isNullable) {
-        super();
-        this.columnId = columnId;
-        this.columnName = columnName;
-        this.isNullable = isNullable;
+        this.nullable = nullable;
     }
 
     public ColumnRefExpr(ColumnRefExpr rhs) {
         super(rhs);
         this.columnId = rhs.columnId;
         this.columnName = rhs.columnName;
-        this.isNullable = rhs.isNullable;
     }
 
     public String getName() {
@@ -66,28 +57,8 @@ public class ColumnRefExpr extends Expr {
         this.columnName = name;
     }
 
-    public int getColumnId() {
-        return columnId;
-    }
-
     public void setColumnId(int id) {
         this.columnId = id;
-    }
-
-    @Override
-    public boolean isNullable() {
-        return isNullable;
-    }
-
-    public void setNullable(boolean nullable) {
-        this.isNullable = nullable;
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (columnId < 0) {
-            throw new AnalysisException("the columnId is invalid : " + columnId);
-        }
     }
 
     @Override
@@ -122,10 +93,5 @@ public class ColumnRefExpr extends Expr {
 
     public String debugString() {
         return columnName + " (" + columnId + ")id";
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
     }
 }

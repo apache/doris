@@ -43,10 +43,10 @@ suite("test_struct_functions") {
 
     qt_select_all "SELECT * FROM ${tableName} ORDER BY k1"
 
-    qt_select_struct_element_1 "SELECT struct_element(k2,'f1'),struct_element(k2,'f2'),struct_element(k2,'f3'),struct_element(k2,'f4'),struct_element(k2,'f5') FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_2 "SELECT struct_element(k3,'f1'),struct_element(k3,'f2'),struct_element(k3,'f3') FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_3 "SELECT struct_element(k4,1),struct_element(k4,2),struct_element(k4,3),struct_element(k4,4) FROM ${tableName} ORDER BY k1"
-    qt_select_struct_element_4 "SELECT struct_element(k5,1),struct_element(k5,2),struct_element(k5,3) FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_1 "SELECT element_at(k2,'f1'),element_at(k2,'f2'),element_at(k2,'f3'),element_at(k2,'f4'),element_at(k2,'f5') FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_2 "SELECT element_at(k3,'f1'),element_at(k3,'f2'),element_at(k3,'f3') FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_3 "SELECT element_at(k4,1),element_at(k4,2),element_at(k4,3),element_at(k4,4) FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_4 "SELECT element_at(k5,1),element_at(k5,2),element_at(k5,3) FROM ${tableName} ORDER BY k1"
 
     //The precision of the decimal type in the test select is inconsistent with the precision of the function named_struct containing the decimal type.
     sql """ drop table if exists t01 --force """;

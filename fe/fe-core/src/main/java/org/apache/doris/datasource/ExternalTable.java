@@ -33,6 +33,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -46,7 +48,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -83,8 +85,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @SerializedName(value = "ta")
     private final TableAttributes tableAttributes = new TableAttributes();
 
-    // this field will be refreshed after reloading schema
-    protected volatile long schemaUpdateTime;
+    // record the table update time, like insert/alter/delete
+    protected volatile long updateTime = 0;
 
     protected long dbId;
     protected boolean objectCreated;
@@ -274,16 +276,15 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
-    // return schema update time as default
-    // override this method if there is some other kinds of update time
-    // use getSchemaUpdateTime if just need the schema update time
     @Override
+    // Returns the table update time, tracking when the table was last modified
+    // (for example, by insert, alter, or refresh operations).
     public long getUpdateTime() {
-        return this.schemaUpdateTime;
+        return updateTime;
     }
 
-    public void setUpdateTime(long schemaUpdateTime) {
-        this.schemaUpdateTime = schemaUpdateTime;
+    public void setUpdateTime(long updateTime) {
+        this.updateTime = updateTime;
     }
 
     @Override
@@ -343,7 +344,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @return
      */
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
-        schemaUpdateTime = System.currentTimeMillis();
+        setUpdateTime(System.currentTimeMillis());
         return initSchema(key);
     }
 
@@ -453,6 +454,18 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
+    /**
+     * Get sorted partition ranges for binary search filtering.
+     * Subclasses can override this method to provide sorted partition ranges
+     * for efficient partition pruning.
+     *
+     * @param scan the catalog relation
+     * @return sorted partition ranges, or empty if not supported
+     */
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        return Optional.empty();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -468,10 +481,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hashCode(name, db);
-    }
-
-    public long getSchemaUpdateTime() {
-        return schemaUpdateTime;
     }
 
     public long getDbId() {
@@ -506,25 +515,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return tableAttributes;
     }
 
-    /**
-     * Build the name mapping for this table.
-     * If "use_meta_cache" is true, the "nameMapping" should already be created in constructor.
-     * But if "use_meta_cache" is false, we can not create "nameMapping" in constructor because the catalog and db
-     * object may be null at that time.
-     * So we need to check and build the name mapping here, for both "use_meta_cache" true or false.
-     *
-     * @return
-     */
     public NameMapping getOrBuildNameMapping() {
-        if (nameMapping != null) {
-            return nameMapping;
-        }
-        synchronized (this) {
-            if (nameMapping != null) {
-                return nameMapping;
-            }
-            nameMapping = new NameMapping(catalog.getId(), dbName, name, db.getRemoteName(), getRemoteName());
-            return nameMapping;
-        }
+        return nameMapping;
     }
 }

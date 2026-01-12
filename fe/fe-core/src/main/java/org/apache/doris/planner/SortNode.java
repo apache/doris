@@ -21,11 +21,9 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -33,14 +31,9 @@ import org.apache.doris.thrift.TSortAlgorithm;
 import org.apache.doris.thrift.TSortInfo;
 import org.apache.doris.thrift.TSortNode;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -50,11 +43,9 @@ import java.util.List;
  * Please refer to this regression test:regression-test/suites/query/aggregate/aggregate_count1.groovy.
  */
 public class SortNode extends PlanNode {
-    private static final Logger LOG = LogManager.getLogger(SortNode.class);
     // info_.sortTupleSlotExprs_ substituted with the outputSmap_ for materialized slots in init().
-    List<Expr> resolvedTupleExprs;
     private final SortInfo info;
-    private final boolean  useTopN;
+    private final boolean useTopN;
     private boolean useTopnOpt = false;
     private boolean useTwoPhaseReadOpt;
     private boolean hasRuntimePredicate = false;
@@ -68,12 +59,8 @@ public class SortNode extends PlanNode {
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private boolean isColocate = false;
-    private DataPartition inputPartition;
     TSortAlgorithm algorithm;
-
-    private boolean isUnusedExprRemoved = false;
-
-    private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
+    private long fullSortMaxBufferedBytes = -1;
 
     // topn filter target: ScanNode id + slot desc
     private List<Pair<Integer, Integer>> topnFilterTargets;
@@ -81,21 +68,15 @@ public class SortNode extends PlanNode {
     /**
      * Constructor.
      */
-    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN, long offset) {
-        super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
+    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
+        super(id, useTopN ? "TOP-N" : "SORT");
         this.info = info;
         this.useTopN = useTopN;
         this.tupleIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
-        this.tblRefIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
-        this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.children.add(input);
-        this.offset = offset;
+        this.offset = 0;
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());
         updateSortAlgorithm();
-    }
-
-    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
-        this(id, input, info, useTopN, 0);
     }
 
     private void updateSortAlgorithm() {
@@ -123,6 +104,10 @@ public class SortNode extends PlanNode {
                     algorithm = TSortAlgorithm.TOPN_SORT;
                 }
             }
+        }
+
+        if (connectContext != null && connectContext.getSessionVariable().fullSortMaxBufferedBytes > 0) {
+            fullSortMaxBufferedBytes = connectContext.getSessionVariable().fullSortMaxBufferedBytes;
         }
     }
 
@@ -156,15 +141,6 @@ public class SortNode extends PlanNode {
     public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
         this.useTwoPhaseReadOpt = useTwoPhaseReadOpt;
         updateSortAlgorithm();
-    }
-
-    public List<Expr> getResolvedTupleExprs() {
-        return resolvedTupleExprs;
-    }
-
-    @Override
-    public void setCompactData(boolean on) {
-        this.compactData = on;
     }
 
     @Override
@@ -215,34 +191,12 @@ public class SortNode extends PlanNode {
         return output.toString();
     }
 
-    private void removeUnusedExprs() {
-        if (!isUnusedExprRemoved) {
-            if (resolvedTupleExprs != null) {
-                List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-                for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-                    if (!slotDescriptorList.get(i).isMaterialized()) {
-                        resolvedTupleExprs.remove(i);
-                        nullabilityChangedFlags.remove(i);
-                    }
-                }
-            }
-            isUnusedExprRemoved = true;
-        }
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
 
         TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
-        removeUnusedExprs();
-        if (resolvedTupleExprs != null) {
-            sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
-            // FIXME this is a bottom line solution for wrong nullability of resolvedTupleExprs
-            // remove the following line after nereids online
-            sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
-        }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
         msg.sort_node = sortNode;
@@ -253,19 +207,10 @@ public class SortNode extends PlanNode {
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 
-
         msg.sort_node.setAlgorithm(algorithm);
-    }
-
-    @Override
-    protected String debugString() {
-        List<String> strings = Lists.newArrayList();
-        for (Boolean isAsc : info.getIsAscOrder()) {
-            strings.add(isAsc ? "a" : "d");
+        if (fullSortMaxBufferedBytes > 0) {
+            msg.sort_node.setFullSortMaxBufferedBytes(fullSortMaxBufferedBytes);
         }
-        return MoreObjects.toStringHelper(this).add("ordering_exprs",
-                Expr.debugString(info.getOrderingExprs())).add("is_asc",
-                "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
     }
 
     // If it's analytic sort or not merged by a followed exchange node, it must output the global ordered data.

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_contains_with_inverted_index"){
+suite("test_array_contains_with_inverted_index") {
     // prepare test table
     def indexTblName = "tai"
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
@@ -25,32 +25,34 @@ suite("test_array_contains_with_inverted_index"){
         sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
         sql """ set enable_profile = true;"""
 
-        sql "DROP TABLE IF EXISTS ${indexTblName}"
-        // create 1 replica table
-        def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-        if (storageFormat == "V1" && isCloudMode()) {
-            return;
-        }
-        sql """
-        CREATE TABLE IF NOT EXISTS `${indexTblName}` (
-        `apply_date` date NULL COMMENT '',
-        `id` varchar(60) NOT NULL COMMENT '',
-        `inventors` variant NULL COMMENT '',
-        INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`apply_date`, `id`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "is_being_synced" = "false",
-        "storage_format" = "V2",
-        "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
-        "inverted_index_storage_format" = "$storageFormat"
-        );
-        """
+    sql "DROP TABLE IF EXISTS ${indexTblName}"
+    // create 1 replica table
+    def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
+    if (storageFormat == "V1" && isCloudMode()) {
+        return;
+    }
+    sql """
+	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
+      `apply_date` date NULL COMMENT '',
+      `id` varchar(60) NOT NULL COMMENT '',
+      `inventors` variant<
+        MATCH_NAME 'inventors' : array<text>
+    > NULL COMMENT '',
+      INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors", "support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`apply_date`, `id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "is_being_synced" = "false",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false",
+    "inverted_index_storage_format" = "$storageFormat"
+    );
+    """
 
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '{"inventors":["a", "b", "c"]}'); """
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332d', '{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}'); """

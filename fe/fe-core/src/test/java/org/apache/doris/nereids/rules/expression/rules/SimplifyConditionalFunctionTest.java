@@ -26,10 +26,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -60,10 +58,10 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         assertRewrite(new Coalesce(slot, nonNullableSlot), new Coalesce(slot, nonNullableSlot));
 
         // coalesce(null, null) -> null
-        assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE), new NullLiteral(BooleanType.INSTANCE));
+        assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE), NullLiteral.INSTANCE);
 
         // coalesce(null) -> null
-        assertRewrite(new Coalesce(NullLiteral.INSTANCE), new NullLiteral(BooleanType.INSTANCE));
+        assertRewrite(new Coalesce(NullLiteral.INSTANCE), NullLiteral.INSTANCE);
 
         // coalesce(non-nullable_slot) -> non-nullable_slot
         assertRewrite(new Coalesce(nonNullableSlot), nonNullableSlot);
@@ -105,7 +103,7 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         assertRewrite(new Nvl(nonNullableSlot, NullLiteral.INSTANCE), nonNullableSlot);
 
         // nvl(null, null) -> null
-        assertRewrite(new Nvl(NullLiteral.INSTANCE, NullLiteral.INSTANCE), new NullLiteral(BooleanType.INSTANCE));
+        assertRewrite(new Nvl(NullLiteral.INSTANCE, NullLiteral.INSTANCE), NullLiteral.INSTANCE);
 
         SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
         // nvl(null_datetime(0), non-nullable_slot_datetime(6))
@@ -127,7 +125,7 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         SlotReference nonNullableSlot = new SlotReference("b", StringType.INSTANCE, false);
         // nullif(null, slot) -> null
         assertRewrite(new NullIf(NullLiteral.INSTANCE, slot),
-                new Nullable(new NullLiteral(VarcharType.SYSTEM_DEFAULT)));
+                new Nullable(new NullLiteral(StringType.INSTANCE)));
 
         // nullif(nullable_slot, null) -> slot
         assertRewrite(new NullIf(slot, NullLiteral.INSTANCE), new Nullable(slot));

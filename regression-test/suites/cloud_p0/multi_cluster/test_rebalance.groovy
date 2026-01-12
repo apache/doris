@@ -40,8 +40,8 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
             'sys_log_verbose_modules=org',
         ]
     }
-    clusterOptions[0].feConfigs += ['enable_cloud_warm_up_for_rebalance=true',             'cloud_pre_heating_time_limit_sec=300']
-    clusterOptions[1].feConfigs += ['enable_cloud_warm_up_for_rebalance=false']
+    clusterOptions[0].feConfigs += ['cloud_warm_up_for_rebalance_type=sync_warmup','cloud_pre_heating_time_limit_sec=300']
+    clusterOptions[1].feConfigs += ['cloud_warm_up_for_rebalance_type=without_warmup']
 
 
     for (int i = 0; i < clusterOptions.size(); i++) {
@@ -76,13 +76,13 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
             // add a be
             cluster.addBackend(1, null)
             
-            dockerAwaitUntil(30) {
+            awaitUntil(30) {
                 def bes = sql """show backends"""
                 log.info("bes: {}", bes)
                 bes.size() == 2
             }
 
-            dockerAwaitUntil(5) {
+            awaitUntil(5) {
                 def ret = sql """ADMIN SHOW REPLICA DISTRIBUTION FROM table100"""
                 log.info("replica distribution table100: {}", ret)
                 ret.size() == 2
@@ -102,7 +102,7 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
                 }
             }
 
-            dockerAwaitUntil(5) {
+            awaitUntil(5) {
                 def ret = sql """ADMIN SHOW REPLICA DISTRIBUTION FROM table_p2 PARTITION(p1992)"""
                 log.info("replica distribution table_p2: {}", ret)
                 ret.size() == 2
@@ -178,16 +178,16 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
             // add a be
             cluster.addBackend(1, null)
             // warm up
-            sql """admin set frontend config("enable_cloud_warm_up_for_rebalance"="true")"""
+            sql """admin set frontend config("cloud_warm_up_for_rebalance_type"="sync_warmup")"""
 
             // test rebalance thread still work
-            dockerAwaitUntil(30) {
+            awaitUntil(30) {
                 def bes = sql """show backends"""
                 log.info("bes: {}", bes)
                 bes.size() == 3
             }
 
-            dockerAwaitUntil(5) {
+            awaitUntil(5) {
                 def ret = sql """ADMIN SHOW REPLICA DISTRIBUTION FROM table100"""
                 log.info("replica distribution table100: {}", ret)
                 ret.size() == 3
@@ -205,7 +205,7 @@ suite('test_rebalance_in_cloud', 'multi_cluster,docker') {
                 sleep(1 * 1000)
             }
             GetDebugPoint().disableDebugPointForAllFEs("CloudTabletRebalancer.checkInflghtWarmUpCacheAsync.beNull");
-            dockerAwaitUntil(10) {
+            awaitUntil(10) {
                 def ret = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM table100"""
                 log.info("replica distribution table100: {}", ret)
                 ret.any { row -> 

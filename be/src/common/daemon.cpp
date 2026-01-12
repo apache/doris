@@ -166,7 +166,7 @@ void Daemon::tcmalloc_gc_thread() {
             }
         }
 
-        int release_rate_index = memory_pressure / 10;
+        int release_rate_index = int(memory_pressure) / 10;
         double release_rate = 1.0;
         if (release_rate_index >= sizeof(release_rates) / sizeof(release_rates[0])) {
             release_rate = 2000.0;
@@ -348,7 +348,7 @@ void Daemon::memory_maintenance_thread() {
 
         // step 6. Refresh weighted memory ratio of workload groups.
         doris::ExecEnv::GetInstance()->workload_group_mgr()->do_sweep();
-        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_workload_group_memory_state();
 
         // step 7: handle paused queries(caused by memory insufficient)
         doris::ExecEnv::GetInstance()->workload_group_mgr()->handle_paused_queries();

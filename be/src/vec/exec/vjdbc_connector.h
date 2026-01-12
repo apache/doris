@@ -21,6 +21,7 @@
 #include <gen_cpp/Types_types.h>
 #include <jni.h>
 #include <stdint.h>
+#include <util/jni-util.h>
 
 #include <map>
 #include <string>
@@ -56,6 +57,7 @@ struct JdbcConnectorParam {
     std::string table_name;
     bool use_transaction = false;
     TOdbcTableType::type table_type;
+    bool is_tvf = false;
     int32_t connection_pool_min_size = -1;
     int32_t connection_pool_max_size = -1;
     int32_t connection_pool_max_wait_time = -1;
@@ -96,11 +98,6 @@ public:
                   uint32_t start_send_row, uint32_t* num_rows_sent,
                   TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
 
-    Status exec_write_sql(const std::u16string& insert_stmt,
-                          const fmt::memory_buffer& insert_stmt_buffer) override {
-        return Status::OK();
-    }
-
     Status exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs,
                            uint32_t* num_rows_sent) override;
 
@@ -127,7 +124,7 @@ protected:
 private:
     Status _register_func_id(JNIEnv* env);
 
-    jobject _get_reader_params(Block* block, JNIEnv* env, size_t column_size);
+    Status _get_reader_params(Block* block, JNIEnv* env, size_t column_size, Jni::LocalObject* ans);
 
     Status _cast_string_to_special(Block* block, JNIEnv* env, size_t column_size);
     Status _cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block, int column_index,
@@ -136,28 +133,31 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
-    jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
 
-    std::string _get_real_url(const std::string& url);
-    std::string _check_and_return_default_driver_url(const std::string& url);
+    Status _get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
+                                Jni::LocalObject* java_enum_obj);
+
+    Status _get_real_url(const std::string& url, std::string* result_url);
+    Status _check_and_return_default_driver_url(const std::string& url, std::string* result_url);
 
     bool _closed = false;
-    jclass _executor_factory_clazz;
-    jclass _executor_clazz;
-    jobject _executor_obj;
-    jmethodID _executor_factory_ctor_id;
-    jmethodID _executor_ctor_id;
-    jmethodID _executor_stmt_write_id;
-    jmethodID _executor_read_id;
-    jmethodID _executor_has_next_id;
-    jmethodID _executor_get_block_address_id;
-    jmethodID _executor_block_rows_id;
-    jmethodID _executor_close_id;
-    jmethodID _executor_begin_trans_id;
-    jmethodID _executor_finish_trans_id;
-    jmethodID _executor_abort_trans_id;
-    jmethodID _executor_test_connection_id;
-    jmethodID _executor_clean_datasource_id;
+
+    Jni::GlobalClass _executor_factory_clazz;
+    Jni::GlobalClass _executor_clazz;
+    Jni::GlobalObject _executor_obj;
+    Jni::MethodId _executor_factory_ctor_id;
+    Jni::MethodId _executor_ctor_id;
+    Jni::MethodId _executor_stmt_write_id;
+    Jni::MethodId _executor_read_id;
+    Jni::MethodId _executor_has_next_id;
+    Jni::MethodId _executor_get_block_address_id;
+    Jni::MethodId _executor_block_rows_id;
+    Jni::MethodId _executor_close_id;
+    Jni::MethodId _executor_begin_trans_id;
+    Jni::MethodId _executor_finish_trans_id;
+    Jni::MethodId _executor_abort_trans_id;
+    Jni::MethodId _executor_test_connection_id;
+    Jni::MethodId _executor_clean_datasource_id;
 
     std::map<int, int> _map_column_idx_to_cast_idx_hll;
     std::vector<DataTypePtr> _input_hll_string_types;

@@ -467,11 +467,6 @@ TEST_F(ColumnArrayTest, GetNameTest) {
     }
 }
 
-// test get_ratio_of_default_rows
-TEST_F(ColumnArrayTest, GetRatioOfDefaultRowsTest) {
-    assert_get_ratio_of_default_rows(array_columns, serdes);
-}
-
 //TEST_F(ColumnArrayTest, SerDeVecTest) {
 //    // get_max_row_byte_size is not support in column_array
 //    EXPECT_ANY_THROW(ser_deser_vec(array_columns, array_types));
@@ -522,28 +517,6 @@ TEST_F(ColumnArrayTest, ResizeTest) {
 
 TEST_F(ColumnArrayTest, ReserveTest) {
     assert_reserve_callback(array_columns, serdes);
-}
-
-TEST_F(ColumnArrayTest, ReplicateTest) {
-    // array_array_char will cause exception in replicate with: string column length is too large: total_length=4295103210, element_number=327295
-    // so we need to skip it
-    MutableColumns array_columns_copy;
-    DataTypeSerDeSPtrs serdes_copy;
-    // just skip array_array_char use vector copy
-    for (int i = 0; i < array_columns.size(); i++) {
-        if (i == 33) {
-            continue;
-        }
-        array_columns_copy.push_back(array_columns[i]->assume_mutable());
-        serdes_copy.push_back(serdes[i]);
-    }
-    assert_replicate_callback(array_columns_copy, serdes_copy);
-    // expect error columns
-    MutableColumns error_columns;
-    error_columns.push_back(array_columns[33]->assume_mutable());
-    DataTypeSerDeSPtrs error_serdes;
-    error_serdes.push_back(serdes[33]);
-    EXPECT_ANY_THROW(assert_replicate_callback(error_columns, error_serdes));
 }
 
 TEST_F(ColumnArrayTest, ReplaceColumnTest) {

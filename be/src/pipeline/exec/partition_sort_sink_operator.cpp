@@ -35,7 +35,6 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
-    _partition_columns.resize(p._partition_expr_ctxs.size());
     for (size_t i = 0; i < p._partition_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._partition_expr_ctxs[i]->clone(state, _partition_expr_ctxs[i]));
     }
@@ -70,13 +69,15 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int ope
                                                        const DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, tnode.node_id, dest_id),
           _pool(pool),
-          _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _row_descriptor(descs, tnode.row_tuples),
           _limit(tnode.limit),
           _partition_exprs_num(static_cast<int>(tnode.partition_sort_node.partition_exprs.size())),
           _topn_phase(tnode.partition_sort_node.ptopn_phase),
           _has_global_limit(tnode.partition_sort_node.has_global_limit),
           _top_n_algorithm(tnode.partition_sort_node.top_n_algorithm),
-          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit) {}
+          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit),
+          _distribute_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                                : std::vector<TExpr> {}) {}
 
 Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -152,7 +153,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
             local_state._value_places[i]->_blocks.clear();
-            RETURN_IF_ERROR(sorter->prepare_for_read());
+            RETURN_IF_ERROR(sorter->prepare_for_read(false));
             INJECT_MOCK_SLEEP(std::unique_lock<std::mutex> lc(
                     local_state._shared_state->prepared_finish_lock));
             sorter->set_prepared_finish();
@@ -179,15 +180,13 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
 Status PartitionSortSinkOperatorX::_split_block_by_partition(
         vectorized::Block* input_block, PartitionSortSinkLocalState& local_state, bool eos) {
+    vectorized::ColumnRawPtrs key_columns_raw_ptr(_partition_exprs_num);
+    vectorized::Columns key_columns(_partition_exprs_num);
     for (int i = 0; i < _partition_exprs_num; ++i) {
-        int result_column_id = -1;
-        RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(input_block, &result_column_id));
-        DCHECK(result_column_id != -1);
-        local_state._partition_columns[i] =
-                input_block->get_by_position(result_column_id).column.get();
+        RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(input_block, key_columns[i]));
+        key_columns_raw_ptr[i] = key_columns[i].get();
     }
-    RETURN_IF_ERROR(_emplace_into_hash_table(local_state._partition_columns, input_block,
-                                             local_state, eos));
+    RETURN_IF_ERROR(_emplace_into_hash_table(key_columns_raw_ptr, input_block, local_state, eos));
     return Status::OK();
 }
 
@@ -218,7 +217,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         using AggState = typename HashMethodType::State;
 
                         AggState state(key_columns);
-                        size_t num_rows = input_block->rows();
+                        uint32_t num_rows = (uint32_t)input_block->rows();
                         agg_method.init_serialized_keys(key_columns, num_rows);
 
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {

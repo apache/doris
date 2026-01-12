@@ -32,8 +32,8 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -44,7 +44,6 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/file_scanner.h"
@@ -64,6 +63,10 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
                                              "col6", "col7", "col8", "col9"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"col1", 0}, {"col2", 1}, {"col3", 2}, {"col4", 3}, {"col5", 4},
+            {"col6", 5}, {"col7", 6}, {"col8", 7}, {"col9", 8},
+    };
     ObjectPool object_pool;
     DescriptorTblBuilder builder(&object_pool);
     builder.declare_tuple() << std::make_tuple<vectorized::DataTypePtr, std::string>(
@@ -104,7 +107,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                                        "col9");
     DescriptorTbl* desc_tbl = builder.build();
     auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    RowDescriptor row_desc(tuple_desc, false);
+    RowDescriptor row_desc(tuple_desc);
     TFileScanRangeParams params;
     params.file_type = TFileType::FILE_LOCAL;
     TFileRangeDesc range;
@@ -115,12 +118,14 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     range.__isset.table_format_params = true;
 
     io::IOContext io_ctx;
+    io::FileReaderStats file_reader_stats;
+    io_ctx.file_reader_stats = &file_reader_stats;
     std::string time_zone = "CST";
     auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
-                                           time_zone, &io_ctx, true);
+                                           time_zone, &io_ctx, nullptr, true);
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr file_reader;
-    static_cast<void>(reader->set_read_lines_mode({line}));
+    static_cast<void>(reader->read_by_rows({line}));
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
@@ -131,8 +136,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
-                                      nullptr, nullptr);
+    auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false, tuple_desc,
+                                      &row_desc, nullptr, nullptr);
 
     EXPECT_TRUE(status.ok());
 
@@ -155,8 +160,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     bool eof = false;
     size_t read_row = 0;
     static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
-    auto row_id_string_column =
-            static_cast<const ColumnString&>(*block->get_by_name("row_id").column.get());
+    auto row_id_string_column = static_cast<const ColumnString&>(
+            *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
                 *((GlobalRowLoacationV2*)row_id_string_column.get_data_at(i).data);
@@ -165,7 +170,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
     }
-    block->erase("row_id");
+    block->erase(block->get_position_by_name("row_id"));
 
     std::cout << block->dump_data();
     EXPECT_EQ(block->dump_data(), block_dump);
@@ -188,12 +193,12 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     auto vf = FileScanner::create_unique(runtime_state.get(), runtime_profile.get(), &params,
                                          &colname_to_slot_id, tuple_desc);
-    EXPECT_TRUE(vf->prepare_for_read_one_line(range).ok());
+    EXPECT_TRUE(vf->prepare_for_read_lines(range).ok());
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-    auto st = vf->read_one_line_from_range(range, line, block.get(), external_info, &init_reader_ms,
-                                           &get_block_ms);
+    auto st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
+                                        &get_block_ms);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(block->dump_data(1), block_dump);
 }

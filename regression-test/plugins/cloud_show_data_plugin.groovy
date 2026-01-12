@@ -80,6 +80,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
         sb.append(tablet["CompactionStatus"])
         String command = sb.toString()
         logger.info(command)
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
         def process = command.execute()
         def code = process.waitFor()
         def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
@@ -186,8 +189,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
     }
 
     Suite.metaClass.show_table_data_size_through_mysql = { String table ->
+        logger.info("[show_table_data_size_through_mysql] 表名: ${table}")
         def mysqlShowDataSize = 0L
         def res = sql_return_maparray " show data from ${table}"
+        logger.info("[show_table_data_size_through_mysql] show data结果: " + res.toString())
         def tableSizeInfo = res[0]
         def fields = tableSizeInfo["Size"].split(" ")
         if (fields.length == 2 ){
@@ -196,13 +201,16 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
             mysqlShowDataSize = translate_different_unit_to_MB(sizeField, unitField)
         }
         def round_size = new BigDecimal(mysqlShowDataSize).setScale(0, BigDecimal.ROUND_FLOOR);
+        logger.info("[show_table_data_size_through_mysql] 最终结果: ${round_size} MB")
         return round_size
     }
 
     Suite.metaClass.caculate_table_data_size_through_api = { List<List<Object>> tablets ->
         Double apiCaculateSize = 0 
         for (HashMap tablet in tablets) {
+            def tabletId = tablet.TabletId
             def tabletStatus = show_tablet_compaction(tablet)
+            logger.info("[caculate_table_data_size_through_api] tablet ID: ${tabletId}, status: " + tabletStatus.toString())
             
             for(String rowset: tabletStatus.rowsets){
                 def fields = rowset.split(" ")
@@ -215,6 +223,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
             }
         }
         def round_size = new BigDecimal(apiCaculateSize).setScale(0, BigDecimal.ROUND_FLOOR);
+        logger.info("[caculate_table_data_size_through_api] 最终结果: ${round_size} MB")
         return round_size
     }
 
@@ -274,10 +283,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
         getBackendIpHttpPort(backendIdToBackendIP, backendIdToBackendHttpPort);
 
         def backendId = backendIdToBackendIP.keySet()[0]
-
+        def code, out, err
         def get_be_param = { paramName ->
             // assuming paramName on all BEs have save value
-            def (code, out, err) = show_be_config(backendIdToBackendIP.get(backendId), backendIdToBackendHttpPort.get(backendId))
+            (code, out, err) = show_be_config(backendIdToBackendIP.get(backendId), backendIdToBackendHttpPort.get(backendId))
             assertEquals(code, 0)
             def configList = parseJson(out.trim())
             assert configList instanceof List

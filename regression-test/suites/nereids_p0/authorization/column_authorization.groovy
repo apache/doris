@@ -54,7 +54,12 @@ suite("column_authorization") {
 
     sql 'sync'
 
-    def defaultDbUrl = context.config.jdbcUrl.substring(0, context.config.jdbcUrl.lastIndexOf("/"))
+    def url = context.config.jdbcUrl
+    def thirdSlashIndex = url.findIndexOf(0) { it == '/' } // 第一个 /
+    thirdSlashIndex = url.findIndexOf(thirdSlashIndex + 1) { it == '/' } // 第二个 /
+    thirdSlashIndex = url.findIndexOf(thirdSlashIndex + 1) { it == '/' } // 第三个 /
+    def questionIndex = url.indexOf('?')
+    def defaultDbUrl = url[0..thirdSlashIndex] + url.substring(questionIndex)
     logger.info("connect to ${defaultDbUrl}".toString())
     connect(user1, null, defaultDbUrl) {
         sql "set enable_fallback_to_original_planner=false"
@@ -66,12 +71,12 @@ suite("column_authorization") {
         }
         sql "use ${db}"
         test {
-            sql "create materialized view mv_xyz as select id, name from ${db}.${baseTable}"
+            sql "create materialized view mv_xyz as select id as a1, name as a2 from ${db}.${baseTable}"
             exception "Permission denied"
         }
 
         test {
-            sql "create materialized view mv_xyz as select id from ${db}.${baseTable}"
+            sql "create materialized view mv_xyz as select id as a3 from ${db}.${baseTable}"
             exception "Access denied; you need (at least one of) the (ALTER) privilege(s) for this operation"
         }
 

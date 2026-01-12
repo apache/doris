@@ -52,6 +52,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static const char* FIELD_SCROLL_ID = "_scroll_id";
 static const char* FIELD_HITS = "hits";
@@ -189,7 +190,7 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
 
 template <PrimitiveType T>
 Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
-                          typename PrimitiveTypeTraits<T>::ColumnItemType* slot,
+                          typename PrimitiveTypeTraits<T>::CppType* slot,
                           const cctz::time_zone& time_zone) {
     constexpr bool is_datetime_v1 = T == TYPE_DATE || T == TYPE_DATETIME;
     typename PrimitiveTypeTraits<T>::CppType dt_val;
@@ -201,7 +202,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             std::chrono::system_clock::time_point tp;
             // time_zone suffix pattern
             // Z/+08:00/-04:30
-            RE2 time_zone_pattern(R"([+-]\d{2}:\d{2}|Z)");
+            RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
             bool ok = false;
             std::string fmt;
             re2::StringPiece value;
@@ -270,16 +271,13 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
     }
 
-    *reinterpret_cast<typename PrimitiveTypeTraits<T>::ColumnItemType*>(slot) =
-            binary_cast<typename PrimitiveTypeTraits<T>::CppType,
-                        typename PrimitiveTypeTraits<T>::ColumnItemType>(
-                    *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&dt_val));
+    *slot = *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&dt_val);
     return Status::OK();
 }
 
 template <PrimitiveType T>
 Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                    typename PrimitiveTypeTraits<T>::ColumnItemType* slot,
+                    typename PrimitiveTypeTraits<T>::CppType* slot,
                     const cctz::time_zone& time_zone) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (col.IsNumber()) {
@@ -308,7 +306,7 @@ Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_d
 template <PrimitiveType T>
 Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
                      vectorized::IColumn* col_ptr, const cctz::time_zone& time_zone) {
-    typename PrimitiveTypeTraits<T>::ColumnItemType data;
+    typename PrimitiveTypeTraits<T>::CppType data;
     RETURN_IF_ERROR((get_date_int<T>(col, type, pure_doc_value, &data, time_zone)));
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
     return Status::OK();
@@ -425,11 +423,11 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
 
 template <PrimitiveType T>
 Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
-                    typename PrimitiveTypeTraits<T>::ColumnItemType& val) {
+                    typename PrimitiveTypeTraits<T>::CppType& val) {
     if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT || T == TYPE_BIGINT ||
                   T == TYPE_LARGEINT) {
-        RETURN_IF_ERROR(get_int_value<typename PrimitiveTypeTraits<T>::ColumnItemType>(
-                col, sub_type, &val, pure_doc_value));
+        RETURN_IF_ERROR(get_int_value<typename PrimitiveTypeTraits<T>::CppType>(col, sub_type, &val,
+                                                                                pure_doc_value));
         return Status::OK();
     }
     if constexpr (T == TYPE_FLOAT) {
@@ -456,7 +454,7 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
         }
 
         if (col.IsNumber()) {
-            val = col.GetInt();
+            val = static_cast<typename PrimitiveTypeTraits<T>::CppType>(col.GetInt());
             return Status::OK();
         }
 
@@ -484,7 +482,7 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
 template <PrimitiveType T>
 Status process_single_column(const rapidjson::Value& col, PrimitiveType sub_type,
                              bool pure_doc_value, vectorized::Array& array) {
-    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    typename PrimitiveTypeTraits<T>::CppType val;
     RETURN_IF_ERROR(handle_value<T>(col, sub_type, pure_doc_value, val));
     array.push_back(vectorized::Field::create_field<T>(val));
     return Status::OK();
@@ -513,14 +511,32 @@ template <PrimitiveType T>
 Status process_date_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
                            vectorized::Array& array, const cctz::time_zone& time_zone) {
     if (!col.IsArray()) {
-        typename PrimitiveTypeTraits<T>::ColumnItemType data;
+        typename PrimitiveTypeTraits<T>::CppType data;
         RETURN_IF_ERROR((get_date_int<T>(col, sub_type, pure_doc_value, &data, time_zone)));
         array.push_back(vectorized::Field::create_field<T>(data));
     } else {
         for (const auto& sub_col : col.GetArray()) {
-            typename PrimitiveTypeTraits<T>::ColumnItemType data;
+            typename PrimitiveTypeTraits<T>::CppType data;
             RETURN_IF_ERROR((get_date_int<T>(sub_col, sub_type, pure_doc_value, &data, time_zone)));
             array.push_back(vectorized::Field::create_field<T>(data));
+        }
+    }
+    return Status::OK();
+}
+
+Status process_jsonb_column(const rapidjson::Value& col, PrimitiveType sub_type,
+                            bool pure_doc_value, vectorized::Array& array) {
+    if (!col.IsArray()) {
+        JsonBinaryValue jsonb_value;
+        RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(col)));
+        vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
+        array.push_back(vectorized::Field::create_field<TYPE_JSONB>(std::move(json)));
+    } else {
+        for (const auto& sub_col : col.GetArray()) {
+            JsonBinaryValue jsonb_value;
+            RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(sub_col)));
+            vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
+            array.push_back(vectorized::Field::create_field<TYPE_JSONB>(json));
         }
     }
     return Status::OK();
@@ -559,6 +575,9 @@ Status ScrollParser::parse_column(const rapidjson::Value& col, PrimitiveType sub
     case TYPE_DATETIMEV2: {
         return process_date_column<TYPE_DATETIMEV2>(col, sub_type, pure_doc_value, array,
                                                     time_zone);
+    }
+    case TYPE_JSONB: {
+        return process_jsonb_column(col, sub_type, pure_doc_value, array);
     }
     default:
         LOG(ERROR) << "Do not support Array type: " << sub_type;
@@ -638,11 +657,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
-        auto col_ptr = columns[i].get();
+        auto* col_ptr = columns[i].get();
 
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
         if (slot_desc->col_name() == FIELD_ID) {
             // actually this branch will not be reached, this is guaranteed by Doris FE.
             if (pure_doc_value) {
@@ -761,7 +777,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             }
 
             if (col.IsNumber()) {
-                int8_t val = col.GetInt();
+                int8_t val = static_cast<int8_t>(col.GetInt());
                 col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 break;
             }
@@ -812,7 +828,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                         val = col.GetString();
                     }
                 }
-                data.parse_from_str(val.data(), val.length());
+                data.parse_from_str(val.data(), static_cast<int32_t>(val.length()));
             }
             col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
             break;
@@ -864,5 +880,5 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     *line_eof = false;
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

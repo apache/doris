@@ -90,7 +90,11 @@ struct FunctionExplodeV2 {
             }
         }
 
-        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
+        if (fieldTypes.size() > 1) {
+            return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
+        } else {
+            return make_nullable(fieldTypes[0]);
+        }
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
@@ -116,7 +120,7 @@ struct FunctionPoseExplode {
         DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
-        fieldTypes[0] = make_nullable(std::make_shared<DataTypeInt32>());
+        fieldTypes[0] = std::make_shared<DataTypeInt32>();
         fieldTypes[1] =
                 check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type();
         auto struct_type = std::make_shared<vectorized::DataTypeStruct>(fieldTypes);

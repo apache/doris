@@ -21,6 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumn;
+import org.apache.doris.nereids.trees.plans.logical.SupportPruneNestedColumnFormats;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -28,7 +30,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import java.util.Map;
 
 /** s3 */
-public class S3 extends TableValuedFunction {
+public class S3 extends TableValuedFunction implements SupportPruneNestedColumn {
     public S3(Properties properties) {
         super("s3", properties);
     }
@@ -51,5 +53,10 @@ public class S3 extends TableValuedFunction {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitS3(this, context);
+    }
+
+    @Override
+    public boolean supportPruneNestedColumn() {
+        return SupportPruneNestedColumnFormats.supportFormat(getTVFProperties());
     }
 }

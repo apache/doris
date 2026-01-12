@@ -43,6 +43,7 @@
 #include "common/status.h"
 #include "io/fs/obj_storage_client.h"
 #include "util/bvar_helper.h"
+#include "util/coding.h"
 #include "util/s3_util.h"
 
 using namespace Azure::Storage::Blobs;
@@ -54,8 +55,9 @@ std::string wrap_object_storage_path_msg(const doris::io::ObjectStoragePathOptio
 }
 
 auto base64_encode_part_num(int part_num) {
-    return Aws::Utils::HashingUtils::Base64Encode(
-            {reinterpret_cast<unsigned char*>(&part_num), sizeof(part_num)});
+    uint8_t buf[4];
+    doris::encode_fixed32_le(buf, static_cast<uint32_t>(part_num));
+    return Aws::Utils::HashingUtils::Base64Encode({buf, sizeof(buf)});
 }
 
 template <typename Func>
@@ -205,7 +207,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         // The blockId must be base64 encoded
         s3_put_rate_limit([&]() {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-            client.StageBlock(base64_encode_part_num(part_num), memory_body);
+            return client.StageBlock(base64_encode_part_num(part_num), memory_body);
         });
     } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format(

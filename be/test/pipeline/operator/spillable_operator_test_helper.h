@@ -78,27 +78,15 @@ public:
 class SpillableDebugPointHelper {
 public:
     SpillableDebugPointHelper(const std::string name)
-            : _enable_debug_points(config::enable_debug_points),
-              _fragment_mgr(ExecEnv::GetInstance()->_fragment_mgr) {
+            : _enable_debug_points(config::enable_debug_points) {
         config::enable_debug_points = true;
-        ExecEnv::GetInstance()->_fragment_mgr =
-                new MockFragmentManager(_spill_status, ExecEnv::GetInstance());
         DebugPoints::instance()->add(name);
     }
 
-    ~SpillableDebugPointHelper() {
-        config::enable_debug_points = _enable_debug_points;
-        ExecEnv::GetInstance()->_fragment_mgr->stop();
-        SAFE_DELETE(ExecEnv::GetInstance()->_fragment_mgr);
-        ExecEnv::GetInstance()->_fragment_mgr = _fragment_mgr;
-    }
-
-    const Status& get_spill_status() const { return _spill_status; }
+    ~SpillableDebugPointHelper() { config::enable_debug_points = _enable_debug_points; }
 
 private:
-    Status _spill_status;
     const bool _enable_debug_points;
-    FragmentMgr* const _fragment_mgr;
 };
 
 class SpillableOperatorTestHelper {

@@ -47,18 +47,19 @@ void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory)
 class AggMinMaxTest : public ::testing::TestWithParam<std::string> {};
 
 TEST_P(AggMinMaxTest, min_max_test) {
+    Arena arena;
     std::string min_max_type = GetParam();
     // Prepare test data.
     auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
+        column_vector_int32->insert(Field::create_field<TYPE_INT>(i));
     }
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeInt32>()};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -66,7 +67,7 @@ TEST_P(AggMinMaxTest, min_max_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_vector_int32.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -77,20 +78,20 @@ TEST_P(AggMinMaxTest, min_max_test) {
 }
 
 TEST_P(AggMinMaxTest, min_max_decimal_test) {
+    Arena arena;
     std::string min_max_type = GetParam();
     auto data_type = std::make_shared<DataTypeDecimalV2>();
     // Prepare test data.
     auto column_vector_decimal128 = data_type->create_column();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_decimal128->insert(Field::create_field<TYPE_DECIMALV2>(
-                cast_to_nearest_field_type(DecimalField<Decimal128V2>(Decimal128V2(i), 9))));
+        column_vector_decimal128->insert(Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(i)));
     }
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -98,7 +99,7 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_vector_decimal128.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -108,11 +109,11 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     agg_function->destroy(place);
 
     auto dst = agg_function->create_serialize_column();
-    agg_function->streaming_agg_serialize_to_column(column, dst, agg_test_batch_size, nullptr);
+    agg_function->streaming_agg_serialize_to_column(column, dst, agg_test_batch_size, arena);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data() * agg_test_batch_size]);
     AggregateDataPtr places = memory2.get();
-    agg_function->deserialize_from_column(places, *dst, nullptr, agg_test_batch_size);
+    agg_function->deserialize_from_column(places, *dst, arena, agg_test_batch_size);
 
     ColumnDecimal128V2 result(0, 9);
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
@@ -125,6 +126,7 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
 }
 
 TEST_P(AggMinMaxTest, min_max_string_test) {
+    Arena arena;
     std::string min_max_type = GetParam();
     // Prepare test data.
     auto column_vector_str = ColumnString::create();
@@ -137,7 +139,7 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeString>()};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -145,7 +147,7 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_vector_str.get()};
     for (int i = 0; i < str_data.size(); i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -156,6 +158,7 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
 }
 
 TEST_P(AggMinMaxTest, any_json_test) {
+    Arena arena;
     // Prepare test data with JSON
     auto column_vector_json = ColumnString::create();
     std::string json_data = "{}";
@@ -165,7 +168,7 @@ TEST_P(AggMinMaxTest, any_json_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeJsonb>()};
-    auto agg_function = factory.get("any", data_types, false, -1);
+    auto agg_function = factory.get("any", data_types, nullptr, false, -1);
 
     // Create and initialize place for aggregation
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -174,7 +177,7 @@ TEST_P(AggMinMaxTest, any_json_test) {
 
     // Do aggregation
     const IColumn* column[1] = {column_vector_json.get()};
-    agg_function->add(place, column, 0, nullptr);
+    agg_function->add(place, column, 0, arena);
 
     // Verify result
     ColumnString ans;

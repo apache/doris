@@ -2159,7 +2159,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 shuffle t2 broadcast t3 )  
+Used: leading(t1 shuffle t2 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2175,7 +2175,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 shuffle { t2 broadcast t3 } )  
+Used: leading(t1 shuffle { t2 broadcast t3 } )
 UnUsed:
 SyntaxError:
 
@@ -2191,7 +2191,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t1 shuffle { t3 broadcast t2 } )  
+Used: leading(t1 shuffle { t3 broadcast t2 } )
 UnUsed:
 SyntaxError:
 
@@ -2207,7 +2207,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 shuffle t1 broadcast t3 )  
+Used: leading(t2 shuffle t1 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2223,7 +2223,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 shuffle { t1 broadcast t3 } )  
+Used: leading(t2 shuffle { t1 broadcast t3 } )
 UnUsed:
 SyntaxError:
 
@@ -2239,7 +2239,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 shuffle { t3 broadcast t1 } )  
+Used: leading(t2 shuffle { t3 broadcast t1 } )
 UnUsed:
 SyntaxError:
 
@@ -2255,7 +2255,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 broadcast t2 broadcast t3 ) 
+Used: leading(t1 broadcast t2 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2271,7 +2271,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 broadcast { t2 broadcast t3 } ) 
+Used: leading(t1 broadcast { t2 broadcast t3 } )
 UnUsed:
 SyntaxError:
 
@@ -2287,7 +2287,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t1 broadcast { t3 broadcast t2 } ) 
+Used: leading(t1 broadcast { t3 broadcast t2 } )
 UnUsed:
 SyntaxError:
 
@@ -2303,7 +2303,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 broadcast t1 broadcast t3 ) 
+Used: leading(t2 broadcast t1 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2319,7 +2319,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 broadcast { t1 broadcast t3 } ) 
+Used: leading(t2 broadcast { t1 broadcast t3 } )
 UnUsed:
 SyntaxError:
 
@@ -2335,7 +2335,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 broadcast { t3 broadcast t1 } ) 
+Used: leading(t2 broadcast { t3 broadcast t1 } )
 UnUsed:
 SyntaxError:
 
@@ -2351,7 +2351,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 shuffle t2 shuffle t3 ) 
+Used: leading(t1 shuffle t2 shuffle t3 )
 UnUsed:
 SyntaxError:
 
@@ -2367,7 +2367,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 shuffle { t2 shuffle t3 } ) 
+Used: leading(t1 shuffle { t2 shuffle t3 } )
 UnUsed:
 SyntaxError:
 
@@ -2383,7 +2383,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t1 shuffle { t3 shuffle t2 } ) 
+Used: leading(t1 shuffle { t3 shuffle t2 } )
 UnUsed:
 SyntaxError:
 
@@ -2399,7 +2399,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 shuffle t1 shuffle t3 ) 
+Used: leading(t2 shuffle t1 shuffle t3 )
 UnUsed:
 SyntaxError:
 
@@ -2415,7 +2415,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 shuffle { t1 shuffle t3 } ) 
+Used: leading(t2 shuffle { t1 shuffle t3 } )
 UnUsed:
 SyntaxError:
 
@@ -2431,7 +2431,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t2 shuffle { t3 shuffle t1 } ) 
+Used: leading(t2 shuffle { t3 shuffle t1 } )
 UnUsed:
 SyntaxError:
 
@@ -2447,7 +2447,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 broadcast t2 broadcast t3 ) 
+Used: leading(t1 broadcast t2 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2463,7 +2463,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 broadcast t1 broadcast t3 ) 
+Used: leading(t2 broadcast t1 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2479,7 +2479,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t3 broadcast { t1 broadcast t2 } ) 
+Used: leading(t3 broadcast { t1 broadcast t2 } )
 UnUsed:
 SyntaxError:
 
@@ -2495,7 +2495,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t3 broadcast { t2 broadcast t1 } ) 
+Used: leading(t3 broadcast { t2 broadcast t1 } )
 UnUsed:
 SyntaxError:
 
@@ -2511,7 +2511,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 shuffle t2 broadcast t3 )  
+Used: leading(t1 shuffle t2 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2527,7 +2527,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 shuffle t1 broadcast t3 )  
+Used: leading(t2 shuffle t1 broadcast t3 )
 UnUsed:
 SyntaxError:
 
@@ -2543,7 +2543,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t3 shuffle { t1 broadcast t2 } )  
+Used: leading(t3 shuffle { t1 broadcast t2 } )
 UnUsed:
 SyntaxError:
 
@@ -2559,7 +2559,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t3 shuffle { t2 broadcast t1 } )  
+Used: leading(t3 shuffle { t2 broadcast t1 } )
 UnUsed:
 SyntaxError:
 
@@ -2575,7 +2575,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 broadcast t2 shuffle t3 )  
+Used: leading(t1 broadcast t2 shuffle t3 )
 UnUsed:
 SyntaxError:
 
@@ -2591,7 +2591,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 broadcast t1 shuffle t3 )  
+Used: leading(t2 broadcast t1 shuffle t3 )
 UnUsed:
 SyntaxError:
 
@@ -2607,7 +2607,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: leading(t3 broadcast { t1 shuffle t2 } )  
+Used: leading(t3 broadcast { t1 shuffle t2 } )
 UnUsed:
 SyntaxError:
 
@@ -2623,7 +2623,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t1]
 
 Hint log:
-Used: leading(t3 broadcast { t2 shuffle t1 } )  
+Used: leading(t3 broadcast { t2 shuffle t1 } )
 UnUsed:
 SyntaxError:
 

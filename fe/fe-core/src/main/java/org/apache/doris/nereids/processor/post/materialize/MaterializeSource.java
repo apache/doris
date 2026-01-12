@@ -18,19 +18,19 @@
 package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 
 /**
     the table and slot used to do lazy materialize
  */
 public class MaterializeSource {
-    public final CatalogRelation relation;
+    public final Relation relation;
     public final SlotReference baseSlot;
 
     /*
         constructor
      */
-    public MaterializeSource(CatalogRelation relation, SlotReference baseSlot) {
+    public MaterializeSource(Relation relation, SlotReference baseSlot) {
         this.relation = relation;
         this.baseSlot = baseSlot;
     }

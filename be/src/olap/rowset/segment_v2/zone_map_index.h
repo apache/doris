@@ -34,7 +34,7 @@
 #include "vec/common/arena.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 namespace io {
 class FileWriter;
 } // namespace io
@@ -58,6 +58,12 @@ struct ZoneMap {
 
     bool pass_all = false;
 
+    bool has_positive_inf = false;
+
+    bool has_negative_inf = false;
+
+    bool has_nan = false;
+
     void to_proto(ZoneMapPB* dst, Field* field) const {
         if (pass_all) {
             dst->set_min("");
@@ -69,6 +75,9 @@ struct ZoneMap {
         dst->set_has_null(has_null);
         dst->set_has_not_null(has_not_null);
         dst->set_pass_all(pass_all);
+        dst->set_has_positive_inf(has_positive_inf);
+        dst->set_has_negative_inf(has_negative_inf);
+        dst->set_has_nan(has_nan);
     }
 };
 
@@ -93,7 +102,7 @@ public:
 
     virtual uint64_t size() const = 0;
 
-    virtual void reset_page_zone_map() = 0;
+    virtual void invalid_page_zone_map() = 0;
 };
 
 // Zone map index is represented by an IndexedColumn with ordinal index.
@@ -118,7 +127,7 @@ public:
 
     uint64_t size() const override { return _estimated_size; }
 
-    void reset_page_zone_map() override;
+    void invalid_page_zone_map() override;
 
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
@@ -128,6 +137,9 @@ private:
         zone_map->has_null = false;
         zone_map->has_not_null = false;
         zone_map->pass_all = false;
+        zone_map->has_positive_inf = false;
+        zone_map->has_negative_inf = false;
+        zone_map->has_nan = false;
     }
 
     Field* _field = nullptr;
@@ -159,7 +171,7 @@ public:
 
     const std::vector<ZoneMapPB>& page_zone_maps() const { return _page_zone_maps; }
 
-    int32_t num_pages() const { return _page_zone_maps.size(); }
+    size_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
     Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>,
@@ -177,4 +189,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

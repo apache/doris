@@ -194,7 +194,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 logicalAggregate().when(FieldChecker.check("outputExpressions", ImmutableList.of(
                                                 new Alias(new ExprId(7), (new Sum(
                                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("test", "t7")))).withAlwaysNullable(true),
+                                                                ImmutableList.of("test", "t7")))),
                                                         "sum(t7.k3)"),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("test", "t7"))
@@ -473,7 +473,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                         logicalProject()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
                                         new Alias(new ExprId(8), (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)"),
+                                                ImmutableList.of("t2")))), "max(aa)"),
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("test", "t7")))))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of(

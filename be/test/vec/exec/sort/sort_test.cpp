@@ -65,14 +65,15 @@ public:
         switch (sort_type) {
         case SortType::FULL_SORT:
             sorter = FullSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, nullptr, nullptr);
+                                               nulls_first, *row_desc, &_state, nullptr);
             break;
         case SortType::TOPN_SORT:
             sorter = TopNSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, nullptr, nullptr);
+                                               nulls_first, *row_desc, &_state, nullptr);
+            break;
         case SortType::HEAP_SORT:
-            sorter = HeapSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc);
+            sorter = HeapSorter::create_unique(sort_exec_exprs, &_state, limit, offset, &pool,
+                                               is_asc_order, nulls_first, *row_desc);
             break;
         default:
             break;
@@ -82,12 +83,12 @@ public:
     }
 
     void append_block(ColumnInt32::Ptr column) {
-        Block block = VectorizedUtils::create_empty_block(*row_desc, true /*ignore invalid slot*/);
+        Block block = VectorizedUtils::create_empty_block(*row_desc);
         block.get_by_position(0).column = column->clone();
         EXPECT_TRUE(sorter->append_block(&block).ok());
     }
 
-    void prepare_for_read() { EXPECT_TRUE(sorter->prepare_for_read().ok()); }
+    void prepare_for_read() { EXPECT_TRUE(sorter->prepare_for_read(false).ok()); }
 
     void check_sort_column(ColumnPtr column) {
         MutableBlock sorted_block(VectorizedUtils::create_columns_with_type_and_name(*row_desc));
@@ -120,6 +121,8 @@ public:
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
+
+    MockRuntimeState _state;
 
     std::unique_ptr<vectorized::Sorter> sorter;
 }; // class SortTestParam
@@ -181,8 +184,8 @@ TEST_F(SortTest, test_sorter) {
     std::unique_ptr<MockRowDescriptor> row_desc;
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
-    std::vector<bool> is_asc_order {true};
-    std::vector<bool> nulls_first {false};
+    std::vector<bool> is_asc_order {true, true};
+    std::vector<bool> nulls_first {false, false};
 
     std::unique_ptr<vectorized::Sorter> sorter;
     DataTypes data_types {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()};
@@ -196,10 +199,9 @@ TEST_F(SortTest, test_sorter) {
 
     sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-    sort_exec_exprs._need_convert_to_nullable_flags = {true, false};
-
+    MockRuntimeState _state;
     sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
 
     {
         Block src_block = ColumnHelper::create_block<DataTypeInt64>({4, 1, 2}, {10, 1, 3});

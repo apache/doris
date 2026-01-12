@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
@@ -25,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -32,7 +32,6 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -60,8 +59,6 @@ public class CreateTableTest extends TestWithFeService {
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1','colocate_with'='test'); ";
         createTable(sql);
         Set<Long> tabletIdSetAfterCreateFirstTable = env.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
-        Set<TabletMeta> tabletMetaSetBeforeCreateFirstTable =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
         Set<Long> colocateTableIdBeforeCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
         Assert.assertTrue(colocateTableIdBeforeCreateFirstTable.size() > 0);
         Assert.assertTrue(tabletIdSetAfterCreateFirstTable.size() > 0);
@@ -71,13 +68,10 @@ public class CreateTableTest extends TestWithFeService {
         Set<Long> tabletIdSetAfterDuplicateCreateTable1 = env.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable2 = env.getTabletInvertedIndex().getBackingReplicaMetaTable().columnKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable3 = env.getTabletInvertedIndex().getTabletMetaMap().keySet();
-        Set<TabletMeta> tabletIdSetAfterDuplicateCreateTable4 =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
 
         Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable1);
         Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable2);
         Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable3);
-        Assert.assertEquals(tabletMetaSetBeforeCreateFirstTable, tabletIdSetAfterDuplicateCreateTable4);
 
         // check whether table id is cleared from colocate group after duplicate create table
         Set<Long> colocateTableIdAfterCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
@@ -365,7 +359,7 @@ public class CreateTableTest extends TestWithFeService {
          */
         // single partition column with single key
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "Syntax error", () -> createTable("create table test.tbl9\n"
+                .expectThrowsWithMsg(AnalysisException.class, "input", () -> createTable("create table test.tbl9\n"
                         + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
                         + "partition by list(k1)\n"
                         + "(\n"
@@ -417,7 +411,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // multi partition columns with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "Syntax error",
+                .expectThrowsWithMsg(AnalysisException.class, "input",
                         () -> createTable("create table test.tbl13\n"
                                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                                 + "partition by list(k1, k2)\n"
@@ -434,7 +428,7 @@ public class CreateTableTest extends TestWithFeService {
          */
         // list contain less than
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl14 (\n"
                                 + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -448,7 +442,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // range contain in
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl15 (\n"
                                 + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -462,7 +456,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // list contain both
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl15 (\n"
                                 + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -476,7 +470,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // range contain both
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl16 (\n"
                                 + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -572,8 +566,7 @@ public class CreateTableTest extends TestWithFeService {
                             + ");"));
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Create aggregate keys table with value columns of which aggregate type"
-                    + " is REPLACE should not contain random distribution desc",
+                "should",
                 () -> createTable("CREATE TABLE test.tbl22\n"
                     + "(\n"
                     + "  `k1` bigint(20) NULL COMMENT \"\",\n"
@@ -599,7 +592,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // create z-order sort table, default col_num
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         ()  -> createTable(
                                 "create table test.zorder_tbl2\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -608,7 +601,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // create z-order sort table, define sort_col_num
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         ()  -> createTable(
                                 "create table test.zorder_tbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -617,7 +610,7 @@ public class CreateTableTest extends TestWithFeService {
                                 + " 'data_sort.col_num' = '2');"));
         // create z-order sort table, only 1 sort column
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
@@ -625,7 +618,7 @@ public class CreateTableTest extends TestWithFeService {
                                 + " 'data_sort.col_num' = '1');"));
         // create z-order sort table, sort column is empty
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
@@ -744,7 +737,7 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithInMemory() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Not support set 'in_memory'='true' now!",
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "Not support set 'in_memory'='true' now!",
                 () -> {
                     createTable("create table test.test_inmemory(k1 INT, k2 INT) duplicate key (k1) "
                             + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');");
@@ -1080,6 +1073,43 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"dynamic_partition.end\" = \"3\",\n"
                         + "\"dynamic_partition.prefix\" = \"p\",\n"
                         + "\"dynamic_partition.start\" = \"-3\"\n"
+                        + ");", true));
+    }
+
+    @Test
+    public void testCreateTableOfSequenceMapping() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "sequence mapping do not support merge on write",
+                () -> createTable("CREATE TABLE test.test_seq_map \n"
+                        + "(`a` bigint(20) NULL,\n"
+                        + "`b` int(11) NULL,\n"
+                        + "`c` int(11) NULL,\n"
+                        + "`d` int(11) NULL,\n"
+                        + "`s1` int(11) NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "UNIQUE KEY(`a`, `b`)\n"
+                        + "COMMENT \"OLAP\"\n"
+                        + "DISTRIBUTED BY HASH(`a`, `b`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                        + "\"replication_num\" = \"1\",\n"
+                        + "\"sequence_mapping.s1\" = \"c,d\"\n"
+                        + ");", true));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("CREATE TABLE test.test_seq_map \n"
+                        + "(`a` bigint(20) NULL,\n"
+                        + "`b` int(11) NULL,\n"
+                        + "`c` int(11) NULL,\n"
+                        + "`d` int(11) NULL,\n"
+                        + "`s1` int(11) NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "UNIQUE KEY(`a`, `b`)\n"
+                        + "COMMENT \"OLAP\"\n"
+                        + "DISTRIBUTED BY HASH(`a`, `b`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"false\",\n"
+                        + "\"replication_num\" = \"1\",\n"
+                        + "\"sequence_mapping.s1\" = \"c,d\"\n"
                         + ");", true));
     }
 }

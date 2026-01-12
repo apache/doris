@@ -150,22 +150,23 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     /**
      * similar to rewriteDownShortCircuit, except that only subtrees, whose root satisfies
-     * border predicate are rewritten.
+     * border predicate are rewritten, and if a node not match predicate, then its descendant will not rewrite.
      */
     default NODE_TYPE rewriteDownShortCircuitDown(Function<NODE_TYPE, NODE_TYPE> rewriteFunction,
-            Predicate border, boolean aboveBorder) {
+            Predicate predicate, boolean stopWhenNotMatched) {
         NODE_TYPE currentNode = (NODE_TYPE) this;
-        if (border.test(this)) {
-            aboveBorder = false;
+        boolean matched = predicate.test(this);
+        if (stopWhenNotMatched && !matched) {
+            return currentNode;
         }
-        if (!aboveBorder) {
-            currentNode = rewriteFunction.apply((NODE_TYPE) this);
+        if (matched) {
+            currentNode = rewriteFunction.apply(currentNode);
         }
         if (currentNode == this) {
             Builder<NODE_TYPE> newChildren = ImmutableList.builderWithExpectedSize(arity());
             boolean changed = false;
             for (NODE_TYPE child : children()) {
-                NODE_TYPE newChild = child.rewriteDownShortCircuitDown(rewriteFunction, border, aboveBorder);
+                NODE_TYPE newChild = child.rewriteDownShortCircuitDown(rewriteFunction, predicate, stopWhenNotMatched);
                 if (child != newChild) {
                     changed = true;
                 }
@@ -221,6 +222,20 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         }
     }
 
+    /**
+     * Foreach treeNode. Top-down traverse implicitly.
+     * @param func foreach function
+     */
+    default void foreachWithTest(Consumer<TreeNode<NODE_TYPE>> func, Predicate<TreeNode<NODE_TYPE>> predicate) {
+        if (!predicate.test(this)) {
+            return;
+        }
+        func.accept(this);
+        for (NODE_TYPE child : children()) {
+            child.foreach(func);
+        }
+    }
+
     /** foreachBreath */
     default void foreachBreath(Predicate<TreeNode<NODE_TYPE>> func) {
         LinkedList<TreeNode<NODE_TYPE>> queue = new LinkedList<>();
@@ -235,7 +250,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
     default void foreachUp(Consumer<TreeNode<NODE_TYPE>> func) {
         for (NODE_TYPE child : children()) {
-            child.foreach(func);
+            child.foreachUp(func);
         }
         func.accept(this);
     }
@@ -284,6 +299,19 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
                 result.add(node);
             }
         });
+        return (Set<T>) result.build();
+    }
+
+    /**
+     * Collect the nodes that satisfied the predicate.
+     */
+    default <T> Set<T> collectWithTest(Predicate<TreeNode<NODE_TYPE>> predicate, Predicate<TreeNode<NODE_TYPE>> test) {
+        ImmutableSet.Builder<TreeNode<NODE_TYPE>> result = ImmutableSet.builder();
+        foreachWithTest(node -> {
+            if (predicate.test(node)) {
+                result.add(node);
+            }
+        }, test);
         return (Set<T>) result.build();
     }
 
@@ -387,5 +415,9 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
         // If the "that" tree hasn't been fully traversed, return false.
         return thatDeque.isEmpty();
+    }
+
+    default String toDigest() {
+        return "";
     }
 }

@@ -34,6 +34,7 @@
 #include "common/object_pool.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -93,7 +94,6 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
             tslot_desc.nullIndicatorBit = -1;
             tslot_desc.colName = numeric_types[i];
             tslot_desc.slotIdx = 0;
-            tslot_desc.isMaterialized = true;
             t_desc_table.slotDescriptors.push_back(tslot_desc);
         }
     }
@@ -125,15 +125,17 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     std::vector<std::string> missing_column_names;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
     {
         scan_range.start_offset = 0;
-        scan_range.size = 1000;
+        scan_range.size = 100000;
     }
     auto p_reader =
             new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
@@ -144,14 +146,15 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
                            tuple_desc->slots().size());
     p_reader->set_row_id_column_iterator(iterator_pair);
     p_reader->set_file_reader(reader);
-    static_cast<void>(p_reader->set_read_lines_mode(read_lines));
+    static_cast<void>(p_reader->read_by_rows(read_lines));
 
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr,
-                                            nullptr, nullptr));
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
+                                            nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -172,8 +175,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     bool eof = false;
     size_t read_row = 0;
     static_cast<void>(p_reader->get_next_block(block.get(), &read_row, &eof));
-    auto row_id_string_column =
-            static_cast<const ColumnString&>(*block->get_by_name("row_id").column.get());
+    auto row_id_string_column = static_cast<const ColumnString&>(
+            *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     auto read_lines_tmp = read_lines;
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
@@ -184,7 +187,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
     }
-    block->erase("row_id");
+    block->erase(block->get_position_by_name("row_id"));
 
     EXPECT_EQ(block->dump_data(), block_dump);
     std::cout << block->dump_data();
@@ -196,6 +199,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
             "./be/test/exec/test_data/parquet_scanner/"
             "type-decoder.parquet";
     scan_range.start_offset = 0;
+    scan_range.size = 100000;
     scan_range.format_type = TFileFormatType::FORMAT_PARQUET;
     scan_range.__isset.format_type = true;
     scan_range.table_format_params.table_format_type = "hive";
@@ -214,15 +218,14 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
 
     auto vf = FileScanner::create_unique(&runtime_state, runtime_profile.get(), &scan_params,
                                          &colname_to_slot_id, tuple_desc);
-    EXPECT_TRUE(vf->prepare_for_read_one_line(scan_range).ok());
-    ExternalFileMappingInfo external_info(0, scan_range, false);
+    EXPECT_TRUE(vf->prepare_for_read_lines(scan_range).ok());
+    ExternalFileMappingInfo external_info(0, scan_range, true);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-
     auto read_lines_tmp2 = read_lines;
     while (!read_lines_tmp2.empty()) {
-        auto st = vf->read_one_line_from_range(scan_range, read_lines_tmp2.front(), block.get(),
-                                               external_info, &init_reader_ms, &get_block_ms);
+        auto st = vf->read_lines_from_range(scan_range, {read_lines_tmp2.front()}, block.get(),
+                                            external_info, &init_reader_ms, &get_block_ms);
         std::cout << st.to_string() << "\n";
         EXPECT_TRUE(st.ok());
 
@@ -258,7 +261,7 @@ TEST_F(ParquetReadLinesTest, test0) {
             "6.14|                        6.14|\n"
             "|                          0|                             8|                          "
             "     8|                     8|                           8|                      "
-            "8.14|                        8.14|\n"
+            "8.14|           8.140000000000001|\n"
             "+---------------------------+------------------------------+--------------------------"
             "------+----------------------+----------------------------+--------------------------+"
             "----------------------------+\n";
@@ -313,7 +316,7 @@ TEST_F(ParquetReadLinesTest, test3) {
             "+----------------------------+----------------------+--------------------------+\n"
             "|                        4.14|                     4|                      4.14|\n"
             "|                       -7.14|                    -7|                     -7.14|\n"
-            "|                       -9.14|                    -9|                     -9.14|\n"
+            "|          -9.140000000000001|                    -9|                     -9.14|\n"
             "+----------------------------+----------------------+--------------------------+\n";
     read_parquet_lines(numeric_types, types, read_lines, block_dump);
 }

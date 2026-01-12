@@ -17,9 +17,6 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -63,6 +60,7 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, GsonPostProcessable {
@@ -70,7 +68,7 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
     private static final Logger LOG = LogManager.getLogger(WorkloadSchedPolicyMgr.class);
 
     @SerializedName(value = "idToPolicy")
-    private Map<Long, WorkloadSchedPolicy> idToPolicy = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, WorkloadSchedPolicy> idToPolicy = Maps.newConcurrentMap();
     private Map<String, WorkloadSchedPolicy> nameToPolicy = Maps.newHashMap();
 
     private PolicyProcNode policyProcNode = new PolicyProcNode();
@@ -244,16 +242,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         } finally {
             writeUnlock();
         }
-    }
-
-    public void createWorkloadSchedPolicy(CreateWorkloadSchedPolicyStmt createStmt) throws UserException {
-        String policyName = createStmt.getPolicyName();
-        List<WorkloadConditionMeta> originConditions = createStmt.getConditions();
-        List<WorkloadActionMeta> originActions = createStmt.getActions();
-        Map<String, String> propMap = createStmt.getProperties();
-        boolean isIfNotExists = createStmt.isIfNotExists();
-
-        createWorkloadSchedPolicy(policyName, isIfNotExists, originConditions, originActions, propMap);
     }
 
     private boolean checkPolicyCondition(List<WorkloadCondition> conditionList) throws UserException {
@@ -477,10 +465,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         }
     }
 
-    public void alterWorkloadSchedPolicy(AlterWorkloadSchedPolicyStmt alterStmt) throws UserException {
-        alterWorkloadSchedPolicy(alterStmt.getPolicyName(), alterStmt.getProperties());
-    }
-
     public void alterWorkloadSchedPolicy(String policyName, Map<String, String> properties) throws UserException {
         writeLock();
         try {
@@ -497,10 +481,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         } finally {
             writeUnlock();
         }
-    }
-
-    public void dropWorkloadSchedPolicy(DropWorkloadSchedPolicyStmt dropStmt) throws UserException {
-        dropWorkloadSchedPolicy(dropStmt.getPolicyName(), dropStmt.isIfExists());
     }
 
     public void dropWorkloadSchedPolicy(String policyName, boolean isExists) throws UserException {

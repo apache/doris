@@ -23,7 +23,11 @@
 #include <sstream>
 
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/IKAnalyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/cfg/Configuration.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/core/AnalyzeContext.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/core/IKSegmenter.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/core/Lexeme.h"
+#include "vec/common/arena.h"
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
@@ -52,6 +56,61 @@ protected:
             std::cout << e.what() << std::endl;
             throw;
         }
+    }
+
+    /**
+     * Token information class, contains token text and type
+     */
+    struct TokenInfo {
+        std::string text;
+        Lexeme::Type type;
+
+        TokenInfo(const std::string& text, Lexeme::Type type) : text(text), type(type) {}
+    };
+
+    /**
+     * Simplified function to get tokens with type information
+     * Reuses the same configuration as tokenize()
+     */
+    void getTokensWithType(const std::string& s, std::vector<TokenInfo>& tokenInfos,
+                           bool isSmart = false) {
+        std::shared_ptr<Configuration> config = std::make_shared<Configuration>(isSmart, true);
+        config->setDictPath("./be/dict/ik");
+        IKSegmenter segmenter(config);
+
+        lucene::util::SStringReader<char> reader;
+        reader.init(s.data(), s.size(), false);
+        segmenter.reset(&reader);
+
+        Lexeme lexeme;
+        while (segmenter.next(lexeme)) {
+            tokenInfos.emplace_back(lexeme.getText(), lexeme.getType());
+        }
+    }
+
+    /**
+     * Helper function to check if a token with specific type exists
+     */
+    bool hasTokenWithType(const std::vector<TokenInfo>& tokens, const std::string& text,
+                          Lexeme::Type type) {
+        for (const auto& token : tokens) {
+            if (token.text == text && token.type == type) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Helper function to check if a token exists (any type)
+     */
+    bool hasToken(const std::vector<TokenInfo>& tokens, const std::string& text) {
+        for (const auto& token : tokens) {
+            if (token.text == text) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Helper method to create a temporary dictionary file for testing
@@ -574,6 +633,27 @@ TEST_F(IKTokenizerTest, TestEmojiAndSpecialCharacters) {
     datas.clear();
 }
 
+TEST_F(IKTokenizerTest, TestCNQuantifierSegmenter) {
+    std::vector<TokenInfo> tokenInfos;
+
+    // Test case: "2023年人才" - core test for the fix
+    std::string testText = "2023年人才";
+    getTokensWithType(testText, tokenInfos, false);
+
+    // Verify basic tokens exist
+    ASSERT_TRUE(hasToken(tokenInfos, "2023")) << "Should contain token '2023'";
+    ASSERT_TRUE(hasToken(tokenInfos, "年")) << "Should contain token '年'";
+    ASSERT_TRUE(hasToken(tokenInfos, "人才")) << "Should contain token '人才'";
+
+    // Core assertion: "人" should NOT be segmented as COUNT type separately
+    ASSERT_FALSE(hasTokenWithType(tokenInfos, "人", Lexeme::Type::Count))
+            << "'人' should not be segmented as COUNT type when not preceded by number";
+
+    // "年" should be COUNT type
+    ASSERT_TRUE(hasTokenWithType(tokenInfos, "年", Lexeme::Type::Count))
+            << "'年' should be COUNT type";
+}
+
 // Test the exception handling capabilities of the IKTokenizer and AnalyzeContext
 TEST_F(IKTokenizerTest, TestExceptionHandling) {
     // Common mock reader class for testing exception handling
@@ -676,8 +756,8 @@ TEST_F(IKTokenizerTest, TestExceptionHandling) {
     {
         // Create AnalyzeContext
         std::shared_ptr<Configuration> config = std::make_shared<Configuration>();
-        IKMemoryPool<Cell> pool(1024);
-        AnalyzeContext context(pool, config);
+        vectorized::Arena arena {};
+        AnalyzeContext context(arena, config);
 
         // Test case 1: Reader throwing length error
         MockReader lengthErrorReader(MockReader::ExceptionType::LENGTH_ERROR);

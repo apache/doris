@@ -22,11 +22,9 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -41,11 +39,12 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -58,7 +57,6 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -69,32 +67,24 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Range;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.partition.Partition;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * show partitions command
  */
 public class ShowPartitionsCommand extends ShowCommand {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("PartitionId").add("PartitionName")
-            .add("VisibleVersion").add("VisibleVersionTime")
-            .add("State").add("PartitionKey").add("Range").add("DistributionKey")
-            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
-            .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
-            .add("RowCount")
-            .build();
     public static final String FILTER_PARTITION_NAME = "PartitionName";
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsCommand.class);
     private static final String FILTER_PARTITION_ID = "PartitionId";
@@ -211,7 +201,8 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)) {
+                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog
+                || catalog instanceof PaimonExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));
         }
@@ -236,9 +227,9 @@ public class ShowPartitionsCommand extends ShowCommand {
 
                 // analyze column
                 int index = -1;
-                for (String title : TITLE_NAMES) {
+                for (String title : PartitionsProcDir.TITLE_NAMES) {
                     if (title.equalsIgnoreCase(colName)) {
-                        index = TITLE_NAMES.indexOf(title);
+                        index = PartitionsProcDir.TITLE_NAMES.indexOf(title);
                     }
                 }
                 if (index == -1) {
@@ -261,54 +252,35 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP,
-                TableIf.TableType.HMS_EXTERNAL_TABLE, TableIf.TableType.MAX_COMPUTE_EXTERNAL_TABLE,
-                TableIf.TableType.ICEBERG_EXTERNAL_TABLE);
+        TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP,
+                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
 
-        if (table instanceof HMSExternalTable) {
-            if (((HMSExternalTable) table).isView()) {
+        if (!catalog.isInternalCatalog()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table " + tblName + " is not a partitioned table");
             }
-            if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
-                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
-            }
-            return;
-        }
+        } else {
+            table.readLock();
+            try {
+                // build proc path
+                StringBuilder stringBuilder = new StringBuilder();
+                stringBuilder.append("/dbs/");
+                stringBuilder.append(db.getId());
+                stringBuilder.append("/").append(table.getId());
+                if (isTempPartition) {
+                    stringBuilder.append("/temp_partitions");
+                } else {
+                    stringBuilder.append("/partitions");
+                }
 
-        if (table instanceof MaxComputeExternalTable) {
-            if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
-                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
-            }
-            return;
-        }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
+                }
 
-        if (table instanceof IcebergExternalTable) {
-            if (!((IcebergExternalTable) table).isValidRelatedTable()) {
-                throw new AnalysisException("Table " + tblName + " is not a supported partition table");
+                node = ProcService.getInstance().open(stringBuilder.toString());
+            } finally {
+                table.readUnlock();
             }
-            return;
-        }
-
-        table.readLock();
-        try {
-            // build proc path
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("/dbs/");
-            stringBuilder.append(db.getId());
-            stringBuilder.append("/").append(table.getId());
-            if (isTempPartition) {
-                stringBuilder.append("/temp_partitions");
-            } else {
-                stringBuilder.append("/partitions");
-            }
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
-            }
-
-            node = ProcService.getInstance().open(stringBuilder.toString());
-        } finally {
-            table.readUnlock();
         }
     }
 
@@ -332,22 +304,40 @@ public class ShowPartitionsCommand extends ShowCommand {
         return new ShowResultSet(getMetaData(), rows);
     }
 
-    private ShowResultSet handleShowIcebergTablePartitions() {
-        IcebergExternalCatalog icebergCatalog = (IcebergExternalCatalog) catalog;
+    private ShowResultSet handleShowPaimonTablePartitions() throws AnalysisException {
+        PaimonExternalCatalog paimonCatalog = (PaimonExternalCatalog) catalog;
         String db = ClusterNamespace.getNameFromFullName(tableName.getDb());
         String tbl = tableName.getTbl();
-        IcebergExternalTable icebergTable = (IcebergExternalTable) icebergCatalog.getDb(db).get().getTable(tbl).get();
 
-        Map<String, PartitionItem> partitions = icebergTable.getAndCopyPartitionItems(Optional.empty());
-        List<List<String>> rows = new ArrayList<>();
-        for (Map.Entry<String, PartitionItem> entry : partitions.entrySet()) {
-            List<String> row = new ArrayList<>();
-            Range<PartitionKey> items = entry.getValue().getItems();
-            row.add(entry.getKey());
-            row.add(items.lowerEndpoint().toString());
-            row.add(items.upperEndpoint().toString());
-            rows.add(row);
+        PaimonExternalDatabase database = (PaimonExternalDatabase) paimonCatalog.getDb(db)
+                .orElseThrow(() -> new AnalysisException("Paimon database '" + db + "' does not exist"));
+        PaimonExternalTable paimonTable = database.getTable(tbl)
+                .orElseThrow(() -> new AnalysisException("Paimon table '" + db + "." + tbl + "' does not exist"));
+
+        Map<String, Partition> partitionSnapshot = paimonTable.getPartitionSnapshot(Optional.empty());
+        if (partitionSnapshot == null) {
+            partitionSnapshot = Collections.emptyMap();
         }
+
+        LinkedHashSet<String> partitionColumnNames = paimonTable
+                .getPartitionColumns(Optional.empty())
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        String partitionColumnsStr = String.join(",", partitionColumnNames);
+
+        List<List<String>> rows = partitionSnapshot
+                .entrySet()
+                .stream()
+                .map(entry -> {
+                    List<String> row = new ArrayList<>(5);
+                    row.add(entry.getKey());
+                    row.add(partitionColumnsStr);
+                    row.add(String.valueOf(entry.getValue().recordCount()));
+                    row.add(String.valueOf(entry.getValue().fileSizeInBytes()));
+                    row.add(String.valueOf(entry.getValue().fileCount()));
+                    return row;
+                }).collect(Collectors.toList());
         // sort by partition name
         if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
             rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
@@ -425,8 +415,8 @@ public class ShowPartitionsCommand extends ShowCommand {
             return new ShowResultSet(getMetaData(), rows);
         } else if (catalog instanceof MaxComputeExternalCatalog) {
             return handleShowMaxComputeTablePartitions();
-        } else if (catalog instanceof IcebergExternalCatalog) {
-            return handleShowIcebergTablePartitions();
+        } else if (catalog instanceof PaimonExternalCatalog) {
+            return handleShowPaimonTablePartitions();
         } else {
             return handleShowHMSTablePartitions();
         }
@@ -450,6 +440,13 @@ public class ShowPartitionsCommand extends ShowCommand {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
             builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
             builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
+        } else if (catalog instanceof PaimonExternalCatalog) {
+            builder.addColumn(new Column("Partition", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("PartitionKey", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("RecordCount", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("FileSizeInBytes", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("FileCount", ScalarType.createVarchar(300)));
+
         } else {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
         }

@@ -20,6 +20,7 @@ add_library(MetaService
     meta_service_tablet_stats.cpp
     meta_service_partition.cpp
     meta_service_txn.cpp
+    meta_service_util.cpp
     doris_txn.cpp
     http_encode_key.cpp
     txn_lazy_committer.cpp

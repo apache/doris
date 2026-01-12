@@ -24,8 +24,9 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-std::unique_ptr<TaskController> QueryTaskController::create(QueryContext* query_ctx) {
-    return QueryTaskController::create_unique(query_ctx->shared_from_this());
+std::unique_ptr<TaskController> QueryTaskController::create(
+        std::shared_ptr<QueryContext> query_ctx) {
+    return QueryTaskController::create_unique(query_ctx);
 }
 
 bool QueryTaskController::is_cancelled() const {
@@ -117,6 +118,15 @@ size_t QueryTaskController::get_revocable_size() {
     bool has_running_task;
     get_revocable_info(&revocable_size, &memory_usage, &has_running_task);
     return revocable_size;
+}
+
+void QueryTaskController::disable_reserve_memory() {
+    TaskController::disable_reserve_memory();
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return;
+    }
+    query_ctx->query_mem_tracker()->set_enable_check_limit(true);
 }
 
 Status QueryTaskController::revoke_memory() {

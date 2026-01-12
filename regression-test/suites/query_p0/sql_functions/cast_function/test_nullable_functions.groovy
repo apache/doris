@@ -43,10 +43,8 @@ suite("test_nullable_functions", "query") {
     qt_nullable_1 "SELECT k1, non_nullable(k1), nullable(k1) FROM ${tableName} ORDER BY k1"
     qt_nullable_2 "SELECT k1, non_nullable(k2), nullable(k4) FROM ${tableName} ORDER BY k1"
     qt_nullable_3 "SELECT k1, non_nullable(k3), nullable(k5) FROM ${tableName} ORDER BY k1"
-    test {
-        sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
-        exception "Try to use originally non-nullable column"
-    }
+    qt_nullable_4 "SELECT k1, non_nullable(k4), non_nullable(1) FROM ${tableName} ORDER BY k1"
+
     test {
         sql "SELECT k1, non_nullable(k6) FROM ${tableName} ORDER BY k1"
         exception "There's NULL value"

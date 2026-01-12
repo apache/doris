@@ -41,6 +41,14 @@ suite("test_nereids_show_create_user") {
     assertEquals(true, res4.size() > 0)
     assertEquals("xyxyxy_abc", res4.get(0).get(0))
 
+    // test for no identity
+    try {
+        sql "SHOW CREATE USER"
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("mismatched input"))
+    }
+
     sql "DROP USER IF EXISTS 'xxxxxxx'"
     sql "DROP USER IF EXISTS 'yyyyyy'@'192.168.%'"
     sql "DROP USER IF EXISTS 'xyxyxy_abc'@'192.168.%'"

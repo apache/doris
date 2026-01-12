@@ -56,6 +56,10 @@ public class TruncateTableInfo implements Writable {
     private Map<Long, String> oldPartitions = new HashMap<>();
     @SerializedName(value = "force")
     private boolean force = true; // older version it was forced always.
+    @SerializedName(value = "ur")
+    private Map<Long, Long> updateRecords;
+    @SerializedName(value = "ut")
+    private long updateTime;
 
     public TruncateTableInfo() {
 
@@ -63,7 +67,8 @@ public class TruncateTableInfo implements Writable {
 
     // for internal table
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
-            boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force) {
+            boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force,
+            Map<Long, Long> updateRecords) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -75,14 +80,16 @@ public class TruncateTableInfo implements Writable {
             this.oldPartitions.put(partition.getId(), partition.getName());
         }
         this.force = force;
+        this.updateRecords = updateRecords;
     }
 
     // for external table
-    public TruncateTableInfo(String ctl, String db, String table, List<String> partNames) {
+    public TruncateTableInfo(String ctl, String db, String table, List<String> partNames, long updateTime) {
         this.ctl = ctl;
         this.db = db;
         this.table = table;
         this.extPartNames = partNames;
+        this.updateTime = updateTime;
     }
 
     public String getCtl() {
@@ -129,6 +136,14 @@ public class TruncateTableInfo implements Writable {
         return rawSql;
     }
 
+    public Map<Long, Long> getUpdateRecords() {
+        return updateRecords;
+    }
+
+    public long getUpdateTime() {
+        return updateTime;
+    }
+
     public static TruncateTableInfo read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, TruncateTableInfo.class);
@@ -148,7 +163,7 @@ public class TruncateTableInfo implements Writable {
     public String toString() {
         return "TruncateTableInfo{"
                 + "ctl=" + ctl
-                + "dbId=" + dbId
+                + ", dbId=" + dbId
                 + ", db='" + db + '\''
                 + ", tblId=" + tblId
                 + ", table='" + table + '\''

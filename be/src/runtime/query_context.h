@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
@@ -48,6 +49,7 @@ namespace pipeline {
 class PipelineFragmentContext;
 class PipelineTask;
 class Dependency;
+class RecCTEScanLocalState;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -61,6 +63,7 @@ struct ReportStatusRequest {
     int backend_num;
     RuntimeState* runtime_state;
     std::string load_error_url;
+    std::string first_error_msg;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -104,6 +107,16 @@ public:
             return false;
         }
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
+    }
+
+    int64_t get_remaining_query_time_seconds() const {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (is_timeout(now)) {
+            return -1;
+        }
+        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
+        return _timeout_second - elapsed_seconds;
     }
 
     void set_ready_to_execute(Status reason);
@@ -150,11 +163,6 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
-    bool runtime_filter_wait_infinitely() const {
-        return _query_options.__isset.runtime_filter_wait_infinitely &&
-               _query_options.runtime_filter_wait_infinitely;
-    }
-
     int be_exec_version() const {
         if (!_query_options.__isset.be_exec_version) {
             return 0;
@@ -176,6 +184,12 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
     const TQueryOptions& query_options() const { return _query_options; }
+    bool should_be_shuffled_agg(int node_id) const {
+        return _query_options.__isset.shuffled_agg_ids &&
+               std::any_of(_query_options.shuffled_agg_ids.begin(),
+                           _query_options.shuffled_agg_ids.end(),
+                           [&](const int id) -> bool { return id == node_id; });
+    }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -184,9 +198,9 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+    vectorized::ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
-    vectorized::SimplifiedScanScheduler* get_remote_scan_scheduler() {
+    vectorized::ScannerScheduler* get_remote_scan_scheduler() {
         return _remote_scan_task_scheduler;
     }
 
@@ -247,6 +261,15 @@ public:
         DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
     }
 
+    void set_ai_resources(std::map<std::string, TAIResource> ai_resources) {
+        _ai_resources =
+                std::make_shared<std::map<std::string, TAIResource>>(std::move(ai_resources));
+    }
+
+    const std::shared_ptr<std::map<std::string, TAIResource>>& get_ai_resources() const {
+        return _ai_resources;
+    }
+
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
     get_using_brpc_stubs() {
         std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
@@ -267,6 +290,25 @@ public:
 
     void set_load_error_url(std::string error_url);
     std::string get_load_error_url();
+    void set_first_error_msg(std::string error_msg);
+    std::string get_first_error_msg();
+
+    Status send_block_to_cte_scan(const TUniqueId& instance_id, int node_id,
+                                  const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks,
+                                  bool eos);
+    void registe_cte_scan(const TUniqueId& instance_id, int node_id,
+                          pipeline::RecCTEScanLocalState* scan);
+    void deregiste_cte_scan(const TUniqueId& instance_id, int node_id);
+
+    std::vector<int> get_fragment_ids() {
+        std::vector<int> fragment_ids;
+        for (const auto& it : _fragment_id_to_pipeline_ctx) {
+            fragment_ids.push_back(it.first);
+        }
+        return fragment_ids;
+    }
+
+    Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
     friend class QueryTaskController;
@@ -292,8 +334,8 @@ private:
     AtomicStatus _exec_status;
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
-    vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    vectorized::ScannerScheduler* _scan_task_scheduler = nullptr;
+    vectorized::ScannerScheduler* _remote_scan_task_scheduler = nullptr;
     // This dependency indicates if the 2nd phase RPC received from FE.
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
     // This dependency indicates if memory is sufficient to execute.
@@ -335,6 +377,8 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
+    std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
+
     void _report_query_profile();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
@@ -342,6 +386,11 @@ private:
 
     std::mutex _error_url_lock;
     std::string _load_error_url;
+    std::string _first_error_msg;
+
+    // instance id + node id -> cte scan
+    std::map<std::pair<TUniqueId, int>, pipeline::RecCTEScanLocalState*> _cte_scan;
+    std::mutex _cte_scan_lock;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

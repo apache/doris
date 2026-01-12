@@ -17,10 +17,12 @@
 #pragma once
 #include <parallel_hashmap/phmap.h>
 
+#include "common/cast_set.h"
 #include "util/bitmap_value.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace detail {
 class Helper {
@@ -72,7 +74,7 @@ char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
 
 template <>
 char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
-    *(int32_t*)dest = v.size;
+    *(int32_t*)dest = cast_set<int32_t>(v.size);
     dest += 4;
     memcpy(dest, v.data, v.size);
     dest += v.size;
@@ -81,7 +83,7 @@ char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 
 template <>
 char* Helper::write_to<std::string>(const std::string& v, char* dest) {
-    *(uint32_t*)dest = v.size();
+    *(uint32_t*)dest = cast_set<uint32_t>(v.size());
     dest += 4;
     memcpy(dest, v.c_str(), v.size());
     dest += v.size();
@@ -101,12 +103,12 @@ int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
 
 template <>
 int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
-    return v.size + 4;
+    return cast_set<int32_t>(v.size + 4);
 }
 
 template <>
 int32_t Helper::serialize_size<std::string>(const std::string& v) {
-    return v.size() + 4;
+    return cast_set<int32_t>(v.size() + 4);
 }
 // serialize_size end
 
@@ -214,7 +216,7 @@ public:
     //must call size() first
     void serialize(char* dest) {
         char* writer = dest;
-        *(int32_t*)writer = _bitmaps.size();
+        *(int32_t*)writer = cast_set<int32_t>(_bitmaps.size());
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
@@ -301,7 +303,7 @@ public:
     //must call size() first
     void serialize(char* dest) {
         char* writer = dest;
-        *(int32_t*)writer = _bitmaps.size();
+        *(int32_t*)writer = cast_set<int32_t>(_bitmaps.size());
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
@@ -326,5 +328,5 @@ public:
 protected:
     phmap::flat_hash_map<std::string, BitmapValue> _bitmaps;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

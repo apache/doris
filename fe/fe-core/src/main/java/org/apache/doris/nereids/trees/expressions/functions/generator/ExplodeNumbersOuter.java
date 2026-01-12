@@ -45,13 +45,17 @@ public class ExplodeNumbersOuter extends TableGeneratingFunction implements Unar
         super("explode_numbers_outer", arg);
     }
 
+    private ExplodeNumbersOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeNumbersOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeNumbersOuter(children.get(0));
+        return new ExplodeNumbersOuter(getFunctionParams(children));
     }
 
     @Override

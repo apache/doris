@@ -24,10 +24,28 @@
 #include "common/status.h"
 #include "operator.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
+
+inline Status materialize_block(const vectorized::VExprContextSPtrs& exprs,
+                                vectorized::Block* src_block, vectorized::Block* res_block,
+                                bool need_clone) {
+    vectorized::ColumnsWithTypeAndName columns;
+    auto rows = src_block->rows();
+    for (const auto& expr : exprs) {
+        vectorized::ColumnWithTypeAndName result_data;
+        RETURN_IF_ERROR(expr->execute(src_block, result_data));
+        if (need_clone) {
+            result_data.column = result_data.column->clone_resized(rows);
+        }
+        columns.emplace_back(result_data);
+    }
+    *res_block = {columns};
+    return Status::OK();
+}
 
 namespace pipeline {
 class DataQueue;
@@ -99,8 +117,18 @@ public:
         }
     }
 
-    bool require_shuffled_data_distribution() const override {
+    bool require_shuffled_data_distribution(RuntimeState* /*state*/) const override {
         return _followed_by_shuffled_operator;
+    }
+
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        if (_child->is_serial_operator() && _followed_by_shuffled_operator) {
+            return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
+        }
+        if (_child->is_serial_operator()) {
+            return DataDistribution(ExchangeType::PASSTHROUGH);
+        }
+        return DataDistribution(ExchangeType::NOOP);
     }
 
     void set_low_memory_mode(RuntimeState* state) override {
@@ -127,6 +155,7 @@ private:
     const RowDescriptor _row_descriptor;
     const int _cur_child_id;
     const int _child_size;
+    const std::vector<TExpr> _distribute_exprs;
     int children_count() const { return _child_size; }
     bool is_child_passthrough(int child_idx) const {
         DCHECK_LT(child_idx, _child_size);
@@ -142,25 +171,15 @@ private:
                     vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
                                                                                row_descriptor());
             vectorized::Block res;
-            RETURN_IF_ERROR(materialize_block(state, input_block, child_id, &res));
+            auto& local_state = get_local_state(state);
+            {
+                SCOPED_TIMER(local_state._expr_timer);
+                RETURN_IF_ERROR(
+                        materialize_block(local_state._child_expr, input_block, &res, false));
+            }
+            local_state._child_row_idx += res.rows();
             RETURN_IF_ERROR(mblock.merge(res));
         }
-        return Status::OK();
-    }
-
-    Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
-                             vectorized::Block* res_block) {
-        auto& local_state = get_local_state(state);
-        SCOPED_TIMER(local_state._expr_timer);
-        const auto& child_exprs = local_state._child_expr;
-        vectorized::ColumnsWithTypeAndName colunms;
-        for (size_t i = 0; i < child_exprs.size(); ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(child_exprs[i]->execute(src_block, &result_column_id));
-            colunms.emplace_back(src_block->get_by_position(result_column_id));
-        }
-        local_state._child_row_idx += src_block->rows();
-        *res_block = {colunms};
         return Status::OK();
     }
 };

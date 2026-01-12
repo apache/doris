@@ -33,11 +33,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <assert.h>
 #include <fmt/format.h>
-#include <string.h>
 
-#include <algorithm>
 #include <cinttypes>
 #include <iostream>
 
@@ -144,16 +141,18 @@ public:
         size_ += result.size;
     }
 
-    // write the double to string
-    void write(double d) {
+    // write the double/float to string
+    template <typename T>
+        requires(std::is_floating_point_v<T>)
+    void write(T d) {
         // snprintf automatically adds a NULL, so we need one more char
         if (size_ + MAX_DOUBLE_DIGITS + 1 > capacity_) {
             realloc(MAX_DOUBLE_DIGITS + 1);
         }
 
-        int len = snprintf(head_ + size_, MAX_DOUBLE_DIGITS + 1, "%.15g", d);
-        assert(len > 0);
-        size_ += len;
+        const auto result = fmt::format_to_n(head_ + size_, MAX_DOUBLE_DIGITS + 1, "{}", d);
+        assert(result.size > 0);
+        size_ += result.size;
     }
 
     pos_type tellp() const { return size_; }

@@ -39,4 +39,35 @@ suite("explode_split", "arrow_flight_sql") {
                          select  k1, e1 from example1
                          lateral view explode_split(k2, ',') tmp as  e1 """
 
+    qt_explode_split_outer1 """ select * from ${tableName} 
+                        lateral view explode_split_outer(k2, ',') tmp1 as e1
+                        order by 1,2,3,4
+    """
+
+    qt_explode_split_outer2 """ select * from ${tableName}
+                        lateral view explode_split_outer(k2, ',') tmp1 as e1 
+                        lateral view explode_split_outer(k2, ',') tmp2 as e2
+                        order by 1,2,3,4
+    """
+
+    qt_explode_split_outer3 """ WITH example1  AS ( select  6 AS k1 ,'a,b,c' AS k2)
+                         select  k1, e1 from example1
+                         lateral view explode_split_outer(k2, ',') tmp as  e1
+                         order by 1,2,3,4
+    """
+
+    qt_explode_split_outer4 """ select * from ${tableName}
+                        lateral view explode_split_outer(k2, ',') tmp1 as e1 
+                        lateral view explode_split_outer(NULL, ',') tmp2 as e2
+                        order by 1,2,3,4
+    """
+
+    qt_explode_split_outer5 """ select * from ${tableName}
+                        lateral view explode_split_outer(k2, ',') tmp1 as e1 
+                        lateral view explode_split_outer("abc", NULL) tmp2 as e2
+                        order by 1,2,3,4
+    """
+
+    qt_explode_split_empty_delimiter """ select e1 from (select 1 k1) as t lateral view explode_split("aaa", "") tmp1 as e1; """
+
 }

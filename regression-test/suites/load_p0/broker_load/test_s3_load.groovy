@@ -30,7 +30,7 @@ suite("test_s3_load", "load_p0") {
         forComputeGroupStr = " for  $validCluster "
     }
 
-    sql "create workload group if not exists broker_load_test $forComputeGroupStr properties ( 'cpu_share'='1024'); "
+    sql "create workload group if not exists broker_load_test $forComputeGroupStr properties ( 'min_cpu_percent'='0'); "
 
     sql "set workload_group=broker_load_test;"
 
@@ -88,8 +88,8 @@ suite("test_s3_load", "load_p0") {
             INDEX idx_ngrambf_k116 (`k16`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
             INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
         
-            INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
-            INDEX idx_bitmap_k110 (`kd01`) USING BITMAP
+            INDEX idx_bitmap_k104 (`k02`) USING INVERTED,
+            INDEX idx_bitmap_k110 (`kd01`) USING INVERTED
         
         )
             DUPLICATE KEY(k00)

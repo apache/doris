@@ -22,27 +22,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
-#include "olap/base_tablet.h"
-#include "olap/binlog_config.h"
-#include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "olap/version_graph.h"
-#include "util/metrics.h"
-#include "util/once.h"
 #include "util/slice.h"
 
 namespace doris {
+namespace segment_v2 {
+class IndexedColumnIterator;
+class Segment;
+
+} // namespace segment_v2
+
+using SegmentSharedPtr = std::shared_ptr<segment_v2::Segment>;
 
 class MergeIndexDeleteBitmapCalculatorContext {
 public:
@@ -61,27 +58,22 @@ public:
 
     MergeIndexDeleteBitmapCalculatorContext(std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
                                             vectorized::DataTypePtr index_type, int32_t segment_id,
-                                            size_t num_rows, size_t batch_max_size = 1024)
-            : _iter(std::move(iter)),
-              _index_type(index_type),
-              _num_rows(num_rows),
-              _max_batch_size(batch_max_size),
-              _segment_id(segment_id) {}
+                                            size_t num_rows, size_t batch_max_size = 1024);
     Status get_current_key(Slice& slice);
     Status advance();
     Status seek_at_or_after(Slice const& key);
-    size_t row_id() const { return _cur_row_id; }
+    uint32_t row_id() const { return _cur_row_id; }
     int32_t segment_id() const { return _segment_id; }
 
 private:
-    Status _next_batch(size_t row_id);
+    Status _next_batch(uint32_t row_id);
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> _iter;
     vectorized::DataTypePtr _index_type;
     vectorized::MutableColumnPtr _index_column;
     size_t _block_size {0};
     size_t _cur_pos {0};
-    size_t _cur_row_id {0};
+    uint32_t _cur_row_id {0};
     size_t const _num_rows;
     size_t const _max_batch_size;
     int32_t const _segment_id;

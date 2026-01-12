@@ -446,3 +446,136 @@ d***is
 -- !sub_replace_utf8_sql10 --
 \N
 
+-- !soundex --
+D620
+
+-- !soundex --
+R163
+
+-- !soundex --
+R163
+
+-- !soundex --
+S530
+
+-- !soundex --
+S530
+
+-- !soundex --
+J525
+
+-- !soundex --
+J250
+
+-- !soundex --
+A261
+
+-- !soundex --
+A261
+
+-- !soundex --
+W252
+
+-- !soundex --
+L000
+
+-- !soundex --
+G362
+
+-- !soundex --
+P236
+
+-- !soundex --
+H555
+
+-- !soundex --
+L300
+
+-- !soundex --
+T522
+
+-- !soundex --
+A000
+
+-- !soundex --
+B000
+
+-- !soundex --
+Z000
+
+-- !soundex --
+R163
+
+-- !soundex --
+R163
+
+-- !soundex --
+R163
+
+-- !soundex --
+R163
+
+-- !soundex --
+R163
+
+-- !soundex --
+R163
+
+-- !soundex --
+R163
+
+-- !soundex --
+
+
+-- !soundex --
+
+
+-- !soundex --
+
+
+-- !soundex --
+
+
+-- !soundex --
+A123
+
+-- !soundex --
+E460
+
+-- !soundex --
+G200
+
+-- !soundex --
+H416
+
+-- !soundex --
+K530
+
+-- !soundex --
+L300
+
+-- !soundex --
+L222
+
+-- !soundex --
+H520
+
+-- !soundex --
+Z520
+
+-- !soundex --
+W520
+
+-- !soundex --
+\N
+
+-- !soundex --
+A123
+
+-- !sql --
+1	7
+2	7
+3	\N
+4	0
+5	0
+

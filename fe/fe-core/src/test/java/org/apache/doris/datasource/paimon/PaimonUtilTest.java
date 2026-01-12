@@ -30,8 +30,8 @@ public class PaimonUtilTest {
     public void testSchemaForVarcharAndChar() {
         DataField c1 = new DataField(1, "c1", new VarCharType(32));
         DataField c2 = new DataField(2, "c2", new CharType(14));
-        Type type1 = PaimonUtil.paimonTypeToDorisType(c1.type());
-        Type type2 = PaimonUtil.paimonTypeToDorisType(c2.type());
+        Type type1 = PaimonUtil.paimonTypeToDorisType(c1.type(), true);
+        Type type2 = PaimonUtil.paimonTypeToDorisType(c2.type(), true);
         Assert.assertTrue(type1.isVarchar());
         Assert.assertEquals(32, type1.getLength());
         Assert.assertEquals(14, type2.getLength());

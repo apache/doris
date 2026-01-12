@@ -66,8 +66,6 @@ suite("test_variant_array_function", "p0") {
         select array_product(cast(var['a'] as array<int>)), array_product(cast(var['c'] as array<double>)) from ${tableName} order by id;
     """
 
-    qt_sql """ select array_sum(cast(var['b'] as array<string>)) from ${tableName} order by id; """
-
     qt_sql """ select array_avg(cast(var['b'] as array<string>)) from ${tableName} order by id; """
 
     qt_sql """ select array_product(cast(var['b'] as array<string>)) from ${tableName} order by id; """

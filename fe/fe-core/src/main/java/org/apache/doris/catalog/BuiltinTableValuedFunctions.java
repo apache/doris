@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
@@ -31,6 +32,11 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetBloomProbe;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetFileMetadata;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetKvMetadata;
+import org.apache.doris.nereids.trees.expressions.functions.table.ParquetMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
@@ -55,6 +61,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Local.class, "local"),
             tableValued(HudiMeta.class, "hudi_meta"),
             tableValued(IcebergMeta.class, "iceberg_meta"),
+            tableValued(PaimonMeta.class, "paimon_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
@@ -65,7 +72,12 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),
-            tableValued(File.class, "file")
+            tableValued(File.class, "file"),
+            tableValued(Http.class, "http"),
+            tableValued(ParquetMeta.class, "parquet_meta"),
+            tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
+            tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
+            tableValued(ParquetBloomProbe.class, "parquet_bloom_probe")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
