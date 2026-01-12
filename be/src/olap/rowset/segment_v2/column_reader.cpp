@@ -534,6 +534,9 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* mi
                                      WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
+        min_value_container->set_not_null();
+        max_value_container->set_not_null();
+
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
