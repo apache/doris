@@ -1,4 +1,4 @@
-use `default`;
+use `multi_catalog`;
 
 CREATE TABLE test_parquet_lazy_read_struct(
     id INT,
