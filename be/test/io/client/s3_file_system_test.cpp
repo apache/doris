@@ -2414,4 +2414,35 @@ TEST_F(S3FileSystemTest, AzureRateLimiterDeleteDirectoryExceptionHandlingTest) {
     ASSERT_TRUE(status.ok()) << "Failed to cleanup remaining directory: " << status.to_string();
 }
 
+TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
+    // Save original config values
+    int64_t original_get_bucket_tokens = config::s3_get_bucket_tokens;
+    int64_t original_get_token_per_second = config::s3_get_token_per_second;
+    int64_t original_get_token_limit = config::s3_get_token_limit;
+
+    std::cout << "Original GET config: bucket_tokens=" << original_get_bucket_tokens
+              << ", token_per_second=" << original_get_token_per_second
+              << ", limit=" << original_get_token_limit << std::endl;
+
+    int64_t new_s3_get_bucket_tokens_val = 50;
+    int64_t new_s3_get_token_per_second_val = 1;
+
+    auto [success1, msg7] = config::set_config(
+            "s3_get_bucket_tokens", std::to_string(new_s3_get_bucket_tokens_val), false, false);
+    ASSERT_EQ(success1, 0) << "Failed to set s3_get_bucket_tokens: " << msg7;
+    auto [success2, msg8] =
+            config::set_config("s3_get_token_per_second",
+                               std::to_string(new_s3_get_token_per_second_val), false, false);
+    ASSERT_EQ(success2, 0) << "Failed to set s3_get_token_per_second: " << msg8;
+
+    auto st = create_client();
+    ASSERT_TRUE(st.ok());
+
+    // Verify restoration
+    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_burst(),
+              new_s3_get_bucket_tokens_val);
+    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_speed(),
+              new_s3_get_token_per_second_val);
+}
+
 } // namespace doris
