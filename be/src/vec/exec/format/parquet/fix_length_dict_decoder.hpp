@@ -18,6 +18,7 @@
 #pragma once
 
 #include "util/bit_util.h"
+#include "util/simd/expand.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -93,6 +94,65 @@ public:
                     .insert_many_dict_data(dict_items.data(),
                                            cast_set<uint32_t>(dict_items.size()));
         }
+        if constexpr (!has_filter) {
+            if (!doris_column->is_column_dictionary() && !is_dict_filter) {
+                if constexpr (PhysicalType != tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+                              PhysicalType != tparquet::Type::INT96) {
+                    size_t num_values = select_vector.num_values();
+                    size_t dict_bytes = _dict_items.size() * _type_length;
+                    // Use a default L2 cache size (256KB) as CpuInfo::get_l2_cache_size() has a bug
+                    // that causes SIGSEGV when cache_line_sizes is nullptr
+                    constexpr size_t DEFAULT_L2_CACHE_SIZE = 256 * 1024;
+                    if (dict_bytes > 0 && parquet_cache_aware_dict_decoder_enable &&
+                        dict_bytes <= DEFAULT_L2_CACHE_SIZE) {
+                        // Prepare destination buffer (same logic as in _decode_fixed_values)
+                        size_t primitive_length =
+                                remove_nullable(data_type)->get_size_of_value_in_memory();
+                        size_t data_index = doris_column->size() * primitive_length;
+                        size_t scale_size =
+                                (select_vector.num_values() - select_vector.num_filtered()) *
+                                (_type_length / primitive_length);
+                        doris_column->resize(doris_column->size() + scale_size);
+                        char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
+                        cppType* dst = reinterpret_cast<cppType*>(raw_data + data_index);
+
+                        // When there are nulls, use GetBatchWithDict + assign_data_with_nulls
+                        if (select_vector.num_nulls() > 0) {
+                            const uint8_t* null_map = select_vector.get_null_map_data();
+                            if (null_map == nullptr) {
+                                return Status::InternalError("null_map is null");
+                            }
+
+                            std::vector<cppType> read_data(non_null_size);
+                            auto ret = _index_batch_decoder->GetBatchWithDict(
+                                    _dict_items.data(), cast_set<int32_t>(_dict_items.size()),
+                                    read_data.data(), cast_set<int32_t>(non_null_size));
+                            if (UNLIKELY(ret <= 0)) {
+                                return Status::InternalError("DictDecoder GetBatchWithDict failed");
+                            }
+
+                            assign_data_with_nulls(num_values, non_null_size, null_map,
+                                                   read_data.data(), dst);
+                            return Status::OK();
+                        }
+
+                        // No nulls case: directly use GetBatchWithDict
+                        auto ret = _index_batch_decoder->GetBatchWithDict(
+                                _dict_items.data(), cast_set<int32_t>(_dict_items.size()), dst,
+                                cast_set<int32_t>(num_values));
+                        if (ret == 0) {
+                            return Status::InternalError(
+                                    "DictDecoder GetBatchWithDict failed (truncated input)");
+                        }
+                        if (ret == static_cast<uint32_t>(-1)) {
+                            return Status::InternalError("Index not in dictionary bounds");
+                        }
+                        return Status::OK();
+                    }
+                }
+            }
+        }
+
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
 
@@ -115,6 +175,19 @@ protected:
         // doris_column is of type MutableColumnPtr, which uses get_raw_data
         // to return a StringRef, hence the use of const_cast.
         char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
+
+        // Try cache-aware fast path for numeric fixed-length types without filters
+        if constexpr (!has_filter) {
+            if constexpr (PhysicalType != tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+                          PhysicalType != tparquet::Type::INT96) {
+                // Use SIMD optimized path when there are nulls
+                if (select_vector.num_nulls() > 0) {
+                    return _decode_fixed_values_simd(doris_column, select_vector, raw_data,
+                                                     data_index);
+                }
+            }
+        }
+
         size_t dict_index = 0;
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
@@ -145,6 +218,74 @@ protected:
             }
             }
         }
+        return Status::OK();
+    }
+
+    // Assign data with nulls using SIMD optimization (similar to StarRocks)
+    template <class DataType>
+    void assign_data_with_nulls(size_t count, size_t num_non_nulls, const uint8_t* nulls,
+                                const DataType* src_data, DataType* dst_data) {
+        // opt branch for process sparse column
+        if (num_non_nulls < count / 10) {
+            size_t cnt = 0;
+            size_t i = 0;
+#ifdef __AVX2__
+            for (i = 0; i + 32 <= count; i += 32) {
+                // Load the next 32 elements of nulls into a mask
+                __m256i loaded = _mm256_loadu_si256((__m256i*)&nulls[i]);
+                int mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(loaded, _mm256_setzero_si256()));
+                // Process non-null positions using bitmask iteration
+                while (mask != 0) {
+                    int idx = __builtin_ctz(mask);
+                    dst_data[i + idx] = src_data[cnt++];
+                    mask &= (mask - 1);
+                }
+            }
+#endif
+            // process tail elements
+            for (; i < count; ++i) {
+                dst_data[i] = src_data[cnt];
+                cnt += !nulls[i];
+            }
+        } else {
+            // size_t cnt = 0;
+            // for (size_t i = 0; i < count; ++i) {
+            //     dst_data[i] = src_data[cnt];
+            //     cnt += !nulls[i];
+            // }
+            // Use SIMD expand helper to assign values while respecting nulls.
+            // The simd::Expand::expand_load dispatches to optimized implementations
+            // for 32-bit and 64-bit types, falling back to branchless scalar otherwise.
+            simd::Expand::expand_load<DataType>(dst_data, src_data, nulls, count);
+        }
+    }
+
+    // SIMD optimized decoding for fixed-length numeric types with nulls
+    // This is called when NOT in L2 cache path, so _indexes is already populated
+    Status _decode_fixed_values_simd(MutableColumnPtr& doris_column,
+                                     ColumnSelectVector& select_vector, char* raw_data,
+                                     size_t data_index) {
+        const size_t num_values = select_vector.num_values();
+        const size_t non_null_size = num_values - select_vector.num_nulls();
+
+        // Get null_map directly from ColumnSelectVector (already built during init)
+        const uint8_t* null_map = select_vector.get_null_map_data();
+        if (null_map == nullptr) {
+            return Status::InternalError("null_map is null");
+        }
+
+        cppType* dst_data = reinterpret_cast<cppType*>(raw_data + data_index);
+
+        // Batch read dictionary values into a compact temporary buffer using _indexes
+        std::vector<cppType> compact_values(non_null_size);
+        for (size_t i = 0; i < non_null_size; ++i) {
+            compact_values[i] = _dict_items[_indexes[i]];
+        }
+
+        // Assign data with nulls handling
+        assign_data_with_nulls(num_values, non_null_size, null_map, compact_values.data(),
+                               dst_data);
+
         return Status::OK();
     }
 

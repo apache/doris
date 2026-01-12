@@ -97,6 +97,17 @@ public:
     /// any offline cores or cores that could be added via hot-plugging.
     static int get_max_num_cores() { return max_num_cores_; }
 
+    /// Returns the cache size for the given cache level (in bytes). If the information
+    /// cannot be determined, return 0.
+    static long get_cache_size(CacheLevel level) {
+        long cache_sizes[NUM_CACHE_LEVELS] = {0};
+        _get_cache_info(cache_sizes, nullptr);
+        return cache_sizes[level];
+    }
+
+    /// Convenience accessor for L2 cache size (in bytes).
+    static long get_l2_cache_size() { return get_cache_size(L2_CACHE); }
+
     /// Returns the core that the current thread is running on. Always in range
     /// [0, GetMaxNumCores()). Note that the thread may be migrated to a different core
     /// at any time by the scheduler, so the caller should not assume the answer will
