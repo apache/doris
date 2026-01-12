@@ -194,6 +194,7 @@ suite("doc_date_functions_test") {
     // Any parameter is NULL
     qt_date_format_7 """SELECT DATE_FORMAT(NULL, '%Y-%m-%d')"""
     qt_date_format_8 """SELECT DATE_FORMAT('2009-10-04', NULL)"""
+    qt_date_format_9 """SELECT DATE_FORMAT('2009-10-04 22:23:00', '   %W %M    %Y')"""
 
     // 10. DATE function tests
     // Extract date part from datetime
@@ -1405,6 +1406,87 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT YEARWEEK('2023-01-02', 5) AS yearweek_mode5")
     testFoldConst("SELECT YEARWEEK('2023-12-25', 1) AS date_type_mode1")
 
+    //101. TIME_FORMAT function tests
+    sql """ DROP TABLE IF EXISTS test_time_format; """
+    sql """CREATE TABLE test_time_format (
+        id  INT,
+        tm VARCHAR(32)
+    ) DUPLICATE KEY(id)
+    PROPERTIES ( 'replication_num' = '1' );
+        """
+    sql """ INSERT INTO test_time_format VALUES
+            ( 1, '00:00:00'),
+            ( 2, '00:00:00.123456'),
+            ( 3, '12:34:56'),
+            ( 4, '12:34:56.789012'),
+            ( 5, '23:59:59'),
+            ( 6, '23:59:59.999999'),
+            ( 7, '08:00:00'),
+            ( 8, '15:00:00'),
+            ( 9, '100:00:00'),
+            (10, '123:45:56'),
+            (11, '838:59:59.999999'),
+            (12, '-00:00:01'),
+            (13, '-12:34:56.000001'),
+            (14, '-838:59:59.999999'),
+            (15, NULL);
+        """
+    qt_time_format_1 """SELECT
+                            id,
+                            tm,
+                            TIME_FORMAT(tm, '%H'),
+                            TIME_FORMAT(tm, '%k'),
+                            TIME_FORMAT(tm, '%h'),
+                            TIME_FORMAT(tm, '%I'),
+                            TIME_FORMAT(tm, '%l'),
+                            TIME_FORMAT(tm, '%i'),
+                            TIME_FORMAT(tm, '%s'),
+                            TIME_FORMAT(tm, '%S'),
+                            TIME_FORMAT(tm, '%f'),
+                            TIME_FORMAT(tm, '%p'),
+                            TIME_FORMAT(tm, '%r'),
+                            TIME_FORMAT(tm, '%T'),
+                            TIME_FORMAT(tm, '%H:%i:%s.%f'),
+                            TIME_FORMAT(tm, '%k %H %l %I %h'),
+                            TIME_FORMAT(tm, '%s %f %i %p'),
+                            TIME_FORMAT(tm, '%T %r %h:%I'),
+                            TIME_FORMAT(tm, '%l %k %I %H %h %p'),
+                            TIME_FORMAT(tm, '%f %s %i %T %r')
+                        FROM test_time_format
+                        ORDER BY id;
+                        """
+    qt_time_format_2 """SELECT TIME_FORMAT('2023-01-01 00:00:00', '%H %k %l %I %h %p')"""
+    qt_time_format_3 """SELECT TIME_FORMAT('2023-01-01 00:00:00.123456', '%s %f %i %T')"""
+    qt_time_format_4 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%r %T %h:%I %l')"""
+    qt_time_format_5 """SELECT TIME_FORMAT('2023-01-01 12:34:56.789012', '%k %H %I %l %h %p %s')"""
+    qt_time_format_6 """SELECT TIME_FORMAT('2023-01-01 23:59:59', '%f %s %i %p %r')"""
+    qt_time_format_7 """SELECT TIME_FORMAT('2023-01-01 23:59:59.999999', '%T %r %H:%i:%s.%f')"""
+    qt_time_format_8 """SELECT TIME_FORMAT('2023-01-01 08:00:00', '%l %k %h %I %H %p %f')"""
+    qt_time_format_9 """SELECT TIME_FORMAT('2023-01-01 15:00:00', '%s %i %f %T %r %p')"""
+    qt_time_format_10 """SELECT TIME_FORMAT('2023-01-01 100:00:00', '%H %l %I %k %h %s %f')"""
+    qt_time_format_11 """SELECT TIME_FORMAT('2023-01-01 123:45:56', '%p %r %T %i %s %f %H')"""
+    qt_time_format_12 """SELECT TIME_FORMAT('2023-01-01 838:59:59.999999', '%k %f %s %I %l %H %p')"""
+    qt_time_format_13 """SELECT TIME_FORMAT('2023-01-01 00:00:01', '%T %i %r %s %f %h:%I')"""
+    qt_time_format_14 """SELECT TIME_FORMAT('2023-01-01 12:34:56.000001', '%p %H %k %l %I %T %f')"""
+    qt_time_format_15 """SELECT TIME_FORMAT('2023-01-01 838:59:59.999999', '%s %i %f %r %p %H:%i:%s')"""
+
+    // Time format with date placeholders (Year, Month, Day return zeros or NULL)
+    qt_time_format_16 """SELECT TIME_FORMAT('2023-01-01 12:34:56.789012', '%Y-%m-%d %H:%i:%s')"""
+    qt_time_format_17 """SELECT TIME_FORMAT('2023-01-01 01:02:03.456789', '%y-%m-%d')"""
+    qt_time_format_18 """SELECT TIME_FORMAT('2023-01-01 23:59:59.999999', '%Y %m %d')"""
+    qt_time_format_19 """SELECT TIME_FORMAT('2023-01-01 00:00:00', '%c-%e')"""
+    qt_time_format_20 """SELECT TIME_FORMAT('2023-01-01 15:45:30.123456', '%Y/%m/%d %H:%i:%s.%f')"""
+    qt_time_format_21 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%M')"""
+    qt_time_format_22 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%W')"""
+    qt_time_format_23 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%j')"""
+    qt_time_format_24 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%D')"""
+    qt_time_format_25 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%U')"""
+    qt_time_format_26 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%u')"""
+    qt_time_format_27 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%V')"""
+    qt_time_format_28 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%v')"""
+    qt_time_format_29 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%x')"""
+    qt_time_format_30 """SELECT TIME_FORMAT('2023-01-01 12:34:56', '%X %w')"""
+
     // TO_SECONDS function tests
     qt_to_seconds_1 """select to_seconds('2007-10-07')"""
     qt_to_seconds_2 """select to_seconds('2007-10-07 10:03:09')"""
@@ -1431,7 +1513,7 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT to_seconds(20250101)")
     testFoldConst("SELECT to_seconds(20250101123045)")
 
-    // Test constant folding for Group 1 functions (基础日期函数)
+    // Test constant folding for Group 1 functions
     
     // 1. CONVERT_TZ function constant folding tests
     testFoldConst("SELECT CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), 'Asia/Shanghai', 'America/Los_Angeles')")
@@ -1489,6 +1571,7 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT DATE_FORMAT('2009-10-04', '%D %e %f')")
     testFoldConst("SELECT DATE_FORMAT(NULL, '%Y-%m-%d')")
     testFoldConst("SELECT DATE_FORMAT('2009-10-04', NULL)")
+    testFoldConst("SELECT DATE_FORMAT('2009-10-04 22:23:00', '   %W %M    %Y')")
 
     // 7. DATE function constant folding tests
     testFoldConst("SELECT DATE('2003-12-31 01:02:03')")
@@ -2057,6 +2140,85 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT MAKETIME(1, 2, NULL)")
     testFoldConst("SELECT MAKETIME(123, -4, 40)")
     testFoldConst("SELECT MAKETIME(7, 8, -23)")
+
+    // 100. TIME_FORMAT function constant folding tests
+    testFoldConst("SELECT TIME_FORMAT('00:00:00', '%H') AS zero_24hour")
+    testFoldConst("SELECT TIME_FORMAT('00:00:00', '%k') AS zero_24hour_no_pad")
+    testFoldConst("SELECT TIME_FORMAT('00:00:00', '%h') AS zero_12hour")
+    testFoldConst("SELECT TIME_FORMAT('00:00:00', '%I') AS zero_12hour_alt")
+    testFoldConst("SELECT TIME_FORMAT('00:00:00', '%l') AS zero_12hour_no_pad")
+    testFoldConst("SELECT TIME_FORMAT('838:59:59', '%k:%i:%S') AS max_k_format")
+    testFoldConst("SELECT TIME_FORMAT('838:59:59', '%H.%i.%s.%f') AS max_with_micro_sep")
+    testFoldConst("SELECT TIME_FORMAT('838:59:59', '%T') AS max_time_T")
+    testFoldConst("SELECT TIME_FORMAT('838:59:59', '%r') AS max_time_r")
+    testFoldConst("SELECT TIME_FORMAT('-838:59:59', '%k %i %S') AS min_k_format")
+    testFoldConst("SELECT TIME_FORMAT('-838:59:59', '%H%i%S%f') AS min_compact")
+    testFoldConst("SELECT TIME_FORMAT('839:00:00', '%T') AS beyond_max_T")
+    testFoldConst("SELECT TIME_FORMAT('-839:00:00', '%r') AS beyond_min_r")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56.123456', '%f') AS only_microseconds")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56.789012', '%k.%f') AS hour_microsec")
+    testFoldConst("SELECT TIME_FORMAT('23:59:59.999999', '%T.%f') AS T_format_micro")
+    testFoldConst("SELECT TIME_FORMAT('00:00:00.000001', '%f only') AS micro_with_text")
+    testFoldConst("SELECT TIME_FORMAT('13:45:30', '%H vs %k vs %h vs %I vs %l') AS all_hour_formats")
+    testFoldConst("SELECT TIME_FORMAT('03:07:09', '%H-%k-%h-%I-%l') AS morning_all_formats")
+    testFoldConst("SELECT TIME_FORMAT('00:30:45', '%H|%k|%h|%I|%l') AS midnight_all_formats")
+    testFoldConst("SELECT TIME_FORMAT('12:00:00', '%H/%k/%h/%I/%l') AS noon_all_formats")
+    testFoldConst("SELECT TIME_FORMAT('23:59:59', '%k,%h,%l,%p') AS late_night_formats")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', '%S') AS uppercase_S")
+    testFoldConst("SELECT TIME_FORMAT('12:34:09', '%S vs %s') AS both_seconds")
+    testFoldConst("SELECT TIME_FORMAT('12:34:05', '%k:%i:%S') AS k_i_S")
+    testFoldConst("SELECT TIME_FORMAT('15:30:45', '%T') AS T_afternoon")
+    testFoldConst("SELECT TIME_FORMAT('03:07:22', '%T') AS T_morning")
+    testFoldConst("SELECT TIME_FORMAT('15:30:45', '%r') AS r_afternoon")
+    testFoldConst("SELECT TIME_FORMAT('03:07:22', '%r') AS r_morning")
+    testFoldConst("SELECT TIME_FORMAT('00:00:00', '%T vs %r') AS T_vs_r_midnight")
+    testFoldConst("SELECT TIME_FORMAT('12:00:00', '%T vs %r') AS T_vs_r_noon")
+    testFoldConst("SELECT TIME_FORMAT('13:45:30', '%p') AS only_pm")
+    testFoldConst("SELECT TIME_FORMAT('09:15:20', '%p') AS only_am")
+    testFoldConst("SELECT TIME_FORMAT('23:59:59', '%p at %l:%i') AS pm_natural")
+    testFoldConst("SELECT TIME_FORMAT('00:30:45', '%p-%l-%i-%S') AS am_dashes")
+    testFoldConst("SELECT TIME_FORMAT('15:07:22', '%p%p%p') AS triple_pm")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', '%i') AS only_minutes")
+    testFoldConst("SELECT TIME_FORMAT('12:05:56', '%i') AS minutes_leading_zero")
+    testFoldConst("SELECT TIME_FORMAT('12:00:00', '%i:%S') AS min_sec_only")
+    testFoldConst("SELECT TIME_FORMAT('23:59:59', '%i%S') AS min_sec_compact")
+    testFoldConst("SELECT TIME_FORMAT('500:30:45', '%k:%i:%S') AS large_k")
+    testFoldConst("SELECT TIME_FORMAT('700:00:00', '%H-%k') AS large_H_k")
+    testFoldConst("SELECT TIME_FORMAT('100:15:30', '%T') AS large_T")
+    testFoldConst("SELECT TIME_FORMAT('838:00:00', '%k only') AS max_hour_k")
+    testFoldConst("SELECT TIME_FORMAT('-12:34:56', '%k:%i:%S') AS negative_k")
+    testFoldConst("SELECT TIME_FORMAT('-100:30:45', '%T') AS negative_T")
+    testFoldConst("SELECT TIME_FORMAT('-05:07:09', '%r') AS negative_r")
+    testFoldConst("SELECT TIME_FORMAT('-838:59:59', '%H%k%h%I%l') AS negative_max_all")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', '%%H=%%k') AS percent_escaped")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', '%% %T %%') AS percent_around_T")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', '%H\\:%i\\:%s') AS backslash_colon")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', '%k-%i-%S-%f') AS all_with_dashes")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', '') AS empty_format")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', 'no specifiers at all') AS literal_only")
+    testFoldConst("SELECT TIME_FORMAT('15:45:30', '%k%i%S%f%p%T%r') AS everything_combined")
+    testFoldConst("SELECT TIME_FORMAT('03:07:09', '%l o clock %i minutes %S seconds %p') AS natural_lang")
+    testFoldConst("SELECT TIME_FORMAT('23:59:59', '%H=%k, %h=%I=%l, %p') AS hour_comparisons")
+    testFoldConst("SELECT TIME_FORMAT('12:00:00', 'Noon: %T or %r?') AS noon_question")
+    testFoldConst("SELECT TIME_FORMAT('00:00:00', 'Midnight: %k|%h|%l %p') AS midnight_formats")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%k:%i:%S') AS datetime_k")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 03:07:22', '%l:%i %p') AS datetime_12h")
+    testFoldConst("SELECT TIME_FORMAT(NULL, '%T') AS null_time_T")
+    testFoldConst("SELECT TIME_FORMAT('12:34:56', NULL) AS null_format")
+    testFoldConst("SELECT TIME_FORMAT(NULL, NULL) AS both_null")
+
+    // TIME_FORMAT with date placeholders constant folding tests
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%Y-%m-%d %H:%i:%s') AS date_with_time")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 08:15:30.123456', '%y/%m/%d %T.%f') AS short_date_format")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 23:59:59', '%Y %m %d') AS year_month_day")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 12:34:56', '%c-%e') AS month_day_no_pad")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 10:20:30.987654', '%Y/%m/%d %H:%i:%s.%f') AS full_datetime")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%M') AS month_name")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%W') AS weekday_name")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%j') AS day_of_year")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%D') AS day_with_suffix")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%U %u') AS week_numbers")
+    testFoldConst("SELECT TIME_FORMAT('2023-12-25 15:30:45', '%V %v %w') AS week_variants")
 
     // Additional NULL parameter tests for comprehensive coverage
     

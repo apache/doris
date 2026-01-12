@@ -72,11 +72,9 @@ private:
     bool _should_expand_hash_table = true;
     bool _stop_emplace_flag = false;
     const int batch_size;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
     std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;
     bool _reach_limit = false;
@@ -120,7 +118,7 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(state);
+        return {ExchangeType::PASSTHROUGH};
     }
 
     bool require_data_distribution() const override { return _is_colocate; }

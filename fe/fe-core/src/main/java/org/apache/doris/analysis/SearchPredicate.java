@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSearchClause;
 import org.apache.doris.thrift.TSearchFieldBinding;
+import org.apache.doris.thrift.TSearchOccur;
 import org.apache.doris.thrift.TSearchParam;
 
 import org.apache.logging.log4j.LogManager;
@@ -313,6 +314,16 @@ public class SearchPredicate extends Predicate {
             clause.setValue(node.value);
         }
 
+        // Convert occur type for Lucene-style boolean queries
+        if (node.occur != null) {
+            clause.setOccur(convertQsOccurToThrift(node.occur));
+        }
+
+        // Convert minimum_should_match for OCCUR_BOOLEAN
+        if (node.minimumShouldMatch != null) {
+            clause.setMinimumShouldMatch(node.minimumShouldMatch);
+        }
+
         if (node.children != null && !node.children.isEmpty()) {
             List<TSearchClause> childClauses = new ArrayList<>();
             for (SearchDslParser.QsNode child : node.children) {
@@ -322,6 +333,19 @@ public class SearchPredicate extends Predicate {
         }
 
         return clause;
+    }
+
+    private TSearchOccur convertQsOccurToThrift(SearchDslParser.QsOccur occur) {
+        switch (occur) {
+            case MUST:
+                return TSearchOccur.MUST;
+            case SHOULD:
+                return TSearchOccur.SHOULD;
+            case MUST_NOT:
+                return TSearchOccur.MUST_NOT;
+            default:
+                return TSearchOccur.MUST;
+        }
     }
 
     // Getters

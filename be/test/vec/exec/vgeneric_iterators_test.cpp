@@ -138,9 +138,9 @@ TEST(VGenericIteratorsTest, Union) {
             base_value -= 100;
         }
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<int16_t>());
         EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<int64_t>());
         row_count++;
     }
 }
@@ -187,9 +187,9 @@ TEST(VGenericIteratorsTest, MergeAgg) {
             base_value = row_count - 300;
         }
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<int16_t>());
         EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<int64_t>());
         row_count++;
     }
 }
@@ -228,9 +228,9 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     for (size_t i = 0; i < block.rows(); ++i) {
         size_t base_value = row_count;
 
-        EXPECT_EQ(base_value, (*c0)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<int16_t>());
         EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
-        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<int64_t>());
         row_count++;
     }
 }

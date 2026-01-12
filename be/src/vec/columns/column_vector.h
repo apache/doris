@@ -277,7 +277,7 @@ public:
                 data[n], assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).data[m]);
     }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
 
     void reserve(size_t n) override { data.reserve(n); }
@@ -305,10 +305,7 @@ public:
     // but its type is different from column's data type (int64 vs uint64), so that during column
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
-    void insert(const Field& x) override {
-        data.push_back(
-                doris::vectorized::get<typename PrimitiveTypeTraits<T>::NearestFieldType>(x));
-    }
+    void insert(const Field& x) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 

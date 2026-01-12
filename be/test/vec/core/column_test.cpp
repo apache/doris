@@ -199,8 +199,8 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
               Array({Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
                      Field::create_field<TYPE_STRING>("c")}));
     EXPECT_EQ(get<Array>(v[1]),
-              Array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
-                     Field::create_field<TYPE_INT>(3)}));
+              Array({Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                     Field::create_field<TYPE_BIGINT>(3)}));
     v = get<Map>(shrunk_col->operator[](1));
     EXPECT_EQ(v.size(), 2);
     EXPECT_EQ(get<Array>(v[0]), Array());
@@ -221,8 +221,8 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
               Array({Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
                      Field::create_field<TYPE_STRING>("c")}));
     EXPECT_EQ(get<Array>(v[1]),
-              Array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
-                     Field::create_field<TYPE_INT>(3)}));
+              Array({Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                     Field::create_field<TYPE_BIGINT>(3)}));
     v = get<Map>(shrunk_col->operator[](1));
     EXPECT_EQ(v.size(), 2);
     EXPECT_EQ(get<Array>(v[0]), Array());

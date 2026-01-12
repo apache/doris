@@ -75,22 +75,25 @@ public class ExternalObjectLog implements Writable {
         return externalObjectLog;
     }
 
-    public static ExternalObjectLog createForRefreshTable(long catalogId, String dbName, String tblName) {
+    public static ExternalObjectLog createForRefreshTable(long catalogId, String dbName, String tblName,
+            long updateTime) {
         ExternalObjectLog externalObjectLog = new ExternalObjectLog();
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
         externalObjectLog.setTableName(tblName);
+        externalObjectLog.setLastUpdateTime(updateTime);
         return externalObjectLog;
     }
 
     public static ExternalObjectLog createForRefreshPartitions(long catalogId, String dbName, String tblName,
-            List<String> modifiedPartNames, List<String> newPartNames) {
+            List<String> modifiedPartNames, List<String> newPartNames, long updateTime) {
         ExternalObjectLog externalObjectLog = new ExternalObjectLog();
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
         externalObjectLog.setTableName(tblName);
         externalObjectLog.setPartitionNames(modifiedPartNames);
         externalObjectLog.setNewPartitionNames(newPartNames);
+        externalObjectLog.setLastUpdateTime(updateTime);
         return externalObjectLog;
     }
 

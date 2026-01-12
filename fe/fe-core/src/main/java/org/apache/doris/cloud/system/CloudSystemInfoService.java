@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -232,6 +233,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     public Cloud.GetClusterResponse getCloudCluster(String clusterName, String clusterId, String userName) {
         Cloud.GetClusterRequest.Builder builder = Cloud.GetClusterRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id)
+            .setRequestIp(FrontendOptions.getLocalHostAddressCached())
             .setClusterName(clusterName).setClusterId(clusterId).setMysqlUserName(userName);
         final Cloud.GetClusterRequest pRequest = builder.build();
         Cloud.GetClusterResponse response;
@@ -465,6 +467,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 .build();
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(Cloud.AlterClusterRequest.Operation.ALTER_VCLUSTER_INFO)
                 .setCluster(clusterPB)
                 .build();
@@ -509,6 +512,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(Cloud.AlterClusterRequest.Operation.ALTER_VCLUSTER_INFO)
                 .setCluster(clusterPB)
                 .build();
@@ -554,6 +558,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(operation)
                 .setCluster(clusterPB)
                 .build();
@@ -622,6 +627,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(Cloud.AlterClusterRequest.Operation.ADD_NODE)
                 .setCluster(clusterPB)
                 .build();
@@ -1243,6 +1249,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(op)
                 .setCluster(clusterPB)
                 .build();
@@ -1286,6 +1293,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(Cloud.AlterClusterRequest.Operation.ADD_CLUSTER)
                 .setCluster(clusterPB)
                 .build();
@@ -1338,7 +1346,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     public Cloud.GetInstanceResponse getCloudInstance() {
         Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();
-        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setCloudUniqueId(Config.cloud_unique_id).setRequestIp(FrontendOptions.getLocalHostAddressCached());
         final Cloud.GetInstanceRequest pRequest = builder.build();
         Cloud.GetInstanceResponse response;
         try {
@@ -1444,6 +1452,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
             Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
             builder.setCloudUniqueId(Config.cloud_unique_id);
+            builder.setRequestIp(FrontendOptions.getLocalHostAddressCached());
             builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
 
             ClusterPB.Builder clusterBuilder = ClusterPB.newBuilder();
@@ -1512,6 +1521,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         builder.setInstanceId(instanceId);
         builder.setName(name);
         builder.setSseEnabled(sseEnabled);
+        builder.setRequestIp(FrontendOptions.getLocalHostAddressCached());
 
         Cloud.CreateInstanceResponse response;
         try {
@@ -1533,7 +1543,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     public String getInstanceId(String cloudUniqueId) throws IOException {
         Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();
-        builder.setCloudUniqueId(cloudUniqueId);
+        builder.setCloudUniqueId(cloudUniqueId).setRequestIp(FrontendOptions.getLocalHostAddressCached());
 
         Cloud.GetInstanceResponse response;
         try {
@@ -1632,6 +1642,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(Cloud.AlterClusterRequest.Operation.RENAME_CLUSTER)
                 .setReplaceIfExistingEmptyTargetCluster(true)
                 .setCluster(clusterPB)
@@ -1676,6 +1687,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setOp(Cloud.AlterClusterRequest.Operation.ALTER_PROPERTIES)
                 .setCluster(clusterPB)
                 .build();
