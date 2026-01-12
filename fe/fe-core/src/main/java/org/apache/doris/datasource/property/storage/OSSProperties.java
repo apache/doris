@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -313,6 +313,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
         hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
     }
+
     /**
      * Rewrites the bucket part of an OSS URI if the bucket is specified
      * in the form of bucket.endpoint. https://help.aliyun.com/zh/oss/user-guide/access-oss-via-bucket-domain-name
