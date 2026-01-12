@@ -1,0 +1,53 @@
+{
+  "java_home": "/usr/lib/jvm/java-17-openjdk-amd64",
+  "prometheus": {
+    "base_url": "http://172.20.48.32:9090",
+    "cluster_name": "zcp-tls-cert-auth-env"
+  },
+  "fe": {
+    "http_port": "8030",
+    "rpc_port": "9020",
+    "query_port": "9030",
+    "edit_log_port": "9010",
+    "node": [
+      {
+        "ip": "172.20.56.35",
+        "install_path": "/mnt/hdd01/PERFORMANCE_ENV/fe"
+      }
+    ]
+  },
+  "be": {
+    "cluster": [
+      {
+        "cluster_name": "zcp-tls-cert-auth-env",
+        "be_port": "9060",
+        "brpc_port": "8060",
+        "webserver_port": "8040",
+        "heartbeat_service_port": "9050",
+        "node": [
+          {
+            "ip": "172.20.56.38",
+            "install_path": "/mnt/hdd01/PERFORMANCE_ENV/be"
+          },
+          {
+            "ip": "172.20.56.36",
+            "install_path": "/mnt/hdd01/PERFORMANCE_ENV/be"
+          },
+          {
+            "ip": "172.20.56.37",
+            "install_path": "/mnt/hdd01/PERFORMANCE_ENV/be"
+          }
+        ]
+      }
+    ]
+  },
+  "meta_service": {
+    "brpc_listen_port": "5000",
+    "node": [
+      {
+        "ip": "172.20.56.35",
+        "install_path": "/mnt/hdd01/PERFORMANCE_ENV/ms"
+      }
+    ]
+  }
+}

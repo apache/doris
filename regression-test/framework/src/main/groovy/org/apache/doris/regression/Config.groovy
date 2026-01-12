@@ -24,6 +24,7 @@ import com.google.common.collect.Maps
 import org.apache.commons.cli.CommandLine
 import org.apache.doris.regression.util.FileUtils
 import org.apache.doris.regression.util.JdbcUtils
+import org.apache.doris.regression.json.ClusterInfoAgent
 
 import java.sql.Connection
 import java.sql.DriverManager
@@ -31,7 +32,7 @@ import java.util.function.Predicate
 
 import static org.apache.doris.regression.ConfigOptions.*
 
-import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TNetworkAddress
 
 enum RunMode {
     UNKNOWN,
@@ -586,6 +587,7 @@ class Config {
 
         try {
             config.fetchCloudMode()
+            config.setUserSAN()
         } catch (Exception e) {
             // docker suite no need external cluster.
             // so can ignore error here.
@@ -1132,6 +1134,61 @@ class Config {
             } catch (Throwable t) {
                 throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
             }
+        }
+    }
+
+    void setUserSAN() {
+        if (!isCloudMode()) {
+            log.info("Not cloud mode, skip set user SAN")
+            return
+        }
+        if (!otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) {
+            log.info("enableTLS not enabled, skip set user SAN")
+            return
+        }
+    
+        if (otherConfigs.get("enableCertBasedAuth") == null) {
+            log.info("enableCertBasedAuth not configured, skip set user SAN")
+            return
+        }
+    
+        if (!otherConfigs.get("enableCertBasedAuth")?.toString()?.equalsIgnoreCase("true")) {
+            log.info("enableCertBasedAuth not enabled, unset user SAN")
+            try {
+                def setSanNoneCmd = "ALTER USER '${jdbcUser}'@'%' REQUIRE NONE;"
+                log.info("Unset SAN in cloud mode, sql: ${setSanNoneCmd}".toString())
+                JdbcUtils.executeToList(getRootConnection(), setSanNoneCmd)
+            } catch (Throwable t) {
+                throw new IllegalStateException("unset user SAN failed", t)
+            }
+            return
+        }
+    
+        // enableTLS=true and enableCertBasedAuth=true
+        def san = ""
+        if (otherConfigs.get("userSAN") != null && !otherConfigs.get("userSAN").toString().trim().isEmpty()) {
+            san = otherConfigs.get("userSAN").toString().trim()
+        } else {
+            def clusterFile = otherConfigs.get("clusterFile")?.toString()
+            if (clusterFile) {
+                ClusterInfoAgent info = ClusterInfoAgent.LoadFromFile(clusterFile)
+                def clusterNodes = info.collectAllModuleIPs()
+                if (clusterNodes != null && !clusterNodes.isEmpty()) {
+                    san = clusterNodes.collect { "IP:${it}" }.join(",")
+                }
+            }
+        }
+    
+        if (san) {
+            try {
+                def setSanCmd = "ALTER USER '${jdbcUser}'@'%' REQUIRE SAN '${san}';"
+                log.info("Set SAN in cloud mode, sql: ${setSanCmd}".toString())
+                JdbcUtils.executeToList(getRootConnection(), setSanCmd)
+            } catch (Throwable t) {
+                throw new IllegalStateException("set user SAN failed", t)
+            }
+        } else {
+            log.warn("SAN is empty, skip setting user SAN".toString())
         }
     }
 

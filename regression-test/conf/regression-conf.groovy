@@ -284,3 +284,22 @@ hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
+// The path of the cert configuration file for the testing framework 
+// is consistent with the path of the cert file for the cluster
+enableTLS=false
+tlsVerifyMode="strict"
+keyStorePath="/your/keystore.p12"
+keyStorePassword="yourPwd"
+keyStoreType="PKCS12"
+trustStorePath="/your/truststore.p12"
+trustStorePassword="yourPwd"
+trustStoreType="PKCS12"
+trustCert="/your/certificate.crt"
+trustCACert="/your/ca.crt"
+trustCAKey="/your/certificate.key"
+// if no userSAN or empty, default SAN is combines all hosts in env
+// like env consists with 172.20.0.1 fe, 172.20.0.2 & 172.20.0.3 be, 172.20.0.4 ms 172.20.0.5 recycler
+// the default SAN is IP:172.20.0.1,IP:172.20.0.2,IP172.20.0.3,IP:172.20.0.4,IP:172.20.0.5
+userSAN=""
+enableCertBasedAuth=false
+clusterFile="regression-test/conf/clusterFile.json"
