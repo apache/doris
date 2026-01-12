@@ -657,6 +657,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
+    std::vector<std::filesystem::path> to_delete_old_dirs;
     auto add_cell_batch_func = [&]() {
         SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
 
@@ -686,7 +687,13 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             auto key_with_suffix = key_it->path().filename().native();
             auto delim_pos = key_with_suffix.find('_');
-            DCHECK(delim_pos != std::string::npos);
+            // Doris 2.1 use cache VERSION2(cache_base_path / key_prefix / key / offset), but
+            // the key do not include "_exptime" suffix.
+            // Here after upgrade to Doris 3.0, we just mark and delete this old version dir.
+            if (delim_pos == std::string::npos) {
+                to_delete_old_dirs.push_back(key_it->path());
+                continue;
+            }
             std::string key_str = key_with_suffix.substr(0, delim_pos);
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
@@ -771,6 +778,17 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     }
     if (!batch_load_buffer.empty()) {
         add_cell_batch_func();
+    }
+    // Only the first time upgrade from 2.1 to 3.0, this vector may be non-empty.
+    for (const auto& dir : to_delete_old_dirs) {
+        std::error_code del_ec;
+        std::filesystem::remove_all(dir, del_ec);
+        if (del_ec) {
+            LOG(WARNING) << "Failed to remove old version cache path=" << dir
+                         << " msg=" << del_ec.message();
+        } else {
+            LOG(WARNING) << "Successfully removed old version cache path=" << dir;
+        }
     }
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
 }
