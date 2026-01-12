@@ -1713,6 +1713,8 @@ DECLARE_mBool(enable_cloud_notify_be_after_load_txn_commit);
 DECLARE_Int32(num_forward_notify_be_request_to_fe_thread_pool_min_thread);
 DECLARE_Int32(num_forward_notify_be_request_to_fe_thread_pool_max_thread);
 
+DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

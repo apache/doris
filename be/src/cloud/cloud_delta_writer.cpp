@@ -121,11 +121,7 @@ Status CloudDeltaWriter::commit_rowset() {
     }
 
     // Handle normal rowset with data
-    auto st = _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
-    if (st.ok()) {
-        _engine.meta_mgr().cache_committed_rowset(rowset_meta(), _req.txn_expiration);
-    }
-    return st;
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }
 
 Status CloudDeltaWriter::_commit_empty_rowset() {
@@ -143,16 +139,11 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
         return Status::OK();
     }
     // write a empty rowset kv to keep version continuous
-    auto st = _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
-    if (st.ok()) {
-        // TODO(bobhan1): FIX ME, should handle empty rowset
-        _engine.meta_mgr().cache_committed_rowset(rowset_meta(), _req.txn_expiration);
-    }
-    return st;
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }
 
-Status CloudDeltaWriter::set_txn_related_delete_bitmap() {
-    return rowset_builder()->set_txn_related_delete_bitmap();
+Status CloudDeltaWriter::set_txn_related_info() {
+    return rowset_builder()->set_txn_related_info();
 }
 
 } // namespace doris

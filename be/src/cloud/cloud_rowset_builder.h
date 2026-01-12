@@ -37,7 +37,7 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta();
 
-    Status set_txn_related_delete_bitmap();
+    Status set_txn_related_info();
 
     void set_skip_writing_rowset_metadata(bool skip) { _skip_writing_rowset_metadata = skip; }
 

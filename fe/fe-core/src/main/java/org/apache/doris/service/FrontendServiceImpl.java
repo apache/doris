@@ -4623,7 +4623,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTxnId(),
                     request.getCommitInfos(),
                     request.getPartitionVersionMap(),
-                    request.isSetUpdateVersionVisibleTime() ? request.getUpdateVersionVisibleTime() : 0);
+                    request.getVersionUpdateTimeMs());
 
             LOG.info("successfully forwarded make cloud tmp rs visible notification, txn_id: {}",
                     request.getTxnId());

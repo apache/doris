@@ -565,6 +565,12 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
+    DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.inject_error", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == tablet->tablet_id()) {
+            return Status::InternalError("injected error for testing");
+        }
+    });
 
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
@@ -824,13 +830,6 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet,
         }
     }
     return true;
-}
-
-bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet,
-                                                      std::span<RowsetMetaPB> rs_metas,
-                                                      DeleteBitmap* delete_bitmap) {
-    return sync_tablet_delete_bitmap_by_cache<std::span<RowsetMetaPB>>(
-            tablet, std::ranges::ref_view(rs_metas), delete_bitmap);
 }
 
 Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
@@ -1355,7 +1354,7 @@ void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t e
     // TODO(bobhan1): copy rs_meta?
     int64_t txn_id = rs_meta->txn_id();
     int64_t tablet_id = rs_meta->tablet_id();
-    ExecEnv::GetInstance()->storage_engine().to_cloud().pending_rs_mgr().add_committed_rowset(
+    ExecEnv::GetInstance()->storage_engine().to_cloud().committed_rs_mgr().add_committed_rowset(
             txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 

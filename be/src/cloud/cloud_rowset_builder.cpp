@@ -38,10 +38,12 @@ Status CloudRowsetBuilder::init() {
 
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
-        auto st = std::static_pointer_cast<CloudTablet>(_tablet)->sync_rowsets();
-        // sync_rowsets will return INVALID_TABLET_STATE when tablet is under alter
-        if (!st.ok() && !st.is<ErrorCode::INVALID_TABLET_STATE>()) {
-            return st;
+        if (config::cloud_mow_sync_rowsets_when_load_txn_begin) {
+            auto st = std::static_pointer_cast<CloudTablet>(_tablet)->sync_rowsets();
+            // sync_rowsets will return INVALID_TABLET_STATE when tablet is under alter
+            if (!st.ok() && !st.is<ErrorCode::INVALID_TABLET_STATE>()) {
+                return st;
+            }
         }
         RETURN_IF_ERROR(init_mow_context(mow_context));
     }
@@ -125,7 +127,7 @@ const RowsetMetaSharedPtr& CloudRowsetBuilder::rowset_meta() {
     return _rowset_writer->rowset_meta();
 }
 
-Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
+Status CloudRowsetBuilder::set_txn_related_info() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         // For empty rowsets when skip_writing_empty_rowset_metadata=true,
         // store only a lightweight marker instead of full rowset info.
@@ -151,6 +153,9 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
         _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
                 _req.txn_expiration, _partial_update_info);
+    } else {
+        // TODO(bobahan1): handle empty rowset opt
+        _engine.meta_mgr().cache_committed_rowset(rowset_meta(), _req.txn_expiration);
     }
     return Status::OK();
 }

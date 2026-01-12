@@ -348,18 +348,15 @@ public:
 
     void add_warmed_up_rowset(const RowsetId& rowset_id);
 
-    // Add visible pending rowset to the map, which is notified by FE but not yet added to tablet meta
-    // due to out-of-order notification or version discontinuity
-    // @param version: the version of the rowset
-    // @param rowset_meta: the rowset metadata
-    // @param expiration_time: expiration time in seconds since epoch
-    void add_visible_pending_rowset(int64_t version, const RowsetMetaSharedPtr& rowset_meta,
-                                    int64_t expiration_time);
-
     // Try to apply visible pending rowsets to tablet meta in version order
     // This should be called after receiving FE notification or when new rowsets are added
     // @return Status::OK() if successfully applied, error otherwise
     void apply_visible_pending_rowsets();
+
+    void try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
+                                       int64_t version_update_time_ms);
+    void try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t visible_version,
+                                               int64_t version_update_time_ms);
 
     void clear_unused_visible_pending_rowsets();
 
@@ -484,9 +481,8 @@ private:
     // due to out-of-order notification or version discontinuity
     struct VisiblePendingRowset {
         RowsetMetaSharedPtr rowset_meta;
-        int64_t expiration_time; // seconds since epoch
+        const int64_t expiration_time; // seconds since epoch
 
-        VisiblePendingRowset() : expiration_time(0) {}
         VisiblePendingRowset(RowsetMetaSharedPtr rowset_meta_, int64_t expiration_time_)
                 : rowset_meta(std::move(rowset_meta_)), expiration_time(expiration_time_) {}
     };

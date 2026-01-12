@@ -2398,7 +2398,6 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
               << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();
 
     const auto& make_visible_req = req.make_cloud_tmp_rs_visible_req;
-    auto& pending_rs_mgr = engine.pending_rs_mgr();
     auto& tablet_mgr = engine.tablet_mgr();
 
     int64_t txn_id = make_visible_req.txn_id;
@@ -2408,21 +2407,11 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
 
     // Process each tablet involved in this transaction on this BE
     for (int64_t tablet_id : make_visible_req.tablet_ids) {
-        RowsetMetaSharedPtr rowset_meta;
-        auto res = pending_rs_mgr.get_committed_rowset(txn_id, tablet_id);
-        if (!res.has_value()) {
-            continue;
-        }
-        auto [pending_rs, expiration_time] = res.value();
-
-        auto tablet_result = tablet_mgr.get_tablet(tablet_id, false, false, nullptr, false);
+        auto tablet_result = tablet_mgr.get_tablet(tablet_id, false, false, nullptr, true, false);
         if (!tablet_result.has_value()) {
             continue;
         }
-        auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet_result.value());
-        if (!cloud_tablet) {
-            continue;
-        }
+        auto cloud_tablet = tablet_result.value();
 
         int64_t partition_id = cloud_tablet->partition_id();
         auto version_iter = make_visible_req.partition_version_map.find(partition_id);
@@ -2431,16 +2420,9 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
         }
         int64_t visible_version = version_iter->second;
 
-        rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
-
-        cloud_tablet->add_visible_pending_rowset(visible_version, rowset_meta, expiration_time);
-        cloud_tablet->apply_visible_pending_rowsets();
-        pending_rs_mgr.remove_committed_rowset(txn_id, tablet_id);
-        LOG(INFO) << "added visible pending rowset, txn_id=" << txn_id
-                  << ", tablet_id=" << tablet_id << ", version=" << visible_version
-                  << ", rowset_id=" << rowset_meta->rowset_id().to_string();
+        cloud_tablet->try_make_committed_rs_visible(txn_id, visible_version,
+                                                    version_update_time_ms);
     }
-
     LOG(INFO) << "make cloud tmp rs visible finished, txn_id=" << txn_id
               << ", processed_tablets=" << make_visible_req.tablet_ids.size();
 }

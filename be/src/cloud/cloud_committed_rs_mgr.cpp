@@ -48,6 +48,11 @@ Status CloudCommittedRSMgr::init() {
 void CloudCommittedRSMgr::add_committed_rowset(int64_t txn_id, int64_t tablet_id,
                                                RowsetMetaSharedPtr rowset_meta,
                                                int64_t expiration_time) {
+    int64_t txn_expiration_min =
+            duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                    .count() +
+            config::tablet_txn_info_min_expired_seconds;
+    expiration_time = std::max(txn_expiration_min, expiration_time);
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     TxnTabletKey key(txn_id, tablet_id);
     _committed_rs_map.emplace(key, CommittedRowsetValue(rowset_meta, expiration_time));
@@ -67,21 +72,6 @@ Result<std::pair<RowsetMetaSharedPtr, int64_t>> CloudCommittedRSMgr::get_committ
                 "pending rowset not found, txn_id={}, tablet_id={}", txn_id, tablet_id));
     }
     return std::make_pair(iter->second.rowset_meta, iter->second.expiration_time);
-}
-
-Status CloudCommittedRSMgr::update_committed_rowset(int64_t txn_id, int64_t tablet_id,
-                                                    RowsetMetaSharedPtr rowset_meta) {
-    std::unique_lock<std::shared_mutex> wlock(_rwlock);
-    TxnTabletKey key(txn_id, tablet_id);
-    auto iter = _committed_rs_map.find(key);
-    if (iter == _committed_rs_map.end()) {
-        return Status::Error<ErrorCode::NOT_FOUND>(
-                "pending rowset not found, txn_id={}, tablet_id={}", txn_id, tablet_id);
-    }
-    iter->second.rowset_meta = rowset_meta;
-    LOG(INFO) << "update pending rowset, txn_id=" << txn_id << ", tablet_id=" << tablet_id
-              << ", rowset_id=" << rowset_meta->rowset_id().to_string();
-    return Status::OK();
 }
 
 void CloudCommittedRSMgr::remove_committed_rowset(int64_t txn_id, int64_t tablet_id) {

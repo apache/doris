@@ -1737,23 +1737,17 @@ void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
             .start_tp = std::chrono::steady_clock::now()};
 }
 
-void CloudTablet::add_visible_pending_rowset(int64_t version,
-                                             const RowsetMetaSharedPtr& rowset_meta,
-                                             int64_t expiration_time) {
-    std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
-    _visible_pending_rs_map.emplace(version, VisiblePendingRowset {rowset_meta, expiration_time});
-    LOG(INFO) << "add visible pending rowset, tablet_id=" << tablet_id() << ", version=" << version
-              << ", rowset_id=" << rowset_meta->rowset_id().to_string()
-              << ", expiration_time=" << expiration_time;
-}
-
 void CloudTablet::clear_unused_visible_pending_rowsets() {
     int64_t cur_max_version = max_version().second;
     int32_t max_version_count = max_version_config();
+    int64_t current_time = std::chrono::duration_cast<std::chrono::seconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
     {
         std::unique_lock<std::mutex> wlock(_visible_pending_rs_lock);
         for (auto it = _visible_pending_rs_map.begin(); it != _visible_pending_rs_map.end();) {
-            if (int64_t version = it->first; version <= cur_max_version) {
+            if (int64_t version = it->first, expiration_time = it->second.expiration_time;
+                version <= cur_max_version || expiration_time < current_time) {
                 it = _visible_pending_rs_map.erase(it);
             } else {
                 ++it;
@@ -1767,18 +1761,75 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
     }
 }
 
-void CloudTablet::apply_visible_pending_rowsets() {
-    Defer defer {[&] { clear_unused_visible_pending_rowsets(); }};
-
-    {
-        std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
-        if (_visible_pending_rs_map.empty()) {
+void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
+                                                int64_t version_update_time_ms) {
+    if (enable_unique_key_merge_on_write()) {
+        try_make_committed_rs_visible_for_mow(txn_id, visible_version, version_update_time_ms);
+    } else {
+        auto& committed_rs_mgr = _engine.committed_rs_mgr();
+        auto res = committed_rs_mgr.get_committed_rowset(txn_id, tablet_id());
+        if (!res.has_value()) {
             return;
         }
+        auto [rowset_meta, expiration_time] = res.value();
+
+        rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
+
+        {
+            std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
+            _visible_pending_rs_map.emplace(visible_version,
+                                            VisiblePendingRowset {rowset_meta, expiration_time});
+        }
+        apply_visible_pending_rowsets();
+        committed_rs_mgr.remove_committed_rowset(txn_id, tablet_id());
+        LOG(INFO) << "added visible pending rowset, txn_id=" << txn_id
+                  << ", tablet_id=" << tablet_id() << ", version=" << visible_version
+                  << ", rowset_id=" << rowset_meta->rowset_id().to_string();
+    }
+}
+
+void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t visible_version,
+                                                        int64_t version_update_time_ms) {
+    auto res = _engine.txn_delete_bitmap_cache().get_rowset_and_delete_bitmap(txn_id, tablet_id());
+    if (!res.has_value()) {
+        return;
+    }
+    auto [rowset, delete_bitmap] = res.value();
+
+    {
+        std::unique_lock lock {_sync_meta_lock};
+        std::unique_lock meta_wlock {_meta_lock};
+        if (_max_version + 1 != visible_version) {
+            return;
+        }
+        for (const auto& [delete_bitmap_key, bitmap_value] : delete_bitmap->delete_bitmap) {
+            // skip sentinel mark, which is used for delete bitmap correctness check
+            if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                tablet_meta()->delete_bitmap().merge(
+                        {std::get<0>(delete_bitmap_key), std::get<1>(delete_bitmap_key),
+                         visible_version},
+                        bitmap_value);
+            }
+        }
+        rowset->rowset_meta()->set_cloud_fields_after_visible(visible_version,
+                                                              version_update_time_ms);
+        add_rowsets({rowset}, false, meta_wlock, true);
+    }
+    LOG(INFO) << "mow added visible pending rowset, txn_id=" << txn_id
+              << ", tablet_id=" << tablet_id() << ", version=" << visible_version
+              << ", rowset_id=" << rowset->rowset_id().to_string();
+    _engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id, tablet_id());
+}
+
+void CloudTablet::apply_visible_pending_rowsets() {
+    Defer defer {[&] { clear_unused_visible_pending_rowsets(); }};
+    {
         std::unique_lock lock(_sync_meta_lock);
         std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
         int64_t next_version = _max_version + 1;
         std::vector<RowsetSharedPtr> to_add;
+
+        std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
         for (auto it = _visible_pending_rs_map.upper_bound(_max_version);
              it != _visible_pending_rs_map.end(); ++it) {
             if (int64_t version = it->first; version == next_version) {
@@ -1800,33 +1851,7 @@ void CloudTablet::apply_visible_pending_rowsets() {
             }
         }
         if (!to_add.empty()) {
-            if (enable_unique_key_merge_on_write() &&
-                config::enable_sync_tablet_delete_bitmap_by_cache) {
-                // should only have one rowset to add for mow tablet
-                if (to_add.size() > 1) {
-                    LOG_WARNING(
-                            "found more than one pending rowset to make visible for MOW tablet, "
-                            "tablet_id={}, to_add={}",
-                            tablet_id(),
-                            fmt::join(to_add | std::views::transform([](const auto& rs) {
-                                          return fmt::format("{}{}", rs->rowset_id().to_string(),
-                                                             rs->version().to_string());
-                                      }),
-                                      ", "));
-                }
-                DeleteBitmap delete_bitmap(tablet_id());
-                std::vector<RowsetMetaPB> rs_metas;
-                for (const auto& rs : to_add) {
-                    rs_metas.push_back(rs->rowset_meta()->get_rowset_pb());
-                }
-                if (!_engine.meta_mgr().sync_tablet_delete_bitmap_by_cache(
-                            this, std::span(rs_metas), &delete_bitmap)) {
-                    return; // just return if failed to get related delete bitmap from memory
-                }
-                add_rowsets(to_add, false, meta_wlock, true);
-            } else {
-                add_rowsets(to_add, false, meta_wlock, true);
-            }
+            add_rowsets(to_add, false, meta_wlock, true);
             LOG(INFO) << "applied " << to_add.size()
                       << " visible pending rowsets to tablet_id=" << tablet_id()
                       << ", new max_version=" << _max_version;

@@ -1654,6 +1654,8 @@ DEFINE_mBool(enable_cloud_notify_be_after_load_txn_commit, "true");
 DEFINE_Int32(num_forward_notify_be_request_to_fe_thread_pool_min_thread, "4");
 DEFINE_Int32(num_forward_notify_be_request_to_fe_thread_pool_max_thread, "16");
 
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

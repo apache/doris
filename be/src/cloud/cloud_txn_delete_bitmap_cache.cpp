@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
 
@@ -94,6 +95,43 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         return Status::OK();
     }
     return st;
+}
+
+Result<std::pair<RowsetSharedPtr, DeleteBitmapPtr>>
+CloudTxnDeleteBitmapCache::get_rowset_and_delete_bitmap(TTransactionId transaction_id,
+                                                        int64_t tablet_id) {
+    RowsetSharedPtr rowset;
+    {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        TxnKey txn_key(transaction_id, tablet_id);
+        auto iter = _txn_map.find(txn_key);
+        if (iter == _txn_map.end()) {
+            return ResultError(Status::InternalError<false>(""));
+        }
+        if (!(iter->second.publish_status &&
+              *(iter->second.publish_status) == PublishStatus::SUCCEED)) {
+            return ResultError(Status::InternalError<false>(""));
+        }
+        rowset = iter->second.rowset;
+    }
+
+    std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
+    CacheKey key(key_str);
+    Cache::Handle* handle = lookup(key);
+
+    DBUG_EXECUTE_IF("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss", {
+        handle = nullptr;
+        LOG(INFO) << "CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss, make cache missed "
+                     "when get delete bitmap, txn_id:"
+                  << transaction_id << ", tablet_id: " << tablet_id;
+    });
+    DeleteBitmapCacheValue* val =
+            handle == nullptr ? nullptr : reinterpret_cast<DeleteBitmapCacheValue*>(value(handle));
+    if (!val) {
+        return ResultError(Status::InternalError<false>(""));
+    }
+
+    return std::make_pair(rowset, val->delete_bitmap);
 }
 
 Status CloudTxnDeleteBitmapCache::get_delete_bitmap(

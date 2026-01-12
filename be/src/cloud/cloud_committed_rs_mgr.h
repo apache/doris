@@ -47,9 +47,6 @@ public:
     Result<std::pair<RowsetMetaSharedPtr, int64_t>> get_committed_rowset(int64_t txn_id,
                                                                          int64_t tablet_id);
 
-    Status update_committed_rowset(int64_t txn_id, int64_t tablet_id,
-                                   RowsetMetaSharedPtr rowset_meta);
-
     void remove_committed_rowset(int64_t txn_id, int64_t tablet_id);
 
     void remove_expired_committed_rowsets();

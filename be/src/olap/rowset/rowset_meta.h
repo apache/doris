@@ -455,7 +455,8 @@ public:
 
     void set_cloud_fields_after_visible(int64_t visible_version, int64_t version_update_time_ms) {
         // Update rowset meta with correct version and visible_ts
-        // !!ATTENTION!!: this code should be updated if there are more fields in rowset meta which will be modified in meta-service in the future
+        // !!ATTENTION!!: this code should be updated if there are more fields
+        // in rowset meta which will be modified in meta-service when commit_txn in the future
         set_version({visible_version, visible_version});
         if (version_update_time_ms > 0) {
             set_visible_ts_ms(version_update_time_ms);

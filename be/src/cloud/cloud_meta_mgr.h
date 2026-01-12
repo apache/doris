@@ -169,12 +169,11 @@ public:
     Status get_snapshot_properties(SnapshotSwitchStatus& switch_status,
                                    int64_t& max_reserved_snapshots,
                                    int64_t& snapshot_interval_seconds);
-    bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, std::ranges::range auto&& rs_metas,
-                                            DeleteBitmap* delete_bitmap);
-    bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, std::span<RowsetMetaPB> rs_metas,
-                                            DeleteBitmap* delete_bitmap);
 
 private:
+    bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, std::ranges::range auto&& rs_metas,
+                                            DeleteBitmap* delete_bitmap);
+
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
