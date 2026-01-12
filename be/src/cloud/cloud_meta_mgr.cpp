@@ -1378,26 +1378,6 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     if (!st.ok() && resp.status().code() == MetaServiceCode::ROWSET_META_NOT_FOUND) {
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
-
-    // Update the rowset meta in pending rowset manager if it exists
-    // This is needed for partial update scenarios where rowset meta is modified during publish
-    if (st.ok()) {
-        auto rowset_meta_ptr = std::make_shared<RowsetMeta>();
-        rowset_meta_ptr->init_from_pb(rs_meta.get_rowset_pb());
-        auto update_st = ExecEnv::GetInstance()
-                                 ->storage_engine()
-                                 .to_cloud()
-                                 .pending_rs_mgr()
-                                 .update_committed_rowset(rs_meta.txn_id(), rs_meta.tablet_id(),
-                                                          rowset_meta_ptr);
-        // It's OK if the rowset is not found in pending manager (may have been cleaned up)
-        if (!update_st.ok() && !update_st.is<ErrorCode::NOT_FOUND>()) {
-            LOG(WARNING) << "failed to update pending rowset, tablet_id=" << rs_meta.tablet_id()
-                         << ", txn_id=" << rs_meta.txn_id() << ", rowset_id=" << rs_meta.rowset_id()
-                         << ", st=" << update_st;
-        }
-    }
-
     return st;
 }
 
@@ -1456,6 +1436,57 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
     }
 }
 
+namespace {
+void forward_notify_be_request_to_fe_async(const StreamLoadContext& ctx,
+                                           const CommitTxnResponse& res) {
+    // Async notify FE to make cloud tmp rowsets visible
+    auto notify_fe_func = [txn_id = ctx.txn_id, commit_infos = ctx.commit_infos,
+                           partition_ids = res.partition_ids(), versions = res.versions(),
+                           version_update_time_ms = res.version_update_time_ms()]() -> Status {
+        TForwardMakeCloudTmpRsVisibleRequest request;
+        TForwardMakeCloudTmpRsVisibleResult result;
+
+        request.__set_txn_id(txn_id);
+        request.__set_commit_infos(commit_infos);
+        std::map<int64_t, int64_t> partition_version_map;
+        for (int i = 0; i < partition_ids.size(); ++i) {
+            partition_version_map[partition_ids[i]] = versions[i];
+        }
+        request.__set_partition_version_map(partition_version_map);
+        request.__set_version_update_time_ms(version_update_time_ms);
+
+        Status status;
+        TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+        if (master_addr.hostname.empty() || master_addr.port == 0) {
+            status = Status::Error<SERVICE_UNAVAILABLE>("Have not get FE Master heartbeat yet");
+        } else {
+            RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                    master_addr.hostname, master_addr.port,
+                    [&request, &result](FrontendServiceConnection& client) {
+                        client->forwardMakeCloudTmpRsVisible(result, request);
+                    }));
+
+            status = Status::create<false>(result.status);
+        }
+
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to notify FE to make cloud tmp rs visible, txn_id=" << txn_id
+                         << ", error=" << status;
+        } else {
+            LOG(INFO) << "Successfully notified FE to make cloud tmp rs visible, txn_id=" << txn_id;
+        }
+        return Status::OK();
+    };
+
+    auto submit_st =
+            ExecEnv::GetInstance()->forward_notify_be_request_to_fe()->submit_func(notify_fe_func);
+    if (!submit_st.ok()) {
+        LOG(WARNING) << "Failed to submit notify FE task, txn_id=" << ctx.txn_id
+                     << ", error=" << submit_st.to_string();
+    }
+}
+} // namespace
+
 Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     VLOG_DEBUG << "commit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label << ", is_2pc: " << is_2pc;
@@ -1474,7 +1505,7 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
 
     if (st.ok()) {
         if (config::enable_cloud_notify_be_after_load_txn_commit) {
-            
+            forward_notify_be_request_to_fe_async(ctx, res);
         }
         send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
     }

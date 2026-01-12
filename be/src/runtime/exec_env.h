@@ -259,6 +259,7 @@ public:
         return _buffered_reader_prefetch_thread_pool.get();
     }
     ThreadPool* send_table_stats_thread_pool() { return _send_table_stats_thread_pool.get(); }
+    ThreadPool* forward_notify_be_request_to_fe() { return _forward_notify_be_request_to_fe.get(); }
     ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
@@ -477,6 +478,8 @@ private:
     std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
     // Threadpool used to send TableStats to FE
     std::unique_ptr<ThreadPool> _send_table_stats_thread_pool;
+    // Threadpool used to forward notify be request to FE
+    std::unique_ptr<ThreadPool> _forward_notify_be_request_to_fe;
     // Threadpool used to upload local file to s3
     std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
     // Pool used by join node to build hash table

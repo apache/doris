@@ -2431,12 +2431,7 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
         }
         int64_t visible_version = version_iter->second;
 
-        // Update rowset meta with correct version and visible_ts
-        // !!ATTENTION!!: this code should be updated if there are more fields in rowset meta which will be modified in meta-service in the future
-        rowset_meta->set_version({visible_version, visible_version});
-        if (version_update_time_ms > 0) {
-            rowset_meta->set_visible_ts_ms(version_update_time_ms);
-        }
+        rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
 
         cloud_tablet->add_visible_pending_rowset(visible_version, rowset_meta, expiration_time);
         cloud_tablet->apply_visible_pending_rowsets();

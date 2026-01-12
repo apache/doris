@@ -1651,6 +1651,8 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
 });
 
 DEFINE_mBool(enable_cloud_notify_be_after_load_txn_commit, "true");
+DEFINE_Int32(num_forward_notify_be_request_to_fe_thread_pool_min_thread, "4");
+DEFINE_Int32(num_forward_notify_be_request_to_fe_thread_pool_max_thread, "16");
 
 // clang-format off
 #ifdef BE_TEST

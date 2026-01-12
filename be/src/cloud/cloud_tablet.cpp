@@ -1741,26 +1741,34 @@ void CloudTablet::add_visible_pending_rowset(int64_t version,
                                              const RowsetMetaSharedPtr& rowset_meta,
                                              int64_t expiration_time) {
     std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
-    _visible_pending_rs_map[version] = VisiblePendingRowset(rowset_meta, expiration_time);
+    _visible_pending_rs_map.emplace(version, VisiblePendingRowset {rowset_meta, expiration_time});
     LOG(INFO) << "add visible pending rowset, tablet_id=" << tablet_id() << ", version=" << version
               << ", rowset_id=" << rowset_meta->rowset_id().to_string()
               << ", expiration_time=" << expiration_time;
 }
 
-void CloudTablet::apply_visible_pending_rowsets() {
-    Defer defer {[&] {
-        int64_t cur_max_version = max_version().second;
-        {
-            std::unique_lock<std::mutex> wlock(_visible_pending_rs_lock);
-            for (auto it = _visible_pending_rs_map.begin(); it != _visible_pending_rs_map.end();) {
-                if (int64_t version = it->first; version <= cur_max_version) {
-                    it = _visible_pending_rs_map.erase(it);
-                } else {
-                    ++it;
-                }
+void CloudTablet::clear_unused_visible_pending_rowsets() {
+    int64_t cur_max_version = max_version().second;
+    int32_t max_version_count = max_version_config();
+    {
+        std::unique_lock<std::mutex> wlock(_visible_pending_rs_lock);
+        for (auto it = _visible_pending_rs_map.begin(); it != _visible_pending_rs_map.end();) {
+            if (int64_t version = it->first; version <= cur_max_version) {
+                it = _visible_pending_rs_map.erase(it);
+            } else {
+                ++it;
             }
         }
-    }};
+
+        while (!_visible_pending_rs_map.empty() &&
+               _visible_pending_rs_map.size() > max_version_count) {
+            _visible_pending_rs_map.erase(--_visible_pending_rs_map.end());
+        }
+    }
+}
+
+void CloudTablet::apply_visible_pending_rowsets() {
+    Defer defer {[&] { clear_unused_visible_pending_rowsets(); }};
 
     {
         std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);

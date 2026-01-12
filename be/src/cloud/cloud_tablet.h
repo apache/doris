@@ -361,6 +361,8 @@ public:
     // @return Status::OK() if successfully applied, error otherwise
     void apply_visible_pending_rowsets();
 
+    void clear_unused_visible_pending_rowsets();
+
     std::string rowset_warmup_digest() const {
         std::string res;
         auto add_log = [&](const RowsetSharedPtr& rs) {

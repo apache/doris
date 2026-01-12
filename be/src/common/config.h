@@ -1710,6 +1710,8 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 DECLARE_mString(aws_credentials_provider_version);
 
 DECLARE_mBool(enable_cloud_notify_be_after_load_txn_commit);
+DECLARE_Int32(num_forward_notify_be_request_to_fe_thread_pool_min_thread);
+DECLARE_Int32(num_forward_notify_be_request_to_fe_thread_pool_max_thread);
 
 #ifdef BE_TEST
 // test s3
