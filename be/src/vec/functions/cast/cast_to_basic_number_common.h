@@ -100,7 +100,7 @@ struct ValidFloatingRange<int128_t, FloatingType> {
 // 2. from float/double to int
 // 3. from time to tinyint, smallint and int
 template <typename FromCppT, typename ToCppT>
-constexpr bool CastToIntFromWiderInt = IsCppTypeInt<FromCppT>&& IsCppTypeInt<ToCppT> &&
+constexpr bool CastToIntFromWiderInt = IsCppTypeInt<FromCppT> && IsCppTypeInt<ToCppT> &&
                                        sizeof(FromCppT) > sizeof(ToCppT);
 
 template <typename FromCppT, typename ToCppT>
