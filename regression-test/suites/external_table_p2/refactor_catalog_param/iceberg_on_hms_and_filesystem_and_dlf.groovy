@@ -309,6 +309,15 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
 
+    String hdfs_new_kerberos_properties = """
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
+                "hdfs.authentication.type" = "kerberos",
+                "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
+    """
+    
+
     String hms_prop = """
               'hive.metastore.uris' = 'thrift://${externalEnvIp}:9383',
     """
@@ -322,13 +331,11 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
                                    DEFAULT",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
      """
 
     String hms_kerberos_old_prop_not_include_kerberos_prop = """
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
      """
 
@@ -337,7 +344,6 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                 "hive.metastore.client.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hive.metastore.client.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
                 "hive.metastore.service.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.authentication.type"="kerberos",
                 "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
@@ -438,6 +444,8 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
     //new  kerberos
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
+    //new hdfs kerberos
+    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + hdfs_new_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
 
 
     /*--------HMS END-----------*/
@@ -501,6 +509,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
         'warehouse' = 'hdfs://${externalEnvIp}:8520/iceberg-fs-hdfs-warehouse',
     """
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + hdfs_kerberos_properties, "iceberg_fs_on_hdfs_kerberos")
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + hdfs_new_kerberos_properties, "iceberg_fs_on_hdfs_new_kerberos")
 
 
     /*  *//**  S3   **/
