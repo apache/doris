@@ -43,6 +43,7 @@ import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
+import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.EqualityDelete;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
@@ -70,7 +71,6 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
-import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
@@ -85,7 +85,6 @@ import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
-import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
@@ -243,12 +242,19 @@ public class IcebergScanNode extends FileQueryScanNode {
                     if (upperBound.isPresent()) {
                         deleteFileDesc.setPositionUpperBound(upperBound.getAsLong());
                     }
-                    deleteFileDesc.setContent(FileContent.POSITION_DELETES.id());
+                    deleteFileDesc.setContent(IcebergDeleteFileFilter.PositionDelete.type());
+
+                    if (filter instanceof IcebergDeleteFileFilter.DeletionVector) {
+                        IcebergDeleteFileFilter.DeletionVector dv = (IcebergDeleteFileFilter.DeletionVector) filter;
+                        deleteFileDesc.setContentOffset((int) dv.getContentOffset());
+                        deleteFileDesc.setContentSizeInBytes((int) dv.getContentLength());
+                        deleteFileDesc.setContent(IcebergDeleteFileFilter.DeletionVector.type());
+                    }
                 } else {
                     IcebergDeleteFileFilter.EqualityDelete equalityDelete =
                             (IcebergDeleteFileFilter.EqualityDelete) filter;
                     deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
-                    deleteFileDesc.setContent(FileContent.EQUALITY_DELETES.id());
+                    deleteFileDesc.setContent(EqualityDelete.type());
                 }
                 fileDesc.addToDeleteFiles(deleteFileDesc);
             }
@@ -799,18 +805,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         List<IcebergDeleteFileFilter> filters = new ArrayList<>();
         for (DeleteFile delete : spitTask.deletes()) {
             if (delete.content() == FileContent.POSITION_DELETES) {
-                Optional<Long> positionLowerBound = Optional.ofNullable(delete.lowerBounds())
-                        .map(m -> m.get(MetadataColumns.DELETE_FILE_POS.fieldId()))
-                        .map(bytes -> Conversions.fromByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), bytes));
-                Optional<Long> positionUpperBound = Optional.ofNullable(delete.upperBounds())
-                        .map(m -> m.get(MetadataColumns.DELETE_FILE_POS.fieldId()))
-                        .map(bytes -> Conversions.fromByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), bytes));
-                filters.add(IcebergDeleteFileFilter.createPositionDelete(delete.path().toString(),
-                        positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L),
-                        delete.fileSizeInBytes()));
+                filters.add(IcebergDeleteFileFilter.createPositionDelete(delete));
             } else if (delete.content() == FileContent.EQUALITY_DELETES) {
                 filters.add(IcebergDeleteFileFilter.createEqualityDelete(
-                        delete.path().toString(), delete.equalityFieldIds(), delete.fileSizeInBytes()));
+                        delete.path().toString(), delete.equalityFieldIds(),
+                        delete.fileSizeInBytes(), delete.format()));
             } else {
                 throw new IllegalStateException("Unknown delete content: " + delete.content());
             }
