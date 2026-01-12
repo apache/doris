@@ -872,16 +872,13 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseAndOperator() {
-        // Test: Currently lowercase 'and' is also treated as operator
-        // According to PDF requirement, only uppercase should be operators
-        // This test documents current behavior - may need to change
+        // Lowercase 'and' is NOT an operator in ANTLR grammar (case-sensitive).
+        // With bareQuery rule, it's parsed as a bare term without field.
+        // Without default_field, bare term throws exception.
         String dsl = "field:a and field:b";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
-
-        Assertions.assertNotNull(plan);
-        // Current behavior: lowercase 'and' IS an operator
-        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
-        // TODO: If PDF requires only uppercase, this should fail and return OR or different structure
+        Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl);
+        });
     }
 
     @Test
@@ -897,15 +894,13 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseOrOperator() {
-        // Test: Currently lowercase 'or' is also treated as operator
-        // According to PDF requirement, only uppercase should be operators
+        // Lowercase 'or' is NOT an operator in ANTLR grammar (case-sensitive).
+        // With bareQuery rule, it's parsed as a bare term without field.
+        // Without default_field, bare term throws exception.
         String dsl = "field:a or field:b";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
-
-        Assertions.assertNotNull(plan);
-        // Current behavior: lowercase 'or' IS an operator
-        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
-        // TODO: If PDF requires only uppercase, this should fail
+        Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl);
+        });
     }
 
     @Test
@@ -920,15 +915,13 @@ public class SearchDslParserTest {
 
     @Test
     public void testLowercaseNotOperator() {
-        // Test: Currently lowercase 'not' is also treated as operator
-        // According to PDF requirement, only uppercase should be operators
+        // Lowercase 'not' is NOT an operator in ANTLR grammar (case-sensitive).
+        // With bareQuery rule, it's parsed as a bare term without field.
+        // Without default_field, bare term throws exception.
         String dsl = "not field:spam";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
-
-        Assertions.assertNotNull(plan);
-        // Current behavior: lowercase 'not' IS an operator
-        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
-        // TODO: If PDF requires only uppercase, this should fail
+        Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl);
+        });
     }
 
     @Test
