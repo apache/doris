@@ -104,7 +104,7 @@ struct MurmurHash3Impl {
             }
         } else if (const ColumnConst* col_from_const =
                            check_and_get_column_const_string_or_fixedstring(column)) {
-            auto value = col_from_const->get_value<String>();
+            auto value = col_from_const->get_value<TYPE_STRING>();
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if constexpr (ReturnType == TYPE_INT) {
                     col_to_data[i] =
@@ -193,7 +193,7 @@ struct XxHashImpl {
             }
         } else if (const ColumnConst* col_from_const =
                            check_and_get_column_const_string_or_fixedstring(column)) {
-            auto value = col_from_const->get_value<String>();
+            auto value = col_from_const->get_value<TYPE_STRING>();
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if constexpr (ReturnType == TYPE_INT) {
                     col_to_data[i] =

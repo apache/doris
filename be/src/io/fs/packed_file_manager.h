@@ -45,10 +45,12 @@ struct PackedSliceLocation {
     std::string packed_file_path;
     int64_t offset;
     int64_t size;
+    int64_t create_time = 0;
     int64_t tablet_id = 0;
     std::string rowset_id;
     std::string resource_id;
     int64_t txn_id = 0;
+    int64_t packed_file_size = -1; // Total size of the packed file, -1 means not set
 };
 
 struct PackedAppendContext {

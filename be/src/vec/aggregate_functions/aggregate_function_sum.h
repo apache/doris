@@ -102,6 +102,8 @@ public:
         }
     }
 
+    bool is_trivial() const override { return true; }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& column =
@@ -192,7 +194,6 @@ public:
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec(places, offset, rhs, arena, num_rows);
     }
 
@@ -200,7 +201,6 @@ public:
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
         this->deserialize_from_column(rhs, *column, arena, num_rows);
-        DEFER({ this->destroy_vec(rhs, num_rows); });
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
@@ -285,13 +285,24 @@ private:
     UInt32 scale;
 };
 
+constexpr PrimitiveType result_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else {
+        return T;
+    }
+}
+
 // TODO: use result type from FE plan
 template <PrimitiveType T>
 struct SumSimple {
     static_assert(!is_decimalv3(T));
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    static constexpr PrimitiveType ResultType =
-            T == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : PrimitiveTypeTraits<T>::NearestPrimitiveType;
+    static constexpr PrimitiveType ResultType = result_type(T);
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };

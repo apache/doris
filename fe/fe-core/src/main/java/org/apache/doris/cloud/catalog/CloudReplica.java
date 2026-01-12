@@ -67,6 +67,9 @@ public class CloudReplica extends Replica {
     @SerializedName(value = "idx")
     private long idx = -1;
 
+    private long segmentCount = 0L;
+    private long rowsetCount = 0L;
+
     private static final Random rand = new Random();
 
     private Map<String, List<Long>> memClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
@@ -625,5 +628,25 @@ public class CloudReplica extends Replica {
             }
         });
         return result;
+    }
+
+    @Override
+    public long getSegmentCount() {
+        return segmentCount;
+    }
+
+    @Override
+    public void setSegmentCount(long segmentCount) {
+        this.segmentCount = segmentCount;
+    }
+
+    @Override
+    public long getRowsetCount() {
+        return rowsetCount;
+    }
+
+    @Override
+    public void setRowsetCount(long rowsetCount) {
+        this.rowsetCount = rowsetCount;
     }
 }

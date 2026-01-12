@@ -68,7 +68,7 @@ Status RuntimePredicate::init_target(
                 slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
                         ->col_name();
         _contexts[target_node_id].predicate =
-                SharedPredicate::create_shared(cast_set<uint32_t>(column_id));
+                SharedPredicate::create_shared(cast_set<uint32_t>(column_id), "");
     }
     _detected_target = true;
     return Status::OK();
@@ -178,7 +178,7 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
     }
 
     throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", type_to_string(type));
-    return StringRef();
+    return {};
 }
 
 bool RuntimePredicate::_init(PrimitiveType type) {
@@ -218,8 +218,8 @@ Status RuntimePredicate::update(const Field& value) {
         const auto& column = *DORIS_TRY(ctx.tablet_schema->column(ctx.col_name));
         auto str_ref = _get_string_ref(_orderby_extrem, _type);
         std::shared_ptr<ColumnPredicate> pred =
-                _pred_constructor(ctx.predicate->column_id(), column.get_vec_type(), str_ref, false,
-                                  _predicate_arena);
+                _pred_constructor(ctx.predicate->column_id(), column.name(), column.get_vec_type(),
+                                  str_ref, false, _predicate_arena);
 
         // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
         // since ORDER BY ASC/DESC should get NULL first but pred returns NULL

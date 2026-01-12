@@ -652,7 +652,8 @@ public class CreateTableInfo {
             }
 
             // add hidden column
-            if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+            // do not add delete sign column when table has seq mapping
+            if (keysType.equals(KeysType.UNIQUE_KEYS) && !PropertyAnalyzer.hasSeqMapping(properties)) {
                 if (isEnableMergeOnWrite) {
                     columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
                 } else {
@@ -694,7 +695,7 @@ public class CreateTableInfo {
             }
 
             if (Config.enable_hidden_version_column_by_default
-                    && keysType.equals(KeysType.UNIQUE_KEYS)) {
+                    && keysType.equals(KeysType.UNIQUE_KEYS) && !PropertyAnalyzer.hasSeqMapping(properties)) {
                 if (isEnableMergeOnWrite) {
                     columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
                 } else {

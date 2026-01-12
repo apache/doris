@@ -33,6 +33,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -53,7 +55,7 @@ public class PointQueryShouldNotMvRewriteTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                    Set<String> relatedPartitions) {
+                                              Map<List<String>, Set<String>> queryUsedPartitions) {
                 return true;
             }
         };
@@ -63,6 +65,7 @@ public class PointQueryShouldNotMvRewriteTest extends SqlTestBase {
                 return true;
             }
         };
+        connectContext.getState().setIsQuery(true);
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
 

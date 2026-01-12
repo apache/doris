@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
@@ -46,6 +47,7 @@ public class MetricsAction extends RestBaseController {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
         }
+        Env.getCurrentEnv().debugBlockAllOnGlobalLock("FE.BLOCK_IMPORT_LOCK");
 
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
