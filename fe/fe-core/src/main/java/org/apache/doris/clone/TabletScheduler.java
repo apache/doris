@@ -446,6 +446,11 @@ public class TabletScheduler extends MasterDaemon {
                         addBackToPendingTablets(tabletCtx);
                     }
                     continue;
+                } else if (e.getStatus() == Status.FINISHED) {
+                    // schedule redundant tablet or scheduler disabled will throw this exception
+                    stat.counterTabletScheduledSucceeded.incrementAndGet();
+                    finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getStatus(), e.getMessage());
+                    continue;
                 } else if (e.getStatus() == Status.SUBMITTED) {
                     // The SUBMITTED status will only occur when scheduling tablets that are of
                     // the REDUNDANT or FORCE_REDUNDANT.
@@ -1155,7 +1160,7 @@ public class TabletScheduler extends MasterDaemon {
 
             // If the replica is not in ColocateBackendsSet or is bad, delete it.
             deleteReplicaInternal(tabletCtx, replica, "colocate redundant", false);
-            throw new SchedException(Status.FINISHED, "colocate redundant replica is deleted");
+            throw new SchedException(Status.SUBMITTED, "delete colocate redundant replica task is submitted");
         }
         throw new SchedException(Status.UNRECOVERABLE, "unable to delete any colocate redundant replicas");
     }
