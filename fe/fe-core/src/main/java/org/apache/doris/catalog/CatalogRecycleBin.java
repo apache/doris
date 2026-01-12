@@ -84,7 +84,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     String unused;
 
     public CatalogRecycleBin() {
-        super("recycle bin", FeConstants.runningUnitTest ? 10L : DEFAULT_INTERVAL_SECONDS * 1000L);
+        super("recycle bin", FeConstants.runningUnitTest ? 10 * 1000L : DEFAULT_INTERVAL_SECONDS * 1000L);
         idToDatabase = Maps.newHashMap();
         idToTable = Maps.newHashMap();
         idToPartition = Maps.newHashMap();
