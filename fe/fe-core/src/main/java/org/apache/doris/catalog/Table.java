@@ -263,6 +263,32 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         }
     }
 
+    /**
+     * Try to acquire write lock with retry option.
+     * @param timeout timeout for each try
+     * @param unit time unit
+     * @param mustLock if true, use writeLockIfExist to block until acquired; if false, return on failure
+     * @return true if lock acquired, false otherwise (only when mustLock=false or table dropped)
+     */
+    public boolean tryWriteLock(long timeout, TimeUnit unit, boolean mustLock) {
+        if (tryWriteLock(timeout, unit)) {
+            return true;
+        } else {
+            // tryLock failed, timeout exceeded
+            Thread owner = rwLock.getOwner();
+            if (owner != null) {
+                LOG.warn("Table {}'s write lock tryLock failed after {} {}. Lock is held by: {}",
+                        name, timeout, unit.name(), Util.dumpThread(owner, 20));
+            }
+            if (mustLock) {
+                // must acquire lock, use blocking method
+                return writeLockIfExist();
+            } else {
+                return false;
+            }
+        }
+    }
+
     public void writeUnlock() {
         this.rwLock.writeLock().unlock();
     }

@@ -1142,9 +1142,11 @@ public class DatabaseTransactionMgr {
             LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         }
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
-        if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
-            LOG.warn("finish transaction {} failed, get lock timeout with tables {}", transactionId, tableIdList);
-            return;
+        if (Config.enable_publish_write_lock_with_timeout) {
+            tableList = MetaLockUtils.tryWriteLockTablesIfExist(tableList,
+                    Config.publish_table_write_lock_timeout_ms, TimeUnit.MILLISECONDS, true);
+        } else {
+            tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         }
         PublishResult publishResult;
         try {
