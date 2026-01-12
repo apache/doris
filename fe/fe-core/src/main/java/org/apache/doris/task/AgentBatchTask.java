@@ -500,7 +500,7 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setCleanUdfCacheReq(request);
                 return tAgentTaskRequest;
             }
-            case MAKE_CLOUD_TMP_RS_VISIBLE: {
+            case MAKE_CLOUD_COMMITTED_RS_VISIBLE: {
                 MakeCloudTmpRsVisibleTask makeCloudTmpRsVisibleTask = (MakeCloudTmpRsVisibleTask) task;
                 TMakeCloudTmpRsVisibleRequest request = makeCloudTmpRsVisibleTask.toThrift();
                 if (LOG.isDebugEnabled()) {

@@ -487,7 +487,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // ========================================
         // notify BEs to make temporary rowsets visible
         // ========================================
-        if (tabletCommitInfos != null) {
+        if (tabletCommitInfos != null && Config.enable_notify_be_after_load_txn_commit) {
             notifyBesMakeTmpRsVisible(commitTxnResponse, tabletCommitInfos);
         }
 

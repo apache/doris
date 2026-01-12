@@ -2388,7 +2388,11 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     remove_task_info(req.task_type, req.signature);
 }
 
-void make_cloud_tmp_rs_visible_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
+                                              const TAgentTaskRequest& req) {
+    if (!config::enable_cloud_make_rs_visible_on_be) {
+        return;
+    }
     LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
               << req.make_cloud_tmp_rs_visible_req.txn_id
               << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();

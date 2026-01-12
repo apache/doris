@@ -148,6 +148,8 @@ DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
 
+DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+
 DECLARE_mInt32(delete_bitmap_rpc_retry_times);
 
 DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);

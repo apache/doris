@@ -1659,7 +1659,7 @@ struct TForwardMakeCloudTmpRsVisibleRequest {
     1: required i64 txn_id
     2: required list<Types.TTabletCommitInfo> commit_infos
     3: required map<Types.TPartitionId, Types.TVersion> partition_version_map
-    4: optional i64 update_version_visible_time
+    4: required i64 version_update_time_ms
 }
 
 struct TForwardMakeCloudTmpRsVisibleResult {

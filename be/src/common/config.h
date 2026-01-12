@@ -289,6 +289,8 @@ DECLARE_Int32(download_worker_count);
 DECLARE_Int32(make_snapshot_worker_count);
 // the count of thread to release snapshot
 DECLARE_Int32(release_snapshot_worker_count);
+// the count of thread to make committed rowsets visible in cloud mode
+DECLARE_Int32(cloud_make_committed_rs_visible_worker_count);
 // report random wait a little time to avoid FE receiving multiple be reports at the same time.
 // do not set it to false for production environment
 DECLARE_mBool(report_random_wait);
@@ -1706,6 +1708,8 @@ DECLARE_mBool(print_stack_when_cache_miss);
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
+
+DECLARE_mBool(enable_cloud_notify_be_after_load_txn_commit);
 
 #ifdef BE_TEST
 // test s3

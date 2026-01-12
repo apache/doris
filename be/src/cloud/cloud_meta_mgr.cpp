@@ -1473,6 +1473,9 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
+        if (config::enable_cloud_notify_be_after_load_txn_commit) {
+            
+        }
         send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
     }
 

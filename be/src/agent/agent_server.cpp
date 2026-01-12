@@ -240,9 +240,11 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             "ALTER_INVERTED_INDEX", config::alter_index_worker_count,
             [&engine](auto&& task) { return alter_cloud_index_callback(engine, task); });
 
-    _workers[TTaskType::MAKE_CLOUD_TMP_RS_VISIBLE] = std::make_unique<TaskWorkerPool>(
-            "MAKE_CLOUD_TMP_RS_VISIBLE", 1,
-            [&engine](auto&& task) { return make_cloud_tmp_rs_visible_callback(engine, task); });
+    _workers[TTaskType::MAKE_CLOUD_COMMITTED_RS_VISIBLE] = std::make_unique<TaskWorkerPool>(
+            "MAKE_CLOUD_COMMITTED_RS_VISIBLE", config::cloud_make_committed_rs_visible_worker_count,
+            [&engine](auto&& task) {
+                return make_cloud_committed_rs_visible_callback(engine, task);
+            });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,

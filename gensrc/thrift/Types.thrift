@@ -250,7 +250,7 @@ enum TTaskType {
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000,
-    MAKE_CLOUD_TMP_RS_VISIBLE = 1001
+    MAKE_CLOUD_COMMITTED_RS_VISIBLE = 1001
 }
 
 // level of verboseness for "explain" output
