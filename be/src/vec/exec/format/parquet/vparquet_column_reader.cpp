@@ -536,7 +536,6 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
                 }
             }
 
-
             _rep_levels = std::move(filtered_rep_levels);
             _def_levels = std::move(filtered_def_levels);
         }
