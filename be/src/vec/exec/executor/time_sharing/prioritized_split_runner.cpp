@@ -85,11 +85,6 @@ int64_t PrioritizedSplitRunner::scheduled_nanos() const {
 }
 
 Result<SharedListenableFuture<Void>> PrioritizedSplitRunner::process() {
-    LOG(INFO) << fmt::format(
-            "[PrioritizedSplitRunner] process entry: split_id={}, task_id={}, worker_id={}, "
-            "closed={}, finished={}, scheduled_nanos={}",
-            _split_id, _task_handle->task_id().to_string(), _worker_id, _closed.load(),
-            _split_runner->is_finished(), _scheduled_nanos.load());
     if (is_closed()) {
         SharedListenableFuture<Void> future;
         future.set_value({});
@@ -119,19 +114,6 @@ Result<SharedListenableFuture<Void>> PrioritizedSplitRunner::process() {
         _priority = _task_handle->add_scheduled_nanos(quanta_scheduled_nanos);
     }
 
-    if (!blocked.has_value()) {
-        LOG(INFO) << fmt::format(
-                "[PrioritizedSplitRunner] process result: split_id={}, task_id={}, has_error, "
-                "status={} ",
-                _split_id, _task_handle->task_id().to_string(), blocked.error().to_string());
-    } else {
-        auto bf = blocked.value();
-        LOG(INFO) << fmt::format(
-                "[PrioritizedSplitRunner] process result: split_id={}, task_id={}, future_done={} ",
-                _split_id, _task_handle->task_id().to_string(), bf.is_done());
-    }
-    LOG(INFO) << fmt::format("[PrioritizedSplitRunner] process exit: split_id={}, task_id={}",
-                             _split_id, _task_handle->task_id().to_string());
     return blocked;
 }
 
