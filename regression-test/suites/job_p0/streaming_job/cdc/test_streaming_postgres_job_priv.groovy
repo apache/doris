@@ -90,12 +90,12 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
         // check job running
         try {
             Awaitility.await().atMost(300, SECONDS)
-                    .pollInterval(3, SECONDS).until(
+                    .pollInterval(1, SECONDS).until(
                     {
                         def jobStatus = sql """ select status, ErrorMsg from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobStatus: " + jobStatus)
                         // check job status
-                        jobStatus.size() == 1 && 'RUNNING' == jobStatus.get(0).get(0) && jobStatus.get(0).get(1).contains("Failed to fetch meta")
+                        jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0) && jobStatus.get(0).get(1).contains("Failed to fetch meta")
                     }
             )
         } catch (Exception ex){
