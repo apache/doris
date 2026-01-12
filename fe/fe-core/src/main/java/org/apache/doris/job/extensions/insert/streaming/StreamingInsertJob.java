@@ -1076,7 +1076,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
             if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
                     && runningMultiTask.isTimeout()) {
-                runningMultiTask.onFail("task failed cause timeout");
+                String timeoutReason = runningMultiTask.getTimeoutReason();
+                if (StringUtils.isEmpty(timeoutReason)) {
+                    timeoutReason = "task failed cause timeout";
+                }
+                runningMultiTask.onFail(timeoutReason);
                 // renew streaming task by auto resume
             }
         } finally {

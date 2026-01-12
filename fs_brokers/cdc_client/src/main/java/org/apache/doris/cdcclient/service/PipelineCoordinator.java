@@ -28,6 +28,7 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
@@ -56,6 +57,8 @@ public class PipelineCoordinator {
     private static final String SPLIT_ID = "splitId";
     // jobId
     private final Map<Long, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
+    // taskId -> writeFailReason
+    private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
     private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
@@ -173,6 +176,8 @@ public class PipelineCoordinator {
                                 writeRecordRequest.getTaskId());
                     } catch (Exception ex) {
                         closeJobStreamLoad(writeRecordRequest.getJobId());
+                        String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
+                        taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -299,5 +304,10 @@ public class PipelineCoordinator {
     private String extractTable(SourceRecord record) {
         Struct value = (Struct) record.value();
         return value.getStruct(Envelope.FieldName.SOURCE).getString("table");
+    }
+
+    public String getTaskFailReason(String taskId) {
+        String taskReason = taskErrorMaps.remove(taskId);
+        return taskReason == null ? "" : taskReason;
     }
 }
