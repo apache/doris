@@ -18,13 +18,13 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -318,8 +318,7 @@ public class AnalysisInfo implements Writable {
         if (jobColumns == null || jobColumns.isEmpty()) {
             return "";
         }
-        Gson gson = new Gson();
-        return gson.toJson(jobColumns);
+        return Gsons.gson.toJson(jobColumns);
     }
 
     @Override

@@ -28,6 +28,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -67,8 +68,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -812,8 +811,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         Map<Long, String> map = Maps.newHashMap();
         errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load)
             .forEach(p -> map.put(p.getTabletId(), p.getMsg()));
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(map);
+        return Gsons.gsonWithDisableHtmlEscaping.toJson(map);
     }
 
     public String getResourceName() {

@@ -17,10 +17,10 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.thrift.TTabletCommitInfo;
 
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 
 import java.util.List;
 
@@ -53,7 +53,6 @@ public class TabletCommitInfo {
 
     @Override
     public String toString() {
-        Gson gson = new Gson();
-        return gson.toJson(this);
+        return Gsons.gson.toJson(this);
     }
 }

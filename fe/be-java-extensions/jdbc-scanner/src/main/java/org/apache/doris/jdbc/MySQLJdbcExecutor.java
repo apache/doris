@@ -17,6 +17,7 @@
 
 package org.apache.doris.jdbc;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
@@ -26,7 +27,6 @@ import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.apache.log4j.Logger;
 
@@ -45,8 +45,6 @@ import java.util.stream.Collectors;
 
 public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(MySQLJdbcExecutor.class);
-
-    private static final Gson gson = new Gson();
 
     public MySQLJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
@@ -228,7 +226,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
         }
         java.lang.reflect.Type listType = getListTypeForArray(columnType);
         if (columnType.getType() == Type.BOOLEAN) {
-            List<?> list = gson.fromJson((String) input, List.class);
+            List<?> list = Gsons.gson.fromJson((String) input, List.class);
             return list.stream().map(item -> {
                 if (item instanceof Boolean) {
                     return item;
@@ -239,7 +237,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 }
             }).collect(Collectors.toList());
         } else if (columnType.getType() == Type.DATE || columnType.getType() == Type.DATEV2) {
-            List<?> list = gson.fromJson((String) input, List.class);
+            List<?> list = Gsons.gson.fromJson((String) input, List.class);
             return list.stream().map(item -> {
                 if (item instanceof String) {
                     return LocalDate.parse((String) item);
@@ -248,7 +246,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 }
             }).collect(Collectors.toList());
         } else if (columnType.getType() == Type.DATETIME || columnType.getType() == Type.DATETIMEV2) {
-            List<?> list = gson.fromJson((String) input, List.class);
+            List<?> list = Gsons.gson.fromJson((String) input, List.class);
             return list.stream().map(item -> {
                 if (item instanceof String) {
                     return LocalDateTime.parse(
@@ -263,7 +261,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 }
             }).collect(Collectors.toList());
         } else if (columnType.getType() == Type.LARGEINT) {
-            List<?> list = gson.fromJson((String) input, List.class);
+            List<?> list = Gsons.gson.fromJson((String) input, List.class);
             return list.stream().map(item -> {
                 if (item instanceof Number) {
                     return new BigDecimal(item.toString()).toBigInteger();
@@ -275,15 +273,15 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
             }).collect(Collectors.toList());
         } else if (columnType.getType() == Type.ARRAY) {
             ColumnType childType = columnType.getChildTypes().get(0);
-            List<?> rawList = gson.fromJson((String) input, List.class);
+            List<?> rawList = Gsons.gson.fromJson((String) input, List.class);
             return rawList.stream()
                     .map(element -> {
-                        String elementJson = gson.toJson(element);
+                        String elementJson = Gsons.gson.toJson(element);
                         return convertArray(elementJson, childType);
                     })
                     .collect(Collectors.toList());
         } else {
-            return gson.fromJson((String) input, listType);
+            return Gsons.gson.fromJson((String) input, listType);
         }
     }
 

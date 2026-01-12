@@ -26,6 +26,7 @@ import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
@@ -42,7 +43,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
@@ -583,8 +583,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             // so the last element needs to be checked here, if it is unused ignore it
             if (!extendStr.equals("unused")) {
                 // parse extend record
-                Gson gson = new Gson();
-                JsonArray pExtend = gson.fromJson(extendStr, JsonArray.class);
+                JsonArray pExtend = Gsons.gson.fromJson(extendStr, JsonArray.class);
                 partitionKey.setDefaultListPartition(pExtend.get(0).getAsBoolean());
                 // ignore the last element
             }

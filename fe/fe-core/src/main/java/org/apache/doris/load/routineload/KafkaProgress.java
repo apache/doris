@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
@@ -26,7 +27,6 @@ import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -203,8 +203,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     public String toJsonString() {
         ConcurrentMap<Integer, String> showPartitionIdToOffset = Maps.newConcurrentMap();
         getReadableProgress(showPartitionIdToOffset);
-        Gson gson = new Gson();
-        return gson.toJson(showPartitionIdToOffset);
+        return Gsons.gson.toJson(showPartitionIdToOffset);
     }
 
     @Override

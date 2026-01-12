@@ -18,12 +18,12 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.datasource.jdbc.source.JdbcFunctionPushDownRule;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,8 +92,7 @@ public class ExternalFunctionRules {
                 }
                 if (!Strings.isNullOrEmpty(jsonRules)) {
                     // set custom rules
-                    Gson gson = new Gson();
-                    PushDownRules rules = gson.fromJson(jsonRules, PushDownRules.class);
+                    PushDownRules rules = Gsons.gson.fromJson(jsonRules, PushDownRules.class);
                     funcRule.setCustomRules(rules);
                 }
                 return funcRule;
@@ -105,8 +104,7 @@ public class ExternalFunctionRules {
 
         public static void check(String jsonRules) throws DdlException {
             try {
-                Gson gson = new Gson();
-                PushDownRules rules = gson.fromJson(jsonRules, PushDownRules.class);
+                PushDownRules rules = Gsons.gson.fromJson(jsonRules, PushDownRules.class);
                 if (rules == null) {
                     throw new DdlException("Push down rules cannot be null");
                 }
@@ -183,8 +181,7 @@ public class ExternalFunctionRules {
                 }
                 if (!Strings.isNullOrEmpty(jsonRules)) {
                     // set custom rules
-                    Gson gson = new Gson();
-                    RewriteRules rules = gson.fromJson(jsonRules, RewriteRules.class);
+                    RewriteRules rules = Gsons.gson.fromJson(jsonRules, RewriteRules.class);
                     rewriteRule.setCustomRules(rules);
                 }
                 return rewriteRule;
@@ -206,8 +203,7 @@ public class ExternalFunctionRules {
 
         public static void check(String jsonRules) throws DdlException {
             try {
-                Gson gson = new Gson();
-                RewriteRules rules = gson.fromJson(jsonRules, RewriteRules.class);
+                RewriteRules rules = Gsons.gson.fromJson(jsonRules, RewriteRules.class);
                 if (rules == null) {
                     throw new DdlException("Rewrite rules cannot be null");
                 }

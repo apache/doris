@@ -25,6 +25,7 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -32,7 +33,6 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.gson.GsonBuilder;
 import org.apache.commons.lang3.StringUtils;
 
 import java.text.SimpleDateFormat;
@@ -114,7 +114,7 @@ public class ShowStagesCommand extends ShowCommand {
                 result.add(stage.getObjInfo().getProvider().name());
                 Map<String, String> propertiesMap = new HashMap<>();
                 propertiesMap.putAll(stage.getPropertiesMap());
-                result.add(new GsonBuilder().disableHtmlEscaping().create().toJson(propertiesMap));
+                result.add(Gsons.gsonWithDisableHtmlEscaping.toJson(propertiesMap));
                 result.add(stage.getComment());
                 result.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(stage.getCreateTime())));
                 result.add(stage.hasAccessType() ? stage.getAccessType().name()

@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -113,7 +114,6 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -495,7 +495,7 @@ public class MetadataGenerator {
             // version
             trow.addToColumnValue(new TCell().setStringVal(backend.getVersion()));
             // status
-            trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(backend.getBackendStatus())));
+            trow.addToColumnValue(new TCell().setStringVal(Gsons.gson.toJson(backend.getBackendStatus())));
             // heartbeat failure counter
             trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatFailureCounter()));
 

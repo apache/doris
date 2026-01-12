@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -75,7 +76,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -517,16 +517,16 @@ public class MTMVTask extends AbstractTask {
                 (super.getFinishTimeMs() == null || super.getFinishTimeMs() == 0) ? FeConstants.null_string
                         : String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell()
-                .setStringVal(taskContext == null ? FeConstants.null_string : new Gson().toJson(taskContext)));
+                .setStringVal(taskContext == null ? FeConstants.null_string : Gsons.gson.toJson(taskContext)));
         trow.addToColumnValue(
                 new TCell().setStringVal(refreshMode == null ? FeConstants.null_string : refreshMode.toString()));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        needRefreshPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        needRefreshPartitions == null ? FeConstants.null_string : Gsons.gson.toJson(
                                 needRefreshPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        completedPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        completedPartitions == null ? FeConstants.null_string : Gsons.gson.toJson(
                                 completedPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(getProgress()));

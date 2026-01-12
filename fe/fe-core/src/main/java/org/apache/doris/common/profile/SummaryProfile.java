@@ -18,6 +18,7 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.common.util.TimeUtils;
@@ -33,8 +34,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -510,7 +509,7 @@ public class SummaryProfile {
                     ));
             executionSummaryProfile.addInfoString(
                     SPLITS_ASSIGNMENT_WEIGHT,
-                    new GsonBuilder().create().toJson(m));
+                    Gsons.gson.toJson(m));
         }
     }
 
@@ -1146,7 +1145,7 @@ public class SummaryProfile {
             }
             jsonObject.put("phase2", latencyForPhase2);
         }
-        return new Gson().toJson(jsonObject);
+        return Gsons.gson.toJson(jsonObject);
     }
 
     public void setSystemMessage(String msg) {

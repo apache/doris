@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
@@ -39,7 +40,6 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -102,7 +102,7 @@ public class StmtExecutionAction extends RestBaseController {
 
         Type type = new TypeToken<StmtRequestBody>() {
         }.getType();
-        StmtRequestBody stmtRequestBody = new Gson().fromJson(body, type);
+        StmtRequestBody stmtRequestBody = Gsons.gson.fromJson(body, type);
 
         if (Strings.isNullOrEmpty(stmtRequestBody.stmt)) {
             return ResponseEntityBuilder.badRequest("Missing statement request body");

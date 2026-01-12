@@ -31,6 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
@@ -40,7 +41,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -220,7 +220,7 @@ public class TableSchemaAction extends RestBaseController {
         }
         java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {
         }.getType();
-        DDLRequestBody ddlRequestBody = new Gson().fromJson(body, type);
+        DDLRequestBody ddlRequestBody = Gsons.gson.fromJson(body, type);
         if (ddlRequestBody.isDropColumn) {
             boolean enableLightSchemaChange = true;
             // column should be dropped from both base and rollup indexes.

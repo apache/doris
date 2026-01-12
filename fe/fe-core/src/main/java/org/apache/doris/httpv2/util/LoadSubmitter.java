@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.NetUtils;
@@ -29,7 +30,6 @@ import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -132,7 +132,7 @@ public class LoadSubmitter {
             }
             Type type = new TypeToken<SubmitResult>() {
             }.getType();
-            SubmitResult result = new Gson().fromJson(sb.toString(), type);
+            SubmitResult result = Gsons.gson.fromJson(sb.toString(), type);
             return result;
         }
 

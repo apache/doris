@@ -17,10 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataOutput;
@@ -81,7 +81,6 @@ public class AuthorizationInfo implements Writable {
 
     @Override
     public String toString() {
-        Gson gson = new Gson();
-        return gson.toJson(this);
+        return Gsons.gson.toJson(this);
     }
 }

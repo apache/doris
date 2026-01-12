@@ -18,11 +18,11 @@
 package org.apache.doris.resource;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Gsons;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Map;
@@ -163,7 +163,6 @@ public class TagSet {
     @Override
     public String toString() {
         Map<String, String> map = Maps.newHashMap();
-        Gson gson = new Gson();
         for (String type : getTypes()) {
             TagSet tagSet = getTagsByType(type);
             if (!tagSet.isEmpty()) {
@@ -171,7 +170,7 @@ public class TagSet {
                         tagSet.getAllTags().stream().map(t -> t.value).collect(Collectors.toList())));
             }
         }
-        return gson.toJson(map);
+        return Gsons.gson.toJson(map);
     }
 
     @Override

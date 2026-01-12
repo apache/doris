@@ -22,21 +22,20 @@
 package com.amazonaws.glue.catalog.converters;
 
 import com.amazonaws.services.glue.model.Table;
-import com.google.gson.Gson;
+import org.apache.doris.common.Gsons;
 
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
 public class ConverterUtils {
 
-  private static final Gson gson = new Gson();
 
   public static String catalogTableToString(final Table table) {
-    return gson.toJson(table);
+    return Gsons.gson.toJson(table);
   }
 
   public static Table stringToCatalogTable(final String input) {
-    return gson.fromJson(input, Table.class);
+    return Gsons.gson.fromJson(input, Table.class);
   }
 
   public static org.apache.hadoop.hive.metastore.api.Date dateToHiveDate(Date date) {

@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
@@ -61,8 +62,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -602,8 +601,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         Map<Long, String> map = new HashMap<>();
         errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load)
                 .forEach(p -> map.put(p.getTabletId(), p.getMsg()));
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(map);
+        return Gsons.gsonWithDisableHtmlEscaping.toJson(map);
     }
 
     public void updateLoadingStatus(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,

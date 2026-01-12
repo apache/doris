@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -33,7 +34,6 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -161,7 +161,7 @@ public class BackendsProcDir implements ProcDirInterface {
             // version
             backendInfo.add(backend.getVersion());
             // status
-            backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
+            backendInfo.add(Gsons.gson.toJson(backend.getBackendStatus()));
             // heartbeat failure counter
             backendInfo.add(backend.getHeartbeatFailureCounter());
 

@@ -17,8 +17,9 @@
 
 package org.apache.doris.httpv2.entity;
 
+import org.apache.doris.common.Gsons;
+
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 
 import java.util.Map;
 
@@ -36,11 +37,10 @@ public class RestResult extends RestBaseResult {
     }
 
     public String toJson() {
-        Gson gson = new Gson();
         addResultEntry("status", status);
         if (status != ActionStatus.OK) {
             addResultEntry("msg", msg);
         }
-        return gson.toJson(resultMap);
+        return Gsons.gson.toJson(resultMap);
     }
 }

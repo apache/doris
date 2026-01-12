@@ -15,32 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.httpv2.entity;
+package org.apache.doris.common;
 
-import org.apache.doris.common.Gsons;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
-// Base restful result
-public class RestBaseResult {
+public class Gsons {
 
-    private static final RestBaseResult OK = new RestBaseResult();
-    public ActionStatus status;
-    public String msg;
 
-    public RestBaseResult() {
-        status = ActionStatus.OK;
-        msg = "Success";
-    }
+    /**
+     * gson with disableHtmlEscaping
+     */
+    public static final Gson gsonWithDisableHtmlEscaping = new GsonBuilder().disableHtmlEscaping().create();
 
-    public RestBaseResult(String msg) {
-        status = ActionStatus.FAILED;
-        this.msg = msg;
-    }
 
-    public static RestBaseResult getOk() {
-        return OK;
-    }
+    /**
+     * gson with prettyPrinting
+     */
+    public static final Gson gsonWithPrettyPrinting = new GsonBuilder().setPrettyPrinting().create();
 
-    public String toJson() {
-        return Gsons.gsonWithDisableHtmlEscaping.toJson(this);
-    }
+    /**
+     * default gson
+     */
+    public static final Gson gson = new Gson();
+
 }

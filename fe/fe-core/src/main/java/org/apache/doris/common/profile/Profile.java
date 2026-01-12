@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
@@ -51,8 +52,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -395,8 +394,7 @@ public class Profile {
 
     public String getProfileBrief() {
         RuntimeProfile rootProfile = composeRootProfile();
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        return gson.toJson(rootProfile.toBrief());
+        return Gsons.gsonWithPrettyPrinting.toJson(rootProfile.toBrief());
     }
 
     public void publishHboPlanStatistics(String queryId, List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats) {

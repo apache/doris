@@ -30,6 +30,7 @@ import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
@@ -42,8 +43,6 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -246,8 +245,7 @@ public class CopyJob extends CloudBrokerLoadJob {
         if (stageType == StageType.INTERNAL) {
             loadFiles = StageUtil.parseLoadFiles(paths, objectInfo.getBucket(), stagePrefix);
         }
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(paths);
+        return Gsons.gsonWithDisableHtmlEscaping.toJson(paths);
     }
 
     public String getTableName() {

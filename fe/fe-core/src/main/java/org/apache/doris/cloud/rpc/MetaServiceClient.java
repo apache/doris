@@ -20,9 +20,9 @@ package org.apache.doris.cloud.rpc;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Gsons;
 
 import com.google.common.base.Preconditions;
-import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
@@ -54,7 +54,7 @@ public class MetaServiceClient {
         NameResolverRegistry.getDefaultRegistry().register(new MetaServiceListResolverProvider());
 
         // https://github.com/grpc/proposal/blob/master/A6-client-retries.md#retry-policy-capabilities
-        serviceConfig = new Gson().fromJson(new JsonReader(new InputStreamReader(
+        serviceConfig = Gsons.gson.fromJson(new JsonReader(new InputStreamReader(
                 MetaServiceClient.class.getResourceAsStream("/retrying_service_config.json"),
                 StandardCharsets.UTF_8)), Map.class);
         LOG.info("serviceConfig:{}", serviceConfig);

@@ -20,10 +20,10 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
@@ -91,8 +91,7 @@ public class ComputeGroup {
             showMap.put("failoverFailureThreshold", String.valueOf(failoverFailureThreshold));
             showMap.put("unhealthyNodeThresholdPercent", String.valueOf(unhealthyNodeThresholdPercent));
             showMap.put("cacheWarmupJobIds", String.valueOf(cacheWarmupJobIds));
-            Gson gson = new Gson();
-            return gson.toJson(showMap);
+            return Gsons.gson.toJson(showMap);
         }
 
         public Cloud.ClusterPolicy toPb() {
@@ -296,8 +295,7 @@ public class ComputeGroup {
         showMap.put("availableSince", String.valueOf(availableSince));
         showMap.put("policy", policy == null ? "no_policy" : policy.toString());
         showMap.put("properties", properties.toString());
-        Gson gson = new Gson();
-        return gson.toJson(showMap);
+        return Gsons.gson.toJson(showMap);
     }
 
     @Override

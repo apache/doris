@@ -17,7 +17,7 @@
 
 package org.apache.doris.statistics.query;
 
-import com.google.gson.Gson;
+import org.apache.doris.common.Gsons;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -126,7 +126,6 @@ public class StatsDelta {
 
     @Override
     public String toString() {
-        Gson gson = new Gson();
-        return gson.toJson(this);
+        return Gsons.gson.toJson(this);
     }
 }

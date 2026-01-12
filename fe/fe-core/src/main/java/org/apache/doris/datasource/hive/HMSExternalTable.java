@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
@@ -78,7 +79,6 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
@@ -578,7 +578,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             ).trim();
             byte[] decodedBytes = Base64.getDecoder().decode(base64String);
             String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
-            JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
+            JsonObject jsonObject = Gsons.gson.fromJson(decodedString, JsonObject.class);
 
             if (jsonObject.has("originalSql")) {
                 return jsonObject.get("originalSql").getAsString();

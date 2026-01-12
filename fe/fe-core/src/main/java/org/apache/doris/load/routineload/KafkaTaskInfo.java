@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
@@ -37,7 +38,6 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
-import com.google.gson.Gson;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -139,8 +139,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     @Override
     protected String getTaskDataSourceProperties() {
-        Gson gson = new Gson();
-        return gson.toJson(partitionIdToOffset);
+        return Gsons.gson.toJson(partitionIdToOffset);
     }
 
     @Override

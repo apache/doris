@@ -17,7 +17,8 @@
 
 package org.apache.doris.avro;
 
-import com.google.gson.Gson;
+import org.apache.doris.common.Gsons;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.apache.avro.Schema;
@@ -86,7 +87,7 @@ public abstract class AvroReader {
         // The number of fields that need to be queried is the same as that of the avro file,
         // so no projection is required.
         if (filedNames.size() != avroSchema.getFields().size()) {
-            JsonObject schemaJson = new Gson().fromJson(avroSchema.toString(), JsonObject.class);
+            JsonObject schemaJson = Gsons.gson.fromJson(avroSchema.toString(), JsonObject.class);
             JsonArray schemaFields = schemaJson.get("fields").getAsJsonArray();
             JsonObject copySchemaJson = schemaJson.deepCopy();
             JsonArray copySchemaFields = copySchemaJson.get("fields").getAsJsonArray();

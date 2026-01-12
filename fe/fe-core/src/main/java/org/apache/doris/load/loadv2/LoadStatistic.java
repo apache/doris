@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -24,7 +25,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -159,8 +159,7 @@ public class LoadStatistic {
         details.put("TaskNumber", counterTbl.rowMap().size());
         details.put("Unfinished backends", unfinishedBackendIdsList);
         details.put("All backends", allBackendIdsList);
-        Gson gson = new Gson();
-        return gson.toJson(details);
+        return Gsons.gson.toJson(details);
     }
 
     private Map<String, List<Long>> getPrintableMap(Map<TUniqueId, List<Long>> map) {

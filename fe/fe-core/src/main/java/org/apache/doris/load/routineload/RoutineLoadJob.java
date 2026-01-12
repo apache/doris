@@ -30,6 +30,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -82,8 +83,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.EvictingQueue;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
@@ -1847,8 +1846,7 @@ public abstract class RoutineLoadJob
                     String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> entity.isRunning()).count()));
             result.put("waiting_task",
                     String.valueOf(routineLoadTaskInfoList.stream().filter(entity -> !entity.isRunning()).count()));
-            Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-            return gson.toJson(result);
+            return Gsons.gsonWithDisableHtmlEscaping.toJson(result);
         } finally {
             readUnlock();
         }
@@ -1894,8 +1892,8 @@ public abstract class RoutineLoadJob
         jobProperties.put(LoadCommand.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
         jobProperties.put(LoadCommand.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
         jobProperties.putAll(this.jobProperties);
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(jobProperties);
+
+        return Gsons.gsonWithDisableHtmlEscaping.toJson(jobProperties);
     }
 
     public abstract String dataSourcePropertiesJsonToString();

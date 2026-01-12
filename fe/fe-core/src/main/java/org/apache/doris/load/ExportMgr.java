@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
@@ -45,7 +46,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -422,7 +422,7 @@ public class ExportMgr {
         infoMap.put("delete_existing_files", job.getDeleteExistingFiles());
         infoMap.put("parallelism", job.getParallelism());
         infoMap.put("data_consistency", job.getDataConsistency());
-        jobInfo.add(new Gson().toJson(infoMap));
+        jobInfo.add(Gsons.gson.toJson(infoMap));
         // path
         jobInfo.add(job.getExportPath());
 

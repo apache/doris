@@ -17,11 +17,11 @@
 
 package org.apache.doris.httpv2.util.streamresponse;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import com.google.gson.stream.JsonWriter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +39,6 @@ import java.util.Map;
  */
 public class JsonStreamResponse extends StreamResponseInf {
     private static final Logger LOG = LogManager.getLogger(JsonStreamResponse.class);
-    private static final Gson gson = new Gson();
     private JsonWriter jsonWriter;
 
     public static final String Name = "Json";
@@ -139,7 +138,7 @@ public class JsonStreamResponse extends StreamResponseInf {
             metaFields.add(field);
         }
         // data-meta
-        String metaJson = gson.toJson(metaFields);
+        String metaJson = Gsons.gson.toJson(metaFields);
         jsonWriter.name("meta").jsonValue(metaJson);
         // data-data
         jsonWriter.name("data");
@@ -164,7 +163,7 @@ public class JsonStreamResponse extends StreamResponseInf {
                 firstRowTime = (System.currentTimeMillis() - startTime);
                 begin = true;
             }
-            String rowJson = gson.toJson(row);
+            String rowJson = Gsons.gson.toJson(row);
             jsonWriter.jsonValue(rowJson);
             ++bufferSize;
             if (bufferSize == streamBatchSize) {
@@ -186,7 +185,7 @@ public class JsonStreamResponse extends StreamResponseInf {
         jsonWriter.beginObject();
         // data-type
         jsonWriter.name("type").value(StreamResponseInf.TYPE_EXEC_STATUS);
-        String statusJson = gson.toJson(Maps.newHashMap());
+        String statusJson = Gsons.gson.toJson(Maps.newHashMap());
         // data-status
         jsonWriter.name("status").jsonValue(statusJson);
         // data-time

@@ -27,6 +27,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
@@ -61,8 +62,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
@@ -491,8 +490,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public String getStatistic() {
         Map<String, Object> summary = this.jobStatistic.summary();
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(summary);
+        return Gsons.gsonWithDisableHtmlEscaping.toJson(summary);
     }
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
@@ -663,14 +661,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
         Collections.sort(sortedPartitions);
         dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(dataSourceProperties);
+        return Gsons.gsonWithDisableHtmlEscaping.toJson(dataSourceProperties);
     }
 
     @Override
     public String customPropertiesJsonToString() {
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(customProperties);
+        return Gsons.gsonWithDisableHtmlEscaping.toJson(customProperties);
     }
 
     @Override
@@ -922,8 +918,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public String getLag() {
         Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
-        Gson gson = new Gson();
-        return gson.toJson(partitionIdToOffsetLag);
+        return Gsons.gson.toJson(partitionIdToOffsetLag);
     }
 
     @Override

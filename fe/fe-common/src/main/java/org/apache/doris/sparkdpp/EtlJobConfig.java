@@ -17,6 +17,8 @@
 
 package org.apache.doris.sparkdpp;
 
+import org.apache.doris.common.Gsons;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -145,6 +147,10 @@ public class EtlJobConfig implements Serializable {
 
     // dpp result
     public static final String DPP_RESULT_NAME = "dpp_result.json";
+    // custom gson
+    private static Gson customGson = new GsonBuilder()
+            .addDeserializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
+            .create();
 
     @SerializedName(value = "tables")
     public Map<Long, EtlTable> tables;
@@ -222,16 +228,11 @@ public class EtlJobConfig implements Serializable {
     }
 
     public String configToJson() {
-        GsonBuilder gsonBuilder = new GsonBuilder();
-        gsonBuilder.addDeserializationExclusionStrategy(new HiddenAnnotationExclusionStrategy());
-        Gson gson = gsonBuilder.create();
-        return gson.toJson(this);
+        return customGson.toJson(this);
     }
 
     public static EtlJobConfig configFromJson(String jsonConfig) {
-        GsonBuilder gsonBuilder = new GsonBuilder();
-        Gson gson = gsonBuilder.create();
-        return gson.fromJson(jsonConfig, EtlJobConfig.class);
+        return Gsons.gson.fromJson(jsonConfig, EtlJobConfig.class);
     }
 
     public static class EtlJobProperty implements Serializable {

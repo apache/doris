@@ -22,13 +22,13 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Gsons;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -137,7 +137,7 @@ public class ColocateMetaService extends RestBaseController {
 
         Type type = new TypeToken<List<List<Long>>>() {
         }.getType();
-        List<List<Long>> backendsPerBucketSeq = new Gson().fromJson(meta, type);
+        List<List<Long>> backendsPerBucketSeq = Gsons.gson.fromJson(meta, type);
         LOG.info("get buckets sequence: {}", backendsPerBucketSeq);
 
         ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(groupId);

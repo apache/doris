@@ -17,7 +17,8 @@
 
 package org.apache.doris.plugin.dialect;
 
-import com.google.gson.Gson;
+import org.apache.doris.common.Gsons;
+
 import com.google.gson.reflect.TypeToken;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
@@ -74,7 +75,7 @@ public class HttpDialectUtils {
 
                     Type type = new TypeToken<ConvertResponse>() {
                     }.getType();
-                    ConvertResponse result = new Gson().fromJson(response.toString(), type);
+                    ConvertResponse result = Gsons.gson.fromJson(response.toString(), type);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("convert response: {}", result);
                     }
@@ -126,7 +127,7 @@ public class HttpDialectUtils {
         }
 
         public String toJson() {
-            return new Gson().toJson(this);
+            return Gsons.gson.toJson(this);
         }
     }
 
@@ -138,7 +139,7 @@ public class HttpDialectUtils {
         private String message; // CHECKSTYLE IGNORE THIS LINE
 
         public String toJson() {
-            return new Gson().toJson(this);
+            return Gsons.gson.toJson(this);
         }
 
         @Override

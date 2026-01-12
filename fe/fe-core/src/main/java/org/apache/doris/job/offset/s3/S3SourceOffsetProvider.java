@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset.s3;
 
+import org.apache.doris.common.Gsons;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.GlobListResult;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
@@ -108,7 +108,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         if (currentOffset != null) {
             Map<String, String> res = new HashMap<>();
             res.put("fileName", currentOffset.getEndFile());
-            return new Gson().toJson(res);
+            return Gsons.gson.toJson(res);
         }
         return null;
     }
@@ -118,7 +118,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         if (maxEndFile != null) {
             Map<String, String> res = new HashMap<>();
             res.put("fileName", maxEndFile);
-            return new Gson().toJson(res);
+            return Gsons.gson.toJson(res);
         }
         return null;
     }
