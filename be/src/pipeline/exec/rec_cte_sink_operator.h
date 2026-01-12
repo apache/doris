@@ -83,10 +83,6 @@ public:
             RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block, true));
             RETURN_IF_ERROR(local_state._shared_state->emplace_block(state, std::move(block)));
         }
-
-        if (eos) {
-            local_state._shared_state->source_dep->set_ready();
-        }
         return Status::OK();
     }
 

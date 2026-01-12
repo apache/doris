@@ -607,6 +607,17 @@ Status PipelineTask::execute(bool* done) {
                                 "Only ExchangeSourceOperatorX can be rerun, real is {}",
                                 _root->get_name());
                     }
+
+                    // must set_ready after exchange reset
+                    // if next round executed before exchange source reset, it maybe cant find receiver and cause blocked forever
+                    if (auto* shared_state =
+                                dynamic_cast<RecCTESharedState*>(_sink_shared_state.get())) {
+                        shared_state->source_dep->set_ready();
+                    } else {
+                        return Status::InternalError(
+                                "Only RecCTESinkOperatorX can have RecCTESharedState, real is {}",
+                                _sink->get_name());
+                    }
                 }
             }
 
