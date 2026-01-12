@@ -105,7 +105,7 @@ void Field::create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
 
 template <PrimitiveType T>
 typename PrimitiveTypeTraits<T>::CppType& Field::get() {
-    DCHECK(T == type || is_string_type(T) && is_string_type(type) || type == TYPE_NULL)
+    DCHECK(T == type || (is_string_type(T) && is_string_type(type)) || type == TYPE_NULL)
             << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
     auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
     return *ptr;
@@ -114,7 +114,7 @@ typename PrimitiveTypeTraits<T>::CppType& Field::get() {
 template <PrimitiveType T>
 const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
     // TODO(gabriel): Is it safe for null type?
-    DCHECK(T == type || is_string_type(T) && is_string_type(type) || type == TYPE_NULL)
+    DCHECK(T == type || (is_string_type(T) && is_string_type(type)) || type == TYPE_NULL)
             << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
     const auto* MAY_ALIAS ptr =
             reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);

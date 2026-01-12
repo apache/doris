@@ -316,8 +316,8 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeysNestedMap) {
     ASSERT_EQ(string_keys.get_element(0), "a");
     ASSERT_EQ(string_keys.get_element(1), "aa");
 
-    auto map_value1 = map_values[0].get<TYPE_ARRAY>();
-    auto map_value2 = map_values[1].get<TYPE_ARRAY>();
+    auto map_value1 = map_values[0].get<TYPE_MAP>();
+    auto map_value2 = map_values[1].get<TYPE_MAP>();
 
     ASSERT_EQ(map_value1.size(), 2);
     ASSERT_EQ(map_value2.size(), 2);
