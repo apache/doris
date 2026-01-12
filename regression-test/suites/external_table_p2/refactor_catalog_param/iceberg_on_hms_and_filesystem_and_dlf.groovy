@@ -235,6 +235,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
     String oss_bucket = context.config.otherConfigs.get("aliYunBucket")
     String oss_parent_path = "${oss_bucket}/refactor-test"
+    String oss_bucket_endpoint_parent_path="${oss_bucket}.${oss_endpoint}/refactor-test"
     String oss_region = context.config.otherConfigs.get("aliYunRegion")
     String oss_region_param = """
               'oss.region' = '${oss_region}',
@@ -363,6 +364,10 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
     //new kerberos
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
+    warehouse  """
+                  'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-hms-warehouse',
+    """
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
 
     /*--------HMS on OBS-----------*/
     warehouse = """
@@ -490,6 +495,12 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
         """
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_storage_properties, "iceberg_fs_on_oss")
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_region_param + oss_storage_properties, "iceberg_fs_on_oss_region")
+
+    warehouse = """
+        'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-fs-oss-warehouse',
+        """
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_region_param + oss_storage_properties, "iceberg_fs_on_oss_region")
+
     /**  HDFS **/
     warehouse = """
         'warehouse' = '${hdfs_parent_path}/iceberg-fs-hdfs-warehouse',

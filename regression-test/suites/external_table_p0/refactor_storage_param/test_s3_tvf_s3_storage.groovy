@@ -185,6 +185,8 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
         s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "region", "false");
         s3_tvf("http://${bucket}.${s3_endpoint}", "", "AWS_ACCESS_KEY", "AWS_SECRET_KEY", "region", "false");
         s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "s3.region", "false");
+        s3_tvf("oss://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "s3.region", "false");
+        s3_tvf("s3://${bucket}.${s3_endpoint}", "", "s3.access_key", "s3.secret_key", "s3.region", "false");
         shouldFail {
             // it's OSS 
             s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key", "cos.secret_key", "region", "false");
