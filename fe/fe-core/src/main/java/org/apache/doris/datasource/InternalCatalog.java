@@ -990,8 +990,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         }
         if (Config.isCloudMode()) {
-            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
-                    .clearTableLastTxnId(db.getId(), table.getId());
+            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
+                    table.getId());
         }
     }
 
