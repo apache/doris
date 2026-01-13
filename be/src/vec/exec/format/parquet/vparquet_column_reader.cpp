@@ -920,10 +920,14 @@ Status StructColumnReader::read_column_data(
             size_t field_rows = 0;
             bool field_eof = false;
 
-            // Use root_node to get the correct child node for the reference column
-            // reference_file_column_name is the file column name, use get_children_node_by_file_column_name
-            auto ref_child_node =
-                    root_node->get_children_node_by_file_column_name(reference_file_column_name);
+            // Use ConstNode for the reference column instead of looking up from root_node.
+            // The reference column is only used to get RL/DL information for determining the number
+            // of elements in the struct. It may be a column that has been dropped from the table
+            // schema (e.g., 'removed' field), but still exists in older parquet files.
+            // Since we don't need schema mapping for this column (we just need its RL/DL levels),
+            // using ConstNode is safe and avoids the issue where the reference column doesn't exist
+            // in root_node (because it was dropped from table schema).
+            auto ref_child_node = TableSchemaChangeHelper::ConstNode::get_instance();
             not_missing_orig_column_size = temp_column->size();
 
             RETURN_IF_ERROR((*reference_reader)
