@@ -246,7 +246,8 @@ bool SearchPredicateCollector::is_score_query_type(const std::string& clause_typ
 
 SearchPredicateCollector::ClauseTypeCategory SearchPredicateCollector::get_clause_type_category(
         const std::string& clause_type) const {
-    if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
+    if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT" ||
+        clause_type == "OCCUR_BOOLEAN") {
         return ClauseTypeCategory::COMPOUND;
     } else if (clause_type == "TERM" || clause_type == "EXACT") {
         return ClauseTypeCategory::NON_TOKENIZED;

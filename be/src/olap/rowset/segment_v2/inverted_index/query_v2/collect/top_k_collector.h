@@ -21,9 +21,11 @@
 #include <cstdint>
 #include <limits>
 #include <ranges>
+#include <roaring/roaring.hh>
 #include <string>
 #include <vector>
 
+#include "olap/collection_similarity.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -91,9 +93,9 @@ private:
     std::vector<ScoredDoc> _buffer;
 };
 
-std::vector<ScoredDoc> collect_multi_segment_top_k(const WeightPtr& weight,
-                                                   const QueryExecutionContext& context,
-                                                   const std::string& binding_key, size_t k,
-                                                   bool use_wand = true);
+void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionContext& context,
+                                 const std::string& binding_key, size_t k,
+                                 const std::shared_ptr<roaring::Roaring>& roaring,
+                                 const CollectionSimilarityPtr& similarity, bool use_wand = true);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

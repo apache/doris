@@ -423,6 +423,7 @@ struct TQueryOptions {
   // runtime profiling to choose the most efficient algorithm for the data pattern
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
+  185: optional bool enable_inverted_index_wand_query = true;
 
 
   // For cloud, to control if the content would be written into file cache

@@ -17,28 +17,17 @@
 
 #pragma once
 
-#include <cstdint>
-#include <vector>
+#include <memory>
+#include <roaring/roaring.hh>
+
+#include "olap/collection_similarity.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class DocSetCollector {
-public:
-    DocSetCollector() = default;
-    explicit DocSetCollector(size_t capacity) { _docs.reserve(capacity); }
-
-    void collect(uint32_t doc_id) { _docs.push_back(doc_id); }
-
-    size_t size() const { return _docs.size(); }
-    bool empty() const { return _docs.empty(); }
-
-    std::vector<uint32_t>& docs() { return _docs; }
-    const std::vector<uint32_t>& docs() const { return _docs; }
-
-    [[nodiscard]] std::vector<uint32_t> into_vec() { return std::move(_docs); }
-
-private:
-    std::vector<uint32_t> _docs;
-};
+void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecutionContext& context,
+                                   const std::string& binding_key,
+                                   const std::shared_ptr<roaring::Roaring>& roaring,
+                                   const CollectionSimilarityPtr& similarity, bool enable_scoring);
 
 } // namespace doris::segment_v2::inverted_index::query_v2
