@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
-//import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
@@ -70,7 +69,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
     private final StatsDerive derive = new StatsDerive(false);
-    //private CheckAfterRewrite checker = new CheckAfterRewrite();
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
@@ -148,21 +146,20 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         if (toLeft) {
             Plan newLeft = join.left().accept(this, childContext);
-            //checker.checkTreeAllSlotReferenceFromChildren(newLeft);
             if (newLeft != join.left()) {
                 return join.withChildren(newLeft, join.right());
             }
         } else {
             Plan newRight = join.right().accept(this, childContext);
             if (newRight != join.right()) {
-                //checker.checkTreeAllSlotReferenceFromChildren(newRight);
                 return join.withChildren(join.left(), newRight);
             }
         }
         return join;
     }
 
-    private List<SlotReference> getJoinConditionsInputSlotsFromOneSide(LogicalJoin<? extends Plan, ? extends Plan> join,
+    private List<SlotReference> getJoinConditionsInputSlotsFromOneSide(
+            LogicalJoin<? extends Plan, ? extends Plan> join,
             Plan side) {
         List<SlotReference> oneSideSlots = new ArrayList<>();
         for (Expression condition : join.getHashJoinConjuncts()) {
@@ -182,7 +179,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return oneSideSlots;
     }
 
-    private PushDownAggContext createContextFromProject(LogicalProject<? extends Plan> project,
+    private PushDownAggContext createContextFromProject(
+            LogicalProject<? extends Plan> project,
             PushDownAggContext context) {
         /*
          * context: sum(a) groupBy(y+z as x, l)
@@ -212,11 +210,15 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
         for (SlotReference slot : context.getGroupKeys()) {
             if (!project.getOutputSet().contains(slot)) {
+                SessionVariable.throwRuntimeExceptionWhenFeDebug("eager agg failed: can not find group key("
+                        + slot + ") in " + project);
                 return false;
             }
         }
         for (Slot slot : context.getAggFunctionsInputSlots()) {
             if (!project.getOutputSet().contains(slot)) {
+                SessionVariable.throwRuntimeExceptionWhenFeDebug("eager agg failed: can not find aggFunc slot("
+                        + slot + ") in " + project);
                 return false;
             }
         }
@@ -325,7 +327,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
             LogicalUnion newUnion = (LogicalUnion) union
                     .withChildrenAndOutputs(newChildren, newOutput, newRegularChildrenOutputs);
-            //checker.checkTreeAllSlotReferenceFromChildren(newUnion);
             return newUnion;
         } else {
             return union;
@@ -352,7 +353,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         PushDownAggContext newContext = createContextFromProject(project, context);
         Plan newChild = project.child().accept(this, newContext);
-        //checker.checkTreeAllSlotReferenceFromChildren(newChild);
         if (newChild != project.child()) {
             /*
              * agg[sum(a), groupBy(b)]
@@ -389,7 +389,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 }
             }
             LogicalProject result = new LogicalProject(newProjections, newChild);
-            //checker.checkTreeAllSlotReferenceFromChildren(result);
             return result;
         }
 

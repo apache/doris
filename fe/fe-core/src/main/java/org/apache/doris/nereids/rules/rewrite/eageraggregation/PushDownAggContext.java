@@ -50,15 +50,6 @@ public class PushDownAggContext {
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<SlotReference> groupKeys,
-            CascadesContext cascadesContext) {
-        this(aggFunctions, groupKeys, null, cascadesContext, false);
-    }
-
-    /**
-     * constructor
-     */
-    public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
             boolean passThroughBigJoin) {
         this.groupKeys = groupKeys;
