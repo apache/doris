@@ -108,12 +108,13 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
         }
-        log.info("start to run streaming multi task, offset is {}", runningOffset.toString());
         sendWriteRequest();
     }
 
     private void sendWriteRequest() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
+        log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
+                taskId, backend.getId(), backend.getHost(), runningOffset.toString());
         this.runningBackendId = backend.getId();
         WriteRecordRequest params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()

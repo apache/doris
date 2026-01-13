@@ -172,7 +172,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                 // build split
                 Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
-                closeBinlogReader();
+                // closeBinlogReader();
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
                 this.setCurrentSplitRecords(currentSplitRecords);
                 this.setCurrentSplit(split);
@@ -616,6 +616,9 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     @Override
     public void finishSplitRecords() {
         this.setCurrentSplitRecords(null);
+        // Close after each read, the binlog client will occupy the connection.
+        closeBinlogReader();
+        this.setCurrentReader(null);
     }
 
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {

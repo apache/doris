@@ -68,6 +68,34 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
             sql """GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA ${pgSchema} TO ${newPgUser}"""
         }
 
+        test {
+            // create job by new user
+            sql """CREATE JOB ${jobName}
+                ON STREAMING
+                FROM POSTGRES (
+                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "org.postgresql.Driver",
+                    "user" = "${newPgUser}",
+                    "password" = "${newPgPassword}",
+                    "database" = "${pgDB}",
+                    "schema" = "${pgSchema}",
+                    "include_tables" = "${tableName}", 
+                    "offset" = "latest"
+                )
+                TO DATABASE ${currentDb} (
+                  "table.create.properties.replication_num" = "1"
+                )
+            """
+            exception "Failed to init source reader"
+        }
+
+        // grant replication to user
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+             sql """ALTER ROLE ${newPgUser} WITH REPLICATION"""
+        }
+
+
         // create job by new user
         sql """CREATE JOB ${jobName}
                 ON STREAMING
@@ -86,31 +114,6 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
                   "table.create.properties.replication_num" = "1"
                 )
             """
-
-        // check job running
-        try {
-            Awaitility.await().atMost(300, SECONDS)
-                    .pollInterval(1, SECONDS).until(
-                    {
-                        def jobStatus = sql """ select status, ErrorMsg from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
-                        log.info("jobStatus: " + jobStatus)
-                        // check job status
-                        jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0) && jobStatus.get(0).get(1).contains("Failed to fetch meta")
-                    }
-            )
-        } catch (Exception ex){
-            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
-            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-            log.info("show job: " + showjob)
-            log.info("show task: " + showtask)
-            throw ex;
-        }
-
-        // grant replication to user
-        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-             sql """ALTER ROLE ${newPgUser} WITH REPLICATION"""
-        }
-
 
         Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(3, SECONDS).until(
@@ -135,7 +138,14 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
             sql """INSERT INTO ${pgDB}.${pgSchema}.${tableName} (name,age) VALUES ('Doris',18);"""
         }
 
-        sleep(30000)
+        Awaitility.await().atMost(300, SECONDS)
+                .pollInterval(3, SECONDS).until(
+                {
+                    def jobSucceedTaskCount = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'"""
+                    log.info("jobSucceedTaskCount: " + jobSucceedTaskCount)
+                    jobSucceedTaskCount.size() == 1 && jobSucceedTaskCount.get(0).get(0) >= '2'
+                }
+        )
 
         // check incremental data
         qt_select """ SELECT * FROM ${tableName} order by name asc """
