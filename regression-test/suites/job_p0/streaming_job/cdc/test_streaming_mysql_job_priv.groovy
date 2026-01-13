@@ -197,11 +197,29 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
             sql """FLUSH PRIVILEGES"""
         }
 
-        sleep(30000)
+        def jobSucceedTaskCnt = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+        log.info("jobSucceedTaskCnt: " + jobSucceedTaskCnt)
+
+        try {
+            Awaitility.await().atMost(300, SECONDS)
+                    .pollInterval(1, SECONDS).until(
+                    {
+                        def jobStatus = sql """ select status, SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        log.info("jobStatus: " + jobStatus)
+                        // check job status running and increase a success task
+                        jobStatus.size() == 1 && 'RUNNING' == jobStatus.get(0).get(0) && jobStatus.get(0).get(1) > jobSucceedTaskCnt.get(0).get(0)
+                    }
+            )
+        } catch (Exception ex){
+            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+            log.info("show job: " + showjob)
+            log.info("show task: " + showtask)
+            throw ex;
+        }
 
         // check incremental data
         qt_select """ SELECT * FROM ${tableName} order by name asc """
-
 
         sql """DROP USER IF EXISTS '${user}'"""
         sql """

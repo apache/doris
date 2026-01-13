@@ -107,6 +107,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                             postgresDialect.getSlotName(), postgresDialect.getPluginName());
             // skip creating the replication slot when the slot exists.
             if (slotInfo != null) {
+                LOG.info(
+                        "The replication slot {} already exists, skip creating it.",
+                        postgresDialect.getSlotName());
                 return;
             }
             PostgresReplicationConnection replicationConnection =
