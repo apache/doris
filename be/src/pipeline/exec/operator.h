@@ -618,10 +618,7 @@ public:
     // For agg/sort/join sink.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
-    virtual bool reset_to_rerun(RuntimeState* state, OperatorXBase* root) const {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "reset_to_rerun() is only implemented in rec CTE sink!");
-    }
+    virtual bool reset_to_rerun(RuntimeState* state, OperatorXBase* root) const { return false; }
 
     Status init(const TDataSink& tsink) override;
     [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
