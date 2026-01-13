@@ -1260,8 +1260,7 @@ TEST_F(TestDeleteHandler, timestamptz) {
     add_delete_predicate(del_pred, 2);
 
     auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
-    // FIXME:
-    EXPECT_NE(Status::OK(), res);
+    EXPECT_EQ(Status::OK(), res);
 }
 
 TEST_F(TestDeleteHandler, ValueWithoutQuote) {
