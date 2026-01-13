@@ -472,24 +472,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                              CascadesContext cascadesContext) {
         // If rewrite successfully, try to clear mv scan currently because it maybe used again
         currentContext.clearScanPlan(cascadesContext);
-        // Clear the currentContext queryRelationIdSet for nest materialized view rewrite
-        // Such as mv2 commonTableIdSet is (0, 1) mapping to (t1, mv1), queryRelationIdSet is (t1), because query
-        // doesn't use the mv1 firstly, when mv1 is rewritten successfully, then currentContext
-        // queryRelationIdSet, should be (t1, mv1) for later rewrite mv2, need invalid mv2
-        // currentContext's queryRelationIdSet cache
-        if (!cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewNestRewrite()
-                || !(currentContext instanceof AsyncMaterializationContext)) {
-            return;
-        }
-        TableId mvTableCommonTableId = cascadesContext.getStatementContext().getTableId(
-                ((AsyncMaterializationContext) currentContext).getMtmv());
-        for (MaterializationContext context : cascadesContext.getAllMaterializationContexts().values()) {
-            // If the mv in currentContext is rewritten successfully,
-            // should clear the materialization context query relation id set for later which contain the mv
-            if (context.getCommonTableIdSet(cascadesContext.getStatementContext()).get(mvTableCommonTableId.asInt())) {
-                context.clearQueryRelationIdSet();
-            }
-        }
     }
 
     // Set materialization context statistics to statementContext for cost estimate later

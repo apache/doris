@@ -154,26 +154,43 @@ public class StructInfoMap {
         return groupExpressionMapByRelationId.get(tableMap);
     }
 
-    // Set the refresh version for the given queryRelationIdSet
-    public void setRefreshVersion(BitSet queryRelationIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
-        this.refreshVersion.put(queryRelationIdSet, getMemoVersion(queryRelationIdSet, memoRefreshVersionMap));
+    // Set the refresh version for the given targetIdSet
+    public void setRefreshVersion(BitSet targetIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
+        this.refreshVersion.put(targetIdSet, getMemoVersion(targetIdSet, memoRefreshVersionMap));
     }
 
-    // Set the refresh version for the given queryRelationIdSet
-    public void setRefreshVersion(BitSet queryRelationIdSet, int memoRefreshVersion) {
-        this.refreshVersion.put(queryRelationIdSet, memoRefreshVersion);
+    // Set the refresh version for the given targetIdSet
+    public void setRefreshVersion(BitSet targetIdSet, int memoRefreshVersion) {
+        this.refreshVersion.put(targetIdSet, memoRefreshVersion);
     }
 
-    // Get the refresh version for the given queryRelationIdSet, if not exist, return 0
-    public long getRefreshVersion(BitSet queryRelationIdSet) {
-        return refreshVersion.computeIfAbsent(queryRelationIdSet, k -> 0);
+    // Get the refresh version for the given targetIdSet, if not exist, return 0
+    public long getRefreshVersion(BitSet targetIdSet) {
+        return refreshVersion.computeIfAbsent(targetIdSet, k -> 0);
     }
 
-    /** Get the memo version among the relation ids in queryRelationIdSet*/
-    public static int getMemoVersion(BitSet queryRelationIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
+    /**
+     * Compute a compact "version fingerprint" for the given relation id set.
+     * Algorithm:
+     * - Uses a 32-bit FNV-1a-style hash. Start from FNV32_OFFSET_BASIS and multiply by FNV32_PRIME.
+     * - Iterate each set bit (target id) in the BitSet:
+     *   - Fetch its current refresh version from memoRefreshVersionMap (default 0 if absent).
+     *   - Mix the version into the hash by XOR, then diffuse by multiplying the FNV prime.
+     * - Returns the final hash as the memo version for this set of relations.
+     * Benefits:
+     * - Stable fingerprint: any change in any relation's version produces a different hash, enabling
+     *   fast cache invalidation checks without scanning all versions every time.
+     * - Order-independent: relies on set iteration; the same set yields the same hash regardless of order.
+     * - Low memory and CPU overhead: compresses multiple integers into a single 32-bit value efficiently.
+     * - Incremental-friendly: new relations/versions can be incorporated by re-running on the changed set.
+     * - Good diffusion: XOR + prime multiplication reduces collisions compared to simple sums.
+     * Notes:
+     * - The Integer.MAX_VALUE guard prevents potential overflow edge cases in BitSet iteration.
+     */
+    public static int getMemoVersion(BitSet targetIdSet, Map<Integer, AtomicInteger> memoRefreshVersionMap) {
         int hash = FNV32_OFFSET_BASIS;
-        for (int id = queryRelationIdSet.nextSetBit(0);
-                id >= 0; id = queryRelationIdSet.nextSetBit(id + 1)) {
+        for (int id = targetIdSet.nextSetBit(0);
+                id >= 0; id = targetIdSet.nextSetBit(id + 1)) {
             AtomicInteger ver = memoRefreshVersionMap.get(id);
             int tmpVer = ver == null ? 0 : ver.get();
             hash ^= tmpVer;

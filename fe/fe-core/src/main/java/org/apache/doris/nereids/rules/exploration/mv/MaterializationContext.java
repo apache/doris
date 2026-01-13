@@ -110,9 +110,6 @@ public abstract class MaterializationContext {
     protected List<String> identifier;
     // The common table id set which is used in materialization, added for performance consideration
     private BitSet commonTableIdSet;
-    // The relation id set which is used in query and matched by this materialization,
-    // added for performance consideration
-    private BitSet queryRelationIdSet;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
@@ -392,31 +389,6 @@ public abstract class MaterializationContext {
             }
         }
         return commonTableIdSet;
-    }
-
-    /**
-     * Get query relation id set which is used in query and matched by this materialization
-     */
-    public BitSet getQueryRelationIdSetMvMatched(StatementContext currentQueryStatementContext) {
-        if (queryRelationIdSet != null) {
-            return this.queryRelationIdSet;
-        }
-        queryRelationIdSet = new BitSet();
-        BitSet commonTableIdSet = getCommonTableIdSet(currentQueryStatementContext);
-        Multimap<Integer, Integer> commonTableIdToRelationIdMap
-                = currentQueryStatementContext.getCommonTableIdToRelationIdMap();
-        for (int i = commonTableIdSet.nextSetBit(0); i >= 0; i = commonTableIdSet.nextSetBit(i + 1)) {
-            commonTableIdToRelationIdMap.get(i).forEach(this.queryRelationIdSet::set);
-        }
-        return this.queryRelationIdSet;
-    }
-
-    /**
-     * If the mv in materialization is rewritten successfully, should clear the query relation id set for later
-     * nested rewrite.
-     */
-    public void clearQueryRelationIdSet() {
-        this.queryRelationIdSet = null;
     }
 
     @Override
