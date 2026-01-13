@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.ScanNode;
@@ -95,24 +97,39 @@ public class ExplainCommand extends Command implements NoForward {
             new NereidsPlanner(ctx.getStatementContext())
         );
 
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
-        ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
-        logicalPlanAdapter.setIsExplain(explainOptions);
-        executor.setParsedStmt(logicalPlanAdapter);
-        if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+        boolean resetNeedIcebergRowId = false;
+        boolean previousNeedIcebergRowId = ctx.needIcebergRowId();
+        if (explainPlan instanceof LogicalIcebergDeleteSink
+                || explainPlan instanceof LogicalIcebergMergeSink) {
+            if (!previousNeedIcebergRowId) {
+                ctx.setNeedIcebergRowId(true);
+                resetNeedIcebergRowId = true;
+            }
         }
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        executor.setPlanner(planner);
-        // Skip SQL block rules check for EXPLAIN statements since they only show
-        // the execution plan without actually executing the query
-        if (showPlanProcess) {
-            executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
-        } else {
-            executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
-        }
-        for (ScanNode scanNode : planner.getScanNodes()) {
-            scanNode.stop();
+        try {
+            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
+            ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
+            logicalPlanAdapter.setIsExplain(explainOptions);
+            executor.setParsedStmt(logicalPlanAdapter);
+            if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+                ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+            }
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+            executor.setPlanner(planner);
+            // Skip SQL block rules check for EXPLAIN statements since they only show
+            // the execution plan without actually executing the query
+            if (showPlanProcess) {
+                executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
+            } else {
+                executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
+            }
+            for (ScanNode scanNode : planner.getScanNodes()) {
+                scanNode.stop();
+            }
+        } finally {
+            if (resetNeedIcebergRowId) {
+                ctx.setNeedIcebergRowId(previousNeedIcebergRowId);
+            }
         }
     }
 

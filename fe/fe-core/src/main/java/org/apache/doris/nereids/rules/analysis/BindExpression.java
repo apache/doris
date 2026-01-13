@@ -17,14 +17,17 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -76,6 +79,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
@@ -227,6 +232,12 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
                 logicalSubQueryAlias().thenApply(this::bindSubqueryAlias)
             ),
+            RuleType.BINDING_ICEBERG_DELETE_SINK_OUTPUT.build(
+                logicalIcebergDeleteSink().thenApply(this::bindIcebergDeleteSink)
+            ),
+            RuleType.BINDING_ICEBERG_MERGE_SINK_OUTPUT.build(
+                logicalIcebergMergeSink().thenApply(this::bindIcebergMergeSink)
+            ),
             RuleType.BINDING_RESULT_SINK.build(
                 unboundResultSink().thenApply(this::bindResultSink)
             )
@@ -255,6 +266,92 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {
         return ctx.root;
+    }
+
+    private LogicalIcebergDeleteSink<Plan> bindIcebergDeleteSink(
+            MatchingContext<LogicalIcebergDeleteSink<Plan>> ctx) {
+        LogicalIcebergDeleteSink<Plan> sink = ctx.root;
+        if (hasUnboundPlan(sink.child())) {
+            return sink;
+        }
+        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        if (sink.getOutputExprs().equals(outputExprs)) {
+            return sink;
+        }
+        return sink.withOutputExprs(outputExprs);
+    }
+
+    private LogicalIcebergMergeSink<Plan> bindIcebergMergeSink(
+            MatchingContext<LogicalIcebergMergeSink<Plan>> ctx) {
+        LogicalIcebergMergeSink<Plan> sink = ctx.root;
+        if (hasUnboundPlan(sink.child())) {
+            return sink;
+        }
+        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        List<Column> visibleColumns = sink.getCols().stream()
+                .filter(Column::isVisible)
+                .collect(ImmutableList.toImmutableList());
+        int dataExprCount = 0;
+        for (NamedExpression expr : outputExprs) {
+            if (!isIcebergMergeMetaColumn(expr.getName())) {
+                dataExprCount++;
+            }
+        }
+        if (dataExprCount != visibleColumns.size()) {
+            if (sink.getOutputExprs().equals(outputExprs)) {
+                return sink;
+            }
+            return sink.withOutputExprs(outputExprs);
+        }
+
+        boolean changed = false;
+        int columnIndex = 0;
+        List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
+        for (NamedExpression expr : outputExprs) {
+            if (isIcebergMergeMetaColumn(expr.getName())) {
+                castExprs.add(expr);
+                continue;
+            }
+            Column column = visibleColumns.get(columnIndex++);
+            DataType targetType = DataType.fromCatalogType(column.getType());
+            Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+            NamedExpression namedExpr;
+            if (castExpr instanceof NamedExpression) {
+                namedExpr = (NamedExpression) castExpr;
+                if (!column.getName().equalsIgnoreCase(namedExpr.getName())) {
+                    namedExpr = new Alias(namedExpr, column.getName());
+                }
+            } else {
+                namedExpr = new Alias(castExpr, column.getName());
+            }
+            if (!namedExpr.equals(expr)) {
+                changed = true;
+            }
+            castExprs.add(namedExpr);
+        }
+        if (!changed) {
+            if (sink.getOutputExprs().equals(outputExprs)) {
+                return sink;
+            }
+            return sink.withOutputExprs(outputExprs);
+        }
+        LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
+        return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+    }
+
+    private boolean isIcebergMergeMetaColumn(String name) {
+        if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+            return true;
+        }
+        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name);
+    }
+
+    private static boolean hasUnboundPlan(Plan plan) {
+        return plan.anyMatch(node -> node instanceof Unbound || ((Plan) node).hasUnboundExpression());
     }
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {

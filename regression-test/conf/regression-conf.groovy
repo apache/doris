@@ -24,26 +24,26 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUrl = "jdbc:mysql://127.0.0.1:39033/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:39033/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
-syncerAddress = "127.0.0.1:9190"
+feSourceThriftAddress = "127.0.0.1:39023"
+feTargetThriftAddress = "127.0.0.1:39023"
+syncerAddress = "127.0.0.1:39193"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:38033"
 feHttpUser = "root"
 feHttpPassword = ""
 
 // ccr, need BE enable_feature_binlog=true and FE enable_feature_binlog = true
-ccrDownstreamUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+ccrDownstreamUrl = "jdbc:mysql://127.0.0.1:39033/?useLocalSessionState=true&allowLoadLocalInfile=true"
 ccrDownstreamUser = "root"
 ccrDownstreamPassword = ""
-ccrDownstreamFeThriftAddress = "127.0.0.1:9030"
+ccrDownstreamFeThriftAddress = "127.0.0.1:39033"
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
@@ -138,7 +138,7 @@ oceanbase_port=2881
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/run-thirdparties-docker.sh`
-enableHiveTest=false
+enableHiveTest=true
 enablePaimonTest=false
 
 // port of hive2 docker
@@ -291,7 +291,7 @@ cbsS3Bucket = "test-bucket"
 cbsS3Prefix = "test-cluster-prefix"
 
 // External Env
-enableExternalIcebergTest = false
+enableExternalIcebergTest = true
 // The properties string of iceberg catalog
 icebergS3TablesCatalog = ""
 

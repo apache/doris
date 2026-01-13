@@ -19,13 +19,16 @@ package org.apache.doris.datasource.iceberg.helper;
 
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.statistics.CommonStatistics;
+import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import com.google.common.base.VerifyException;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
@@ -177,5 +180,75 @@ public class IcebergWriterHelper {
 
         return new Metrics(commitData.getRowCount(), columnSizes, valueCounts,
                 nullValueCounts, null, lowerBounds, upperBounds);
+    }
+
+    /**
+     * Convert TIcebergCommitData list to DeleteFile list for delete operations.
+     *
+     * @param format File format (Parquet/ORC)
+     * @param spec Partition specification
+     * @param commitDataList List of commit data from BE
+     * @return List of DeleteFile objects ready to be committed
+     */
+    public static List<DeleteFile> convertToDeleteFiles(
+            FileFormat format,
+            PartitionSpec spec,
+            List<TIcebergCommitData> commitDataList) {
+        List<DeleteFile> deleteFiles = new ArrayList<>();
+
+        for (TIcebergCommitData commitData : commitDataList) {
+            // Only process delete files
+            if (commitData.getFileContent() == null
+                    || commitData.getFileContent() == TFileContent.DATA) {
+                continue;
+            }
+
+            String deleteFilePath = commitData.getFilePath();
+            long fileSize = commitData.getFileSize();
+            long recordCount = commitData.getRowCount();
+
+            // Build delete file metadata
+            FileMetadata.Builder deleteBuilder = FileMetadata.deleteFileBuilder(spec)
+                    .withPath(deleteFilePath)
+                    .withFormat(format)
+                    .withFileSizeInBytes(fileSize)
+                    .withRecordCount(recordCount);
+
+            // Set delete file content type
+            if (commitData.getFileContent() == TFileContent.POSITION_DELETES) {
+                deleteBuilder.ofPositionDeletes();
+            } else {
+                throw new VerifyException("Iceberg delete only supports position deletes, but got "
+                        + commitData.getFileContent());
+            }
+
+            // Add partition information if table is partitioned
+            if (spec.isPartitioned()) {
+                PartitionData partitionData;
+                if (commitData.getPartitionValues() != null && !commitData.getPartitionValues().isEmpty()) {
+                    // Convert partition values to PartitionData
+                    List<String> partitionValues = commitData.getPartitionValues().stream()
+                            .map(s -> s.equals("null") ? null : s)
+                            .collect(Collectors.toList());
+                    partitionData = convertToPartitionData(partitionValues, spec);
+                } else if (commitData.getPartitionDataJson() != null && !commitData.getPartitionDataJson().isEmpty()) {
+                    List<String> partitionValues = IcebergUtils.parsePartitionValuesFromJson(
+                            commitData.getPartitionDataJson());
+                    if (!partitionValues.isEmpty()) {
+                        partitionData = convertToPartitionData(partitionValues, spec);
+                    } else {
+                        partitionData = new PartitionData(spec.partitionType());
+                    }
+                } else {
+                    throw new VerifyException("No partition data for partitioned table");
+                }
+                deleteBuilder.withPartition(partitionData);
+            }
+
+            DeleteFile deleteFile = deleteBuilder.build();
+            deleteFiles.add(deleteFile);
+        }
+
+        return deleteFiles;
     }
 }

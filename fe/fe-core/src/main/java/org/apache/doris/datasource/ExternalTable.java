@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * External table represent tables that are not self-managed by Doris.
@@ -179,14 +180,29 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
+    protected boolean needInternalHiddenColumns() {
+        return false;
+    }
+
     @Override
     public List<Column> getBaseSchema() {
-        return getFullSchema();
+        boolean showHidden = Util.showHiddenColumns();
+        if (!showHidden && needInternalHiddenColumns()) {
+            showHidden = true;
+        }
+        return getBaseSchema(showHidden);
     }
 
     @Override
     public List<Column> getBaseSchema(boolean full) {
-        return getFullSchema();
+        List<Column> schema = getFullSchema();
+        if (schema == null) {
+            return null;
+        }
+        if (full) {
+            return schema;
+        }
+        return schema.stream().filter(Column::isVisible).collect(Collectors.toList());
     }
 
     @Override

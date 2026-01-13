@@ -330,7 +330,7 @@ public class IcebergNereidsUtils {
     /**
      * Extract literal value from Nereids Literal expression
      */
-    private static Object extractNereidsLiteralValue(
+    static Object extractNereidsLiteralValue(
             Literal literal,
             Type icebergType) throws UserException {
         try {

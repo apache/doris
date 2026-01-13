@@ -65,6 +65,8 @@
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
+#include "pipeline/exec/iceberg_delete_sink_operator.h"
+#include "pipeline/exec/iceberg_merge_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
 #include "exec/operator/local_merge_sort_source_operator.h"
