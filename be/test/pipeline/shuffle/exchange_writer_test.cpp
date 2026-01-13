@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "pipeline/shuffle/writer.h"
+#include "pipeline/shuffle/exchange_writer.h"
 
 #include <gtest/gtest.h>
 
@@ -60,10 +60,10 @@ static std::vector<std::shared_ptr<Channel>> make_disabled_channels(
     return channels;
 }
 
-TEST(TrivialWriterTest, BasicDistribution) {
+TEST(TrivialExchangeWriterTest, BasicDistribution) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    TrivialWriter writer;
+    ExchangeTrivialWriter writer;
 
     const size_t channel_count = 2;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -92,10 +92,10 @@ TEST(TrivialWriterTest, BasicDistribution) {
     EXPECT_EQ(got, expected);
 }
 
-TEST(TrivialWriterTest, AllRowsToSingleChannel) {
+TEST(TrivialExchangeWriterTest, AllRowsToSingleChannel) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    TrivialWriter writer;
+    ExchangeTrivialWriter writer;
 
     const size_t channel_count = 3;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -122,10 +122,10 @@ TEST(TrivialWriterTest, AllRowsToSingleChannel) {
     EXPECT_EQ(got, expected);
 }
 
-TEST(TrivialWriterTest, EmptyInput) {
+TEST(TrivialExchangeWriterTest, EmptyInput) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    TrivialWriter writer;
+    ExchangeTrivialWriter writer;
 
     const size_t channel_count = 4;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -145,10 +145,10 @@ TEST(TrivialWriterTest, EmptyInput) {
     EXPECT_EQ(writer._origin_row_idx.size(), 0U);
 }
 
-TEST(OlapWriterTest, NeedCheckSkipsNegativeChannelIds) {
+TEST(OlapExchangeWriterTest, NeedCheckSkipsNegativeChannelIds) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    OlapWriter writer;
+    ExchangeOlapWriter writer;
 
     const size_t channel_count = 3;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -158,8 +158,8 @@ TEST(OlapWriterTest, NeedCheckSkipsNegativeChannelIds) {
     int64_t channel_ids[] = {0, -1, 2, -1, 2};
     const size_t rows = sizeof(channel_ids) / sizeof(channel_ids[0]);
 
-    Status st = writer._channel_add_rows<true>(&state, channels, channel_count, channel_ids, rows,
-                                               &block, /*eos=*/false);
+    Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
+                                         /*eos=*/false);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     // Only non-negative ids should be counted: hist = [1,0,2]
@@ -178,10 +178,10 @@ TEST(OlapWriterTest, NeedCheckSkipsNegativeChannelIds) {
     EXPECT_EQ(got, expected);
 }
 
-TEST(OlapWriterTest, NoCheckUsesAllRows) {
+TEST(OlapExchangeWriterTest, NoCheckUsesAllRows) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    OlapWriter writer;
+    ExchangeOlapWriter writer;
 
     const size_t channel_count = 2;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -190,8 +190,8 @@ TEST(OlapWriterTest, NoCheckUsesAllRows) {
     int64_t channel_ids[] = {0, 1, 0};
     const size_t rows = sizeof(channel_ids) / sizeof(channel_ids[0]);
 
-    Status st = writer._channel_add_rows<false>(&state, channels, channel_count, channel_ids, rows,
-                                                &block, /*eos=*/false);
+    Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
+                                         /*eos=*/false);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_EQ(writer._channel_rows_histogram.size(), channel_count);
@@ -207,10 +207,10 @@ TEST(OlapWriterTest, NoCheckUsesAllRows) {
     EXPECT_EQ(got, expected);
 }
 
-TEST(OlapWriterTest, EmptyInput) {
+TEST(OlapExchangeWriterTest, EmptyInput) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    OlapWriter writer;
+    ExchangeOlapWriter writer;
 
     const size_t channel_count = 3;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -219,8 +219,8 @@ TEST(OlapWriterTest, EmptyInput) {
     const int64_t* channel_ids = nullptr;
     const size_t rows = 0;
 
-    Status st = writer._channel_add_rows<true>(&state, channels, channel_count, channel_ids, rows,
-                                               &block, /*eos=*/false);
+    Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
+                                         /*eos=*/false);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_EQ(writer._channel_rows_histogram.size(), channel_count);

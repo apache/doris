@@ -20,7 +20,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Partitions_types.h>
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -266,9 +265,8 @@ TEST(VRowDistributionTest, AutoPartitionMissingValuesBatchingDedupAndCreateParti
                                                false);
 
     TSlotId partition_slot_id = tschema.slot_descs[0].id;
-    auto tpartition = sink_test_utils::build_auto_partition_param(schema_index_id,
-                                                                  tablet_sink_tuple_id,
-                                                                  partition_slot_id);
+    auto tpartition = sink_test_utils::build_auto_partition_param(
+            schema_index_id, tablet_sink_tuple_id, partition_slot_id);
     auto tlocation = sink_test_utils::build_location_param();
 
     auto h = _build_vrow_distribution_harness(ctx, tschema, tpartition, tlocation,

@@ -33,8 +33,8 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
 #include "util/debug_points.h"
+#include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -95,6 +95,11 @@ void VRowDistribution::clear_batching_stats() {
 }
 
 Status VRowDistribution::automatic_create_partition() {
+    MonotonicStopWatch timer;
+    if (_state->enable_profile() && _state->profile_level() >= 2) {
+        timer.start();
+    }
+
     SCOPED_TIMER(_add_partition_request_timer);
     TCreatePartitionRequest request;
     TCreatePartitionResult result;
@@ -144,6 +149,11 @@ Status VRowDistribution::automatic_create_partition() {
         RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
     }
 
+    // Record this request's elapsed time
+    if (_state->enable_profile() && _state->profile_level() >= 2) {
+        int64_t elapsed_ns = timer.elapsed_time();
+        _add_partition_request_times.push_back(elapsed_ns);
+    }
     return status;
 }
 
@@ -384,18 +394,21 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     }
 
     // calc the end value and save them. in the end of sending, we will create partitions for them and deal them.
+    // NOTE: must save old batching stats before calling _save_missing_values(),
+    // because _save_missing_values() will update _batching_rows internally.
+    size_t old_bt_rows = _batching_rows;
+    size_t old_bt_bytes = _batching_bytes;
+
     RETURN_IF_ERROR(_save_missing_values(input_block, col_strs, part_col_num, block, _missing_map,
                                          col_null_maps));
 
     size_t new_bt_rows = _batching_block->rows();
     size_t new_bt_bytes = _batching_block->bytes();
-    rows_stat_val -= new_bt_rows - _batching_rows;
-    _state->update_num_rows_load_total(_batching_rows - new_bt_rows);
-    _state->update_num_bytes_load_total(_batching_bytes - new_bt_bytes);
-    DorisMetrics::instance()->load_rows->increment(_batching_rows - new_bt_rows);
-    DorisMetrics::instance()->load_bytes->increment(_batching_bytes - new_bt_bytes);
-    _batching_rows = new_bt_rows;
-    _batching_bytes = new_bt_bytes;
+    rows_stat_val -= new_bt_rows - old_bt_rows;
+    _state->update_num_rows_load_total(old_bt_rows - new_bt_rows);
+    _state->update_num_bytes_load_total(old_bt_bytes - new_bt_bytes);
+    DorisMetrics::instance()->load_rows->increment(old_bt_rows - new_bt_rows);
+    DorisMetrics::instance()->load_bytes->increment(old_bt_bytes - new_bt_bytes);
 
     return Status::OK();
 }

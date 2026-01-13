@@ -22,6 +22,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -34,11 +35,12 @@
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/shuffle/writer.h"
+#include "pipeline/shuffle/exchange_writer.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "vec/sink/tablet_sink_hash_partitioner.h"
 
 namespace doris::pipeline {
@@ -66,6 +68,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _distribute_rows_into_channels_timer =
             ADD_TIMER(custom_profile(), "DistributeRowsIntoChannelsTime");
     _send_new_partition_timer = ADD_TIMER(custom_profile(), "SendNewPartitionTime");
+    _add_partition_request_timer =
+            ADD_CHILD_TIMER(custom_profile(), "AddPartitionRequestTime", "SendNewPartitionTime");
     _blocks_sent_counter =
             ADD_COUNTER_WITH_LEVEL(custom_profile(), "BlocksProduced", TUnit::UNIT, 1);
     _overall_throughput = custom_profile()->add_derived_counter(
@@ -142,7 +146,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
-        // in OlapWriter we rely on type of _partitioner here
+        // in ExchangeOlapWriter we rely on type of _partitioner here
         _partition_count = channels.size();
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("TabletSinkHashPartitioner({})", _partition_count));
@@ -220,9 +224,9 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
-        _writer = std::make_unique<OlapWriter>();
+        _writer = std::make_unique<ExchangeOlapWriter>();
     } else {
-        _writer = std::make_unique<TrivialWriter>();
+        _writer = std::make_unique<ExchangeTrivialWriter>();
     }
 
     for (auto& channel : channels) {
@@ -495,7 +499,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!local_state.local_channel_ids.empty()) {
             const auto& ids = local_state.local_channel_ids;
             // Find the first channel ID >= current_channel_idx
-            auto it = std::lower_bound(ids.begin(), ids.end(), local_state.current_channel_idx);
+            auto it = std::ranges::lower_bound(ids, local_state.current_channel_idx);
             if (it != ids.end()) {
                 local_state.current_channel_idx = *it;
             } else {
@@ -509,10 +513,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
                _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(static_cast<TrivialWriter*>(local_state._writer.get())
+        RETURN_IF_ERROR(static_cast<ExchangeTrivialWriter*>(local_state._writer.get())
                                 ->write(&local_state, state, block, eos));
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(static_cast<OlapWriter*>(local_state._writer.get())
+        RETURN_IF_ERROR(static_cast<ExchangeOlapWriter*>(local_state._writer.get())
                                 ->write(&local_state, state, block, eos));
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.

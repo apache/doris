@@ -20,7 +20,6 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Partitions_types.h>
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -92,10 +91,9 @@ inline TExpr make_slot_ref_expr(TSlotId slot_id, TTupleId tuple_id) {
 }
 
 inline void build_desc_tbl_and_schema(doris::pipeline::OperatorContext& ctx,
-                                     TOlapTableSchemaParam& tschema,
-                                     TTupleId& tablet_sink_tuple_id,
-                                     int64_t& schema_index_id,
-                                     bool is_nullable = true) {
+                                      TOlapTableSchemaParam& tschema,
+                                      TTupleId& tablet_sink_tuple_id, int64_t& schema_index_id,
+                                      bool is_nullable = true) {
     TDescriptorTableBuilder dtb;
     {
         TTupleDescriptorBuilder tuple_builder;
@@ -170,8 +168,8 @@ inline TOlapTablePartitionParam build_partition_param(int64_t schema_index_id) {
     return param;
 }
 
-inline TOlapTablePartitionParam build_auto_partition_param(int64_t schema_index_id, TTupleId tuple_id,
-                                                          TSlotId slot_id) {
+inline TOlapTablePartitionParam build_auto_partition_param(int64_t schema_index_id,
+                                                           TTupleId tuple_id, TSlotId slot_id) {
     auto param = build_partition_param(schema_index_id);
     param.__set_enable_automatic_partition(true);
     param.__set_partition_function_exprs({
@@ -180,8 +178,8 @@ inline TOlapTablePartitionParam build_auto_partition_param(int64_t schema_index_
     return param;
 }
 
-inline TOlapTablePartitionParam build_partition_param_with_load_tablet_idx(int64_t schema_index_id,
-                                                                           int64_t load_tablet_idx) {
+inline TOlapTablePartitionParam build_partition_param_with_load_tablet_idx(
+        int64_t schema_index_id, int64_t load_tablet_idx) {
     TOlapTablePartitionParam param;
     param.db_id = 1;
     param.table_id = 2;

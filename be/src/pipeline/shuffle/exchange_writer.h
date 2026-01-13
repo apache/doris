@@ -33,9 +33,9 @@ namespace pipeline {
 #include "common/compile_check_begin.h"
 class ExchangeSinkLocalState;
 
-class WriterBase {
+class ExchangeWriterBase {
 public:
-    WriterBase() = default;
+    ExchangeWriterBase() = default;
 
 protected:
     template <typename ChannelPtrType>
@@ -54,9 +54,9 @@ protected:
     vectorized::PaddedPODArray<uint32_t> _channel_pos_offsets;
 };
 
-class TrivialWriter final : public WriterBase {
+class ExchangeTrivialWriter final : public ExchangeWriterBase {
 public:
-    TrivialWriter() = default;
+    ExchangeTrivialWriter() = default;
 
     Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
                  bool eos);
@@ -69,20 +69,16 @@ private:
 };
 
 // maybe auto partition
-class OlapWriter final : public WriterBase {
+class ExchangeOlapWriter final : public ExchangeWriterBase {
 public:
-    OlapWriter() = default;
+    ExchangeOlapWriter() = default;
 
     Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
                  bool eos);
 
 private:
-    Status _write_normal(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                         vectorized::Block* block);
-    // write batched data(if exists)
-    Status _write_last(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                       vectorized::Block* block);
-    template <bool NeedCheck>
+    Status _write_impl(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                       vectorized::Block* block, bool eos = false);
     Status _channel_add_rows(RuntimeState* state,
                              std::vector<std::shared_ptr<vectorized::Channel>>& channels,
                              size_t channel_count, const int64_t* __restrict channel_ids,

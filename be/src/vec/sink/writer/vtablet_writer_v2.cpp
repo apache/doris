@@ -238,6 +238,8 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "RowDistributionTime", "SendDataTime", 1);
     _write_memtable_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(_operator_profile, "WriteMemTableTime", "SendDataTime", 1);
+    _add_partition_request_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            _operator_profile, "AddPartitionRequestTime", "SendDataTime", 1);
     _validate_data_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "ValidateDataTime", 1);
     _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
     _close_timer = ADD_TIMER(_operator_profile, "CloseWaitTime");
@@ -738,6 +740,11 @@ Status VTabletWriterV2::close(Status exec_status) {
                                               _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(
                 _tablet_finder->num_immutable_partition_filtered_rows());
+
+        if (_state->enable_profile() && _state->profile_level() >= 2) {
+            // Output detailed profiling info for auto-partition requests
+            _row_distribution.output_profile_info(_operator_profile);
+        }
 
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;

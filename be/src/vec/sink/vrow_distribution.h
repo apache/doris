@@ -108,6 +108,21 @@ public:
         _create_partition_callback = ctx.create_partition_callback;
     }
 
+    void output_profile_info(RuntimeProfile* profile) {
+        if (!_add_partition_request_times.empty()) {
+            std::stringstream ss;
+            ss << "[";
+            for (size_t i = 0; i < _add_partition_request_times.size(); ++i) {
+                if (i > 0) {
+                    ss << ", ";
+                }
+                ss << PrettyPrinter::print(_add_partition_request_times[i], TUnit::TIME_NS);
+            }
+            ss << "]";
+            profile->add_info_string("AddPartitionRequestTimeList", ss.str());
+        }
+    }
+
     Status open(RowDescriptor* output_row_desc) {
         if (_vpartition->is_auto_partition()) {
             auto [part_ctxs, part_funcs] = _get_partition_function();
@@ -140,7 +155,7 @@ public:
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
     void clear_batching_stats();
-    std::vector<bool> get_skipped() { return _skip; } // skipped in last round
+    const std::vector<bool>& get_skipped() const { return _skip; } // skipped in last round
 
     // for auto partition
     std::unique_ptr<MutableBlock> _batching_block; // same structure with input_block
@@ -218,6 +233,9 @@ private:
     int64_t _txn_id = -1;
     ObjectPool* _pool = nullptr;
     OlapTableLocationParam* _location = nullptr;
+
+    // Record each auto-partition request time for detailed profiling
+    std::vector<int64_t> _add_partition_request_times;
     // int64_t _number_output_rows = 0;
     const VExprContextSPtrs* _vec_output_expr_ctxs = nullptr;
     // generally it's writer's on_partitions_created

@@ -23,7 +23,6 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Status_types.h>
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -46,8 +45,8 @@
 #include "util/debug_points.h"
 #include "util/hash_util.hpp"
 #include "util/runtime_profile.h"
-#include "vec/common/assert_cast.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/sink/sink_test_utils.h"
@@ -74,8 +73,9 @@ std::shared_ptr<ExchangeSinkOperatorX> _create_parent_operator(
 
 std::unique_ptr<TabletSinkHashPartitioner> _create_partitioner(
         OperatorContext& ctx, ExchangeSinkLocalState* local_state, size_t partition_count,
-        int64_t txn_id, const TOlapTableSchemaParam& schema, const TOlapTablePartitionParam& partition,
-        const TOlapTableLocationParam& location, TTupleId tablet_sink_tuple_id) {
+        int64_t txn_id, const TOlapTableSchemaParam& schema,
+        const TOlapTablePartitionParam& partition, const TOlapTableLocationParam& location,
+        TTupleId tablet_sink_tuple_id) {
     auto partitioner = std::make_unique<TabletSinkHashPartitioner>(
             partition_count, txn_id, schema, partition, location, tablet_sink_tuple_id,
             local_state);
@@ -118,8 +118,8 @@ TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHash
     EXPECT_FALSE(skipped[1]);
 
     auto channel_ids = partitioner->get_channel_ids();
-    auto* hashes = reinterpret_cast<const TabletSinkHashPartitioner::HashValType*>(
-            channel_ids.channel_id);
+    auto* hashes =
+            reinterpret_cast<const TabletSinkHashPartitioner::HashValType*>(channel_ids.channel_id);
     ASSERT_NE(hashes, nullptr);
     EXPECT_EQ(hashes[0], -1);
 
@@ -275,8 +275,6 @@ TEST(TabletSinkHashPartitionerTest, OlapTabletFinderRoundRobinEveryBatch) {
         ASSERT_TRUE(st.ok()) << st.to_string();
         EXPECT_EQ(tablet_index[0], 0);
     }
- }
-
- } // anonymous namespace
- 
+}
+} // anonymous namespace
 } // namespace doris::vectorized
