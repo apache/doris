@@ -568,7 +568,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.inject_error", {
         auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (target_tablet_id == tablet->tablet_id()) {
-            return Status::InternalError("[sync_tablet_rowsets_unlocked] injected error for testing");
+            return Status::InternalError(
+                    "[sync_tablet_rowsets_unlocked] injected error for testing");
         }
     });
 
@@ -1439,8 +1440,9 @@ namespace {
 void forward_notify_be_request_to_fe_async(const StreamLoadContext& ctx,
                                            const CommitTxnResponse& res) {
     // Async notify FE to make cloud tmp rowsets visible
-    auto notify_fe_func = [txn_id = ctx.txn_id, commit_infos = ctx.commit_infos,
-                           partition_ids = res.partition_ids(), versions = res.versions(),
+    auto notify_fe_func = [txn_id = ctx.txn_id, table_id = ctx.table_id,
+                           commit_infos = ctx.commit_infos, partition_ids = res.partition_ids(),
+                           versions = res.versions(),
                            version_update_time_ms = res.version_update_time_ms()]() -> Status {
         TForwardMakeCloudTmpRsVisibleRequest request;
         TForwardMakeCloudTmpRsVisibleResult result;
@@ -1470,9 +1472,10 @@ void forward_notify_be_request_to_fe_async(const StreamLoadContext& ctx,
 
         if (!status.ok()) {
             LOG(WARNING) << "Failed to notify FE to make cloud tmp rs visible, txn_id=" << txn_id
-                         << ", error=" << status;
+                         << ", table_id=" << table_id << ", error=" << status;
         } else {
-            LOG(INFO) << "Successfully notified FE to make cloud tmp rs visible, txn_id=" << txn_id;
+            LOG(INFO) << "Successfully notified FE to make cloud tmp rs visible, txn_id=" << txn_id
+                      << ", table_id=" << table_id;
         }
         return Status::OK();
     };
@@ -1481,7 +1484,7 @@ void forward_notify_be_request_to_fe_async(const StreamLoadContext& ctx,
             ExecEnv::GetInstance()->forward_notify_be_request_to_fe()->submit_func(notify_fe_func);
     if (!submit_st.ok()) {
         LOG(WARNING) << "Failed to submit notify FE task, txn_id=" << ctx.txn_id
-                     << ", error=" << submit_st.to_string();
+                     << ", table_id=" << ctx.table_id << ", error=" << submit_st.to_string();
     }
 }
 } // namespace

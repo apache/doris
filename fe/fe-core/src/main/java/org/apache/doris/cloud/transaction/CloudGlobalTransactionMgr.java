@@ -2662,10 +2662,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
             return;
         }
+        long txnId = commitTxnResponse.getTxnInfo().getTxnId();
+        if (DebugPointUtil.isEnable("notifyBesMakeTmpRsVisible.skip")) {
+            LOG.info("skip sendMakeCloudTmpRsVisibleTasks, txn_id: {}", txnId);
+            return;
+        }
 
         try {
-            long txnId = commitTxnResponse.getTxnInfo().getTxnId();
-
             // Convert TabletCommitInfo to TTabletCommitInfo
             List<TTabletCommitInfo> tTabletCommitInfos = Lists.newArrayList();
             for (TabletCommitInfo commitInfo : tabletCommitInfos) {
