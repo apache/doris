@@ -235,6 +235,12 @@ extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 extArrowFlightHttpPort= 8030
 
+// Fluss catalog test config
+// To enable Fluss test, start docker environment first:
+// cd docker/integration-test/fluss && docker-compose up -d
+enableFlussTest = false
+flussBootstrapServers = "localhost:9123"
+
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
