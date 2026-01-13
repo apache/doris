@@ -26,6 +26,7 @@ import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
@@ -116,8 +117,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         } catch (Throwable t) {
             throw new CdcClientException(
                     String.format(
-                            "Fail to get or create slot for global stream split, the slot name is %s. Due to: ",
-                            postgresDialect.getSlotName()),
+                            "Fail to get or create slot, the slot name is %s. Due to: %s ",
+                            postgresDialect.getSlotName(), ExceptionUtils.getRootCauseMessage(t)),
                     t);
         }
     }
