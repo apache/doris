@@ -138,7 +138,14 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
             sql """INSERT INTO ${pgDB}.${pgSchema}.${tableName} (name,age) VALUES ('Doris',18);"""
         }
 
-        sleep(30000)
+        Awaitility.await().atMost(300, SECONDS)
+                .pollInterval(3, SECONDS).until(
+                {
+                    def jobSucceedTaskCount = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'"""
+                    log.info("jobSucceedTaskCount: " + jobSucceedTaskCount)
+                    jobSucceedTaskCount.size() == 1 && jobSucceedTaskCount.get(0).get(0) >= '2'
+                }
+        )
 
         // check incremental data
         qt_select """ SELECT * FROM ${tableName} order by name asc """
