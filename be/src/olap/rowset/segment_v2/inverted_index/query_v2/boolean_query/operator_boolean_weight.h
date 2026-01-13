@@ -23,25 +23,25 @@
 #include <vector>
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/buffered_union_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/intersection_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/match_all_docs_scorer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 template <typename ScoreCombinerPtrT>
-class BooleanWeight : public Weight {
+class OperatorBooleanWeight : public Weight {
 public:
-    BooleanWeight(OperatorType type, std::vector<WeightPtr> sub_weights,
-                  std::vector<std::string> binding_keys, ScoreCombinerPtrT score_combiner)
+    OperatorBooleanWeight(OperatorType type, std::vector<WeightPtr> sub_weights,
+                          std::vector<std::string> binding_keys, ScoreCombinerPtrT score_combiner)
             : _type(type),
               _sub_weights(std::move(sub_weights)),
               _binding_keys(std::move(binding_keys)),
               _score_combiner(std::move(score_combiner)) {}
-    ~BooleanWeight() override = default;
+    ~OperatorBooleanWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context) override {
         if (_is_do_nothing_combiner()) {
@@ -113,7 +113,7 @@ private:
             const auto& sub_weight = _sub_weights[i];
             const auto& binding_key = _binding_keys[i];
             auto boolean_weight =
-                    std::dynamic_pointer_cast<BooleanWeight<ScoreCombinerPtrT>>(sub_weight);
+                    std::dynamic_pointer_cast<OperatorBooleanWeight<ScoreCombinerPtrT>>(sub_weight);
             if (boolean_weight != nullptr && boolean_weight->_type == OperatorType::OP_NOT) {
                 auto excludes = boolean_weight->per_scorers(context);
                 for (auto& exclude : excludes) {

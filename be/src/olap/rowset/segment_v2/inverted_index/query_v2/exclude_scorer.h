@@ -17,49 +17,34 @@
 
 #pragma once
 
-#include <memory>
-#include <vector>
-
-#include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-template <typename TDocSet>
-class SimpleUnion;
+template <typename TDocSetExclude>
+inline bool is_within(TDocSetExclude& docset, uint32_t doc) {
+    return docset->doc() <= doc && docset->seek(doc) == doc;
+}
 
-template <typename TDocSet>
-using SimpleUnionPtr = std::shared_ptr<SimpleUnion<TDocSet>>;
-
-template <typename TDocSet>
-class SimpleUnion final : public Postings {
+template <typename TDocSet, typename TDocSetExclude>
+class Exclude final : public Scorer {
 public:
-    explicit SimpleUnion(std::vector<TDocSet> docsets);
-    ~SimpleUnion() override = default;
-
-    static SimpleUnionPtr<TDocSet> create(std::vector<TDocSet> docsets);
+    Exclude(TDocSet underlying_docset, TDocSetExclude excluding_docset);
+    ~Exclude() override = default;
 
     uint32_t advance() override;
     uint32_t seek(uint32_t target) override;
     uint32_t doc() const override;
     uint32_t size_hint() const override;
-    uint32_t freq() const override;
-    uint32_t norm() const override;
-
-    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override;
-
-    size_t num_docsets() const { return _docsets.size(); }
+    float score() override;
 
 private:
-    void initialize_first_doc_id();
-    uint32_t advance_to_next();
-
-    std::vector<TDocSet> _docsets;
-    uint32_t _doc;
+    TDocSet _underlying_docset;
+    TDocSetExclude _excluding_docset;
 };
 
-template <typename TDocSet>
-auto make_simple_union(std::vector<TDocSet> docsets) {
-    return SimpleUnion<TDocSet>::create(std::move(docsets));
-}
+using ExcludeScorerPtr = std::shared_ptr<Exclude<ScorerPtr, ScorerPtr>>;
+
+ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

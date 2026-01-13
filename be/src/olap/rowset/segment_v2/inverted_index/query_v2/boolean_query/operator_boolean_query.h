@@ -17,24 +17,24 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_weight.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator_boolean_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/score_combiner.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class BooleanQuery;
-using BooleanQueryPtr = std::shared_ptr<BooleanQuery>;
+class OperatorBooleanQuery;
+using OperatorBooleanQueryPtr = std::shared_ptr<OperatorBooleanQuery>;
 
-class BooleanQuery : public Query {
+class OperatorBooleanQuery : public Query {
 public:
-    BooleanQuery(OperatorType type, std::vector<QueryPtr> clauses,
-                 std::vector<std::string> binding_keys)
+    OperatorBooleanQuery(OperatorType type, std::vector<QueryPtr> clauses,
+                         std::vector<std::string> binding_keys)
             : _type(type),
               _sub_queries(std::move(clauses)),
               _binding_keys(std::move(binding_keys)) {}
-    ~BooleanQuery() override = default;
+    ~OperatorBooleanQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
         std::vector<WeightPtr> sub_weights;
@@ -42,35 +42,14 @@ public:
             sub_weights.emplace_back(query->weight(enable_scoring));
         }
         if (enable_scoring) {
-            return std::make_shared<BooleanWeight<SumCombinerPtr>>(
+            return std::make_shared<OperatorBooleanWeight<SumCombinerPtr>>(
                     _type, std::move(sub_weights), _binding_keys, std::make_shared<SumCombiner>());
         } else {
-            return std::make_shared<BooleanWeight<DoNothingCombinerPtr>>(
+            return std::make_shared<OperatorBooleanWeight<DoNothingCombinerPtr>>(
                     _type, std::move(sub_weights), _binding_keys,
                     std::make_shared<DoNothingCombiner>());
         }
     }
-
-    class Builder {
-    public:
-        Builder(OperatorType type) : _type(type) {}
-        ~Builder() = default;
-
-        void add(const QueryPtr& query, std::string binding_key = {}) {
-            _sub_queries.emplace_back(query);
-            _binding_keys.emplace_back(std::move(binding_key));
-        }
-
-        BooleanQueryPtr build() {
-            return std::make_shared<BooleanQuery>(_type, std::move(_sub_queries),
-                                                  std::move(_binding_keys));
-        }
-
-    private:
-        OperatorType _type;
-        std::vector<QueryPtr> _sub_queries;
-        std::vector<std::string> _binding_keys;
-    };
 
 private:
     OperatorType _type;
