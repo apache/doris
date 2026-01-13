@@ -61,6 +61,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    _rowset_meta->set_job_id(_context.job_id);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     if (_context.mow_context != nullptr) {
