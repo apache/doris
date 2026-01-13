@@ -279,6 +279,9 @@ Status Block::check_type_and_column() const {
         if (!elem.type) {
             continue;
         }
+        if (elem.name.find(BeConsts::SPARSE_COLUMN_PATH) != std::string::npos) {
+            continue;
+        }
 
         // ColumnNothing is a special column type, it is used to represent a column that
         // is not materialized, so we don't need to check it.

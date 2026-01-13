@@ -675,6 +675,8 @@ public:
 
     bool null_map_check() const;
 
+    bool complex_type_data_nullable_check() const;
+
     // const column nested check, eg. const(nullable(...)) is allowed
     //  const(array(const(...))) is not allowed
     bool const_nested_check() const;

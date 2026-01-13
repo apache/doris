@@ -21,8 +21,11 @@
 #include "vec/columns/column.h"
 
 #include "util/simd/bits.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_variant.h"
 #include "vec/core/sort_block.h"
 #include "vec/data_types/data_type.h"
 
@@ -89,6 +92,39 @@ bool IColumn::null_map_check() const {
     return is_valid;
 }
 
+bool IColumn::complex_type_data_nullable_check() const {
+    if (check_and_get_column<ColumnVariant>(*this)) {
+        // skip check for ColumnVariant
+        return true;
+    }
+
+    auto check_complex_data_is_nullable = [&](const IColumn& subcolumn) {
+        if (const auto* col_arr = check_and_get_column<ColumnArray>(subcolumn)) {
+            const auto& data_col = col_arr->get_data();
+            if (!is_column_nullable(data_col)) {
+                return false;
+            }
+        } else if (const auto* col_map = check_and_get_column<ColumnMap>(subcolumn)) {
+            const auto& keys_col = col_map->get_keys();
+            const auto& values_col = col_map->get_values();
+            if (!is_column_nullable(keys_col) || !is_column_nullable(values_col)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    bool is_valid = check_complex_data_is_nullable(*this);
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        if (!subcolumn->complex_type_data_nullable_check()) {
+            is_valid = false;
+        }
+    };
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+    return is_valid;
+}
+
 Status IColumn::column_self_check() const {
 #ifndef NDEBUG
     // check const nested
@@ -99,6 +135,11 @@ Status IColumn::column_self_check() const {
     // check null map
     if (!null_map_check()) {
         return Status::InternalError("null map check failed for column: {}", get_name());
+    }
+    // check complex type data nullable
+    if (!complex_type_data_nullable_check()) {
+        return Status::InternalError("complex type data nullable check failed for column: {} ",
+                                     dump_structure());
     }
 #endif
     return Status::OK();
