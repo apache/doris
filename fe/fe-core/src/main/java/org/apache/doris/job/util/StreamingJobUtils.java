@@ -345,7 +345,7 @@ public class StreamingJobUtils {
             if (col.getType().isVarchar()) {
                 // The length of varchar needs to be multiplied by 3.
                 int len = col.getType().getLength() * 3;
-                if (col.getType().getLength() * 3 > ScalarType.MAX_VARCHAR_LENGTH) {
+                if (len > ScalarType.MAX_VARCHAR_LENGTH) {
                     col.setType(ScalarType.createStringType());
                 } else {
                     col.setType(ScalarType.createVarcharType(len));

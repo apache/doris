@@ -66,10 +66,21 @@ public class StreamingJobUtilsTest {
         Assert.assertEquals(5, result.size());
         Assert.assertEquals("id", result.get(0).getName());
         Assert.assertEquals("name", result.get(1).getName());
+        
+        // Verify varchar primary key columns have their length multiplied by 3
+        Column nameColumn = result.get(1);
+        Assert.assertEquals(150, nameColumn.getType().getLength()); // 50 * 3
+        
         // Verify non-primary key columns follow
         Assert.assertEquals("age", result.get(2).getName());
         Assert.assertEquals("email", result.get(3).getName());
         Assert.assertEquals("address", result.get(4).getName());
+        
+        // Verify non-primary key varchar columns also have their length multiplied by 3
+        Column emailColumn = result.get(3);
+        Assert.assertEquals(300, emailColumn.getType().getLength()); // 100 * 3
+        Column addressColumn = result.get(4);
+        Assert.assertEquals(600, addressColumn.getType().getLength()); // 200 * 3
     }
 
     @Test
@@ -173,5 +184,61 @@ public class StreamingJobUtilsTest {
         Assert.assertEquals("data1", result.get(3).getName());
         Assert.assertEquals("data2", result.get(4).getName());
         Assert.assertEquals("data3", result.get(5).getName());
+    }
+
+    @Test
+    public void testGetColumnsWithUnsupportedColumnType() throws Exception {
+        String database = "test_db";
+        String table = "test_table";
+        List<String> primaryKeys = Arrays.asList("id");
+
+        List<Column> mockColumns = new ArrayList<>();
+        mockColumns.add(new Column("id", ScalarType.createType(PrimitiveType.INT)));
+        mockColumns.add(new Column("unsupported_col", new ScalarType(PrimitiveType.UNSUPPORTED)));
+
+        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        
+        // This should throw IllegalArgumentException due to unsupported column type
+        try {
+            StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+            Assert.fail("Expected IllegalArgumentException to be thrown");
+        } catch (IllegalArgumentException e) {
+            // Verify the exception message contains expected information
+            String message = e.getMessage();
+            Assert.assertTrue(message.contains("Unsupported column type"));
+            Assert.assertTrue(message.contains("test_table"));
+            Assert.assertTrue(message.contains("unsupported_col"));
+        }
+    }
+
+    @Test
+    public void testGetColumnsWithVarcharPrimaryKeyLengthMultiplication() throws Exception {
+        String database = "test_db";
+        String table = "test_table";
+        List<String> primaryKeys = Arrays.asList("pk_varchar", "pk_int");
+
+        List<Column> mockColumns = new ArrayList<>();
+        mockColumns.add(new Column("pk_int", ScalarType.createType(PrimitiveType.INT)));
+        mockColumns.add(new Column("pk_varchar", ScalarType.createVarcharType(100)));
+        mockColumns.add(new Column("normal_varchar", ScalarType.createVarcharType(50)));
+
+        Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
+        List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
+
+        // Verify varchar primary key column has length multiplied by 3
+        Column pkVarcharColumn = result.stream()
+                .filter(col -> col.getName().equals("pk_varchar"))
+                .findFirst()
+                .orElse(null);
+        Assert.assertNotNull(pkVarcharColumn);
+        Assert.assertEquals(300, pkVarcharColumn.getType().getLength()); // 100 * 3
+
+        // Verify normal varchar column also has length multiplied by 3
+        Column normalVarcharColumn = result.stream()
+                .filter(col -> col.getName().equals("normal_varchar"))
+                .findFirst()
+                .orElse(null);
+        Assert.assertNotNull(normalVarcharColumn);
+        Assert.assertEquals(150, normalVarcharColumn.getType().getLength()); // 50 * 3
     }
 }
