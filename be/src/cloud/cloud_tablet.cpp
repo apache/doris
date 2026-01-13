@@ -27,6 +27,7 @@
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -1772,14 +1773,17 @@ void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_
             return;
         }
         auto [rowset_meta, expiration_time] = res.value();
-
-        rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
-
+        bool is_empty_rowset = (rowset_meta == nullptr);
+        if (!is_empty_rowset) {
+            rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
+        }
         {
             std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
-            _visible_pending_rs_map.emplace(visible_version,
-                                            VisiblePendingRowset {rowset_meta, expiration_time});
+            _visible_pending_rs_map.emplace(
+                    visible_version,
+                    VisiblePendingRowset {rowset_meta, expiration_time, is_empty_rowset});
         }
+
         apply_visible_pending_rowsets();
         committed_rs_mgr.remove_committed_rowset(txn_id, tablet_id());
         LOG(INFO) << "added visible pending rowset, txn_id=" << txn_id
@@ -1790,25 +1794,45 @@ void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_
 
 void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t visible_version,
                                                         int64_t version_update_time_ms) {
+    Defer defer {[&] {
+        _engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id, tablet_id());
+    }};
     auto res = _engine.txn_delete_bitmap_cache().get_rowset_and_delete_bitmap(txn_id, tablet_id());
     if (!res.has_value()) {
         return;
     }
     auto [rowset, delete_bitmap] = res.value();
-
+    bool is_empty_rowset = (rowset == nullptr);
     {
         std::unique_lock lock {_sync_meta_lock};
         std::unique_lock meta_wlock {_meta_lock};
         if (_max_version + 1 != visible_version) {
             return;
         }
-        for (const auto& [delete_bitmap_key, bitmap_value] : delete_bitmap->delete_bitmap) {
-            // skip sentinel mark, which is used for delete bitmap correctness check
-            if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
-                tablet_meta()->delete_bitmap().merge(
-                        {std::get<0>(delete_bitmap_key), std::get<1>(delete_bitmap_key),
-                         visible_version},
-                        bitmap_value);
+        if (is_empty_rowset) {
+            Versions existing_versions;
+            for (const auto& [_, rs] : tablet_meta()->all_rs_metas()) {
+                existing_versions.emplace_back(rs->version());
+            }
+            if (existing_versions.empty()) {
+                return;
+            }
+            auto max_version = std::ranges::max(existing_versions, {}, &Version::first);
+            auto prev_rowset = get_rowset_by_version(max_version);
+            auto st = _engine.meta_mgr().create_empty_rowset_for_hole(
+                    this, visible_version, prev_rowset->rowset_meta(), &rowset);
+            if (!st.ok()) {
+                return;
+            }
+        } else {
+            for (const auto& [delete_bitmap_key, bitmap_value] : delete_bitmap->delete_bitmap) {
+                // skip sentinel mark, which is used for delete bitmap correctness check
+                if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                    tablet_meta()->delete_bitmap().merge(
+                            {std::get<0>(delete_bitmap_key), std::get<1>(delete_bitmap_key),
+                             visible_version},
+                            bitmap_value);
+                }
             }
         }
         rowset->rowset_meta()->set_cloud_fields_after_visible(visible_version,
@@ -1818,7 +1842,6 @@ void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t 
     LOG(INFO) << "mow added visible pending rowset, txn_id=" << txn_id
               << ", tablet_id=" << tablet_id() << ", version=" << visible_version
               << ", rowset_id=" << rowset->rowset_id().to_string();
-    _engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id, tablet_id());
 }
 
 void CloudTablet::apply_visible_pending_rowsets() {
@@ -1828,23 +1851,47 @@ void CloudTablet::apply_visible_pending_rowsets() {
         std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
         int64_t next_version = _max_version + 1;
         std::vector<RowsetSharedPtr> to_add;
-
         std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
         for (auto it = _visible_pending_rs_map.upper_bound(_max_version);
              it != _visible_pending_rs_map.end(); ++it) {
             if (int64_t version = it->first; version == next_version) {
                 auto& pending_rs = it->second;
-                RowsetSharedPtr rowset;
-                auto st =
-                        RowsetFactory::create_rowset(nullptr, "", pending_rs.rowset_meta, &rowset);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to create rowset from pending rowset meta, tablet_id="
-                                 << tablet_id() << ", version=" << version << ", rowset_id="
-                                 << pending_rs.rowset_meta->rowset_id().to_string()
-                                 << ", error=" << st;
-                    break;
+                if (pending_rs.is_empty_rowset) {
+                    RowsetSharedPtr prev_rowset {nullptr};
+                    if (!to_add.empty()) {
+                        prev_rowset = to_add.back();
+                    } else {
+                        Versions existing_versions;
+                        for (const auto& [_, rs] : tablet_meta()->all_rs_metas()) {
+                            existing_versions.emplace_back(rs->version());
+                        }
+                        if (existing_versions.empty()) {
+                            break;
+                        }
+                        auto max_version = std::ranges::max(existing_versions, {}, &Version::first);
+                        prev_rowset = get_rowset_by_version(max_version);
+                    }
+                    RowsetSharedPtr rowset;
+                    auto st = _engine.meta_mgr().create_empty_rowset_for_hole(
+                            this, version, prev_rowset->rowset_meta(), &rowset);
+                    if (!st.ok()) {
+                        return;
+                    }
+                    to_add.push_back(std::move(rowset));
+                } else {
+                    RowsetSharedPtr rowset;
+                    auto st = RowsetFactory::create_rowset(nullptr, "", pending_rs.rowset_meta,
+                                                           &rowset);
+                    if (!st.ok()) {
+                        LOG(WARNING)
+                                << "failed to create rowset from pending rowset meta, tablet_id="
+                                << tablet_id() << ", version=" << version
+                                << ", rowset_id=" << pending_rs.rowset_meta->rowset_id().to_string()
+                                << ", error=" << st;
+                        break;
+                    }
+                    to_add.push_back(std::move(rowset));
                 }
-                to_add.push_back(std::move(rowset));
                 next_version++;
             } else {
                 break;

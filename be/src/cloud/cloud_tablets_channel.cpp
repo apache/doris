@@ -250,7 +250,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         }
     }
 
-    // 6. set txn related delete bitmap if necessary
+    // 6. set txn related info if necessary
     for (auto it = writers_to_commit.begin(); it != writers_to_commit.end();) {
         auto st = (*it)->set_txn_related_info();
         if (!st.ok()) {

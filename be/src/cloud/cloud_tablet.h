@@ -480,11 +480,15 @@ private:
     // Stores rowsets that have been notified by FE but not yet added to tablet meta
     // due to out-of-order notification or version discontinuity
     struct VisiblePendingRowset {
-        RowsetMetaSharedPtr rowset_meta;
+        const bool is_empty_rowset;
         const int64_t expiration_time; // seconds since epoch
+        RowsetMetaSharedPtr rowset_meta;
 
-        VisiblePendingRowset(RowsetMetaSharedPtr rowset_meta_, int64_t expiration_time_)
-                : rowset_meta(std::move(rowset_meta_)), expiration_time(expiration_time_) {}
+        VisiblePendingRowset(RowsetMetaSharedPtr rowset_meta_, int64_t expiration_time_,
+                             bool is_empty_rowset_ = false)
+                : is_empty_rowset(is_empty_rowset_),
+                  expiration_time(expiration_time_),
+                  rowset_meta(std::move(rowset_meta_)) {}
     };
     mutable std::mutex _visible_pending_rs_lock;
     std::map<int64_t, VisiblePendingRowset> _visible_pending_rs_map;

@@ -104,6 +104,9 @@ CloudTxnDeleteBitmapCache::get_rowset_and_delete_bitmap(TTransactionId transacti
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
+        if (_empty_rowset_markers.contains(txn_key)) {
+            return std::make_pair(nullptr, nullptr);
+        }
         auto iter = _txn_map.find(txn_key);
         if (iter == _txn_map.end()) {
             return ResultError(Status::InternalError<false>(""));

@@ -154,8 +154,12 @@ Status CloudRowsetBuilder::set_txn_related_info() {
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
                 _req.txn_expiration, _partial_update_info);
     } else {
-        // TODO(bobahan1): handle empty rowset opt
-        _engine.meta_mgr().cache_committed_rowset(rowset_meta(), _req.txn_expiration);
+        if (_skip_writing_rowset_metadata) {
+            _engine.committed_rs_mgr().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
+                                                         _req.txn_expiration);
+        } else {
+            _engine.meta_mgr().cache_committed_rowset(rowset_meta(), _req.txn_expiration);
+        }
     }
     return Status::OK();
 }
