@@ -3722,3 +3722,11 @@ false
 -- !sql --
 {"{"zip":10001}":"{"city":"NY"}", "{"code":10002}":"{"state":"NY"}"}
 
+-- !element_at_tint_date_dayname --
+\N
+Sunday
+
+-- !element_at_tint_date_dayname_notnull --
+\N
+Saturday
+

@@ -35,6 +35,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_element_at_str_tint    """ select km_str_tint[kstr] from fn_test """
     order_qt_element_at_date_tint   """ select km_date_tint[kdt] from fn_test """
     order_qt_element_at_dtm_tint    """ select km_dtm_tint[kdtm] from fn_test """
+
     order_qt_element_at_bool_tint_notnull   """ select km_bool_tint[kbool] from fn_test_not_nullable """
     order_qt_element_at_tint_tint_notnull   """ select km_tint_tint[ktint] from fn_test_not_nullable """
     order_qt_element_at_sint_tint_notnull   """ select km_sint_tint[ksint] from fn_test_not_nullable """
@@ -314,4 +315,24 @@ suite("nereids_scalar_fn_map") {
     qt_sql "select map('postal_code', 10001, 'area_code', 10002, 'zip_plus_4', 10003)"
     qt_sql "select map('{\"zip\":10001}', '{\"city\":\"NY\"}', '{\"code\":10002}', '{\"state\":\"NY\"}')"
 
+    sql """ drop table if exists fn_test_element_at_map_date """
+    sql """
+        create table fn_test_element_at_map_date (
+            id int null,
+            m map<tinyint, date> null
+        ) engine=olap
+        distributed by hash(id) buckets 1
+        properties('replication_num' = '1')
+    """
+    sql """
+        insert into fn_test_element_at_map_date values
+        (1, map(1,null, 2,'2023-12-16')),
+        (2, map(1,'2023-01-01', 2,null));
+    """
+    order_qt_element_at_tint_date_dayname         """
+    select dayname(element_at(m, 1)) from fn_test_element_at_map_date
+    """
+    order_qt_element_at_tint_date_dayname_notnull """
+    select dayname(element_at(m, 2)) from fn_test_element_at_map_date
+    """
 }
