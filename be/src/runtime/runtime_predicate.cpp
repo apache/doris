@@ -178,7 +178,7 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
 
 bool RuntimePredicate::_init(PrimitiveType type) {
     return is_int_or_bool(type) || is_decimal(type) || is_string_type(type) || is_date_type(type) ||
-           is_time_type(type) || is_ip(type);
+           is_time_type(type) || is_ip(type) || is_varbinary(type);
 }
 
 Status RuntimePredicate::update(const Field& value) {
