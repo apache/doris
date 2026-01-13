@@ -724,11 +724,11 @@ public class SchemaChangeHandler extends AlterHandler {
     private boolean processModifyColumn(ModifyColumnOp modifyColumnOp, OlapTable olapTable,
                                         Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         Column modColumn = modifyColumnOp.getColumn();
-        boolean lightSchemaChange = olapTable.getEnableLightSchemaChange();
+        boolean lightSchemaChange = false;
 
         // Defensive guard: no type conversions to VARIANT are allowed today, but legacy metadata
         // may still contain VARIANT columns with light_schema_change disabled.
-        if (modColumn.getType().isVariantType() && !lightSchemaChange) {
+        if (modColumn.getType().isVariantType() && !olapTable.getEnableLightSchemaChange()) {
             throw new DdlException("Variant type rely on light schema change, "
                     + "please use light_schema_change = true.");
         }
