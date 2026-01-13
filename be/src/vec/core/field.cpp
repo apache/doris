@@ -103,33 +103,6 @@ void Field::create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
     DCHECK_NE(type, PrimitiveType::INVALID_TYPE);
 }
 
-template <PrimitiveType T>
-typename PrimitiveTypeTraits<T>::CppType& Field::get() {
-    DCHECK(T == type || (is_string_type(T) && is_string_type(type)) || type == TYPE_NULL)
-            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
-    auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
-    return *ptr;
-}
-
-template <PrimitiveType T>
-const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
-    // TODO(gabriel): Is it safe for null type?
-    DCHECK(T == type || (is_string_type(T) && is_string_type(type)) || type == TYPE_NULL)
-            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
-    const auto* MAY_ALIAS ptr =
-            reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
-    return *ptr;
-}
-
-template <PrimitiveType T>
-void Field::destroy() {
-    using TargetType = typename PrimitiveTypeTraits<T>::CppType;
-    DCHECK(T == type || (is_string_type(T) && is_string_type(type)))
-            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
-    auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
-    ptr->~TargetType();
-}
-
 template <PrimitiveType Type>
 void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x) {
     // In both Field and PODArray, small types may be stored as wider types,

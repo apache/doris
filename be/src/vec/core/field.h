@@ -321,10 +321,28 @@ public:
     // If not, use NearestFieldType<> externally.
     // Maybe modify this in the future, reference: https://github.com/ClickHouse/ClickHouse/pull/22003
     template <PrimitiveType T>
-    typename PrimitiveTypeTraits<T>::CppType& get();
+    typename PrimitiveTypeTraits<T>::CppType& get() {
+        DCHECK(T == type ||
+               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
+               type == TYPE_NULL)
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
+        return *ptr;
+    }
 
     template <PrimitiveType T>
-    const typename PrimitiveTypeTraits<T>::CppType& get() const;
+    const typename PrimitiveTypeTraits<T>::CppType& get() const {
+        // TODO(gabriel): Is it safe for null type?
+        DCHECK(T == type ||
+               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
+               type == TYPE_NULL)
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        const auto* MAY_ALIAS ptr =
+                reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
+        return *ptr;
+    }
 
     bool operator==(const Field& rhs) const {
         return operator<=>(rhs) == std::strong_ordering::equal;
@@ -363,7 +381,14 @@ private:
     void destroy();
 
     template <PrimitiveType T>
-    void destroy();
+    void destroy() {
+        using TargetType = typename PrimitiveTypeTraits<T>::CppType;
+        DCHECK(T == type || ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                             (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)))
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
+        ptr->~TargetType();
+    }
 };
 
 struct FieldWithDataType {
