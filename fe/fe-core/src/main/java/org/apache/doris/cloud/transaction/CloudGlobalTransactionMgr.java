@@ -206,10 +206,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
     private Map<Long, CommitCostTimeStatistic> commitCostTimeStatisticMap = new ConcurrentHashMap<>();
 
-    // dbId -> tableId -> txnId
-    private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
-    // dbId -> txnId -> signature
-    private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
+    // tableId -> txnId
+    private Map<Long, Long> lastTxnIdMap = Maps.newConcurrentMap();
+    // txnId -> signature
+    private Map<Long, Long> txnLastSignatureMap = Maps.newConcurrentMap();
 
     private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
 
@@ -2590,55 +2590,30 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    public long getTableLastTxnId(long dbId, long tableId) {
-        Map<Long, Long> tabletIdToTxnId = lastTxnIdMap.get(dbId);
-        if (tabletIdToTxnId == null) {
-            return -1;
-        }
-        return tabletIdToTxnId.getOrDefault(tableId, -1L);
+    private long getTableLastTxnId(long dbId, long tableId) {
+        return lastTxnIdMap.getOrDefault(tableId, -1L);
     }
 
-    public void setTableLastTxnId(long dbId, long tableId, long txnId) {
-        lastTxnIdMap.compute(dbId, (k, v) -> {
-            if (v == null) {
-                v = Maps.newConcurrentMap();
-            }
-            LOG.debug("setTableLastTxnId dbId: {}, tableId: {}, txnId: {}", dbId, tableId, txnId);
-            v.put(tableId, txnId);
-            return v;
-        });
+    private void setTableLastTxnId(long dbId, long tableId, long txnId) {
+        lastTxnIdMap.put(tableId, txnId);
+        LOG.debug("setTableLastTxnId dbId: {}, tableId: {}, txnId: {}", dbId, tableId, txnId);
     }
 
-    public void clearTableLastTxnId(long dbId, long tableId) {
-        lastTxnIdMap.computeIfPresent(dbId, (k, v) -> {
-            v.remove(tableId);
-            return v.isEmpty() ? null : v;
-        });
+    public void afterDropTable(long dbId, long tableId) {
+        lastTxnIdMap.remove(tableId);
+        waitToCommitTxnCountMap.remove(tableId);
     }
 
-    public long getTxnLastSignature(long dbId, long txnId) {
-        Map<Long, Long> txnIdToLastSignature = txnLastSignatureMap.get(dbId);
-        if (txnIdToLastSignature == null) {
-            return -1;
-        }
-        return txnIdToLastSignature.getOrDefault(txnId, -1L);
+    private long getTxnLastSignature(long dbId, long txnId) {
+        return txnLastSignatureMap.getOrDefault(txnId, -1L);
     }
 
-    public void setTxnLastSignature(long dbId, long txnId, long signature) {
-        txnLastSignatureMap.compute(dbId, (k, v) -> {
-            if (v == null) {
-                v = Maps.newConcurrentMap();
-            }
-            LOG.debug("setTxnLastSignature dbId: {}, txnId: {}, signature: {}", dbId, txnId, signature);
-            v.put(txnId, signature);
-            return v;
-        });
+    private void setTxnLastSignature(long dbId, long txnId, long signature) {
+        txnLastSignatureMap.put(txnId, signature);
+        LOG.debug("setTxnLastSignature dbId: {}, txnId: {}, signature: {}", dbId, txnId, signature);
     }
 
-    public void clearTxnLastSignature(long dbId, long txnId) {
-        txnLastSignatureMap.computeIfPresent(dbId, (k, v) -> {
-            v.remove(txnId);
-            return v.isEmpty() ? null : v;
-        });
+    private void clearTxnLastSignature(long dbId, long txnId) {
+        txnLastSignatureMap.remove(txnId);
     }
 }

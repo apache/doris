@@ -56,6 +56,8 @@ public class ConsistencyChecker extends MasterDaemon {
 
     private static final Comparator<MetaObject> COMPARATOR =
             (first, second) -> Long.signum(first.getLastCheckTime() - second.getLastCheckTime());
+    private static final Comparator<Tablet> TABLET_COMPARATOR =
+            (first, second) -> Long.signum(first.getLastCheckTime() - second.getLastCheckTime());
 
     // tabletId -> job
     private Map<Long, CheckConsistencyJob> jobs;
@@ -315,12 +317,12 @@ public class ConsistencyChecker extends MasterDaemon {
                                 MaterializedIndex index = (MaterializedIndex) chosenOne;
 
                                 // sort tablets
-                                Queue<MetaObject> tabletQueue
-                                        = new PriorityQueue<>(Math.max(index.getTablets().size(), 1), COMPARATOR);
+                                Queue<Tablet> tabletQueue = new PriorityQueue<>(Math.max(index.getTablets().size(), 1),
+                                        TABLET_COMPARATOR);
                                 tabletQueue.addAll(index.getTablets());
+                                Tablet tablet = null;
 
-                                while ((chosenOne = tabletQueue.poll()) != null) {
-                                    Tablet tablet = (Tablet) chosenOne;
+                                while ((tablet = tabletQueue.poll()) != null) {
                                     long chosenTabletId = tablet.getId();
 
                                     if (this.jobs.containsKey(chosenTabletId)) {
