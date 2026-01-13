@@ -175,7 +175,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
         // should be OK
         expr_node.date_literal.value = "0000-01-01 00:00:00.000000";
         field = dt_date.get_field(expr_node);
-        date_value = field.get<TYPE_DATETIME>();
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -185,7 +185,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 00:00:00.000000";
         field = dt_date.get_field(expr_node);
-        date_value = field.get<TYPE_DATETIME>();
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -195,7 +195,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "2021-01-01";
         field = dt_date.get_field(expr_node);
-        date_value = field.get<TYPE_DATETIME>();
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -216,7 +216,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
         // it's OK to have time part for date
         expr_node.date_literal.value = "0000-01-01 23:59:59";
         field = dt_date.get_field(expr_node);
-        date_value = field.get<TYPE_DATETIME>();
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -226,7 +226,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59";
         field = dt_date.get_field(expr_node);
-        date_value = field.get<TYPE_DATETIME>();
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
