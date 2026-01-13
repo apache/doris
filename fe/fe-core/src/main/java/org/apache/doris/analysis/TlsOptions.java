@@ -163,9 +163,38 @@ public class TlsOptions {
                     + "are not supported in current version");
         }
 
-        // Validate SAN value is not empty
-        if (san != null && san.isEmpty()) {
-            throw new AnalysisException("SAN value cannot be empty");
+        // Validate SAN value is not empty or invalid
+        if (san != null) {
+            String trimmedSan = san.trim();
+            if (trimmedSan.isEmpty()) {
+                throw new AnalysisException("SAN value cannot be empty");
+            }
+            String strippedSan = trimmedSan.replace(",", "").trim();
+            if (strippedSan.isEmpty()) {
+                throw new AnalysisException("SAN value cannot be empty");
+            }
+            if (isSanKeywordOnly(trimmedSan)) {
+                throw new AnalysisException("SAN value cannot be keyword only");
+            }
+            if (!trimmedSan.contains(":")) {
+                throw new AnalysisException("SAN value must contain ':'");
+            }
+        }
+    }
+
+    private static boolean isSanKeywordOnly(String value) {
+        if (value == null) {
+            return false;
+        }
+        switch (value.trim().toUpperCase()) {
+            case "IP":
+            case "DNS":
+            case "URI":
+            case "NONE":
+            case "SAN":
+                return true;
+            default:
+                return false;
         }
     }
 

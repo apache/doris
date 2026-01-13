@@ -24,6 +24,7 @@ suite('test_tls_cert_san_auth', 'docker, p0') {
     // Test cases:
     //   MySQL Protocol Tests 1-6: REQUIRE SAN various scenarios
     //   HTTPS Tests 1-7: FE HTTP endpoint certificate-based auth
+    //   Strict SAN matching tests: subset/superset/case mismatch
     //
     // The test certificates (client_san.crt) contain these SANs:
     //   - Email: test@example.com
@@ -288,10 +289,105 @@ CN = test-client-nosan
             runCommand("openssl req -new -key ${certDir}/client_nosan.key -out ${certDir}/client_nosan.csr -config ${certDir}/client_nosan_openssl.cnf", "Failed to generate client no-SAN CSR")
             runCommand("openssl x509 -req -days 3650 -in ${certDir}/client_nosan.csr -CA ${certDir}/ca.crt -CAkey ${certDir}/ca.key -CAcreateserial -out ${certDir}/client_nosan.crt", "Failed to sign client no-SAN cert")
 
+            // Client cert WITH subset SAN (email only)
+            def clientSubsetOpensslConf = """
+[req]
+ distinguished_name = req_distinguished_name
+ req_extensions = v3_req
+ prompt = no
+
+[req_distinguished_name]
+ C = CN
+ ST = Beijing
+ L = Beijing
+ O = Doris
+ OU = Test
+ CN = test-client-subset
+
+[v3_req]
+ keyUsage = digitalSignature, keyEncipherment
+ extendedKeyUsage = clientAuth
+ subjectAltName = @alt_names
+
+[alt_names]
+ email.1 = test@example.com
+"""
+            new File("${certDir}/client_subset_openssl.cnf").text = clientSubsetOpensslConf
+
+            runCommand("openssl genpkey -algorithm RSA -out ${certDir}/client_subset.key -pkeyopt rsa_keygen_bits:2048", "Failed to generate client subset key")
+            runCommand("openssl req -new -key ${certDir}/client_subset.key -out ${certDir}/client_subset.csr -config ${certDir}/client_subset_openssl.cnf", "Failed to generate client subset CSR")
+            runCommand("openssl x509 -req -days 3650 -in ${certDir}/client_subset.csr -CA ${certDir}/ca.crt -CAkey ${certDir}/ca.key -CAcreateserial -out ${certDir}/client_subset.crt -extensions v3_req -extfile ${certDir}/client_subset_openssl.cnf", "Failed to sign client subset cert")
+
+            // Client cert WITH case-mismatch SAN
+            def clientCaseOpensslConf = """
+[req]
+ distinguished_name = req_distinguished_name
+ req_extensions = v3_req
+ prompt = no
+
+[req_distinguished_name]
+ C = CN
+ ST = Beijing
+ L = Beijing
+ O = Doris
+ OU = Test
+ CN = test-client-case
+
+[v3_req]
+ keyUsage = digitalSignature, keyEncipherment
+ extendedKeyUsage = clientAuth
+ subjectAltName = @alt_names
+
+[alt_names]
+ email.1 = TEST@EXAMPLE.COM
+ DNS.1 = TESTCLIENT.EXAMPLE.COM
+ URI.1 = SPIFFE://EXAMPLE.COM/TESTCLIENT
+"""
+            new File("${certDir}/client_case_openssl.cnf").text = clientCaseOpensslConf
+
+            runCommand("openssl genpkey -algorithm RSA -out ${certDir}/client_case.key -pkeyopt rsa_keygen_bits:2048", "Failed to generate client case key")
+            runCommand("openssl req -new -key ${certDir}/client_case.key -out ${certDir}/client_case.csr -config ${certDir}/client_case_openssl.cnf", "Failed to generate client case CSR")
+            runCommand("openssl x509 -req -days 3650 -in ${certDir}/client_case.csr -CA ${certDir}/ca.crt -CAkey ${certDir}/ca.key -CAcreateserial -out ${certDir}/client_case.crt -extensions v3_req -extfile ${certDir}/client_case_openssl.cnf", "Failed to sign client case cert")
+
+            // Client cert WITH IP SAN (FE IPs)
+            def feIps = frontends.collect { it.host }.unique()
+            assertTrue(!feIps.isEmpty(), "No FE IPs found for IP SAN cert")
+            def ipSanEntries = feIps.withIndex().collect { ip, idx -> " IP.${idx + 1} = ${ip}" }.join('\n')
+            def clientIpOpensslConf = """
+[req]
+ distinguished_name = req_distinguished_name
+ req_extensions = v3_req
+ prompt = no
+
+[req_distinguished_name]
+ C = CN
+ ST = Beijing
+ L = Beijing
+ O = Doris
+ OU = Test
+ CN = test-client-ip
+
+[v3_req]
+ keyUsage = digitalSignature, keyEncipherment
+ extendedKeyUsage = clientAuth
+ subjectAltName = @alt_names
+
+[alt_names]
+${ipSanEntries}
+"""
+            new File("${certDir}/client_ip_openssl.cnf").text = clientIpOpensslConf
+
+            runCommand("openssl genpkey -algorithm RSA -out ${certDir}/client_ip.key -pkeyopt rsa_keygen_bits:2048", "Failed to generate client IP key")
+            runCommand("openssl req -new -key ${certDir}/client_ip.key -out ${certDir}/client_ip.csr -config ${certDir}/client_ip_openssl.cnf", "Failed to generate client IP CSR")
+            runCommand("openssl x509 -req -days 3650 -in ${certDir}/client_ip.csr -CA ${certDir}/ca.crt -CAkey ${certDir}/ca.key -CAcreateserial -out ${certDir}/client_ip.crt -extensions v3_req -extfile ${certDir}/client_ip_openssl.cnf", "Failed to sign client IP cert")
+
             runCommand("chmod 644 ${certDir}/client_*.crt ${certDir}/client_*.key", "Failed to fix client cert permissions")
 
             logger.info("Client SAN cert generated: ${certDir}/client_san.crt")
             logger.info("Client no-SAN cert generated: ${certDir}/client_nosan.crt")
+            logger.info("Client subset cert generated: ${certDir}/client_subset.crt")
+            logger.info("Client case cert generated: ${certDir}/client_case.crt")
+            logger.info("Client IP SAN cert generated: ${certDir}/client_ip.crt")
         }
 
         // Generate certificates
@@ -430,6 +526,10 @@ CN = test-client-nosan
         def testPassword = "Test_123456"
         def sanFull = "email:test@example.com, DNS:testclient.example.com, URI:spiffe://example.com/testclient"
         def sanMismatch = "email:wrong@example.com"
+        def sanSubset = "email:test@example.com"
+        def privUser = "${testUserBase}_priv"
+        def privTable = "test_san_priv_tbl"
+        def privWriteTable = "test_san_priv_write_tbl"
 
         // Run TLS SAN auth tests using the certificate directory
         def runTlsSanAuthTests = { String certDir ->
@@ -443,12 +543,34 @@ CN = test-client-nosan
             def sanClientKey = "${certDir}/client_san.key"
             def noSanClientCert = "${certDir}/client_nosan.crt"
             def noSanClientKey = "${certDir}/client_nosan.key"
+            def subsetClientCert = "${certDir}/client_subset.crt"
+            def subsetClientKey = "${certDir}/client_subset.key"
+            def caseClientCert = "${certDir}/client_case.crt"
+            def caseClientKey = "${certDir}/client_case.key"
+            def ipSanClientCert = "${certDir}/client_ip.crt"
+            def ipSanClientKey = "${certDir}/client_ip.key"
 
             // Get connection info from cluster
             def mysqlHost = firstFe.host
             def mysqlPort = firstFe.queryPort
             def feHostIp = firstFe.host
             def httpPort = firstFe.httpPort
+
+            def feIpParts = mysqlHost.tokenize('.')
+            assertTrue(feIpParts.size() >= 2, "Invalid FE host IP: ${mysqlHost}")
+            def hostPrefix = "${feIpParts[0]}.${feIpParts[1]}"
+            def hostPattern = "${hostPrefix}.%"
+            def secondOctet = Integer.parseInt(feIpParts[1])
+            def altSecond = secondOctet + 1
+            if (altSecond > 255) {
+                altSecond = secondOctet - 1
+            }
+            def otherPattern = "${feIpParts[0]}.${altSecond}.%"
+
+            def ipHostUser = "${testUserBase}_ip_host"
+            def ipOtherUser = "${testUserBase}_ip_other"
+            def ipAnyUser = "${testUserBase}_ip_any"
+            def ipUserPassword = "12345"
 
             // Build mTLS JDBC URL
             def tlsJdbcUrl = org.apache.doris.regression.Config.buildUrlWithDb(
@@ -487,6 +609,14 @@ CN = test-client-nosan
 
                 // Build MySQL command with SAN certificate
                 def buildMySQLCmdWithCert = { String user, String password, String query ->
+                    if (password.isEmpty()) {
+                        return "mysql -u${user} -h${mysqlHost} -P${mysqlPort} " +
+                           "--ssl-mode=VERIFY_CA " +
+                           "--tls-version=TLSv1.2 " +
+                           "--ssl-ca=${sanClientCa} " +
+                           "--ssl-cert=${sanClientCert} --ssl-key=${sanClientKey} " +
+                           "-e \"${query}\""
+                    }
                     return "mysql -u${user} -p'${password}' -h${mysqlHost} -P${mysqlPort} " +
                            "--ssl-mode=VERIFY_CA " +
                            "--tls-version=TLSv1.2 " +
@@ -510,6 +640,25 @@ CN = test-client-nosan
                            "--ssl-ca=${sanClientCa} " +
                            "--ssl-cert=${noSanClientCert} --ssl-key=${noSanClientKey} " +
                            "-e \"${query}\""
+                }
+
+                // Build MySQL command with custom certificate
+                def buildMySQLCmdWithCustomCert = { String user, String password, String cert, String key, String query ->
+                    return "mysql -u${user} -p'${password}' -h${mysqlHost} -P${mysqlPort} " +
+                           "--ssl-mode=VERIFY_CA " +
+                           "--tls-version=TLSv1.2 " +
+                           "--ssl-ca=${sanClientCa} " +
+                           "--ssl-cert=${cert} --ssl-key=${key} " +
+                           "-e \"${query}\""
+                }
+
+                def extractSanLine = { String certPath ->
+                    def output = runCommand("openssl x509 -in ${certPath} -noout -ext subjectAltName",
+                            "Failed to extract SAN from ${certPath}")
+                    def sanLine = output.readLines().collect { it.trim() }.find { it.startsWith("IP Address") }
+                    assertTrue(sanLine != null && !sanLine.isEmpty(),
+                            "Failed to parse SAN line from output: ${output}")
+                    return sanLine
                 }
 
                 // Helper: Execute curl command and check result based on JSON response code
@@ -579,6 +728,15 @@ CN = test-client-nosan
                            "https://${sniHostname}:${httpPort}${endpoint} 2>&1"
                 }
 
+                // Helper: Build curl command with custom certificate
+                def buildCurlWithCustomCert = { String user, String password, String cert, String key, String endpoint ->
+                    return "curl -s -k " +
+                           "--resolve '${sniHostname}:${httpPort}:${feHostIp}' " +
+                           "-u '${user}:${password}' " +
+                           "--cert ${cert} --key ${key} " +
+                           "https://${sniHostname}:${httpPort}${endpoint} 2>&1"
+                }
+
                 // Save original config value for cleanup
                 def origIgnorePassword = "false"
                 try {
@@ -609,6 +767,20 @@ CN = test-client-nosan
                     try_sql("DROP USER IF EXISTS '${testUserBase}_http5'@'%'")
                     try_sql("DROP USER IF EXISTS '${testUserBase}_http6'@'%'")
                     try_sql("DROP USER IF EXISTS '${testUserBase}_http7'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_strict_1'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_strict_2'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_strict_3'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_http_strict_1'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_http_strict_2'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_http_strict_3'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_show_proc'@'%'")
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_cycle'@'%'")
+                    try_sql("DROP USER IF EXISTS '${ipHostUser}'@'${hostPattern}'")
+                    try_sql("DROP USER IF EXISTS '${ipOtherUser}'@'${otherPattern}'")
+                    try_sql("DROP USER IF EXISTS '${ipAnyUser}'@'%'")
+                    try_sql("DROP USER IF EXISTS '${privUser}'@'%'")
+                    try_sql("DROP TABLE IF EXISTS ${privTable}")
+                    try_sql("DROP TABLE IF EXISTS ${privWriteTable}")
                     try {
                         sql "ADMIN SET FRONTEND CONFIG ('tls_cert_based_auth_ignore_password' = '${origIgnorePassword}')"
                     } catch (Exception e) {
@@ -621,6 +793,302 @@ CN = test-client-nosan
                 try {
                     // Ensure ignore_password is false for most tests
                     sql "ADMIN SET FRONTEND CONFIG ('tls_cert_based_auth_ignore_password' = 'false')"
+
+                    def assertSqlFailure = { String stmt, String message ->
+                        try {
+                            sql stmt
+                            assert false : message
+                        } catch (Exception e) {
+                            logger.info("Expected failure for [${stmt}]: ${e.message}")
+                        }
+                    }
+
+                    // Resolve current compute group for grants
+                    def clusters = sql_return_maparray "show clusters"
+                    def currentCluster = clusters.find { it.is_current == "TRUE" }
+                    if (currentCluster == null && !clusters.isEmpty()) {
+                        currentCluster = clusters.get(0)
+                    }
+                    assertNotNull(currentCluster, "No compute group found")
+                    def computeGroupName = currentCluster.cluster
+                    def grantComputeGroupUsage = { String userName ->
+                        sql """GRANT USAGE_PRIV ON COMPUTE GROUP '${computeGroupName}' TO '${userName}'@'%'"""
+                    }
+ 
+                    // ==================================================================================
+                    // TLS SAN semantic validation tests (CREATE/ALTER)
+                    // ==================================================================================
+
+                    def invalidSans = [
+                        "", " ", ",",
+                        "IP", "DNS", "URI", "NONE", "SAN",
+                        "ip", "dns", "uri", "none", "san"
+                    ]
+                    invalidSans.eachWithIndex { sanValue, idx ->
+                        def createUser = "${testUserBase}_invalid_create_${idx}"
+                        assertSqlFailure(
+                                "CREATE USER '${createUser}'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanValue}'",
+                                "CREATE USER should fail for SAN '${sanValue}'"
+                        )
+
+                        def alterUser = "${testUserBase}_invalid_alter_${idx}"
+                        try {
+                            sql "CREATE USER '${alterUser}'@'%' IDENTIFIED BY '${testPassword}'"
+                            assertSqlFailure(
+                                    "ALTER USER '${alterUser}'@'%' REQUIRE SAN '${sanValue}'",
+                                    "ALTER USER should fail for SAN '${sanValue}'"
+                            )
+                        } finally {
+                            try_sql("DROP USER IF EXISTS '${alterUser}'@'%'")
+                        }
+                    }
+
+                    // ==================================================================================
+                    // SHOW PROC /auth/ RequireSan checks
+                    // ==================================================================================
+                    def authUser = "${testUserBase}_show_proc"
+                    sql "CREATE USER '${authUser}'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+
+                    def authRows1 = sql_return_maparray "show proc '/auth/'"
+                    def authRow1 = authRows1.find { it.UserIdentity == "'${authUser}'@'%'" }
+                    assertTrue(authRow1 != null, "Should find user ${authUser} in show proc /auth/")
+                    assertTrue(authRow1.RequireSan == sanFull, "RequireSan should match SAN after CREATE USER")
+
+                    sql "ALTER USER '${authUser}'@'%' REQUIRE SAN '${sanMismatch}'"
+                    def authRows2 = sql_return_maparray "show proc '/auth/'"
+                    def authRow2 = authRows2.find { it.UserIdentity == "'${authUser}'@'%'" }
+                    assertTrue(authRow2 != null, "Should find user ${authUser} after ALTER USER")
+                    assertTrue(authRow2.RequireSan == sanMismatch, "RequireSan should update after ALTER USER")
+
+                    sql "ALTER USER '${authUser}'@'%' REQUIRE NONE"
+                    def authRows3 = sql_return_maparray "show proc '/auth/'"
+                    def authRow3 = authRows3.find { it.UserIdentity == "'${authUser}'@'%'" }
+                    assertTrue(authRow3 != null, "Should find user ${authUser} after REQUIRE NONE")
+                    assertTrue(authRow3.RequireSan == null, "RequireSan should clear after REQUIRE NONE")
+
+                    // Multiple SAN updates should keep single RequireSan entry
+                    def sanUpdates = [sanFull, sanMismatch, "email:another@example.com"]
+                    sanUpdates.each { newSan ->
+                        sql "ALTER USER '${authUser}'@'%' REQUIRE SAN '${newSan}'"
+                        def authRowsUpdate = sql_return_maparray "show proc '/auth/'"
+                        def authMatches = authRowsUpdate.findAll { it.UserIdentity == "'${authUser}'@'%'" }
+                        assertTrue(authMatches.size() == 1, "Expect exactly one auth row for ${authUser}")
+                        assertTrue(authMatches[0].RequireSan == newSan,
+                                "RequireSan should update to ${newSan}")
+                    }
+
+                    // ==================================================================================
+                    // SAN create/alter/drop loop tests (MySQL)
+                    // ==================================================================================
+                    def cycleUser = "${testUserBase}_cycle"
+                    def cycleUserIdentity = "'${cycleUser}'@'%'"
+                    def createSans = [null, sanFull, sanMismatch, sanSubset, sanFull]
+                    def wrongSans = [sanMismatch, sanSubset, sanMismatch, sanSubset, sanMismatch]
+                    def findAuthRowByIdentity = { String userIdentity ->
+                        def authRows = sql_return_maparray "show proc '/auth/'"
+                        return authRows.find { it.UserIdentity == userIdentity }
+                    }
+
+                    (1..5).each { idx ->
+                        logger.info("=== SAN cycle round ${idx} (MySQL) ===")
+                        try_sql("DROP USER IF EXISTS '${cycleUser}'@'%'")
+ 
+                        def createSan = createSans[idx - 1]
+                        if (createSan == null) {
+                            sql "CREATE USER '${cycleUser}'@'%' IDENTIFIED BY '${testPassword}'"
+                        } else {
+                            sql "CREATE USER '${cycleUser}'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${createSan}'"
+                        }
+ 
+                        sql "ALTER USER '${cycleUser}'@'%' REQUIRE SAN '${sanFull}'"
+                        def authRowFull = findAuthRowByIdentity(cycleUserIdentity)
+                        assertTrue(authRowFull != null, "Should find user ${cycleUser} after REQUIRE SAN")
+                        assertTrue(authRowFull.RequireSan == sanFull, "RequireSan should be ${sanFull}")
+ 
+                        def cmdOk = buildMySQLCmdWithCert(cycleUser, testPassword, "SELECT 1")
+                        assertTrue(executeMySQLCommand(cmdOk, true),
+                                "SAN cycle ${idx} should succeed with matching SAN")
+ 
+                        def wrongSan = wrongSans[idx - 1]
+                        sql "ALTER USER '${cycleUser}'@'%' REQUIRE SAN '${wrongSan}'"
+                        def authRowWrong = findAuthRowByIdentity(cycleUserIdentity)
+                        assertTrue(authRowWrong != null, "Should find user ${cycleUser} after wrong REQUIRE SAN")
+                        assertTrue(authRowWrong.RequireSan == wrongSan, "RequireSan should be ${wrongSan}")
+ 
+                        def cmdWrong = buildMySQLCmdWithCert(cycleUser, testPassword, "SELECT 1")
+                        assertTrue(executeMySQLCommand(cmdWrong, false),
+                                "SAN cycle ${idx} should fail with mismatched SAN")
+ 
+                        sql "ALTER USER '${cycleUser}'@'%' REQUIRE NONE"
+                        def authRowNone = findAuthRowByIdentity(cycleUserIdentity)
+                        assertTrue(authRowNone != null, "Should find user ${cycleUser} after REQUIRE NONE")
+                        assertTrue(authRowNone.RequireSan == null, "RequireSan should be cleared")
+                    }
+
+                    // ==================================================================================
+                    // Host-based IP SAN user tests (MySQL)
+                    // ==================================================================================
+                    logger.info("=== Host-based IP SAN user tests (MySQL) ===")
+                    def ipSanLine = extractSanLine(ipSanClientCert)
+                    logger.info("IP SAN line: ${ipSanLine}")
+
+                    sql "CREATE USER '${ipHostUser}'@'${hostPattern}' IDENTIFIED BY '${ipUserPassword}' REQUIRE SAN '${ipSanLine}'"
+                    def ipHostCmd = buildMySQLCmdWithCustomCert(ipHostUser, ipUserPassword, ipSanClientCert, ipSanClientKey, "SELECT 1")
+                    assertTrue(executeMySQLCommand(ipHostCmd, true),
+                            "IP SAN user should succeed for host pattern ${hostPattern}")
+
+                    sql "CREATE USER '${ipOtherUser}'@'${otherPattern}' IDENTIFIED BY '${ipUserPassword}' REQUIRE SAN '${ipSanLine}'"
+                    def ipOtherCmd = buildMySQLCmdWithCustomCert(ipOtherUser, ipUserPassword, ipSanClientCert, ipSanClientKey, "SELECT 1")
+                    assertTrue(executeMySQLCommand(ipOtherCmd, false),
+                            "IP SAN user should fail for host pattern ${otherPattern}")
+
+                    sql "CREATE USER '${ipAnyUser}'@'%' IDENTIFIED BY '${ipUserPassword}'"
+                    sql "ALTER USER '${ipAnyUser}'@'%' REQUIRE SAN '${ipSanLine}'"
+                    def ipAnyCmd = buildMySQLCmdWithCustomCert(ipAnyUser, ipUserPassword, ipSanClientCert, ipSanClientKey, "SELECT 1")
+                    assertTrue(executeMySQLCommand(ipAnyCmd, true),
+                            "IP SAN user should succeed for host pattern %")
+
+                    // ==================================================================================
+                    // Privilege enforcement tests (MySQL)
+                    // ==================================================================================
+                    logger.info("=== Privilege enforcement tests (MySQL) ===")
+                    try_sql("DROP TABLE IF EXISTS ${privTable}")
+                    try_sql("DROP TABLE IF EXISTS ${privWriteTable}")
+                    sql """
+                        CREATE TABLE ${privTable} (
+                            k1 INT,
+                            k2 VARCHAR(50)
+                        ) DISTRIBUTED BY HASH(k1) BUCKETS 1
+                        PROPERTIES ("replication_num" = "1")
+                    """
+                    sql "INSERT INTO ${privTable} VALUES (1, 'priv_value')"
+
+                    sql "CREATE USER '${privUser}'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    sql "GRANT SELECT_PRIV ON ${context.dbName}.${privTable} TO '${privUser}'@'%'"
+                    grantComputeGroupUsage(privUser)
+
+                    def privSelectCmd = buildMySQLCmdWithCert(privUser, testPassword,
+                            "SELECT * FROM ${context.dbName}.${privTable} LIMIT 1")
+                    assertTrue(executeMySQLCommand(privSelectCmd, true),
+                            "Privilege test should allow SELECT for read-only user")
+
+                    def privCreateCmd = buildMySQLCmdWithCert(privUser, testPassword,
+                            "CREATE TABLE ${context.dbName}.${privWriteTable} (k1 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1 " +
+                                    "PROPERTIES ('replication_num' = '1')")
+                    assertTrue(executeMySQLCommand(privCreateCmd, false),
+                            "Privilege test should reject CREATE TABLE without write privilege")
+
+                    sql "GRANT CREATE_PRIV ON ${context.dbName}.* TO '${privUser}'@'%'"
+                    sql "GRANT LOAD_PRIV ON ${context.dbName}.* TO '${privUser}'@'%'"
+
+                    def privCreateCmd2 = buildMySQLCmdWithCert(privUser, testPassword,
+                            "CREATE TABLE ${context.dbName}.${privWriteTable} (k1 INT, k2 VARCHAR(50)) " +
+                                    "DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES ('replication_num' = '1')")
+                    assertTrue(executeMySQLCommand(privCreateCmd2, true),
+                            "Privilege test should allow CREATE TABLE after grant")
+
+                    def privInsertCmd = buildMySQLCmdWithCert(privUser, testPassword,
+                            "INSERT INTO ${context.dbName}.${privWriteTable} VALUES (1, 'priv_write')")
+                    assertTrue(executeMySQLCommand(privInsertCmd, true),
+                            "Privilege test should allow INSERT after grant")
+ 
+                    // ==================================================================================
+                    // Root/Admin SAN auth checks
+                    // ==================================================================================
+
+                    def rootUser = "root"
+                    def adminUser = "admin"
+                    def rootPassword = context.config.jdbcPassword
+                    def adminPassword = context.config.jdbcPassword
+                    def findAuthRow = { String userName ->
+                        def authRows = sql_return_maparray "show proc '/auth/'"
+                        return authRows.find { it.UserIdentity == "'${userName}'@'%'" }
+                    }
+                    try {
+                        sql "ALTER USER '${rootUser}'@'%' REQUIRE SAN '${sanFull}'"
+                        sql "ALTER USER '${adminUser}'@'%' REQUIRE SAN '${sanFull}'"
+
+                        def rootRow = findAuthRow(rootUser)
+                        def adminRow = findAuthRow(adminUser)
+                        assertTrue(rootRow != null, "Should find root in show proc /auth/")
+                        assertTrue(adminRow != null, "Should find admin in show proc /auth/")
+                        assertTrue(rootRow.RequireSan == sanFull, "Root RequireSan should match SAN")
+                        assertTrue(adminRow.RequireSan == sanFull, "Admin RequireSan should match SAN")
+
+                        def rootCmd = buildMySQLCmdWithCert(rootUser, rootPassword, "SELECT 1")
+                        def adminCmd = buildMySQLCmdWithCert(adminUser, adminPassword, "SELECT 1")
+                        assertTrue(executeMySQLCommand(rootCmd, true), "Root mTLS login should succeed")
+                        assertTrue(executeMySQLCommand(adminCmd, true), "Admin mTLS login should succeed")
+
+                        def rootHttpCmd = buildCurlWithCert(rootUser, rootPassword, httpEndpoint)
+                        def adminHttpCmd = buildCurlWithCert(adminUser, adminPassword, httpEndpoint)
+                        assertTrue(executeCurlCommand(rootHttpCmd, true), "Root HTTPS auth should succeed")
+                        assertTrue(executeCurlCommand(adminHttpCmd, true), "Admin HTTPS auth should succeed")
+                    } finally {
+                        sql "ALTER USER '${rootUser}'@'%' REQUIRE NONE"
+                        sql "ALTER USER '${adminUser}'@'%' REQUIRE NONE"
+                    }
+
+                    // ==================================================================================
+                    // SAN strict matching tests (MySQL + HTTPS)
+                    // ==================================================================================
+                    logger.info("=== SAN strict matching tests ===")
+                    sql "CREATE USER '${testUserBase}_strict_1'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    def strictCmd1 = buildMySQLCmdWithCustomCert(
+                            "${testUserBase}_strict_1",
+                            testPassword,
+                            subsetClientCert,
+                            subsetClientKey,
+                            "SELECT 1"
+                    )
+                    assertTrue(executeMySQLCommand(strictCmd1, false),
+                            "Strict Test 1 should fail: REQUIRE SAN full, cert subset")
+
+                    sql "CREATE USER '${testUserBase}_strict_2'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanSubset}'"
+                    def strictCmd2 = buildMySQLCmdWithCert("${testUserBase}_strict_2", testPassword, "SELECT 1")
+                    assertTrue(executeMySQLCommand(strictCmd2, false),
+                            "Strict Test 2 should fail: REQUIRE SAN subset, cert full")
+
+                    sql "CREATE USER '${testUserBase}_strict_3'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    def strictCmd3 = buildMySQLCmdWithCustomCert(
+                            "${testUserBase}_strict_3",
+                            testPassword,
+                            caseClientCert,
+                            caseClientKey,
+                            "SELECT 1"
+                    )
+                    assertTrue(executeMySQLCommand(strictCmd3, false),
+                            "Strict Test 3 should fail: REQUIRE SAN full, cert case mismatch")
+
+                    sql "CREATE USER '${testUserBase}_http_strict_1'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http_strict_1'@'%'"
+                    def httpStrict1 = buildCurlWithCustomCert(
+                            "${testUserBase}_http_strict_1",
+                            testPassword,
+                            subsetClientCert,
+                            subsetClientKey,
+                            httpEndpoint
+                    )
+                    assertTrue(executeCurlCommand(httpStrict1, false),
+                            "HTTP Strict Test 1 should fail: REQUIRE SAN full, cert subset")
+
+                    sql "CREATE USER '${testUserBase}_http_strict_2'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanSubset}'"
+                    sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http_strict_2'@'%'"
+                    def httpStrict2 = buildCurlWithCert("${testUserBase}_http_strict_2", testPassword, httpEndpoint)
+                    assertTrue(executeCurlCommand(httpStrict2, false),
+                            "HTTP Strict Test 2 should fail: REQUIRE SAN subset, cert full")
+
+                    sql "CREATE USER '${testUserBase}_http_strict_3'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    sql "GRANT ADMIN_PRIV ON *.*.* TO '${testUserBase}_http_strict_3'@'%'"
+                    def httpStrict3 = buildCurlWithCustomCert(
+                            "${testUserBase}_http_strict_3",
+                            testPassword,
+                            caseClientCert,
+                            caseClientKey,
+                            httpEndpoint
+                    )
+                    assertTrue(executeCurlCommand(httpStrict3, false),
+                            "HTTP Strict Test 3 should fail: REQUIRE SAN full, cert case mismatch")
 
                     // ==================================================================================
                     // MySQL Protocol Tests

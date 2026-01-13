@@ -28,10 +28,15 @@ suite('test_stream_load_cert_auth', 'docker, p0') {
     //   SL-03: ignore_password=true + wrong password -> success (cert only)
     //   SL-04: SAN matching + wrong password + ignore_password=false -> failure (key test!)
     //   SL-05: SAN mismatch -> failure
+    //   SL-05a: REQUIRE SAN full, cert subset -> failure
+    //   SL-05b: REQUIRE SAN subset, cert full -> failure
+    //   SL-05c: REQUIRE SAN full, cert case mismatch -> failure
     //   SL-06: No certificate + REQUIRE SAN -> failure
     //   SL-07: Certificate without SAN extension -> failure
     //   SL-08: Two-phase commit with cert auth -> success
     //   SL-09: ALTER USER add/remove REQUIRE SAN -> dynamic effect
+    //   SL-10: Privilege enforcement with SAN -> load failure/success
+    //   SL-11: SAN create/alter/drop loop tests
 
     def testName = "test_stream_load_cert_auth"
 
@@ -285,10 +290,72 @@ CN = test-client-nosan
             runCommand("openssl req -new -key ${certDir}/client_nosan.key -out ${certDir}/client_nosan.csr -config ${certDir}/client_nosan_openssl.cnf", "Failed to generate client no-SAN CSR")
             runCommand("openssl x509 -req -days 3650 -in ${certDir}/client_nosan.csr -CA ${certDir}/ca.crt -CAkey ${certDir}/ca.key -CAcreateserial -out ${certDir}/client_nosan.crt", "Failed to sign client no-SAN cert")
 
+            // Client cert WITH subset SAN (email only)
+            def clientSubsetOpensslConf = """
+[req]
+ distinguished_name = req_distinguished_name
+ req_extensions = v3_req
+ prompt = no
+
+[req_distinguished_name]
+ C = CN
+ ST = Beijing
+ L = Beijing
+ O = Doris
+ OU = Test
+ CN = test-client-subset
+
+[v3_req]
+ keyUsage = digitalSignature, keyEncipherment
+ extendedKeyUsage = clientAuth
+ subjectAltName = @alt_names
+
+[alt_names]
+ email.1 = test@example.com
+"""
+            new File("${certDir}/client_subset_openssl.cnf").text = clientSubsetOpensslConf
+
+            runCommand("openssl genpkey -algorithm RSA -out ${certDir}/client_subset.key -pkeyopt rsa_keygen_bits:2048", "Failed to generate client subset key")
+            runCommand("openssl req -new -key ${certDir}/client_subset.key -out ${certDir}/client_subset.csr -config ${certDir}/client_subset_openssl.cnf", "Failed to generate client subset CSR")
+            runCommand("openssl x509 -req -days 3650 -in ${certDir}/client_subset.csr -CA ${certDir}/ca.crt -CAkey ${certDir}/ca.key -CAcreateserial -out ${certDir}/client_subset.crt -extensions v3_req -extfile ${certDir}/client_subset_openssl.cnf", "Failed to sign client subset cert")
+
+            // Client cert WITH case-mismatch SAN
+            def clientCaseOpensslConf = """
+[req]
+ distinguished_name = req_distinguished_name
+ req_extensions = v3_req
+ prompt = no
+
+[req_distinguished_name]
+ C = CN
+ ST = Beijing
+ L = Beijing
+ O = Doris
+ OU = Test
+ CN = test-client-case
+
+[v3_req]
+ keyUsage = digitalSignature, keyEncipherment
+ extendedKeyUsage = clientAuth
+ subjectAltName = @alt_names
+
+[alt_names]
+ email.1 = TEST@EXAMPLE.COM
+ DNS.1 = TESTCLIENT.EXAMPLE.COM
+ URI.1 = SPIFFE://EXAMPLE.COM/TESTCLIENT
+"""
+            new File("${certDir}/client_case_openssl.cnf").text = clientCaseOpensslConf
+
+            runCommand("openssl genpkey -algorithm RSA -out ${certDir}/client_case.key -pkeyopt rsa_keygen_bits:2048", "Failed to generate client case key")
+            runCommand("openssl req -new -key ${certDir}/client_case.key -out ${certDir}/client_case.csr -config ${certDir}/client_case_openssl.cnf", "Failed to generate client case CSR")
+            runCommand("openssl x509 -req -days 3650 -in ${certDir}/client_case.csr -CA ${certDir}/ca.crt -CAkey ${certDir}/ca.key -CAcreateserial -out ${certDir}/client_case.crt -extensions v3_req -extfile ${certDir}/client_case_openssl.cnf", "Failed to sign client case cert")
+
             runCommand("chmod 644 ${certDir}/client_*.crt ${certDir}/client_*.key", "Failed to fix client cert permissions")
 
             logger.info("Client SAN cert generated: ${certDir}/client_san.crt")
             logger.info("Client no-SAN cert generated: ${certDir}/client_nosan.crt")
+            logger.info("Client subset cert generated: ${certDir}/client_subset.crt")
+            logger.info("Client case cert generated: ${certDir}/client_case.crt")
         }
 
         // Generate certificates
@@ -431,6 +498,8 @@ CN = test-client-nosan
         def clientSanValue = "email:test@example.com, DNS:testclient.example.com, URI:spiffe://example.com/testclient"
         def sanFull = clientSanValue
         def sanMismatch = "email:wrong@example.com"
+        def sanSubset = "email:test@example.com"
+        def privUser = "${testUserBase}_priv"
 
         // Run Stream Load cert auth tests using the certificate directory
         def runStreamLoadCertAuthTests = { String certDir ->
@@ -443,6 +512,10 @@ CN = test-client-nosan
             def sanClientKey = "${certDir}/client_san.key"
             def noSanClientCert = "${certDir}/client_nosan.crt"
             def noSanClientKey = "${certDir}/client_nosan.key"
+            def subsetClientCert = "${certDir}/client_subset.crt"
+            def subsetClientKey = "${certDir}/client_subset.key"
+            def caseClientCert = "${certDir}/client_case.crt"
+            def caseClientKey = "${certDir}/client_case.key"
             def caCert = "${certDir}/ca.crt"
 
             def beHost = firstBe.host
@@ -566,9 +639,11 @@ CN = test-client-nosan
                 def cleanup = {
                     logger.info("Cleaning up test resources...")
                     try_sql("DROP TABLE IF EXISTS ${tableName}")
-                    (1..9).each { i ->
+                    (1..12).each { i ->
                         try_sql("DROP USER IF EXISTS '${testUserBase}_${i}'@'%'")
                     }
+                    try_sql("DROP USER IF EXISTS '${testUserBase}_cycle'@'%'")
+                    try_sql("DROP USER IF EXISTS '${privUser}'@'%'")
                 }
 
                 // Save original config
@@ -629,6 +704,46 @@ CN = test-client-nosan
                     def count1 = sql "SELECT COUNT(*) FROM ${tableName}"
                     assertTrue(count1[0][0] >= 2, "Data should be loaded")
                     sql "TRUNCATE TABLE ${tableName}"
+
+                    // ==================================================================================
+                    // SL-01a: Root/Admin REQUIRE SAN + Stream Load -> success
+                    // ==================================================================================
+                    logger.info("=== SL-01a: Root/Admin REQUIRE SAN Stream Load ===")
+                    def rootUser = "root"
+                    def adminUser = "admin"
+                    def rootPassword = context.config.jdbcPassword
+                    def adminPassword = context.config.jdbcPassword
+                    try {
+                        sql "ALTER USER '${rootUser}'@'%' REQUIRE SAN '${sanFull}'"
+                        sql "ALTER USER '${adminUser}'@'%' REQUIRE SAN '${sanFull}'"
+
+                        def rootResult = executeStreamLoadCurl(
+                            user: rootUser,
+                            password: rootPassword,
+                            table: tableName,
+                            data: "13,root_value",
+                            certPath: sanClientCert,
+                            keyPath: sanClientKey
+                        )
+                        assertTrue(rootResult.success, "SL-01a root should succeed: ${rootResult.output}")
+
+                        def adminResult = executeStreamLoadCurl(
+                            user: adminUser,
+                            password: adminPassword,
+                            table: tableName,
+                            data: "14,admin_value",
+                            certPath: sanClientCert,
+                            keyPath: sanClientKey
+                        )
+                        assertTrue(adminResult.success, "SL-01a admin should succeed: ${adminResult.output}")
+
+                        def countAdminRoot = sql "SELECT COUNT(*) FROM ${tableName} WHERE k2 IN ('root_value','admin_value')"
+                        assertTrue(countAdminRoot[0][0] >= 2, "Root/Admin data should be loaded")
+                        sql "TRUNCATE TABLE ${tableName}"
+                    } finally {
+                        sql "ALTER USER '${rootUser}'@'%' REQUIRE NONE"
+                        sql "ALTER USER '${adminUser}'@'%' REQUIRE NONE"
+                    }
 
                     // ==================================================================================
                     // SL-02: No TLS requirement + password auth -> success
@@ -712,6 +827,63 @@ CN = test-client-nosan
                     )
                     assertFalse(result5.success, "SL-05 should fail: SAN mismatch")
                     logger.info("SL-05 PASSED")
+
+                    // ==================================================================================
+                    // SL-05a: REQUIRE SAN full, cert subset -> failure
+                    // ==================================================================================
+                    logger.info("=== SL-05a: REQUIRE SAN full, cert subset ===")
+                    sql "CREATE USER '${testUserBase}_10'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    sql "GRANT LOAD_PRIV ON ${context.dbName}.${tableName} TO '${testUserBase}_10'@'%'"
+                    grantComputeGroupUsage("${testUserBase}_10")
+
+                    def result5a = executeStreamLoadCurl(
+                        user: "${testUserBase}_10",
+                        password: testPassword,
+                        table: tableName,
+                        data: "6a,value6a",
+                        certPath: subsetClientCert,
+                        keyPath: subsetClientKey
+                    )
+                    assertFalse(result5a.success, "SL-05a should fail: REQUIRE SAN full, cert subset")
+                    logger.info("SL-05a PASSED")
+
+                    // ==================================================================================
+                    // SL-05b: REQUIRE SAN subset, cert full -> failure
+                    // ==================================================================================
+                    logger.info("=== SL-05b: REQUIRE SAN subset, cert full ===")
+                    sql "CREATE USER '${testUserBase}_11'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanSubset}'"
+                    sql "GRANT LOAD_PRIV ON ${context.dbName}.${tableName} TO '${testUserBase}_11'@'%'"
+                    grantComputeGroupUsage("${testUserBase}_11")
+
+                    def result5b = executeStreamLoadCurl(
+                        user: "${testUserBase}_11",
+                        password: testPassword,
+                        table: tableName,
+                        data: "6b,value6b",
+                        certPath: sanClientCert,
+                        keyPath: sanClientKey
+                    )
+                    assertFalse(result5b.success, "SL-05b should fail: REQUIRE SAN subset, cert full")
+                    logger.info("SL-05b PASSED")
+
+                    // ==================================================================================
+                    // SL-05c: REQUIRE SAN full, cert case mismatch -> failure
+                    // ==================================================================================
+                    logger.info("=== SL-05c: REQUIRE SAN full, cert case mismatch ===")
+                    sql "CREATE USER '${testUserBase}_12'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    sql "GRANT LOAD_PRIV ON ${context.dbName}.${tableName} TO '${testUserBase}_12'@'%'"
+                    grantComputeGroupUsage("${testUserBase}_12")
+
+                    def result5c = executeStreamLoadCurl(
+                        user: "${testUserBase}_12",
+                        password: testPassword,
+                        table: tableName,
+                        data: "6c,value6c",
+                        certPath: caseClientCert,
+                        keyPath: caseClientKey
+                    )
+                    assertFalse(result5c.success, "SL-05c should fail: REQUIRE SAN full, cert case mismatch")
+                    logger.info("SL-05c PASSED")
 
                     // ==================================================================================
                     // SL-06: No certificate + REQUIRE SAN -> failure
@@ -842,7 +1014,107 @@ CN = test-client-nosan
 
                     logger.info("SL-09 PASSED")
 
+                    // ==================================================================================
+                    // SL-10: Privilege enforcement with SAN
+                    // ==================================================================================
+                    logger.info("=== SL-10: Privilege enforcement with SAN ===")
+                    sql "CREATE USER '${privUser}'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${sanFull}'"
+                    sql "GRANT SELECT_PRIV ON ${context.dbName}.${tableName} TO '${privUser}'@'%'"
+                    grantComputeGroupUsage(privUser)
+
+                    def privFailResult = executeStreamLoadCurl(
+                        user: privUser,
+                        password: testPassword,
+                        table: tableName,
+                        data: "20,priv_load_fail",
+                        certPath: sanClientCert,
+                        keyPath: sanClientKey
+                    )
+                    assertFalse(privFailResult.success, "SL-10 should fail without LOAD_PRIV: ${privFailResult.output}")
+
+                    sql "GRANT LOAD_PRIV ON ${context.dbName}.${tableName} TO '${privUser}'@'%'"
+                    def privOkResult = executeStreamLoadCurl(
+                        user: privUser,
+                        password: testPassword,
+                        table: tableName,
+                        data: "21,priv_load_ok",
+                        certPath: sanClientCert,
+                        keyPath: sanClientKey
+                    )
+                    assertTrue(privOkResult.success, "SL-10 should succeed after LOAD_PRIV: ${privOkResult.output}")
+
+                    def privCount = sql "SELECT COUNT(*) FROM ${tableName} WHERE k2 = 'priv_load_ok'"
+                    assertTrue(privCount[0][0] >= 1, "SL-10 loaded data should be visible")
+                    sql "TRUNCATE TABLE ${tableName}"
+
+                    logger.info("SL-10 PASSED")
+
+                    // ==================================================================================
+                    // SL-11: SAN create/alter/drop loop tests
+                    // ==================================================================================
+                    def cycleUser = "${testUserBase}_cycle"
+
+                    def cycleUserIdentity = "'${cycleUser}'@'%'"
+                    def createSans = [null, sanFull, sanMismatch, sanSubset, sanFull]
+                    def wrongSans = [sanMismatch, sanSubset, sanMismatch, sanSubset, sanMismatch]
+                    def findAuthRowByIdentity = { String userIdentity ->
+                        def authRows = sql_return_maparray "show proc '/auth/'"
+                        return authRows.find { it.UserIdentity == userIdentity }
+                    }
+
+                    (1..5).each { idx ->
+                        logger.info("=== SL-11 SAN cycle round ${idx} ===")
+                        try_sql("DROP USER IF EXISTS '${cycleUser}'@'%'")
+
+                        def createSan = createSans[idx - 1]
+                        if (createSan == null) {
+                            sql "CREATE USER '${cycleUser}'@'%' IDENTIFIED BY '${testPassword}'"
+                        } else {
+                            sql "CREATE USER '${cycleUser}'@'%' IDENTIFIED BY '${testPassword}' REQUIRE SAN '${createSan}'"
+                        }
+                        sql "GRANT LOAD_PRIV ON ${context.dbName}.${tableName} TO '${cycleUser}'@'%'"
+                        grantComputeGroupUsage(cycleUser)
+
+                        sql "ALTER USER '${cycleUser}'@'%' REQUIRE SAN '${sanFull}'"
+                        def authRowFull = findAuthRowByIdentity(cycleUserIdentity)
+                        assertTrue(authRowFull != null, "Should find user ${cycleUser} after REQUIRE SAN")
+                        assertTrue(authRowFull.RequireSan == sanFull, "RequireSan should be ${sanFull}")
+
+                        def okResult = executeStreamLoadCurl(
+                            user: cycleUser,
+                            password: testPassword,
+                            table: tableName,
+                            data: "100${idx},cycle_ok_${idx}",
+                            certPath: sanClientCert,
+                            keyPath: sanClientKey
+                        )
+                        assertTrue(okResult.success, "SL-11 round ${idx} should succeed: ${okResult.output}")
+                        sql "TRUNCATE TABLE ${tableName}"
+
+                        def wrongSan = wrongSans[idx - 1]
+                        sql "ALTER USER '${cycleUser}'@'%' REQUIRE SAN '${wrongSan}'"
+                        def authRowWrong = findAuthRowByIdentity(cycleUserIdentity)
+                        assertTrue(authRowWrong != null, "Should find user ${cycleUser} after wrong REQUIRE SAN")
+                        assertTrue(authRowWrong.RequireSan == wrongSan, "RequireSan should be ${wrongSan}")
+
+                        def wrongResult = executeStreamLoadCurl(
+                            user: cycleUser,
+                            password: testPassword,
+                            table: tableName,
+                            data: "200${idx},cycle_fail_${idx}",
+                            certPath: sanClientCert,
+                            keyPath: sanClientKey
+                        )
+                        assertFalse(wrongResult.success, "SL-11 round ${idx} should fail: ${wrongResult.output}")
+
+                        sql "ALTER USER '${cycleUser}'@'%' REQUIRE NONE"
+                        def authRowNone = findAuthRowByIdentity(cycleUserIdentity)
+                        assertTrue(authRowNone != null, "Should find user ${cycleUser} after REQUIRE NONE")
+                        assertTrue(authRowNone.RequireSan == null, "RequireSan should be cleared")
+                    }
+
                     logger.info("=== All Stream Load certificate-based auth tests PASSED ===")
+
 
                 } finally {
                     try {
