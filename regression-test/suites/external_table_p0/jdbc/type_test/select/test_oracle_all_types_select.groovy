@@ -20,8 +20,7 @@ suite("test_oracle_all_types_select", "p0,external,oracle,external_docker,extern
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "file:///mnt/disk1/zhangsida/install_data/ojdbc8.jar"
-    // String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String oracle_port = context.config.otherConfigs.get("oracle_11_port");
         String SID = "XE";
