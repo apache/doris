@@ -455,12 +455,12 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_LARGEINT);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_BIGINT>(), 123);
+        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_LARGEINT>(), 123);
         subcolumn.deserialize_from_sparse_column(&value, 2);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_LARGEINT);
-        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_BIGINT>(), 123);
+        EXPECT_EQ(subcolumn.get_last_field().get<TYPE_LARGEINT>(), 123);
     }
 
     {
