@@ -554,10 +554,6 @@ Status PipelineTask::execute(bool* done) {
                 }
             }
 
-            if (_eos && !_sink->need_rerun(_state)) {
-                RETURN_IF_ERROR(close(Status::OK(), false));
-            }
-
             DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
                 auto required_pipeline_id =
                         DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -597,27 +593,10 @@ Status PipelineTask::execute(bool* done) {
             status = _sink->sink(_state, block, _eos);
 
             if (_eos) {
-                if (_sink->need_rerun(_state)) {
-                    if (auto* source = dynamic_cast<ExchangeSourceOperatorX*>(_root);
-                        source != nullptr) {
-                        RETURN_IF_ERROR(source->reset(_state));
-                        _eos = false;
-                    } else {
-                        return Status::InternalError(
-                                "Only ExchangeSourceOperatorX can be rerun, real is {}",
-                                _root->get_name());
-                    }
-
-                    // must set_ready after exchange reset
-                    // if next round executed before exchange source reset, it maybe cant find receiver and cause blocked forever
-                    if (auto* shared_state =
-                                dynamic_cast<RecCTESharedState*>(_sink_shared_state.get())) {
-                        shared_state->source_dep->set_ready();
-                    } else {
-                        return Status::InternalError(
-                                "Only RecCTESinkOperatorX can have RecCTESharedState, real is {}",
-                                _sink->get_name());
-                    }
+                if (_sink->reset_to_rerun(_state, _root)) {
+                    _eos = false;
+                } else {
+                    RETURN_IF_ERROR(close(Status::OK(), false));
                 }
             }
 
