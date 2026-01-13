@@ -98,8 +98,8 @@ ScannerContext::ScannerContext(
     }
     _dependency = dependency;
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
-    if (task_exec_ctx()) {
-        task_exec_ctx()->ref_task_execution_ctx();
+    if (auto ctx = task_exec_ctx(); ctx) {
+        ctx->ref_task_execution_ctx();
     }
 }
 
@@ -195,8 +195,8 @@ ScannerContext::~ScannerContext() {
         }
         _task_handle = nullptr;
     }
-    if (task_exec_ctx()) {
-        task_exec_ctx()->unref_task_execution_ctx();
+    if (auto ctx = task_exec_ctx(); ctx) {
+        ctx->unref_task_execution_ctx();
     }
 }
 
