@@ -473,7 +473,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             break;
         }
         case PrimitiveType::TYPE_DECIMALV2: {
-            auto value = any_cast<Decimal128V2>(cell);
+            auto value = any_cast<DecimalV2Value>(cell);
             column->insert_data(reinterpret_cast<char*>(&value), 0);
             break;
         }

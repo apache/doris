@@ -90,6 +90,12 @@ public:
             const_cast<HyperLogLog*>(&hll)->update(static_cast<uint64_t>(expect_num));
             auto actual = hll.estimate_cardinality();
             EXPECT_EQ(expect, actual);
+        } else if constexpr (std::is_same_v<DataType, DataTypeDecimalV2>) {
+            EXPECT_EQ(expect_num, (*(int128_t*)unwrap_col->get_data_at(pos).data));
+        } else if constexpr (IsDataTypeDecimal<DataType>) {
+            EXPECT_EQ(expect_num,
+                      (*(typename DataType::FieldType::NativeType*)unwrap_col->get_data_at(pos)
+                                .data));
         } else {
             EXPECT_EQ(expect_num, unwrap_col->get_int(pos));
         }

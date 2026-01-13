@@ -2576,7 +2576,9 @@ auto assert_column_vector_field_callback = [](auto x, const MutableColumnPtr& so
     for (size_t i = 0; i != src_size; ++i) {
         Field f;
         assert_col->get(i, f);
-        ASSERT_EQ(f.get<PType>(), col_vec_src->get_element(i)) << f.get_type_name();
+        auto tmp = col_vec_src->get_element(i);
+        ASSERT_EQ(f.get<PType>(), *(typename PrimitiveTypeTraits<PType>::CppType*)&tmp)
+                << f.get_type_name();
     }
 };
 

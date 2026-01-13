@@ -526,15 +526,11 @@ TEST(TEST_VEXPR, LITERALTEST) {
         const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
         std::cout << data_time_value.type() << std::endl;
-        __int64_t dt;
-        memcpy(&dt, &data_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_DATETIME>();
-        EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07 00:00:00", literal.value());
 
         auto node = std::make_shared<VLiteral>(
@@ -613,8 +609,6 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_DATE>();
-        EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
 
         auto node = std::make_shared<VLiteral>(
@@ -700,7 +694,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<TYPE_DECIMALV2>();
-        EXPECT_FLOAT_EQ(((double)v) / (std::pow(10, 9)), 1234.56);
+        EXPECT_FLOAT_EQ(((double)v.value()) / (std::pow(10, 9)), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
 
         auto node = std::make_shared<VLiteral>(

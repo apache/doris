@@ -1448,7 +1448,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                          : 1)));
         static_assert(min_decimal_pre == 1 || min_decimal_pre > 9);
 
-        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
+        if constexpr (std::is_same_v<FromT, Decimal128V2> ||
+                      std::is_same_v<FromT, DecimalV2Value>) {
             from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(1, 0);
             from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(1, 1);
             from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(27, 9);
@@ -1671,7 +1672,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             }
         }
 
-        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
+        if constexpr (std::is_same_v<FromT, Decimal128V2> ||
+                      std::is_same_v<FromT, DecimalV2Value>) {
             from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
                     1, 0, regression_case_name, table_index++, ofs_case, ofs_expected_result,
                     ofs_const_case, ofs_const_expected_result);

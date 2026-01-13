@@ -2215,7 +2215,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                          ? BeConsts::MAX_DECIMAL128_PRECISION + 1
                                                          : 1)));
         static_assert(from_min_decimal_p == 1 || from_min_decimal_p > 9);
-        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
+        if constexpr (std::is_same_v<FromT, Decimal128V2> ||
+                      std::is_same_v<FromT, DecimalV2Value>) {
             between_decimal_with_precision_and_scale_overflow_test_func<FromT, ToT>(
                     1, 0, to_precision, to_scale, table_index++, test_data_index, ofs_case,
                     ofs_expected_result, ofs_const_case, ofs_const_expected_result);
