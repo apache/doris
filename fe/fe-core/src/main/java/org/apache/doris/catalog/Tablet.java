@@ -51,7 +51,7 @@ import java.util.stream.LongStream;
 /**
  * This class represents the olap tablet related metadata.
  */
-public class Tablet extends MetaObject {
+public class Tablet {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
     // if current version count of replica is mor than
     // QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
@@ -888,5 +888,13 @@ public class Tablet extends MetaObject {
         if (lastTimeNoPathForNewReplica != -1) {
             throw new UnsupportedOperationException("setLastTimeNoPathForNewReplica is not supported in Tablet");
         }
+    }
+
+    public long getLastCheckTime() {
+        return -1;
+    }
+
+    public void setLastCheckTime(long lastCheckTime) {
+        throw new UnsupportedOperationException("setLastCheckTime is not supported in Tablet");
     }
 }
