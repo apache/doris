@@ -88,7 +88,7 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,
                                      const cctz::time_zone& local_time_zone, int dt_scale,
                                      int tz_scale) {
-    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
     PROPAGATE_FALSE(vectorized::transform_date_scale(tz_scale, dt_scale, dt_value,
                                                      origin_dt.to_date_int_val()));
@@ -110,7 +110,7 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
 bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
                                    const cctz::time_zone& local_time_zone, int dt_scale,
                                    int tz_scale) const {
-    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
     PROPAGATE_FALSE(vectorized::transform_date_scale(dt_scale, tz_scale, dt_value,
                                                      _utc_dt.to_date_int_val()));

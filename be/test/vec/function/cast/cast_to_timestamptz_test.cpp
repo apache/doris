@@ -268,10 +268,10 @@ TEST_F(CastTimeStampTzTest, from_timestamptz_strict_mode_to_datetime) {
 
     {
         auto block = ColumnHelper::create_block<DataTypeTimeStampTz>(
-                {make_datetime(2024, 6, 20, 12, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 04, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 20, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 12, 12, 12, 0)});
+                {make_timestamptz(2024, 6, 20, 12, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 04, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 20, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 12, 12, 12, 0)});
 
         block.insert(
                 ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeDateTimeV2>(), "result"});
@@ -293,10 +293,10 @@ TEST_F(CastTimeStampTzTest, from_timestamptz_strict_mode_to_datetime) {
 
     {
         auto block = ColumnHelper::create_block<DataTypeTimeStampTz>(
-                {make_datetime(2024, 6, 20, 12, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 04, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 20, 12, 12, 0),
-                 make_datetime(0, 0, 0, 0, 0, 0, 0)}); // invalid datetime
+                {make_timestamptz(2024, 6, 20, 12, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 04, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 20, 12, 12, 0),
+                 make_timestamptz(0, 0, 0, 0, 0, 0, 0)}); // invalid datetime
 
         block.insert(
                 ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeDateTimeV2>(), "result"});
@@ -312,10 +312,10 @@ TEST_F(CastTimeStampTzTest, from_timestamptz_non_strict_mode_to_datetime) {
 
     {
         auto block = ColumnHelper::create_block<DataTypeTimeStampTz>(
-                {make_datetime(2024, 6, 20, 12, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 04, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 20, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 12, 12, 12, 0)});
+                {make_timestamptz(2024, 6, 20, 12, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 04, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 20, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 12, 12, 12, 0)});
 
         block.insert(ColumnWithTypeAndName {
                 nullptr, make_nullable(std::make_shared<DataTypeDateTimeV2>()), "result"});
@@ -339,10 +339,10 @@ TEST_F(CastTimeStampTzTest, from_timestamptz_non_strict_mode_to_datetime) {
     // error cast
     {
         auto block = ColumnHelper::create_block<DataTypeTimeStampTz>(
-                {make_datetime(2024, 6, 20, 12, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 04, 12, 12, 0),
-                 make_datetime(2024, 6, 20, 20, 12, 12, 0),
-                 make_datetime(0, 0, 0, 0, 0, 0, 0)}); // invalid datetime
+                {make_timestamptz(2024, 6, 20, 12, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 04, 12, 12, 0),
+                 make_timestamptz(2024, 6, 20, 20, 12, 12, 0),
+                 make_timestamptz(0, 0, 0, 0, 0, 0, 0)}); // invalid datetime
         block.insert(ColumnWithTypeAndName {
                 nullptr, make_nullable(std::make_shared<DataTypeDateTimeV2>()), "result"});
         auto st = cast.execute_impl(&context, block, arguments, result, block.rows(), nullptr);

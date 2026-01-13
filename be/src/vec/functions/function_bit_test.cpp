@@ -113,7 +113,7 @@ public:
             auto second_value = second_column_data[index_check_const(i, is_consts[1])];
             // the pos is invalid, set result = 0
             if (second_value < 0 ||
-                second_value >= sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * 8) {
+                second_value >= sizeof(typename PrimitiveTypeTraits<T>::CppType) * 8) {
                 res_data[i] = 0;
                 continue;
             }
@@ -135,8 +135,7 @@ public:
                                 .get_data();
                 // the pos is invalid, set result = 0
                 if (arg_column_data[i] < 0 ||
-                    arg_column_data[i] >=
-                            sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * 8) {
+                    arg_column_data[i] >= sizeof(typename PrimitiveTypeTraits<T>::CppType) * 8) {
                     res_data[i] = 0;
                     break;
                 }

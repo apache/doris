@@ -325,7 +325,7 @@ public:
 
 template <PrimitiveType T>
 struct PercentileState {
-    mutable std::vector<Counts<typename PrimitiveTypeTraits<T>::ColumnItemType>> vec_counts;
+    mutable std::vector<Counts<typename PrimitiveTypeTraits<T>::CppType>> vec_counts;
     std::vector<double> vec_quantile {-1};
     bool inited_flag = false;
 
@@ -364,7 +364,7 @@ struct PercentileState {
         }
     }
 
-    void add(typename PrimitiveTypeTraits<T>::ColumnItemType source,
+    void add(typename PrimitiveTypeTraits<T>::CppType source,
              const PaddedPODArray<Float64>& quantiles, const NullMap& null_maps, int64_t arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
@@ -385,7 +385,7 @@ struct PercentileState {
         }
     }
 
-    void add_batch(const PaddedPODArray<typename PrimitiveTypeTraits<T>::ColumnItemType>& source,
+    void add_batch(const PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType>& source,
                    const Float64& q) {
         if (!inited_flag) {
             inited_flag = true;

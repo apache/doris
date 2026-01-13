@@ -37,7 +37,6 @@
 #include <vector>
 
 #include "common/logging.h"
-#include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -76,7 +75,10 @@ constexpr auto sequence_match_max_iterations = 1000000l;
 template <PrimitiveType T, typename Derived>
 struct AggregateFunctionSequenceMatchData final {
     using Timestamp = typename PrimitiveTypeTraits<T>::CppType;
-    using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using NativeType =
+            std::conditional_t<T == TYPE_DATEV2, uint32_t,
+                               std::conditional_t<T == TYPE_DATETIMEV2, uint64_t,
+                                                  typename PrimitiveTypeTraits<T>::CppType>>;
     using Events = std::bitset<MAX_EVENTS>;
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
@@ -593,7 +595,7 @@ class AggregateFunctionSequenceBase
         : public IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>,
                                               Derived> {
 public:
-    using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using NativeType = typename PrimitiveTypeTraits<T>::CppType;
     AggregateFunctionSequenceBase(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>, Derived>(
                       arguments) {
@@ -622,9 +624,7 @@ public:
             events.set(i - 2, event);
         }
 
-        this->data(place).add(
-                binary_cast<NativeType, typename PrimitiveTypeTraits<T>::CppType>(timestamp),
-                events);
+        this->data(place).add(timestamp, events);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,

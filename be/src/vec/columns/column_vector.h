@@ -84,7 +84,7 @@ private:
     struct greater;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
     using Container = PaddedPODArray<value_type>;
 
 private:
@@ -120,7 +120,8 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void insert_range_of_integer(value_type begin, value_type end) {
-        if constexpr (!is_float_or_double(T) && T != TYPE_TIME && T != TYPE_TIMEV2) {
+        if constexpr (!is_float_or_double(T) && T != TYPE_TIME && T != TYPE_TIMEV2 &&
+                      T != TYPE_TIMESTAMPTZ && !is_date_type(T)) {
             auto old_size = data.size();
             auto new_size = old_size + static_cast<size_t>(end - begin);
             data.resize(new_size);
@@ -142,7 +143,7 @@ public:
 
             VecDateTimeValue date;
             date.set_olap_date(val);
-            data.push_back_without_reserve(unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+            data.push_back_without_reserve(date);
         }
     }
 
@@ -294,9 +295,25 @@ public:
 
     void clear() override { data.clear(); }
 
-    bool get_bool(size_t n) const override { return bool(data[n]); }
+    bool get_bool(size_t n) const override {
+        if constexpr (T == TYPE_BOOLEAN) {
+            return bool(data[n]);
+        } else {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "Method get_int is not supported for " + get_name());
+            return false;
+        }
+    }
 
-    Int64 get_int(size_t n) const override { return Int64(data[n]); }
+    Int64 get_int(size_t n) const override {
+        if constexpr (is_date_type(T) || T == TYPE_TIMESTAMPTZ) {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "Method get_int is not supported for " + get_name());
+            return 0;
+        } else {
+            return Int64(data[n]);
+        }
+    }
 
     // For example, during create column_const(1, uint8), will use NearestFieldType
     // to cast a uint8 to int64, so that the Field is int64, but the column is created
@@ -371,10 +388,7 @@ protected:
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
-        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2 ||
-                      T == PrimitiveType::TYPE_TIMESTAMPTZ) {
-            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE.to_date_int_val();
-        } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
+        if constexpr (is_date_type(T) || T == PrimitiveType::TYPE_TIMESTAMPTZ) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();

@@ -235,7 +235,7 @@ template <typename ArrowType, PrimitiveType PType, bool is_nullable,
           typename ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType>
 void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTypeAndName& column,
                                   size_t num_elements, ArrowCppType arrow_numeric,
-                                  typename PrimitiveTypeTraits<PType>::ColumnItemType numeric,
+                                  typename PrimitiveTypeTraits<PType>::CppType numeric,
                                   size_t& counter) {
     ASSERT_EQ(column.column->size(), counter);
     auto array = create_constant_numeric_array<ArrowType, is_nullable>(num_elements, arrow_numeric,
@@ -273,10 +273,9 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
 
 template <typename ArrowType, PrimitiveType PType, bool is_nullable,
           typename ColumnType = ColumnVector<PType>>
-void test_numeric(
-        std::shared_ptr<ArrowType> type,
-        const std::vector<typename PrimitiveTypeTraits<PType>::ColumnItemType>& test_cases,
-        size_t num_elements) {
+void test_numeric(std::shared_ptr<ArrowType> type,
+                  const std::vector<typename PrimitiveTypeTraits<PType>::CppType>& test_cases,
+                  size_t num_elements) {
     using ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType;
     size_t counter = 0;
     auto pt = arrow_type_to_primitive_type(type->id());
