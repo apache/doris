@@ -321,8 +321,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             if (conn.isClosed() || !conn.isValid(1)) {
                                 throw new SQLException(
                                         String.format(
-                                                "Connection is closed or invalid while calling resultSet.next() " +
-                                                        "(read %d rows so far)", curBlockRows), e);
+                                                "Connection is closed or invalid while calling resultSet.next() "
+                                                        + "(read %d rows so far)", curBlockRows), e);
                             }
                         } catch (SQLException connCheckEx) {
                             throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(),
