@@ -35,7 +35,6 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
-//import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -93,8 +92,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             LogicalRelation.class,
             LogicalJoin.class);
 
-    //private CheckAfterRewrite checker = new CheckAfterRewrite();
-
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         int mode = SessionVariable.getEagerAggregationMode();
@@ -121,12 +118,10 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             if (groupKey instanceof SlotReference) {
                 groupKeys.add((SlotReference) groupKey);
             } else {
-                if (SessionVariable.isFeDebug()) {
-                    throw new RuntimeException("PushDownAggregation failed: agg is not normalized\n "
-                            + agg.treeString());
-                } else {
-                    return agg;
-                }
+                SessionVariable.throwRuntimeExceptionWhenFeDebug(
+                        "PushDownAggregation failed: agg is not normalized\n "
+                        + agg.treeString());
+                return agg;
             }
         }
 
@@ -153,10 +148,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
         aggFunctions = aggFunctions.stream().distinct().collect(Collectors.toList());
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
-        if (!checkSubTreePattern(agg.child())) {
-            return agg;
-        }
-
         if (!checkSubTreePattern(agg.child())) {
             return agg;
         }
@@ -193,7 +184,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 }
                 LogicalAggregate<Plan> eagerAgg =
                         agg.withAggOutputChild(newOutputExpressions, child);
-                //checker.checkTreeAllSlotReferenceFromChildren(eagerAgg);
                 NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
                 LogicalPlan normalized = normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
                         context.getCascadesContext());
@@ -201,17 +191,16 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 return adjustNullable.rewriteRoot(normalized, null);
             }
         } catch (RuntimeException e) {
-            LOG.info("PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString());
-            if (SessionVariable.isFeDebug()) {
-                throw e;
-            }
+            String msg = "PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString();
+            LOG.info(msg);
+            SessionVariable.throwRuntimeExceptionWhenFeDebug(msg);
         }
         return agg;
     }
 
     private boolean checkSubTreePattern(Plan root) {
         return containsPushDownJoin(root)
-                && isSPJ(root);
+                && checkPlanNodeType(root);
     }
 
     private boolean containsPushDownJoin(Plan root) {
@@ -224,14 +213,14 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         return root.children().stream().anyMatch(this::containsPushDownJoin);
     }
 
-    private boolean isSPJ(Plan root) {
+    private boolean checkPlanNodeType(Plan root) {
         boolean accepted = acceptNodeType.stream()
                 .anyMatch(clazz -> clazz.isAssignableFrom(root.getClass()));
         if (!accepted) {
             return false;
         }
         for (Plan child : root.children()) {
-            if (!isSPJ(child)) {
+            if (!checkPlanNodeType(child)) {
                 return false;
             }
         }
