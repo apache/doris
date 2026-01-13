@@ -92,7 +92,9 @@
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 #include "olap/schema_change.h"
 #include "olap/single_replica_compaction.h"
@@ -1289,7 +1291,9 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
         std::shared_lock rlock(_meta_lock);
-        auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
+
+        // Check if the index is defined in schema
+        auto has_index_in_schema = [&](const RowsetSharedPtr& rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
                 if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
                     return true;
@@ -1298,11 +1302,111 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
             return false;
         };
 
+        // Check if the specified indexes are actually built (exist in files)
+        // Returns true only if ALL required indexes exist in files for ALL segments
+        auto are_indexes_built_in_files = [&](const RowsetSharedPtr& rowset) -> bool {
+            const auto& tablet_schema = rowset->tablet_schema();
+            auto storage_format = tablet_schema->get_inverted_index_storage_format();
+
+            // Collect index metadata that needs to be checked
+            std::vector<const TabletIndex*> indexes_to_check;
+            for (const auto& index : tablet_schema->indexes()) {
+                if ((index->index_type() == IndexType::INVERTED ||
+                     index->index_type() == IndexType::ANN) &&
+                    alter_index_uids.count(index->index_id()) > 0) {
+                    indexes_to_check.push_back(index.get());
+                }
+            }
+
+            if (indexes_to_check.empty()) {
+                return false;
+            }
+
+            // Check each segment
+            for (int seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
+                auto idx_file_info = rowset->rowset_meta()->inverted_index_file_info(seg_id);
+
+                // === Fast path: V2 format check index_size ===
+                if (storage_format >= InvertedIndexStorageFormatPB::V2) {
+                    if (!idx_file_info.has_index_size() || idx_file_info.index_size() == 0) {
+                        // Compound file is empty, indexes not built
+                        LOG(INFO) << "Index file is empty for tablet " << _tablet_meta->tablet_id()
+                                  << ", segment " << seg_id << ", need to build index";
+                        return false;
+                    }
+                }
+
+                // === Fast path: V1 format check specific index files ===
+                if (storage_format == InvertedIndexStorageFormatPB::V1) {
+                    auto seg_path_result = rowset->segment_path(seg_id);
+                    if (!seg_path_result.has_value()) {
+                        return false;
+                    }
+                    auto fs = rowset->rowset_meta()->fs();
+                    std::string prefix {
+                            segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                                    seg_path_result.value())};
+
+                    for (const auto* index_meta : indexes_to_check) {
+                        auto index_path =
+                                segment_v2::InvertedIndexDescriptor::get_index_file_path_v1(
+                                        prefix, index_meta->index_id(),
+                                        index_meta->get_index_suffix());
+                        bool exists = false;
+                        auto st = fs->exists(index_path, &exists);
+                        if (!st.ok() || !exists) {
+                            LOG(INFO) << "Index file not found: " << index_path
+                                      << ", need to build index";
+                            return false;
+                        }
+                    }
+                    continue; // V1 check done, continue to next segment
+                }
+
+                // === V2 format: need to open file to check specific indexes ===
+                auto seg_path_result = rowset->segment_path(seg_id);
+                if (!seg_path_result.has_value()) {
+                    return false;
+                }
+
+                auto idx_file_reader = std::make_unique<segment_v2::IndexFileReader>(
+                        rowset->rowset_meta()->fs(),
+                        std::string {
+                                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        seg_path_result.value())},
+                        storage_format, idx_file_info);
+
+                auto init_st = idx_file_reader->init();
+                if (!init_st.ok()) {
+                    LOG(INFO) << "Failed to init index file reader for tablet "
+                              << _tablet_meta->tablet_id() << ", segment " << seg_id
+                              << ", error: " << init_st << ", need to build index";
+                    return false;
+                }
+
+                // Check if each required index exists
+                for (const auto* index_meta : indexes_to_check) {
+                    bool exists = false;
+                    auto st = idx_file_reader->index_file_exist(index_meta, &exists);
+                    if (!st.ok() || !exists) {
+                        LOG(INFO) << "Index " << index_meta->index_id()
+                                  << " not found in compound file for tablet "
+                                  << _tablet_meta->tablet_id() << ", segment " << seg_id
+                                  << ", need to build index";
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
         for (const auto& [version, rs] : _rs_version_map) {
-            if (!has_alter_inverted_index(rs) && is_drop_op) {
+            // DROP operation: skip rowsets without index definition
+            if (!has_index_in_schema(rs) && is_drop_op) {
                 continue;
             }
-            if (has_alter_inverted_index(rs) && !is_drop_op) {
+            // BUILD operation: only skip rowsets where all indexes are fully built
+            if (!is_drop_op && has_index_in_schema(rs) && are_indexes_built_in_files(rs)) {
                 continue;
             }
 

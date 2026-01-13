@@ -56,6 +56,7 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_schema.h"
@@ -1180,10 +1181,110 @@ Status CloudTablet::check_rowset_schema_for_build_index(std::vector<TColumn>& co
     return Status::OK();
 }
 
-Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(int schema_version,
-                                                                    bool& is_base_rowset) {
+Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
+        int schema_version, bool& is_base_rowset, const std::set<int64_t>& index_ids) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudTablet::pick_a_rowset_for_index_change",
                                       Result<RowsetSharedPtr>(nullptr));
+
+    // Check if the specified indexes are actually built (exist in files)
+    // Returns true only if ALL required indexes exist in files for ALL segments
+    auto are_indexes_built_in_files = [&](const RowsetSharedPtr& rowset) -> bool {
+        if (index_ids.empty()) {
+            return false; // No index IDs specified, need to process
+        }
+
+        const auto& tablet_schema = rowset->tablet_schema();
+        auto storage_format = tablet_schema->get_inverted_index_storage_format();
+
+        // Collect index metadata that needs to be checked
+        std::vector<const TabletIndex*> indexes_to_check;
+        for (const auto& index : tablet_schema->indexes()) {
+            if ((index->index_type() == IndexType::INVERTED ||
+                 index->index_type() == IndexType::ANN) &&
+                index_ids.count(index->index_id()) > 0) {
+                indexes_to_check.push_back(index.get());
+            }
+        }
+
+        if (indexes_to_check.empty()) {
+            return false; // No matching indexes in schema, need to process
+        }
+
+        // Check each segment
+        for (int seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
+            auto idx_file_info = rowset->rowset_meta()->inverted_index_file_info(seg_id);
+
+            // === Fast path: V2 format check index_size ===
+            if (storage_format >= InvertedIndexStorageFormatPB::V2) {
+                if (!idx_file_info.has_index_size() || idx_file_info.index_size() == 0) {
+                    // Compound file is empty, indexes not built
+                    LOG(INFO) << "[index_change] Index file is empty for tablet "
+                              << _tablet_meta->tablet_id() << ", segment " << seg_id
+                              << ", need to build index";
+                    return false;
+                }
+            }
+
+            // === Fast path: V1 format check specific index files ===
+            if (storage_format == InvertedIndexStorageFormatPB::V1) {
+                auto seg_path_result = rowset->segment_path(seg_id);
+                if (!seg_path_result.has_value()) {
+                    return false;
+                }
+                auto fs = rowset->rowset_meta()->fs();
+                std::string prefix {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        seg_path_result.value())};
+
+                for (const auto* index_meta : indexes_to_check) {
+                    auto index_path = segment_v2::InvertedIndexDescriptor::get_index_file_path_v1(
+                            prefix, index_meta->index_id(), index_meta->get_index_suffix());
+                    bool exists = false;
+                    auto st = fs->exists(index_path, &exists);
+                    if (!st.ok() || !exists) {
+                        LOG(INFO) << "[index_change] Index file not found: " << index_path
+                                  << ", need to build index";
+                        return false;
+                    }
+                }
+                continue; // V1 check done, continue to next segment
+            }
+
+            // === V2 format: need to open file to check specific indexes ===
+            auto seg_path_result = rowset->segment_path(seg_id);
+            if (!seg_path_result.has_value()) {
+                return false;
+            }
+
+            auto idx_file_reader = std::make_unique<segment_v2::IndexFileReader>(
+                    rowset->rowset_meta()->fs(),
+                    std::string {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                            seg_path_result.value())},
+                    storage_format, idx_file_info);
+
+            auto init_st = idx_file_reader->init();
+            if (!init_st.ok()) {
+                LOG(INFO) << "[index_change] Failed to init index file reader for tablet "
+                          << _tablet_meta->tablet_id() << ", segment " << seg_id
+                          << ", error: " << init_st << ", need to build index";
+                return false;
+            }
+
+            // Check if each required index exists
+            for (const auto* index_meta : indexes_to_check) {
+                bool exists = false;
+                auto st = idx_file_reader->index_file_exist(index_meta, &exists);
+                if (!st.ok() || !exists) {
+                    LOG(INFO) << "[index_change] Index " << index_meta->index_id()
+                              << " not found in compound file for tablet "
+                              << _tablet_meta->tablet_id() << ", segment " << seg_id
+                              << ", need to build index";
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
     RowsetSharedPtr ret_rowset = nullptr;
     std::shared_lock rlock(_meta_lock);
     for (const auto& [version, rs] : _rs_version_map) {
@@ -1199,6 +1300,13 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(int schema_v
         if (rs->tablet_schema()->schema_version() >= schema_version) {
             VLOG_DEBUG << "[index_change] skip rowset " << rs->tablet_schema()->schema_version()
                        << "," << schema_version;
+            continue;
+        }
+
+        // Skip rowsets where all required indexes are already built
+        if (are_indexes_built_in_files(rs)) {
+            VLOG_DEBUG << "[index_change] skip rowset " << rs->rowset_id().to_string()
+                       << " because indexes are already built";
             continue;
         }
 
