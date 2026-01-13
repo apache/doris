@@ -973,12 +973,12 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx.store(vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
-                                                             p.output_row_descriptor(), scanners,
-                                                             p.limit(), _scan_dependency
+    _scanner_ctx.store(vectorized::ScannerContext::create_shared(
+            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            _scan_dependency
 #ifdef BE_TEST
-                                                             ,
-                                                             max_scanners_concurrency(state())
+            ,
+            max_scanners_concurrency(state())
 #endif
     ));
     return Status::OK();
