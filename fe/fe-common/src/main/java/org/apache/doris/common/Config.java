@@ -3447,6 +3447,10 @@ public class Config extends ConfigBase {
             + "is the active tablet priority scheduling strategy enabled?  (Default: Enabled)"})
     public static boolean enable_cloud_active_tablet_priority_scheduling = true;
 
+    @ConfField(masterOnly = true, description = {"滑动窗口访问统计的时间窗口大小（秒），默认3600秒（1小时）",
+            "Time window size in seconds for sliding window access statistics, default 3600 seconds (1 hour)"})
+    public static long sliding_window_time_window_second = 3600L;
+
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 

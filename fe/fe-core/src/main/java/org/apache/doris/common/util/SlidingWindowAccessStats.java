@@ -28,21 +28,27 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
-import java.util.stream.Collectors;
+import java.util.zip.CRC32;
 
+/**
+ * Sliding window access statistics utility class.
+ * Supports tracking access statistics for different types of IDs (tablet, replica, backend, etc.)
+ */
 public class SlidingWindowAccessStats {
     private static final Logger LOG = LogManager.getLogger(SlidingWindowAccessStats.class);
 
-    private static volatile SlidingWindowAccessStats instance;
+    // ID type for this instance
+    private final AccessStatsIdType idType;
 
-    // Sort active tablets by accessCount desc, then lastAccessTime desc
-    private static final Comparator<AccessStatsResult> TOPN_ACTIVE_TABLET_COMPARATOR =
+    // Sort active IDs by accessCount desc, then lastAccessTime desc
+    private static final Comparator<AccessStatsResult> TOPN_ACTIVE_COMPARATOR =
             Comparator.comparingLong((AccessStatsResult r) -> r.accessCount).reversed()
                     .thenComparing(Comparator.comparingLong((AccessStatsResult r) -> r.lastAccessTime).reversed());
 
@@ -50,7 +56,9 @@ public class SlidingWindowAccessStats {
     private final long timeWindowMs;
 
     // Bucket size in milliseconds (default: 1 minute)
-    // Smaller bucket = more accurate but more memory
+    // The time window is divided into multiple buckets, each bucket stores access count for a time period.
+    // For example: if timeWindowMs=1hour and bucketSizeMs=1minute, there will be 60 buckets.
+    // Smaller bucket size = more accurate statistics but more memory usage.
     private final long bucketSizeMs;
 
     // Number of buckets in the sliding window
@@ -164,8 +172,8 @@ public class SlidingWindowAccessStats {
      * Shard structure to reduce lock contention
      */
     private static class AccessStatsShard {
-        // Tablet counters: tabletId -> SlidingWindowCounter
-        private final ConcurrentHashMap<Long, SlidingWindowCounter> tabletCounters = new ConcurrentHashMap<>();
+        // ID counters: id -> SlidingWindowCounter
+        private final ConcurrentHashMap<Long, SlidingWindowCounter> idCounters = new ConcurrentHashMap<>();
     }
 
     // Sharded access stats to reduce lock contention
@@ -180,19 +188,17 @@ public class SlidingWindowAccessStats {
     // Thread pool for async recordAccess execution
     private ThreadPoolExecutor asyncExecutor;
 
-    // Default time window: 1 hour
-    private static final long DEFAULT_TIME_WINDOW_SECOND = 3600L;
-
     // Default bucket size: 1 minute (60 buckets for 1 hour window)
     private static final long DEFAULT_BUCKET_SIZE_SECOND = 60L;
 
     // Default cleanup interval: 5 minutes
     private static final long DEFAULT_CLEANUP_INTERVAL_SECOND = 300L;
 
-    private SlidingWindowAccessStats() {
-        this.timeWindowMs = DEFAULT_TIME_WINDOW_SECOND * 1000L;
+    SlidingWindowAccessStats(AccessStatsIdType idType) {
+        this.idType = idType;
+        this.timeWindowMs = Config.sliding_window_time_window_second * 1000L;
         this.bucketSizeMs = DEFAULT_BUCKET_SIZE_SECOND * 1000L;
-        this.numBuckets = (int) (DEFAULT_TIME_WINDOW_SECOND / DEFAULT_BUCKET_SIZE_SECOND); // 60 buckets
+        this.numBuckets = (int) (Config.sliding_window_time_window_second / DEFAULT_BUCKET_SIZE_SECOND);
         this.cleanupIntervalMs = DEFAULT_CLEANUP_INTERVAL_SECOND * 1000L;
 
         // Initialize shards
@@ -213,39 +219,43 @@ public class SlidingWindowAccessStats {
                     60L, TimeUnit.SECONDS,
                     new LinkedBlockingQueue<>(1000), // queue capacity
                     r -> {
-                        Thread t = new Thread(r, "cloud-tablet-access-stats-async");
+                        Thread t = new Thread(r, "sliding-window-access-stats-async-" + idType.name().toLowerCase());
                         t.setDaemon(true);
                         return t;
                     },
                     new ThreadPoolExecutor.DiscardPolicy() // discard when queue is full
             );
 
-            LOG.info("CloudReplicaAccessStats initialized: timeWindow={}ms, bucketSize={}ms, "
+            LOG.info("SlidingWindowAccessStats initialized for type {}: timeWindow={}ms, bucketSize={}ms, "
                     + "numBuckets={}, shardSize={}, cleanupInterval={}ms",
-                    timeWindowMs, bucketSizeMs, numBuckets, SHARD_SIZE, cleanupIntervalMs);
+                    idType, timeWindowMs, bucketSizeMs, numBuckets, SHARD_SIZE, cleanupIntervalMs);
         }
     }
 
-    public static SlidingWindowAccessStats getInstance() {
-        if (instance == null) {
-            synchronized (SlidingWindowAccessStats.class) {
-                if (instance == null) {
-                    instance = new SlidingWindowAccessStats();
-                }
-            }
-        }
-        return instance;
+    /**
+     * Get the ID type for this instance
+     */
+    public AccessStatsIdType getIdType() {
+        return idType;
     }
 
     /**
      * Get shard index for a given ID
+     * Uses CRC32 hash function to ensure better distribution when IDs are sequential or have patterns.
+     * CRC32 processes the full 64-bit long value to avoid information loss.
      */
     private int getShardIndex(long id) {
-        return (int) (id & (SHARD_SIZE - 1));
+        // Use CRC32 to hash the full 64-bit ID, then take modulo
+        // This ensures better distribution even when IDs are sequential and preserves all 64 bits
+        CRC32 crc = new CRC32();
+        crc.update((int) (id >>> 32));  // Update with high 32 bits
+        crc.update((int) id);            // Update with low 32 bits
+        long hashValue = crc.getValue();
+        return (int) (hashValue % SHARD_SIZE);
     }
 
     /**
-     * Record an access to a replica asynchronously
+     * Record an access asynchronously
      * This method is non-blocking and should be used in high-frequency call paths
      * to avoid blocking the caller thread.
      */
@@ -260,48 +270,41 @@ public class SlidingWindowAccessStats {
                     recordAccess(id);
                 } catch (Exception e) {
                     // Log but don't propagate exception to avoid affecting caller
-                    LOG.debug("Failed to record access asynchronously for replicaId={}", id, e);
+                    LOG.warn("Failed to record access asynchronously for {} id={}", idType, id, e);
                 }
             });
         } catch (Exception e) {
             // If executor is shutdown or queue is full, silently ignore
             // Statistics can tolerate some loss
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to submit async recordAccess task for replicaId={}", id, e);
-            }
+            LOG.warn("Failed to submit async recordAccess task for {} id={}", idType, id, e);
         }
     }
 
     /**
-     * Record an access to a replica
+     * Record an access
      */
     public void recordAccess(long id) {
-        if (!Config.enable_cloud_active_tablet_priority_scheduling) {
-            return;
-        }
-
         long currentTime = System.currentTimeMillis();
-        int tabletShardIndex = getShardIndex(id);
-        AccessStatsShard tabletShard = shards[tabletShardIndex];
+        int shardIndex = getShardIndex(id);
+        AccessStatsShard shard = shards[shardIndex];
 
-        SlidingWindowCounter tabletCounter = tabletShard.tabletCounters.computeIfAbsent(id,
+        SlidingWindowCounter counter = shard.idCounters.computeIfAbsent(id,
                 k -> new SlidingWindowCounter(numBuckets));
-        tabletCounter.add(currentTime, bucketSizeMs, numBuckets);
-
+        counter.add(currentTime, bucketSizeMs, numBuckets);
         totalAccessCount.incrementAndGet();
     }
 
     /**
-     * Get access count for a tablet within the time window
+     * Get access count for an ID within the time window
      */
-    public AccessStatsResult getTabletAccessInfo(long tabletId) {
+    public AccessStatsResult getAccessInfo(long id) {
         if (!Config.enable_cloud_active_tablet_priority_scheduling) {
             return null;
         }
 
-        int shardIndex = getShardIndex(tabletId);
+        int shardIndex = getShardIndex(id);
         AccessStatsShard shard = shards[shardIndex];
-        SlidingWindowCounter counter = shard.tabletCounters.get(tabletId);
+        SlidingWindowCounter counter = shard.idCounters.get(id);
 
         if (counter == null) {
             return null;
@@ -309,7 +312,7 @@ public class SlidingWindowAccessStats {
 
         long currentTime = System.currentTimeMillis();
         return new AccessStatsResult(
-                tabletId,
+                id,
                 counter.getCount(currentTime, timeWindowMs, bucketSizeMs, numBuckets),
                 counter.getLastAccessTime());
     }
@@ -339,20 +342,31 @@ public class SlidingWindowAccessStats {
     }
 
     /**
-     * Get top N most active tablets
+     * Get top N most active IDs
+     * Uses a min-heap (PriorityQueue) to maintain TopN efficiently without sorting all results.
      */
-    public List<AccessStatsResult> getTopNActiveTablets(int topN) {
+    public List<AccessStatsResult> getTopNActive(int topN) {
         if (!Config.enable_cloud_active_tablet_priority_scheduling) {
             return Collections.emptyList();
         }
 
-        long currentTime = System.currentTimeMillis();
-        List<AccessStatsResult> results = new ArrayList<>();
+        if (topN <= 0) {
+            return Collections.emptyList();
+        }
 
-        // Collect from all shards
+        long currentTime = System.currentTimeMillis();
+        // Use a min-heap with reversed comparator to maintain TopN
+        // The heap keeps the smallest element at the top, so we can efficiently replace it
+        // when we find a larger element
+        PriorityQueue<AccessStatsResult> minHeap = new PriorityQueue<>(
+                topN + 1, // Initial capacity: topN + 1 to avoid resizing
+                Collections.reverseOrder(TOPN_ACTIVE_COMPARATOR) // Reversed: min-heap for TopN
+        );
+
+        // Collect from all shards and maintain TopN using min-heap
         for (AccessStatsShard shard : shards) {
-            for (Map.Entry<Long, SlidingWindowCounter> entry : shard.tabletCounters.entrySet()) {
-                long tabletId = entry.getKey();
+            for (Map.Entry<Long, SlidingWindowCounter> entry : shard.idCounters.entrySet()) {
+                long id = entry.getKey();
                 SlidingWindowCounter counter = entry.getValue();
 
                 // Skip if no recent activity
@@ -362,15 +376,27 @@ public class SlidingWindowAccessStats {
 
                 long accessCount = counter.getCount(currentTime, timeWindowMs, bucketSizeMs, numBuckets);
                 if (accessCount > 0) {
-                    results.add(new AccessStatsResult(tabletId, accessCount, counter.getLastAccessTime()));
+                    AccessStatsResult result = new AccessStatsResult(id, accessCount, counter.getLastAccessTime());
+
+                    if (minHeap.size() < topN) {
+                        // Heap not full, directly add
+                        minHeap.offer(result);
+                    } else {
+                        // Heap is full, compare with the smallest element (heap top)
+                        // If current element is larger, replace the heap top
+                        if (TOPN_ACTIVE_COMPARATOR.compare(result, minHeap.peek()) > 0) {
+                            minHeap.poll();
+                            minHeap.offer(result);
+                        }
+                    }
                 }
             }
         }
 
-        // Sort and return top N
-        results.sort(TOPN_ACTIVE_TABLET_COMPARATOR);
-
-        return results.stream().limit(topN).collect(Collectors.toList());
+        // Convert heap to list and sort in descending order (TopN)
+        List<AccessStatsResult> results = new ArrayList<>(minHeap);
+        results.sort(TOPN_ACTIVE_COMPARATOR);
+        return results;
     }
 
     /**
@@ -382,26 +408,24 @@ public class SlidingWindowAccessStats {
         }
 
         long currentTime = System.currentTimeMillis();
-        int replicaCleaned = 0;
-        int tabletCleaned = 0;
+        int cleaned = 0;
 
         // Clean each shard
         for (AccessStatsShard shard : shards) {
-            // Clean tablet counters
-            for (Map.Entry<Long, SlidingWindowCounter> entry : shard.tabletCounters.entrySet()) {
+            // Clean ID counters
+            for (Map.Entry<Long, SlidingWindowCounter> entry : shard.idCounters.entrySet()) {
                 SlidingWindowCounter counter = entry.getValue();
                 counter.cleanup(currentTime, timeWindowMs);
 
                 if (!counter.hasRecentActivity(currentTime, timeWindowMs)) {
-                    shard.tabletCounters.remove(entry.getKey());
-                    tabletCleaned++;
+                    shard.idCounters.remove(entry.getKey());
+                    cleaned++;
                 }
             }
         }
 
-        if (LOG.isDebugEnabled() && (replicaCleaned > 0 || tabletCleaned > 0)) {
-            LOG.debug("Cleaned up expired access records: {} replicas, {} tablets",
-                    replicaCleaned, tabletCleaned);
+        if (LOG.isDebugEnabled() && cleaned > 0) {
+            LOG.debug("Cleaned up {} expired access records for type {}", cleaned, idType);
         }
     }
 
@@ -410,28 +434,28 @@ public class SlidingWindowAccessStats {
      */
     public String getStatsSummary() {
         if (!Config.enable_cloud_active_tablet_priority_scheduling) {
-            return "CloudReplicaAccessStats is disabled";
+            return String.format("SlidingWindowAccessStats (type: %s) is disabled", idType);
         }
 
         long currentTime = System.currentTimeMillis();
-        int activeTablets = 0;
-        long totalTabletAccess = 0;
+        int activeIds = 0;
+        long totalAccess = 0;
 
         for (AccessStatsShard shard : shards) {
-            for (SlidingWindowCounter counter : shard.tabletCounters.values()) {
+            for (SlidingWindowCounter counter : shard.idCounters.values()) {
                 if (counter.hasRecentActivity(currentTime, timeWindowMs)) {
-                    activeTablets++;
-                    totalTabletAccess += counter.getCount(currentTime, timeWindowMs, bucketSizeMs, numBuckets);
+                    activeIds++;
+                    totalAccess += counter.getCount(currentTime, timeWindowMs, bucketSizeMs, numBuckets);
                 }
             }
         }
 
         return String.format(
-                "SlidingWindowAccessStats{timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
-                + "shardSize=%d, activeTablets=%d, "
-                + "totalTabletAccess=%d, totalAccessCount=%d}",
-                timeWindowMs / 1000, bucketSizeMs / 1000, numBuckets, SHARD_SIZE,
-                activeTablets, totalTabletAccess, totalAccessCount.get());
+            "SlidingWindowAccessStats{type=%s, timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
+                + "shardSize=%d, activeIds=%d, "
+                + "totalAccess=%d, totalAccessCount=%d}",
+            idType, timeWindowMs / 1000, bucketSizeMs / 1000, numBuckets, SHARD_SIZE,
+            activeIds, totalAccess, totalAccessCount.get());
     }
 
     /**
@@ -439,7 +463,7 @@ public class SlidingWindowAccessStats {
      */
     private class AccessStatsCleanupDaemon extends MasterDaemon {
         public AccessStatsCleanupDaemon() {
-            super("sliding-window-access-stats-cleanup", cleanupIntervalMs);
+            super("sliding-window-access-stats-cleanup-" + idType.name().toLowerCase(), cleanupIntervalMs);
         }
 
         @Override
@@ -451,11 +475,11 @@ public class SlidingWindowAccessStats {
             try {
                 cleanupExpiredRecords();
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("tablet stat = {}, top 10 active tablet = {}",
-                            getStatsSummary(), getTopNActiveTablets(10));
+                    LOG.debug("{} stat = {}, top 10 active = {}",
+                            idType, getStatsSummary(), getTopNActive(10));
                 }
             } catch (Exception e) {
-                LOG.warn("Failed to cleanup expired access records", e);
+                LOG.warn("Failed to cleanup expired access records for type {}", idType, e);
             }
         }
     }

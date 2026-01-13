@@ -30,6 +30,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SlidingWindowAccessStats;
+import org.apache.doris.common.util.SlidingWindowAccessStatsFactory;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
@@ -144,8 +145,8 @@ public class TabletsProcDir implements ProcDirInterface {
 
                     tabletInfos.add(tabletInfo);
                 } else {
-                    SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStats.getInstance()
-                            .getTabletAccessInfo(tabletId);
+                    SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStatsFactory
+                            .getTabletAccessStats().getAccessInfo(tabletId);
                     long accessCount1H = 0;
                     long lastAccessTime = 0;
                     if (asr != null) {

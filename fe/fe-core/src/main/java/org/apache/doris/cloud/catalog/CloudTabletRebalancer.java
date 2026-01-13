@@ -39,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.SlidingWindowAccessStats;
+import org.apache.doris.common.util.SlidingWindowAccessStatsFactory;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -1709,7 +1710,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         try {
             // get topN active tablets
             List<SlidingWindowAccessStats.AccessStatsResult> active =
-                    SlidingWindowAccessStats.getInstance().getTopNActiveTablets(10000);
+                    SlidingWindowAccessStatsFactory.getTabletAccessStats().getTopNActive(10000);
             if (active == null || active.isEmpty()) {
                 return Collections.emptySet();
             }

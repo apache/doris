@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SlidingWindowAccessStats;
+import org.apache.doris.common.util.SlidingWindowAccessStatsFactory;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
@@ -92,8 +93,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
         }
 
         for (Replica replica : replicas) {
-            SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStats.getInstance()
-                    .getTabletAccessInfo(tabletId);
+            SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStatsFactory.getTabletAccessStats()
+                    .getAccessInfo(tabletId);
             long accessCount1H = 0;
             long lastAccessTime = 0;
             if (asr != null) {

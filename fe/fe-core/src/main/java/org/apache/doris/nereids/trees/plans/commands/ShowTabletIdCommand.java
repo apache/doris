@@ -36,6 +36,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SlidingWindowAccessStats;
+import org.apache.doris.common.util.SlidingWindowAccessStatsFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -122,8 +123,8 @@ public class ShowTabletIdCommand extends ShowCommand {
 
         int tabletIdx = -1;
         // check real meta
-        SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStats.getInstance()
-                .getTabletAccessInfo(tabletId);
+        SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStatsFactory.getTabletAccessStats()
+                .getAccessInfo(tabletId);
         long accessCount1H = 0;
         long lastAccessTime = 0;
         if (asr != null) {

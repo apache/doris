@@ -29,7 +29,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.common.util.SlidingWindowAccessStats;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
@@ -303,8 +302,6 @@ public class CloudReplica extends Replica {
         if (Strings.isNullOrEmpty(clusterId)) {
             return -1L;
         }
-        // Use async version to avoid blocking getBackendIdImpl which is called frequently
-        SlidingWindowAccessStats.getInstance().recordAccessAsync(getId());
 
         if (isColocated()) {
             return getColocatedBeId(clusterId);
