@@ -233,7 +233,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
             if (isNullableString == null || replaceString == null) {
                 throw new IllegalArgumentException(
-                    "Output parameters 'is_nullable' and 'replace_string' are required.");
+                        "Output parameters 'is_nullable' and 'replace_string' are required.");
             }
 
             String[] nullableList = isNullableString.split(",");
@@ -273,9 +273,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     }
                 } catch (SQLException e) {
                     // ResultSet.isClosed() may throw SQLException if connection is invalid
-                    throw new SQLException("Failed to check ResultSet status (connection may be invalid): " + e.getMessage(), e);
+                    throw new SQLException("Failed to check ResultSet status (connection may be invalid): "
+                            + e.getMessage(), e);
                 }
-                
+
                 for (int i = 0; i < outputColumnCount; ++i) {
                     String outputColumnName = outputTable.getFields()[i];
                     int columnIndex = getRealColumnIndex(outputColumnName, i);
@@ -289,24 +290,26 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                                 try {
                                     if (conn.isClosed() || !conn.isValid(1)) {
                                         throw new SQLException(
-                                            String.format("Connection is closed or invalid while reading column '%s' (index %d)", 
-                                                outputColumnName, columnIndex), e);
+                                                String.format("Connection is closed or invalid while reading "
+                                                                + "column '%s' (index %d)",
+                                                        outputColumnName, columnIndex), e);
                                     }
                                 } catch (SQLException connCheckEx) {
-                                    throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(), e);
+                                    throw new SQLException(
+                                            "Failed to check connection validity: " + connCheckEx.getMessage(), e);
                                 }
                             }
                             // Re-throw the original exception with context
                             throw new SQLException(
-                                String.format("Error reading column '%s' (index %d): %s", 
-                                    outputColumnName, columnIndex, e.getMessage()), e);
+                                    String.format("Error reading column '%s' (index %d): %s",
+                                            outputColumnName, columnIndex, e.getMessage()), e);
                         }
                     } else {
                         throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
                     }
                 }
                 curBlockRows++;
-                
+
                 // Check if there are more rows, with explicit exception handling
                 boolean hasNext;
                 try {
@@ -317,19 +320,21 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         try {
                             if (conn.isClosed() || !conn.isValid(1)) {
                                 throw new SQLException(
-                                    String.format("Connection is closed or invalid while calling resultSet.next() " +
-                                        "(read %d rows so far)", curBlockRows), e);
+                                        String.format(
+                                                "Connection is closed or invalid while calling resultSet.next() " +
+                                                        "(read %d rows so far)", curBlockRows), e);
                             }
                         } catch (SQLException connCheckEx) {
-                            throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(), e);
+                            throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(),
+                                    e);
                         }
                     }
                     // Re-throw with context about how many rows were successfully read
                     throw new SQLException(
-                        String.format("Error calling resultSet.next() after reading %d rows: %s", 
-                            curBlockRows, e.getMessage()), e);
+                            String.format("Error calling resultSet.next() after reading %d rows: %s",
+                                    curBlockRows, e.getMessage()), e);
                 }
-                
+
                 if (!hasNext) {
                     break;
                 }
