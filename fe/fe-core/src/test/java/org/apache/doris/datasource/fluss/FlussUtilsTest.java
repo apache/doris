@@ -17,178 +17,118 @@
 
 package org.apache.doris.datasource.fluss;
 
-import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
-import org.apache.fluss.types.ArrayType;
-import org.apache.fluss.types.BigIntType;
-import org.apache.fluss.types.BinaryType;
-import org.apache.fluss.types.BooleanType;
-import org.apache.fluss.types.CharType;
-import org.apache.fluss.types.DataTypes;
-import org.apache.fluss.types.DateType;
-import org.apache.fluss.types.DecimalType;
-import org.apache.fluss.types.DoubleType;
-import org.apache.fluss.types.FloatType;
-import org.apache.fluss.types.IntType;
-import org.apache.fluss.types.LocalZonedTimestampType;
-import org.apache.fluss.types.MapType;
-import org.apache.fluss.types.RowType;
-import org.apache.fluss.types.SmallIntType;
-import org.apache.fluss.types.StringType;
-import org.apache.fluss.types.TimestampType;
-import org.apache.fluss.types.TinyIntType;
 import org.junit.Assert;
 import org.junit.Test;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class FlussUtilsTest {
 
     @Test
     public void testPrimitiveTypes() {
-        // Boolean
-        Type dorisBool = FlussUtils.flussTypeToDorisType(DataTypes.BOOLEAN(), false);
-        Assert.assertEquals(Type.BOOLEAN, dorisBool);
-
-        // TinyInt
-        Type dorisTinyInt = FlussUtils.flussTypeToDorisType(DataTypes.TINYINT(), false);
-        Assert.assertEquals(Type.TINYINT, dorisTinyInt);
-
-        // SmallInt
-        Type dorisSmallInt = FlussUtils.flussTypeToDorisType(DataTypes.SMALLINT(), false);
-        Assert.assertEquals(Type.SMALLINT, dorisSmallInt);
-
-        // Int
-        Type dorisInt = FlussUtils.flussTypeToDorisType(DataTypes.INT(), false);
-        Assert.assertEquals(Type.INT, dorisInt);
-
-        // BigInt
-        Type dorisBigInt = FlussUtils.flussTypeToDorisType(DataTypes.BIGINT(), false);
-        Assert.assertEquals(Type.BIGINT, dorisBigInt);
-
-        // Float
-        Type dorisFloat = FlussUtils.flussTypeToDorisType(DataTypes.FLOAT(), false);
-        Assert.assertEquals(Type.FLOAT, dorisFloat);
-
-        // Double
-        Type dorisDouble = FlussUtils.flussTypeToDorisType(DataTypes.DOUBLE(), false);
-        Assert.assertEquals(Type.DOUBLE, dorisDouble);
-
-        // String
-        Type dorisString = FlussUtils.flussTypeToDorisType(DataTypes.STRING(), false);
-        Assert.assertEquals(Type.STRING, dorisString);
+        Assert.assertEquals(Type.BOOLEAN, FlussUtils.flussTypeToDorisType("BOOLEAN"));
+        Assert.assertEquals(Type.BOOLEAN, FlussUtils.flussTypeToDorisType("BOOL"));
+        Assert.assertEquals(Type.TINYINT, FlussUtils.flussTypeToDorisType("TINYINT"));
+        Assert.assertEquals(Type.TINYINT, FlussUtils.flussTypeToDorisType("INT8"));
+        Assert.assertEquals(Type.SMALLINT, FlussUtils.flussTypeToDorisType("SMALLINT"));
+        Assert.assertEquals(Type.SMALLINT, FlussUtils.flussTypeToDorisType("INT16"));
+        Assert.assertEquals(Type.INT, FlussUtils.flussTypeToDorisType("INT"));
+        Assert.assertEquals(Type.INT, FlussUtils.flussTypeToDorisType("INT32"));
+        Assert.assertEquals(Type.INT, FlussUtils.flussTypeToDorisType("INTEGER"));
+        Assert.assertEquals(Type.BIGINT, FlussUtils.flussTypeToDorisType("BIGINT"));
+        Assert.assertEquals(Type.BIGINT, FlussUtils.flussTypeToDorisType("INT64"));
+        Assert.assertEquals(Type.FLOAT, FlussUtils.flussTypeToDorisType("FLOAT"));
+        Assert.assertEquals(Type.DOUBLE, FlussUtils.flussTypeToDorisType("DOUBLE"));
     }
 
     @Test
-    public void testCharType() {
-        CharType charType = DataTypes.CHAR(32);
-        Type dorisChar = FlussUtils.flussTypeToDorisType(charType, false);
-        Assert.assertTrue(dorisChar.isCharType());
-        Assert.assertEquals(32, dorisChar.getLength());
+    public void testStringTypes() {
+        Type stringType = FlussUtils.flussTypeToDorisType("STRING");
+        Assert.assertTrue(stringType.isStringType());
+
+        Type varcharType = FlussUtils.flussTypeToDorisType("VARCHAR(100)");
+        Assert.assertTrue(varcharType.isVarchar());
+        Assert.assertEquals(100, ((ScalarType) varcharType).getLength());
+
+        Type charType = FlussUtils.flussTypeToDorisType("CHAR(32)");
+        Assert.assertTrue(charType.isVarchar());
     }
 
     @Test
     public void testBinaryTypes() {
-        // Binary without varbinary mapping
-        BinaryType binaryType = DataTypes.BINARY();
-        Type dorisBinary = FlussUtils.flussTypeToDorisType(binaryType, false);
-        Assert.assertEquals(Type.STRING, dorisBinary);
+        Type binaryType = FlussUtils.flussTypeToDorisType("BINARY");
+        Assert.assertTrue(binaryType.isStringType());
 
-        // Binary with varbinary mapping
-        Type dorisBinaryVarbinary = FlussUtils.flussTypeToDorisType(binaryType, true);
-        Assert.assertTrue(dorisBinaryVarbinary.isVarbinaryType());
+        Type bytesType = FlussUtils.flussTypeToDorisType("BYTES");
+        Assert.assertTrue(bytesType.isStringType());
     }
 
     @Test
     public void testDecimalType() {
-        DecimalType decimal = DataTypes.DECIMAL(10, 2);
-        Type dorisDecimal = FlussUtils.flussTypeToDorisType(decimal, false);
-        Assert.assertTrue(dorisDecimal.isDecimalV3Type());
-        Assert.assertEquals(10, ((ScalarType) dorisDecimal).getScalarPrecision());
-        Assert.assertEquals(2, ((ScalarType) dorisDecimal).getScalarScale());
+        Type decimalType = FlussUtils.flussTypeToDorisType("DECIMAL(10,2)");
+        Assert.assertTrue(decimalType.isDecimalV3Type());
+        Assert.assertEquals(10, ((ScalarType) decimalType).getScalarPrecision());
+        Assert.assertEquals(2, ((ScalarType) decimalType).getScalarScale());
+
+        Type defaultDecimal = FlussUtils.flussTypeToDorisType("DECIMAL");
+        Assert.assertTrue(defaultDecimal.isDecimalV3Type());
     }
 
     @Test
-    public void testDateType() {
-        DateType dateType = DataTypes.DATE();
-        Type dorisDate = FlussUtils.flussTypeToDorisType(dateType, false);
-        Assert.assertTrue(dorisDate.isDateV2Type());
-    }
+    public void testDateTimeTypes() {
+        Type dateType = FlussUtils.flussTypeToDorisType("DATE");
+        Assert.assertTrue(dateType.isDateV2Type());
 
-    @Test
-    public void testTimestampTypes() {
-        // Timestamp
-        TimestampType timestampType = DataTypes.TIMESTAMP(3);
-        Type dorisTimestamp = FlussUtils.flussTypeToDorisType(timestampType, false);
-        Assert.assertTrue(dorisTimestamp.isDatetimeV2Type());
-        Assert.assertEquals(3, ((ScalarType) dorisTimestamp).getScalarScale());
+        Type timeType = FlussUtils.flussTypeToDorisType("TIME");
+        Assert.assertTrue(timeType.isTime());
 
-        // Timestamp with local time zone
-        LocalZonedTimestampType localZonedType = DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6);
-        Type dorisLocalZoned = FlussUtils.flussTypeToDorisType(localZonedType, false);
-        Assert.assertTrue(dorisLocalZoned.isDatetimeV2Type());
-        Assert.assertEquals(6, ((ScalarType) dorisLocalZoned).getScalarScale());
+        Type timestampType = FlussUtils.flussTypeToDorisType("TIMESTAMP");
+        Assert.assertTrue(timestampType.isDatetimeV2());
+
+        Type timestampLtzType = FlussUtils.flussTypeToDorisType("TIMESTAMP_LTZ");
+        Assert.assertTrue(timestampLtzType.isDatetimeV2());
     }
 
     @Test
     public void testArrayType() {
-        ArrayType arrayType = DataTypes.ARRAY(DataTypes.INT());
-        Type dorisArray = FlussUtils.flussTypeToDorisType(arrayType, false);
-        Assert.assertTrue(dorisArray.isArrayType());
-        ArrayType array = (ArrayType) dorisArray;
+        Type arrayType = FlussUtils.flussTypeToDorisType("ARRAY<INT>");
+        Assert.assertTrue(arrayType.isArrayType());
+        org.apache.doris.catalog.ArrayType array = (org.apache.doris.catalog.ArrayType) arrayType;
         Assert.assertEquals(Type.INT, array.getItemType());
+
+        Type nestedArray = FlussUtils.flussTypeToDorisType("ARRAY<STRING>");
+        Assert.assertTrue(nestedArray.isArrayType());
     }
 
     @Test
     public void testMapType() {
-        MapType mapType = DataTypes.MAP(DataTypes.STRING(), DataTypes.INT());
-        Type dorisMap = FlussUtils.flussTypeToDorisType(mapType, false);
-        Assert.assertTrue(dorisMap.isMapType());
-        MapType map = (MapType) dorisMap;
-        Assert.assertEquals(Type.STRING, map.getKeyType());
+        Type mapType = FlussUtils.flussTypeToDorisType("MAP<STRING, INT>");
+        Assert.assertTrue(mapType.isMapType());
+        org.apache.doris.catalog.MapType map = (org.apache.doris.catalog.MapType) mapType;
+        Assert.assertTrue(map.getKeyType().isStringType());
         Assert.assertEquals(Type.INT, map.getValueType());
     }
 
     @Test
-    public void testRowType() {
-        List<org.apache.fluss.types.DataField> fields = new ArrayList<>();
-        fields.add(new org.apache.fluss.types.DataField("id", DataTypes.BIGINT()));
-        fields.add(new org.apache.fluss.types.DataField("name", DataTypes.STRING()));
-        RowType rowType = new RowType(fields);
-
-        Type dorisRow = FlussUtils.flussTypeToDorisType(rowType, false);
-        Assert.assertTrue(dorisRow.isStructType());
-        org.apache.doris.catalog.StructType struct = (org.apache.doris.catalog.StructType) dorisRow;
-        Assert.assertEquals(2, struct.getFields().size());
-        Assert.assertEquals("id", struct.getFields().get(0).getName());
-        Assert.assertEquals("name", struct.getFields().get(1).getName());
+    public void testUnknownTypeDefaultsToString() {
+        Type unknownType = FlussUtils.flussTypeToDorisType("UNKNOWN_TYPE");
+        Assert.assertEquals(Type.STRING, unknownType);
     }
 
     @Test
-    public void testNestedTypes() {
-        // Array of Struct
-        List<org.apache.fluss.types.DataField> structFields = new ArrayList<>();
-        structFields.add(new org.apache.fluss.types.DataField("x", DataTypes.INT()));
-        structFields.add(new org.apache.fluss.types.DataField("y", DataTypes.DOUBLE()));
-        RowType structType = new RowType(structFields);
-        ArrayType arrayOfStruct = DataTypes.ARRAY(structType);
+    public void testNullAndEmptyType() {
+        Type nullType = FlussUtils.flussTypeToDorisType(null);
+        Assert.assertEquals(Type.STRING, nullType);
 
-        Type dorisArrayOfStruct = FlussUtils.flussTypeToDorisType(arrayOfStruct, false);
-        Assert.assertTrue(dorisArrayOfStruct.isArrayType());
-        ArrayType array = (ArrayType) dorisArrayOfStruct;
-        Assert.assertTrue(array.getItemType().isStructType());
+        Type emptyType = FlussUtils.flussTypeToDorisType("");
+        Assert.assertEquals(Type.STRING, emptyType);
     }
 
-    @Test(expected = IllegalArgumentException.class)
-    public void testUnsupportedType() {
-        // This test assumes there's an unsupported type
-        // For now, we'll test with a valid type that might throw if not handled
-        // In real implementation, this would test actual unsupported types
-        throw new IllegalArgumentException("Unsupported Fluss type");
+    @Test
+    public void testCaseInsensitive() {
+        Assert.assertEquals(Type.BOOLEAN, FlussUtils.flussTypeToDorisType("boolean"));
+        Assert.assertEquals(Type.INT, FlussUtils.flussTypeToDorisType("int"));
+        Assert.assertEquals(Type.BIGINT, FlussUtils.flussTypeToDorisType("bigint"));
     }
 }
-

@@ -29,9 +29,9 @@ import java.util.Map;
 public class FlussExternalCatalogTest {
 
     @Test
-    public void testCreateCatalogWithCoordinatorUri() throws DdlException {
+    public void testCreateCatalogWithBootstrapServers() throws DdlException {
         Map<String, String> props = new HashMap<>();
-        props.put(FlussExternalCatalog.FLUSS_COORDINATOR_URI, "localhost:9123");
+        props.put(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, "localhost:9123");
 
         ExternalCatalog catalog = FlussExternalCatalogFactory.createCatalog(
                 1L, "test_fluss_catalog", null, props, "test catalog");
@@ -42,9 +42,9 @@ public class FlussExternalCatalogTest {
     }
 
     @Test
-    public void testCreateCatalogWithBootstrapServers() throws DdlException {
+    public void testCreateCatalogWithMultipleServers() throws DdlException {
         Map<String, String> props = new HashMap<>();
-        props.put(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, "localhost:9123");
+        props.put(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, "host1:9123,host2:9123,host3:9123");
 
         ExternalCatalog catalog = FlussExternalCatalogFactory.createCatalog(
                 1L, "test_fluss_catalog", null, props, "test catalog");
@@ -54,29 +54,17 @@ public class FlussExternalCatalogTest {
     }
 
     @Test
-    public void testCheckPropertiesMissingUri() {
+    public void testCheckPropertiesMissingBootstrapServers() {
         Map<String, String> props = new HashMap<>();
         FlussExternalCatalog catalog = new FlussExternalCatalog(
                 1L, "test", null, props, "");
 
         try {
             catalog.checkProperties();
-            Assert.fail("Should throw DdlException for missing coordinator URI");
+            Assert.fail("Should throw DdlException for missing bootstrap servers");
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains(FlussExternalCatalog.FLUSS_COORDINATOR_URI)
-                    || e.getMessage().contains(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS));
+            Assert.assertTrue(e.getMessage().contains(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS));
         }
-    }
-
-    @Test
-    public void testCheckPropertiesWithCoordinatorUri() throws DdlException {
-        Map<String, String> props = new HashMap<>();
-        props.put(FlussExternalCatalog.FLUSS_COORDINATOR_URI, "localhost:9123");
-
-        FlussExternalCatalog catalog = new FlussExternalCatalog(
-                1L, "test", null, props, "");
-        catalog.checkProperties();
-        // Should not throw exception
     }
 
     @Test
@@ -87,19 +75,59 @@ public class FlussExternalCatalogTest {
         FlussExternalCatalog catalog = new FlussExternalCatalog(
                 1L, "test", null, props, "");
         catalog.checkProperties();
-        // Should not throw exception
     }
 
     @Test
     public void testCatalogProperties() {
         Map<String, String> props = new HashMap<>();
-        props.put(FlussExternalCatalog.FLUSS_COORDINATOR_URI, "localhost:9123");
+        props.put(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, "localhost:9123");
         props.put("fluss.client.timeout", "30000");
 
         FlussExternalCatalog catalog = new FlussExternalCatalog(
                 1L, "test", null, props, "");
-        Assert.assertEquals("localhost:9123", 
-                catalog.getCatalogProperty().getOrDefault(FlussExternalCatalog.FLUSS_COORDINATOR_URI, null));
+        Assert.assertEquals("localhost:9123",
+                catalog.getCatalogProperty().getOrDefault(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, null));
+    }
+
+    @Test
+    public void testCatalogSecurityProperties() {
+        Map<String, String> props = new HashMap<>();
+        props.put(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, "localhost:9123");
+        props.put(FlussExternalCatalog.FLUSS_SECURITY_PROTOCOL, "SASL_PLAINTEXT");
+        props.put(FlussExternalCatalog.FLUSS_SASL_MECHANISM, "PLAIN");
+        props.put(FlussExternalCatalog.FLUSS_SASL_USERNAME, "user");
+        props.put(FlussExternalCatalog.FLUSS_SASL_PASSWORD, "password");
+
+        FlussExternalCatalog catalog = new FlussExternalCatalog(
+                1L, "test", null, props, "");
+        Assert.assertEquals("SASL_PLAINTEXT",
+                catalog.getCatalogProperty().getOrDefault(FlussExternalCatalog.FLUSS_SECURITY_PROTOCOL, null));
+    }
+
+    @Test
+    public void testCacheTtlProperty() throws DdlException {
+        Map<String, String> props = new HashMap<>();
+        props.put(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, "localhost:9123");
+        props.put(FlussExternalCatalog.FLUSS_TABLE_META_CACHE_TTL_SECOND, "300");
+
+        FlussExternalCatalog catalog = new FlussExternalCatalog(
+                1L, "test", null, props, "");
+        catalog.checkProperties();
+    }
+
+    @Test
+    public void testInvalidCacheTtlProperty() {
+        Map<String, String> props = new HashMap<>();
+        props.put(FlussExternalCatalog.FLUSS_BOOTSTRAP_SERVERS, "localhost:9123");
+        props.put(FlussExternalCatalog.FLUSS_TABLE_META_CACHE_TTL_SECOND, "-1");
+
+        FlussExternalCatalog catalog = new FlussExternalCatalog(
+                1L, "test", null, props, "");
+        try {
+            catalog.checkProperties();
+            Assert.fail("Should throw DdlException for negative cache TTL");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("non-negative"));
+        }
     }
 }
-
