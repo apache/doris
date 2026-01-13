@@ -108,24 +108,6 @@ public class Tablet extends MetaObject {
     protected long id;
     @SerializedName(value = "rs", alternate = {"replicas"})
     protected List<Replica> replicas;
-    @SerializedName(value = "cv", alternate = {"checkedVersion"})
-    private long checkedVersion;
-    @SerializedName(value = "ic", alternate = {"isConsistent"})
-    private boolean isConsistent;
-
-    // last time that the tablet checker checks this tablet.
-    // no need to persist
-    private long lastStatusCheckTime = -1;
-
-    // last time for load data fail
-    private long lastLoadFailedTime = -1;
-
-    // if tablet want to add a new replica, but cann't found any backend to locate the new replica.
-    // then mark this tablet. For later repair, even try and try to repair this tablet, sched will always fail.
-    // For example, 1 tablet contains 3 replicas, if 1 backend is dead, then tablet's healthy status
-    // is REPLICA_MISSING. But since no other backend can held the new replica, then sched always fail.
-    // So don't increase this tablet's sched priority if it has no path for new replica.
-    private long lastTimeNoPathForNewReplica = -1;
 
     public Tablet() {
         this(0L, new ArrayList<>());
@@ -141,10 +123,6 @@ public class Tablet extends MetaObject {
         if (this.replicas == null) {
             this.replicas = new ArrayList<>();
         }
-
-        checkedVersion = -1L;
-
-        isConsistent = true;
     }
 
     public long getId() {
@@ -152,23 +130,27 @@ public class Tablet extends MetaObject {
     }
 
     public long getCheckedVersion() {
-        return this.checkedVersion;
+        return -1;
     }
 
     public void setCheckedVersion(long checkedVersion) {
-        this.checkedVersion = checkedVersion;
+        if (checkedVersion != -1) {
+            throw new UnsupportedOperationException("setCheckedVersion is not supported in Tablet");
+        }
     }
 
     public void setIsConsistent(boolean good) {
-        this.isConsistent = good;
+        if (!good) {
+            throw new UnsupportedOperationException("setIsConsistent is not supported in Tablet");
+        }
     }
 
     public boolean isConsistent() {
-        return isConsistent;
+        return true;
     }
 
     public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
-        throw new UnsupportedOperationException("not support setCooldownConf in Tablet");
+        throw new UnsupportedOperationException("setCooldownConf is not supported in Tablet");
     }
 
     public long getCooldownReplicaId() {
@@ -685,8 +667,8 @@ public class Tablet extends MetaObject {
 
     private void initTabletHealth(TabletHealth tabletHealth) {
         long endTime = System.currentTimeMillis() - Config.tablet_recent_load_failed_second * 1000L;
-        tabletHealth.hasRecentLoadFailed = lastLoadFailedTime > endTime;
-        tabletHealth.noPathForNewReplica = lastTimeNoPathForNewReplica > endTime;
+        tabletHealth.hasRecentLoadFailed = getLastLoadFailedTime() > endTime;
+        tabletHealth.noPathForNewReplica = getLastTimeNoPathForNewReplica() > endTime;
     }
 
     private boolean isReplicaAndBackendAlive(Replica replica, Backend backend, Set<String> hosts) {
@@ -855,21 +837,21 @@ public class Tablet extends MetaObject {
         long currentTime = System.currentTimeMillis();
 
         // first check, wait for next round
-        if (lastStatusCheckTime == -1) {
-            lastStatusCheckTime = currentTime;
+        if (getLastStatusCheckTime() == -1) {
+            setLastStatusCheckTime(currentTime);
             return false;
         }
 
         boolean ready = false;
         switch (priority) {
             case HIGH:
-                ready = currentTime - lastStatusCheckTime > Config.tablet_repair_delay_factor_second * 1000 * 1;
+                ready = currentTime - getLastStatusCheckTime() > Config.tablet_repair_delay_factor_second * 1000 * 1;
                 break;
             case NORMAL:
-                ready = currentTime - lastStatusCheckTime > Config.tablet_repair_delay_factor_second * 1000 * 2;
+                ready = currentTime - getLastStatusCheckTime() > Config.tablet_repair_delay_factor_second * 1000 * 2;
                 break;
             case LOW:
-                ready = currentTime - lastStatusCheckTime > Config.tablet_repair_delay_factor_second * 1000 * 3;
+                ready = currentTime - getLastStatusCheckTime() > Config.tablet_repair_delay_factor_second * 1000 * 3;
                 break;
             default:
                 break;
@@ -878,19 +860,33 @@ public class Tablet extends MetaObject {
         return ready;
     }
 
+    protected long getLastStatusCheckTime() {
+        return -1;
+    }
+
     public void setLastStatusCheckTime(long lastStatusCheckTime) {
-        this.lastStatusCheckTime = lastStatusCheckTime;
+        if (lastStatusCheckTime != -1) {
+            throw new UnsupportedOperationException("setLastStatusCheckTime is not supported in Tablet");
+        }
     }
 
     public long getLastLoadFailedTime() {
-        return lastLoadFailedTime;
+        return -1;
     }
 
     public void setLastLoadFailedTime(long lastLoadFailedTime) {
-        this.lastLoadFailedTime = lastLoadFailedTime;
+        if (lastLoadFailedTime != -1) {
+            throw new UnsupportedOperationException("setLastLoadFailedTime is not supported in Tablet");
+        }
+    }
+
+    protected long getLastTimeNoPathForNewReplica() {
+        return -1;
     }
 
     public void setLastTimeNoPathForNewReplica(long lastTimeNoPathForNewReplica) {
-        this.lastTimeNoPathForNewReplica = lastTimeNoPathForNewReplica;
+        if (lastTimeNoPathForNewReplica != -1) {
+            throw new UnsupportedOperationException("setLastTimeNoPathForNewReplica is not supported in Tablet");
+        }
     }
 }

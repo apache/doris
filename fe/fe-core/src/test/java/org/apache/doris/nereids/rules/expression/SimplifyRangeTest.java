@@ -673,6 +673,16 @@ public class SimplifyRangeTest extends ExpressionRewrite {
                 "(CA is null and null) OR CB < timestamp '2024-01-05 00:50:00'");
     }
 
+    @Test
+    public void testMixTypes() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyRange.INSTANCE)
+        ));
+        assertRewrite("(TA > 1 and FALSE or FALSE and SA > 'aaaa') and TB is null", "FALSE");
+        assertRewrite("(TA > 1 and FALSE or FALSE and SA > 'aaaa') and (TA > 1 and FALSE or FALSE and SA > 'aaaa') and TB is null",
+                "FALSE");
+    }
+
     private ValueDesc getValueDesc(String expression) {
         Expression parseExpression = replaceUnboundSlot(PARSER.parseExpression(expression), commonMem);
         parseExpression = typeCoercion(parseExpression);

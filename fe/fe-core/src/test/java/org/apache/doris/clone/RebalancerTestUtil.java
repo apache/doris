@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MysqlCompatibleDatabase;
@@ -100,7 +101,8 @@ public class RebalancerTestUtil {
         invertedIndex.addTablet(tablet.getId(), tabletMeta);
 
         IntStream.range(0, beIds.size()).forEach(i -> {
-            Replica replica = new Replica(tablet.getId() + i, beIds.get(i), Replica.ReplicaState.NORMAL, 1, tabletMeta.getOldSchemaHash());
+            Replica replica = new LocalReplica(tablet.getId() + i, beIds.get(i), Replica.ReplicaState.NORMAL, 1,
+                    tabletMeta.getOldSchemaHash());
             // We've set pathHash to beId for simplicity
             replica.setPathHash(beIds.get(i));
             if (replicaSizes != null) {

@@ -866,7 +866,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         UInt64 v = unaligned_load<UInt64>(data);
         info.precision = -1;
         info.scale = static_cast<int>(scale);
-        field = Field::create_field<T>(v);
+        field = Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&v);
         data += sizeof(UInt64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

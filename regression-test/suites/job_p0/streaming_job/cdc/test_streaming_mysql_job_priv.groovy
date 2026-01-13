@@ -19,7 +19,7 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
     def tableName = "test_streaming_mysql_job_priv_tbl"
     def jobName = "test_streaming_mysql_job_priv_name"
 
@@ -173,11 +173,23 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
             sql """INSERT INTO ${mysqlDb}.${tableName} (name,age) VALUES ('DorisTestPriv',28);"""
         }
 
-       sleep(20000)
-
-       def jobErrorMsg = sql """select ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
-       log.info("jobErrorMsg: " + jobErrorMsg)
-       assert jobErrorMsg.get(0).get(0).contains("Failed to fetch meta")
+       try {
+           Awaitility.await().atMost(300, SECONDS)
+                   .pollInterval(1, SECONDS).until(
+                   {
+                       def jobStatus = sql """ select status, ErrorMsg from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                       log.info("jobStatus: " + jobStatus)
+                       // check job status
+                       jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0) && jobStatus.get(0).get(1).contains("Failed to fetch meta")
+                   }
+           )
+       } catch (Exception ex){
+           def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+           def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+           log.info("show job: " + showjob)
+           log.info("show task: " + showtask)
+           throw ex;
+       }
 
         // grant binlog priv to mysqluser
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {

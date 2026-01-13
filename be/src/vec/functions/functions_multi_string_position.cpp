@@ -129,7 +129,7 @@ public:
         if (col_needles_const) {
             status = Impl::vector_constant(
                     col_haystack_vector->get_chars(), col_haystack_vector->get_offsets(),
-                    col_needles_const->get_value<Array>(), vec_res, offsets_res);
+                    col_needles_const->get_value<TYPE_ARRAY>(), vec_res, offsets_res);
         } else {
             status = Impl::vector_vector(col_haystack_vector->get_chars(),
                                          col_haystack_vector->get_offsets(),

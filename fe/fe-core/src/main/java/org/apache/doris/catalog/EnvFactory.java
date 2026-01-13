@@ -86,6 +86,10 @@ public class EnvFactory {
         return new SystemInfoService();
     }
 
+    public TabletInvertedIndex createTabletInvertedIndex() {
+        return new LocalTabletInvertedIndex();
+    }
+
     public Type getPartitionClass() {
         return Partition.class;
     }
@@ -107,11 +111,11 @@ public class EnvFactory {
     }
 
     public Replica createReplica() {
-        return new Replica();
+        return new LocalReplica();
     }
 
     public Replica createReplica(Replica.ReplicaContext context) {
-        return new Replica(context);
+        return new LocalReplica(context);
     }
 
     public ReplicaAllocation createDefReplicaAllocation() {
