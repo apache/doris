@@ -487,7 +487,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // ========================================
         // notify BEs to make temporary rowsets visible
         // ========================================
-        if (tabletCommitInfos != null && Config.enable_notify_be_after_load_txn_commit) {
+        if (tabletCommitInfos != null) {
             notifyBesMakeTmpRsVisible(commitTxnResponse, tabletCommitInfos);
         }
 
@@ -2659,7 +2659,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      */
     private void notifyBesMakeTmpRsVisible(CommitTxnResponse commitTxnResponse,
                                            List<TabletCommitInfo> tabletCommitInfos) {
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
+                || !Config.enable_notify_be_after_load_txn_commit) {
             return;
         }
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();

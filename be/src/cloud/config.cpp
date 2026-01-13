@@ -108,8 +108,6 @@ DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
 DEFINE_mBool(enable_cloud_tablet_report, "true");
 
-DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
-
 DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
 
 DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "100");
