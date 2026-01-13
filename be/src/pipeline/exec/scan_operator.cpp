@@ -980,7 +980,7 @@ Status ScanLocalState<Derived>::_start_scanners(
             ,
             max_scanners_concurrency(state())
 #endif
-    ));
+                    ));
     return Status::OK();
 }
 
