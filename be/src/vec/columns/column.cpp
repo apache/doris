@@ -133,7 +133,6 @@ bool IColumn::null_map_check() const {
 }
 
 Status IColumn::column_self_check() const {
-#ifndef NDEBUG
     // check const nested
     if (!const_nested_check()) {
         return Status::InternalError("const nested check failed for column: {} , {}", get_name(),
@@ -147,7 +146,6 @@ Status IColumn::column_self_check() const {
     if (!column_boolean_check()) {
         return Status::InternalError("boolean column check failed for column: {}", get_name());
     }
-#endif
     return Status::OK();
 }
 
