@@ -23,6 +23,9 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -242,5 +245,39 @@ public class SortNode extends PlanNode {
     public void setTopnFilterTargets(
             List<Pair<Integer, Integer>> topnFilterTargets) {
         this.topnFilterTargets = topnFilterTargets;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType = null;
+        if (children.get(0) instanceof AnalyticEvalNode) {
+            if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireBucketHash();
+                outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+            } else {
+                requireChild = parentRequire.autoHash();
+            }
+        } else if (mergeByexchange) {
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        } else if (fragment.useSerialSource(translatorContext.getConnectContext())
+                && children.get(0) instanceof ScanNode) {
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        } else {
+            requireChild = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        }
+
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceChild(translatorContext, requireChild, children.get(0));
+        this.children = Lists.newArrayList(enforceResult.first);
+        if (outputType == null) {
+            outputType = enforceResult.second;
+        }
+        return Pair.of(this, outputType);
     }
 }

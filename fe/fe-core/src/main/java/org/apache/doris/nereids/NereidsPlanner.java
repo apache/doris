@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
@@ -623,7 +624,11 @@ public class NereidsPlanner extends Planner {
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
-        fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
+        List<PlanFragment> planFragments = planTranslatorContext.getPlanFragments();
+        if (sessionVariable.isEnableLocalShufflePlanner()) {
+            new AddLocalExchange().addLocalExchange(planFragments, planTranslatorContext);
+        }
+        fragments = new ArrayList<>(planFragments);
 
         boolean enableQueryCache = sessionVariable.getEnableQueryCache();
         for (int seq = 0; seq < fragments.size(); seq++) {

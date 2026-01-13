@@ -25,7 +25,11 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
@@ -116,6 +120,10 @@ public class HashJoinNode extends JoinNodeBase {
     public void setColocate(boolean colocate, String reason) {
         isColocate = colocate;
         colocateReason = reason;
+    }
+
+    public boolean isColocate() {
+        return isColocate;
     }
 
     public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {
@@ -266,5 +274,59 @@ public class HashJoinNode extends JoinNodeBase {
 
     public List<Expr> getMarkJoinConjuncts() {
         return markJoinConjuncts;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        LocalExchangeTypeRequire probeSideRequire;
+        LocalExchangeTypeRequire buildSideRequire;
+        LocalExchangeType outputType = null;
+
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (distrMode == DistributionMode.BROADCAST) {
+            probeSideRequire = LocalExchangeTypeRequire.requirePassthrough();
+            buildSideRequire = LocalExchangeTypeRequire.requirePassToOne();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        } else if (AddLocalExchange.isColocated(this) || isBucketShuffle()) {
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+            outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+        } else {
+            buildSideRequire = probeSideRequire = parentRequire.autoHash();
+        }
+
+        PlanNode probeSide = children.get(0);
+        Pair<PlanNode, LocalExchangeType> probeSideOutput = probeSide.enforceAndDeriveLocalExchange(
+                translatorContext, this, probeSideRequire);
+        if (!probeSideRequire.satisfy(probeSideOutput.second)) {
+            LocalExchangeType preferType = probeSideRequire.preferType();
+            probeSide = new LocalExchangeNode(
+                    translatorContext.nextPlanNodeId(), probeSide, preferType
+            );
+        } else {
+            probeSide = probeSideOutput.first;
+        }
+
+        PlanNode buildSide = children.get(1);
+        Pair<PlanNode, LocalExchangeType> buildSideOutput = buildSide.enforceAndDeriveLocalExchange(
+                translatorContext, this, buildSideRequire);
+        if (!buildSideRequire.satisfy(buildSideOutput.second)) {
+            LocalExchangeType preferType = buildSideRequire.preferType();
+            buildSide = new LocalExchangeNode(
+                    translatorContext.nextPlanNodeId(), buildSide, preferType
+            );
+        } else {
+            buildSide = buildSideOutput.first;
+        }
+
+        this.children = Lists.newArrayList(probeSide, buildSide);
+
+        if (outputType == null) {
+            outputType = probeSideOutput.second;
+        }
+        return Pair.of(this, outputType);
     }
 }

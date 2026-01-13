@@ -19,6 +19,11 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
+import org.apache.doris.planner.LocalExchangeNode.NoRequire;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -34,6 +39,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -187,5 +193,60 @@ public abstract class SetOperationNode extends PlanNode {
 
     public boolean isBucketShuffle() {
         return distributionMode.equals(DistributionMode.BUCKET_SHUFFLE);
+    }
+
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        if (this instanceof UnionNode) {
+            ArrayList<PlanNode> newChildren = Lists.newArrayList();
+            NoRequire requireChild = LocalExchangeTypeRequire.noRequire();
+            for (PlanNode child : children) {
+                Pair<PlanNode, LocalExchangeType> childOutput
+                        = child.enforceAndDeriveLocalExchange(translatorContext, this, requireChild);
+                if (!requireChild.satisfy(childOutput.second)) {
+                    LocalExchangeType preferType = requireChild.preferType();
+                    LocalExchangeNode localExchangeNode
+                            = new LocalExchangeNode(translatorContext.nextPlanNodeId(), child, preferType);
+                    newChildren.add(localExchangeNode);
+                } else {
+                    newChildren.add(childOutput.first);
+                }
+            }
+
+            this.children = newChildren;
+            return Pair.of(this, LocalExchangeType.NOOP);
+        } else {
+            LocalExchangeTypeRequire requireChild;
+            LocalExchangeType outputType;
+            if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireBucketHash();
+                outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+            } else {
+                requireChild = LocalExchangeTypeRequire.requireExecutionHash();
+                outputType = LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE;
+            }
+
+            ArrayList<PlanNode> newChildren = Lists.newArrayList();
+            for (PlanNode child : children) {
+                Pair<PlanNode, LocalExchangeType> childOutput
+                        = child.enforceAndDeriveLocalExchange(translatorContext, this, requireChild);
+                if (!requireChild.satisfy(childOutput.second)) {
+                    LocalExchangeType preferType = requireChild.preferType();
+                    LocalExchangeNode localExchangeNode
+                            = new LocalExchangeNode(translatorContext.nextPlanNodeId(), child, preferType);
+                    newChildren.add(localExchangeNode);
+                } else {
+                    newChildren.add(childOutput.first);
+                }
+            }
+
+            this.children = newChildren;
+            return Pair.of(this, outputType);
+        }
     }
 }

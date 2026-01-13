@@ -22,6 +22,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDataStreamSink;
@@ -29,6 +30,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
+import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -238,5 +240,17 @@ public class DataStreamSink extends DataSink {
         tStreamSink.setTabletSinkTxnId(tabletSinkTxnId);
         result.setStreamSink(tStreamSink);
         return result;
+    }
+
+    @Override
+    public LocalExchangeTypeRequire getLocalExchangeTypeRequire() {
+        TPartitionType outputType = outputPartition.getType();
+        if (outputType == TPartitionType.HASH_PARTITIONED) {
+            return LocalExchangeTypeRequire.requireExecutionHash();
+        } else if (outputType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+            return LocalExchangeTypeRequire.requireBucketHash();
+        } else {
+            return LocalExchangeTypeRequire.noRequire();
+        }
     }
 }

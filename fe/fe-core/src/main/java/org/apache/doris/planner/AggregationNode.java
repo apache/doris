@@ -26,7 +26,13 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -246,6 +252,10 @@ public class AggregationNode extends PlanNode {
         isColocate = colocate;
     }
 
+    public boolean isColocate() {
+        return isColocate;
+    }
+
     public void setSortByGroupKey(SortInfo sortByGroupKey) {
         this.sortByGroupKey = sortByGroupKey;
     }
@@ -256,5 +266,50 @@ public class AggregationNode extends PlanNode {
 
     public void setQueryCacheCandidate(boolean queryCacheCandidate) {
         this.queryCacheCandidate = queryCacheCandidate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        ConnectContext connectContext = translatorContext.getConnectContext();
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+
+        LocalExchangeTypeRequire requireChild;
+        if (needsFinalize && aggInfo.getGroupingExprs().isEmpty()) {
+            requireChild = LocalExchangeTypeRequire.noRequire();
+        } else if (canUseDistinctStreamingAgg(sessionVariable)) {
+            boolean childUsePoolingScan = fragment.useSerialSource(translatorContext.getConnectContext())
+                    && (children.get(0) instanceof ScanNode);
+            if (needsFinalize || (aggInfo.getGroupingExprs().size() > 1 && !useStreamingPreagg)) {
+                if (AddLocalExchange.isColocated(this)) {
+                    requireChild = LocalExchangeTypeRequire.requireBucketHash();
+                } else {
+                    requireChild = parentRequire.autoHash();
+                }
+            } else if (childUsePoolingScan) {
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else {
+                requireChild = LocalExchangeTypeRequire.noRequire();
+            }
+        } else {
+            if (aggInfo.getGroupingExprs().isEmpty()) {
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireBucketHash();
+            } else {
+                requireChild = parentRequire.autoHash();
+            }
+        }
+
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceChild(translatorContext, requireChild, children.get(0));
+        children = Lists.newArrayList(enforceResult.first);
+        return Pair.of(this, enforceResult.second);
+    }
+
+    private boolean canUseDistinctStreamingAgg(SessionVariable sessionVariable) {
+        return aggInfo.getAggregateExprs().isEmpty() && sortByGroupKey == null
+                && sessionVariable.enableDistinctStreamingAggregation;
     }
 }

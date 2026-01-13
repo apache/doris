@@ -23,6 +23,10 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -165,5 +169,17 @@ public class ExchangeNode extends PlanNode {
     @Override
     public boolean hasSerialScanChildren() {
         return false;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        if (partitionType == TPartitionType.HASH_PARTITIONED) {
+            return Pair.of(this, LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        } else if (partitionType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+            return Pair.of(this, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        } else {
+            return Pair.of(this, LocalExchangeType.NOOP);
+        }
     }
 }
