@@ -714,7 +714,7 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : COMMENT_START ( BRACKETED_COMMENT | . )*? '*/' -> channel(2)
+    : COMMENT_START .*? '*/' -> channel(2)
     ;
 
 
