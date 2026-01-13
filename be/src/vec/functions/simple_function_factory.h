@@ -102,7 +102,6 @@ void register_function_ignore(SimpleFunctionFactory& factory);
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
-void register_function_default(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
 void register_function_url(SimpleFunctionFactory& factory);
@@ -326,7 +325,6 @@ public:
             register_function_convert_tz(instance);
             register_function_least_greast(instance);
             register_function_fake(instance);
-            register_function_default(instance);
             register_function_encryption(instance);
             register_function_regexp_extract(instance);
             register_function_hex_variadic(instance);

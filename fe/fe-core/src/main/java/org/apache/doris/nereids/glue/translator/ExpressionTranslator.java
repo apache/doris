@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DefaultExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -279,6 +281,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
         return context.findSlotRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitDefault(Default defaultExpr, PlanTranslatorContext context) {
+        return new DefaultExpr(defaultExpr.child().accept(this, context));
     }
 
     @Override

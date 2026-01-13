@@ -156,7 +156,6 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (fn().__isset.dict_function) {
         fn_ctx->set_dict_function(fn().dict_function);
     }
-    RETURN_IF_ERROR(_function->prepare_with_children(fn_ctx, state, desc, context, _children));
     return Status::OK();
 }
 

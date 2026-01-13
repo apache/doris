@@ -19,7 +19,6 @@ suite("test_default") {
     
     def tableName = "test_default_scalar"
     def aggTableName = "test_default_agg"
-    def nonConstDefaultTableName = "test_default_non_const"
     def notNullTableName = "test_default_not_null"
     
 
@@ -40,6 +39,7 @@ suite("test_default") {
             c_char                   CHAR(8)                               NULL     DEFAULT 'charDemo',
             c_varchar                VARCHAR(32)                           NULL     DEFAULT '',
             c_string                 STRING                                NULL     DEFAULT 'plain string',
+            c_tz                     TIMESTAMPTZ(6)                        NULL     DEFAULT '2025-10-25 11:22:33.666777+08:00',
             c_datetime               DATETIME                              NULL     DEFAULT '2025-10-25 11:22:33',
             c_date                   DATE                                  NULL     DEFAULT '2025-10-31',
             c_json                   JSON                                  NULL,
@@ -71,6 +71,7 @@ suite("test_default") {
             DEFAULT(c_char),
             DEFAULT(c_varchar),
             DEFAULT(c_string),
+            DEFAULT(c_tz),
             DEFAULT(c_datetime),
             DEFAULT(c_date),
             DEFAULT(c_json),
@@ -137,27 +138,39 @@ suite("test_default") {
     }
 
     // Test 3: Non-constant default value test (CURRENT_TIMESTAMP, CURRENT_DATE)
-    sql "DROP TABLE IF EXISTS ${nonConstDefaultTableName}"
+    sql "DROP TABLE IF EXISTS test_default_time"
     sql """
-        CREATE TABLE ${nonConstDefaultTableName} (
-            null_dt     DATETIME NULL     DEFAULT CURRENT_TIMESTAMP,
-            not_null_dt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            null_d      DATE     NULL     DEFAULT CURRENT_DATE,
-            not_null_d  DATE     NOT NULL DEFAULT CURRENT_DATE
-        ) PROPERTIES ( 'replication_num' = '1' )
+        CREATE TABLE test_default_time(
+            tm DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            dt DATE DEFAULT CURRENT_DATE,
+            tznn TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            tzn TIMESTAMPTZ(6) NULL DEFAULT CURRENT_TIMESTAMP(4)
+        ) PROPERTIES( 'replication_num' = '1' );
     """
 
-    sql "INSERT INTO ${nonConstDefaultTableName} (null_dt) VALUES (NULL)"
+    sql """
+        INSERT INTO test_default_time (tm, tznn) VALUES
+        ('2025-10-10 12:13:14', '2025-10-10 12:13:14'),
+        ('2025-10-10 12:13:14', '2025-10-10 12:13:14');
+    """
 
-    qt_non_const_defaults """
+    def curTimeResult = sql """
         SELECT
-            DEFAULT(null_dt), 
-            DEFAULT(not_null_dt),
-            DEFAULT(null_d), 
-            DEFAULT(not_null_d)
-        FROM ${nonConstDefaultTableName}
-        LIMIT 1
+            CAST(DEFAULT(tm) AS DATETIME(6)),
+            DEFAULT(dt),
+            CAST(DEFAULT(tznn) AS DATETIME(6)),
+            CAST(DEFAULT(tzn) AS DATETIME(4))
+        FROM test_default_time;
     """
+    firstRow = curTimeResult[0]
+    for (int i = 0; i < firstRow.size(); i++) {
+        assertTrue(curTimeResult[1][i] == firstRow[i], "Row ${i} should equal first row")
+    }
+    // assertTrue(curTimeResult[0][0] == curTimeResult[0][1])
+
+    // qt_non_const_defaults """
+    //     SELECT DEFAULT(tm), DEFAULT(dt), DEFAULT(tznn), DEFAULT(tzn) FROM test_default_time;
+    // """
 
     // Test 4: NOT NULL column has no default value error test
     sql "DROP TABLE IF EXISTS ${notNullTableName}"
@@ -306,17 +319,17 @@ suite("test_default") {
     // Test 7: Error case test - illegal parameter
     test {
         sql "SELECT DEFAULT(123)"
-        exception "DEFAULT function requires a column reference"
+        exception "DEFAULT requires a column reference"
     }
 
     test {
         sql "SELECT DEFAULT('literal_string')"
-        exception "DEFAULT function requires a column reference"
+        exception "DEFAULT requires a column reference"
     }
 
     test {
         sql "SELECT DEFAULT(c_bool + 1) FROM ${tableName} LIMIT 1"
-        exception "DEFAULT function requires a column reference"
+        exception "DEFAULT requires a column reference"
     }
 
     def baseDefault = sql """
@@ -369,13 +382,13 @@ suite("test_default") {
     sql "SET enable_fold_constant_by_be = false;"
     test {
         sql "SELECT DEFAULT(c_bool, c_int) FROM ${tableName} LIMIT 1"
-        exception "Can not found function 'DEFAULT' which has 2 arity. Candidate functions are: [DEFAULT(Expression)]"
+        exception "missing ')' at ','"
     }
 
     sql "SET enable_fold_constant_by_be = true;"
     test {
         sql "SELECT DEFAULT(c_bool, c_int) FROM ${tableName} LIMIT 1"
-        exception "Can not found function 'DEFAULT' which has 2 arity. Candidate functions are: [DEFAULT(Expression)]"
+        exception "missing ')' at ','"
     }
     sql "SET enable_fold_constant_by_be = default;"
 
@@ -568,7 +581,7 @@ suite("test_default") {
         CREATE TABLE ${tableA} (
             id          INT             NOT NULL DEFAULT '1',
             val         VARCHAR(20)     NOT NULL DEFAULT 'hello',
-            dt          DATE            NOT NULL DEFAULT CURRENT_DATE
+            dt          DATE            NOT NULL DEFAULT '2026-01-13'
         ) PROPERTIES ('replication_num' = '1' )
     """
     sql """

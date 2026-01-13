@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.DefaultExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
@@ -26,6 +27,7 @@ import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
+import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -71,5 +73,18 @@ public class ExpressionTranslatorTest {
 
         Expr actual = translator.visitOr(or, context);
         Assertions.assertTrue(actual.isNullable());
+    }
+
+    @Test
+    public void testDefaultTranslation() {
+        SlotReference slot = new SlotReference("col", IntegerType.INSTANCE, false);
+        ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        context.addExprIdSlotRefPair(slot.getExprId(), new SlotRef(Type.INT, false));
+        Default def = new Default(slot);
+        Expr legacy = translator.visitDefault(def, context);
+        Assertions.assertTrue(legacy instanceof DefaultExpr);
+        Assertions.assertEquals(Type.INT, legacy.getType());
+        Assertions.assertTrue(legacy.isNullable());
     }
 }

@@ -15,67 +15,53 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.scalar;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * ScalarFunction 'default'. This function returns the default value of a column.
+ * Default value expression.
  */
-public class Default extends ScalarFunction
-        implements UnaryExpression, CustomSignature, AlwaysNullable {
+public class Default extends Expression
+        implements UnaryExpression, AlwaysNullable {
+
+    public Default(Expression child) {
+        super(ImmutableList.of(child));
+    }
 
     /**
      * constructor with 1 argument.
      */
-    public Default(Expression arg) {
-        super("default", arg);
+    public Default(Expression arg, DataType targetType) {
+        super(ImmutableList.of(arg));
     }
 
-    /** constructor for withChildren and reuse signature */
-    private Default(ScalarFunctionParams functionParams) {
-        super(functionParams);
-    }
-
-    /**
-     * withChildren.
-     */
     @Override
     public Default withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Default(getFunctionParams(children));
+        return new Default(children.get(0));
     }
 
     @Override
-    public FunctionSignature customSignature() {
-        // Return signature that accepts any type and returns the same type (but nullable)
-        DataType argType = getArgumentType(0);
-        return FunctionSignature.ret(argType).args(argType);
-    }
-
-    @Override
-    public void checkLegalityAfterRewrite() {
-        Expression arg = getArgument(0);
-        if (!(arg instanceof SlotReference)) {
-            throw new AnalysisException("DEFAULT function requires a column reference, not a constant or expression");
-        }
+    public DataType getDataType() {
+        return child().getDataType();
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkLegalityAfterRewrite();
+        Expression arg = child();
+        if (!(arg instanceof SlotReference)) {
+            throw new AnalysisException("DEFAULT requires a column reference");
+        }
     }
 
     @Override
