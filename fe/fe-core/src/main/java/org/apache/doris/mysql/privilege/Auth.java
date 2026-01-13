@@ -1333,12 +1333,17 @@ public class Auth implements Writable {
         List<String> userAuthInfo = Lists.newArrayList();
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
+        String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
+                ? FeConstants.null_string
+                : userIdent.getSan();
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
             // ============== Comment ==============
             userAuthInfo.add(FeConstants.null_string);
             LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(userIdent.getQualifiedUser());
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
+            // ============== RequireSan ==============
+            userAuthInfo.add(requireSan);
             // ============== Roles ==============
             userAuthInfo.add(ldapUserInfo.getRoles().stream().map(role -> role.getRoleName())
                     .collect(Collectors.joining(",")));
@@ -1348,11 +1353,14 @@ public class Auth implements Writable {
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
             } else {
                 // ============== Comment ==============
                 userAuthInfo.add(user.getComment());
                 // ============== Password ==============
                 userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+                // ============== RequireSan ==============
+                userAuthInfo.add(requireSan);
                 // ============== Roles ==============
                 userAuthInfo.add(Joiner.on(",").join(userRoleManager
                         .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
