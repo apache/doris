@@ -134,7 +134,7 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 // Packed file manager config
-DEFINE_mBool(enable_packed_file, "true");
+DEFINE_mBool(enable_packed_file, "false");
 DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
