@@ -7,6 +7,7 @@ information_schema
 mysql
 pg_catalog
 public
+test_timestamp_tz_db
 
 -- !test0 --
 123	abc
