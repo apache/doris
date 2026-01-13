@@ -362,7 +362,7 @@ private:
                                     std::vector<long>& meta_data);
 
     template <typename COLUMN_TYPE, typename CPP_TYPE>
-        requires(!std::is_same_v<CPP_TYPE, DecimalV2Value>)
+        requires(!std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
         auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
@@ -373,7 +373,7 @@ private:
     }
 
     template <typename COLUMN_TYPE, typename CPP_TYPE>
-        requires(std::is_same_v<CPP_TYPE, DecimalV2Value>)
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
         auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
