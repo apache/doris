@@ -47,6 +47,12 @@ public class FlussExternalCatalog extends ExternalCatalog {
 
     public static final String FLUSS_COORDINATOR_URI = "fluss.coordinator.uri";
     public static final String FLUSS_BOOTSTRAP_SERVERS = "bootstrap.servers";
+    public static final String FLUSS_SECURITY_PROTOCOL = "fluss.security.protocol";
+    public static final String FLUSS_SASL_MECHANISM = "fluss.sasl.mechanism";
+    public static final String FLUSS_SASL_USERNAME = "fluss.sasl.username";
+    public static final String FLUSS_SASL_PASSWORD = "fluss.sasl.password";
+    public static final String FLUSS_ENABLE_MAPPING_VARBINARY = "fluss.enable.mapping.varbinary";
+    public static final String FLUSS_TABLE_META_CACHE_TTL_SECOND = "fluss.table.meta.cache.ttl.second";
 
     protected Connection flussConnection;
     protected Admin flussAdmin;
@@ -125,6 +131,34 @@ public class FlussExternalCatalog extends ExternalCatalog {
     public Admin getFlussAdmin() {
         makeSureInitialized();
         return flussAdmin;
+    }
+
+    public String getBootstrapServers() {
+        String bootstrapServers = catalogProperty.getOrDefault(FLUSS_BOOTSTRAP_SERVERS, null);
+        if (bootstrapServers == null) {
+            bootstrapServers = catalogProperty.getOrDefault(FLUSS_COORDINATOR_URI, null);
+        }
+        return bootstrapServers;
+    }
+
+    public String getSecurityProtocol() {
+        return catalogProperty.getOrDefault(FLUSS_SECURITY_PROTOCOL, null);
+    }
+
+    public String getSaslMechanism() {
+        return catalogProperty.getOrDefault(FLUSS_SASL_MECHANISM, null);
+    }
+
+    public String getSaslUsername() {
+        return catalogProperty.getOrDefault(FLUSS_SASL_USERNAME, null);
+    }
+
+    public String getSaslPassword() {
+        return catalogProperty.getOrDefault(FLUSS_SASL_PASSWORD, null);
+    }
+
+    public boolean getEnableMappingVarbinary() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(FLUSS_ENABLE_MAPPING_VARBINARY, "false"));
     }
 
     @Override

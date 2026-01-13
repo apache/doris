@@ -49,7 +49,7 @@ public class FlussMetadataOps implements Closeable {
     private final FlussExternalCatalog catalog;
     private final String bootstrapServers;
 
-    private final Map<String, FlussTableMetadata> tableMetadataCache;
+    private final Map<String, FlussExternalTable.FlussTableMetadata> tableMetadataCache;
     private final Map<String, List<String>> databaseTablesCache;
     private final ReadWriteLock cacheLock = new ReentrantReadWriteLock();
 
@@ -64,6 +64,16 @@ public class FlussMetadataOps implements Closeable {
         this.bootstrapServers = catalog.getBootstrapServers();
         this.tableMetadataCache = new HashMap<>();
         this.databaseTablesCache = new HashMap<>();
+    }
+
+    public FlussMetadataOps(org.apache.doris.datasource.ExternalCatalog catalog, Connection connection) {
+        this.catalog = (FlussExternalCatalog) catalog;
+        this.bootstrapServers = this.catalog.getBootstrapServers();
+        this.tableMetadataCache = new HashMap<>();
+        this.databaseTablesCache = new HashMap<>();
+        this.connection = connection;
+        this.admin = connection.getAdmin();
+        this.initialized.set(true);
     }
 
     private void ensureConnection() {
@@ -222,12 +232,12 @@ public class FlussMetadataOps implements Closeable {
         return listTableNames(dbName).contains(tableName);
     }
 
-    public FlussTableMetadata getTableMetadata(String dbName, String tableName) {
+    public FlussExternalTable.FlussTableMetadata getTableMetadata(String dbName, String tableName) {
         String cacheKey = dbName + "." + tableName;
 
         cacheLock.readLock().lock();
         try {
-            FlussTableMetadata cached = tableMetadataCache.get(cacheKey);
+            FlussExternalTable.FlussTableMetadata cached = tableMetadataCache.get(cacheKey);
             if (cached != null) {
                 return cached;
             }
@@ -237,11 +247,39 @@ public class FlussMetadataOps implements Closeable {
 
         LOG.debug("Fetching metadata for table: {}.{}", dbName, tableName);
 
-        FlussTableMetadata metadata = new FlussTableMetadata();
-        metadata.setTableType(FlussExternalTable.FlussTableType.LOG_TABLE);
-        metadata.setPrimaryKeys(Collections.emptyList());
-        metadata.setPartitionKeys(Collections.emptyList());
-        metadata.setNumBuckets(1);
+        FlussExternalTable.FlussTableMetadata metadata = new FlussExternalTable.FlussTableMetadata();
+        
+        try {
+            org.apache.fluss.metadata.TablePath tablePath = 
+                    org.apache.fluss.metadata.TablePath.of(dbName, tableName);
+            org.apache.fluss.metadata.TableInfo tableInfo = admin.getTableInfo(tablePath).get();
+            
+            if (tableInfo != null) {
+                // Determine table type based on primary keys
+                List<String> primaryKeys = tableInfo.getPrimaryKeys();
+                if (primaryKeys != null && !primaryKeys.isEmpty()) {
+                    metadata.setTableType(FlussExternalTable.FlussTableType.PRIMARY_KEY_TABLE);
+                    metadata.setPrimaryKeys(primaryKeys);
+                } else {
+                    metadata.setTableType(FlussExternalTable.FlussTableType.LOG_TABLE);
+                    metadata.setPrimaryKeys(Collections.emptyList());
+                }
+                
+                // Get partition keys
+                List<String> partitionKeys = tableInfo.getPartitionKeys();
+                metadata.setPartitionKeys(partitionKeys != null ? partitionKeys : Collections.emptyList());
+                
+                // Get bucket count
+                int numBuckets = tableInfo.getNumBuckets();
+                metadata.setNumBuckets(numBuckets > 0 ? numBuckets : 1);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch table metadata for {}.{}, using defaults", dbName, tableName, e);
+            metadata.setTableType(FlussExternalTable.FlussTableType.LOG_TABLE);
+            metadata.setPrimaryKeys(Collections.emptyList());
+            metadata.setPartitionKeys(Collections.emptyList());
+            metadata.setNumBuckets(1);
+        }
 
         cacheLock.writeLock().lock();
         try {
@@ -251,6 +289,21 @@ public class FlussMetadataOps implements Closeable {
         }
 
         return metadata;
+    }
+
+    public org.apache.fluss.metadata.TableInfo getTableInfo(String dbName, String tableName) {
+        LOG.debug("Fetching TableInfo for table: {}.{}", dbName, tableName);
+        ensureConnection();
+        
+        return executeWithRetry(() -> {
+            try {
+                org.apache.fluss.metadata.TablePath tablePath = 
+                        org.apache.fluss.metadata.TablePath.of(dbName, tableName);
+                return admin.getTableInfo(tablePath).get();
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to get table info: " + dbName + "." + tableName, e);
+            }
+        }, "get table info");
     }
 
     public List<Column> getTableSchema(String dbName, String tableName) {
