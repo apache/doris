@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <bthread/mutex.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
@@ -136,7 +137,9 @@ struct RpcInstance {
     InstanceLoId id;
 
     // Mutex for thread-safe access to this instance's data
-    std::unique_ptr<std::mutex> mutex;
+    // Using bthread mutex here because the rpc callback thread is a bthread and it will
+    // try to hold the lock and access rpc instance.
+    std::unique_ptr<bthread::Mutex> mutex;
 
     // Sequence number for RPC packets, incremented for each packet sent
     int64_t seq = 0;
