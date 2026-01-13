@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Http
+
 suite("test_backup_restore_storage_medium_combinations", "backup_restore") {
     String suiteName = "test_br_medium_combo"
     String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
@@ -26,8 +28,29 @@ suite("test_backup_restore_storage_medium_combinations", "backup_restore") {
 
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
 
-    // Test combinations of storage_medium and medium_allocation_mode
-    def combinations = [
+    // Enable DEBUG logging via HTTP API to achieve code coverage for LOG.debug() statements in:
+    // - RestoreJob.java (20+ DEBUG logs)
+    // - MediumDecisionMaker.java (7 DEBUG logs)
+    // - TableProperty.java (3 DEBUG logs)
+    // - OlapTable.java (7 DEBUG logs)
+    def (feHost, fePort) = context.config.feHttpAddress.split(":")
+    def enabledDebugModules = []
+    
+    try {
+        // Enable DEBUG logging for backup and catalog packages
+        ["org.apache.doris.backup", "org.apache.doris.catalog"].each { packageName ->
+            try {
+                def url = "http://${feHost}:${fePort}/rest/v1/log?add_verbose=${packageName}"
+                Http.POST(url, null, true)
+                enabledDebugModules.add(packageName)
+                logger.info("✅ Enabled DEBUG log for ${packageName}")
+            } catch (Exception e) {
+                logger.warn("⚠️ Failed to enable DEBUG log for ${packageName}: ${e.message}")
+            }
+        }
+        
+        // Test combinations of storage_medium and medium_allocation_mode
+        def combinations = [
         // [storage_medium, medium_allocation_mode, testName]
         ["hdd", "strict", "hdd_strict"],
         ["hdd", "adaptive", "hdd_adaptive"],
@@ -116,9 +139,27 @@ suite("test_backup_restore_storage_medium_combinations", "backup_restore") {
                   "Table should have medium_allocation_mode for ${testName}")
 
         sql "DROP TABLE ${dbName}.${tableName}_${testName} FORCE"
+        }
+        
+    } finally {
+        // Clean up DEBUG logging via HTTP API
+        enabledDebugModules.each { packageName ->
+            try {
+                def url = "http://${feHost}:${fePort}/rest/v1/log?del_verbose=${packageName}"
+                Http.POST(url, null, true)
+                logger.info("✅ Disabled DEBUG log for ${packageName}")
+            } catch (Exception e) {
+                logger.warn("⚠️ Failed to disable DEBUG log for ${packageName}: ${e.message}")
+            }
+        }
+        
+        // Clean up database and repository
+        try {
+            sql "DROP DATABASE IF EXISTS ${dbName} FORCE"
+            sql "DROP REPOSITORY IF EXISTS `${repoName}`"
+        } catch (Exception e) {
+            logger.warn("Error during cleanup: ${e.message}")
+        }
     }
-
-    sql "DROP DATABASE ${dbName} FORCE"
-    sql "DROP REPOSITORY `${repoName}`"
 }
 
