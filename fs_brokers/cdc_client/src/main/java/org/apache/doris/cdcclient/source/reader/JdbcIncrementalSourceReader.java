@@ -166,8 +166,9 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
             if (currentReader == null || baseReq.isReload()) {
                 LOG.info(
-                        "No current reader or reload {}, create new split reader",
-                        baseReq.isReload());
+                        "No current reader or reload {}, create new split reader for job {}",
+                        baseReq.isReload(),
+                        baseReq.getJobId());
                 // build split
                 Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
