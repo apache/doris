@@ -161,10 +161,6 @@ public class DorisFE {
                 serverReady.set(false);
                 gracefulShutdown();
 
-                if (Config.enable_file_cache_admission_control) {
-                    FileCacheAdmissionManager.getInstance().shutdown();
-                }
-
                 // Shutdown HTTP server after main process graceful shutdown is complete
                 if (httpServer != null) {
                     httpServer.shutdown();

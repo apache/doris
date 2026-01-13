@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigWatcher;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -27,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.io.FilenameFilter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -35,9 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -216,7 +215,7 @@ public class FileCacheAdmissionManager {
         }
     }
 
-    public static class ConcurrentRuleCollection {
+    public static class RuleCollection {
         private Boolean excludeGlobal = false;
         private final Set<String> excludeCatalogRules = new HashSet<>();
         private final Map<String, Set<String>> excludeDatabaseRules = new HashMap<>();
@@ -227,23 +226,21 @@ public class FileCacheAdmissionManager {
         private final Map<String, Set<String>> includeDatabaseRules = new HashMap<>();
         private final Map<String, Set<String>> includeTableRules = new HashMap<>();
 
-        static List<String> reasons = new ArrayList<>(Arrays.asList(
-                "common catalog-level blacklist rule",      // 0
-                "common catalog-level whitelist rule",      // 1
-                "common database-level blacklist rule",     // 2
-                "common database-level whitelist rule",     // 3
-                "common table-level blacklist rule",        // 4
-                "common table-level whitelist rule",        // 5
-                "user global-level blacklist rule",         // 6
-                "user global-level whitelist rule",         // 7
-                "user catalog-level blacklist rule",        // 8
-                "user catalog-level whitelist rule",        // 9
-                "user database-level blacklist rule",       // 10
-                "user database-level whitelist rule",       // 11
-                "user table-level blacklist rule",          // 12
-                "user table-level whitelist rule",          // 13
-                "default rule"                              // 14
-        ));
+        public static final String REASON_COMMON_CATALOG_BLACKLIST = "common catalog-level blacklist rule";
+        public static final String REASON_COMMON_CATALOG_WHITELIST = "common catalog-level whitelist rule";
+        public static final String REASON_COMMON_DATABASE_BLACKLIST = "common database-level blacklist rule";
+        public static final String REASON_COMMON_DATABASE_WHITELIST = "common database-level whitelist rule";
+        public static final String REASON_COMMON_TABLE_BLACKLIST = "common table-level blacklist rule";
+        public static final String REASON_COMMON_TABLE_WHITELIST = "common table-level whitelist rule";
+        public static final String REASON_USER_GLOBAL_BLACKLIST = "user global-level blacklist rule";
+        public static final String REASON_USER_GLOBAL_WHITELIST = "user global-level whitelist rule";
+        public static final String REASON_USER_CATALOG_BLACKLIST = "user catalog-level blacklist rule";
+        public static final String REASON_USER_CATALOG_WHITELIST = "user catalog-level whitelist rule";
+        public static final String REASON_USER_DATABASE_BLACKLIST = "user database-level blacklist rule";
+        public static final String REASON_USER_DATABASE_WHITELIST = "user database-level whitelist rule";
+        public static final String REASON_USER_TABLE_BLACKLIST = "user table-level blacklist rule";
+        public static final String REASON_USER_TABLE_WHITELIST = "user table-level whitelist rule";
+        public static final String REASON_DEFAULT = "default rule";
 
         public boolean isAdmittedAtTableLevel(String userIdentity, String catalog, String database, String table,
                                               AtomicReference<String> reason) {
@@ -251,123 +248,121 @@ public class FileCacheAdmissionManager {
             String catalogDatabase = catalog + "." + database;
 
             if (containsKeyValue(excludeTableRules, table, catalogDatabase)) {
-                reason.set(reasons.get(4));
+                reason.set(REASON_COMMON_TABLE_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (containsKeyValue(includeTableRules, table, catalogDatabase)) {
-                reason.set(reasons.get(5));
+                reason.set(REASON_COMMON_TABLE_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (containsKeyValue(excludeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(2));
+                reason.set(REASON_COMMON_DATABASE_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (containsKeyValue(includeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(3));
+                reason.set(REASON_COMMON_DATABASE_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (excludeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(0));
+                reason.set(REASON_COMMON_CATALOG_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (includeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(1));
+                reason.set(REASON_COMMON_CATALOG_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
 
-            reason.set(reasons.get(14));
-            logAdmission(Config.file_cache_admission_control_default_allow,
-                    userIdentity, catalog, database, table, reason.get());
-            return Config.file_cache_admission_control_default_allow;
+            reason.set(REASON_DEFAULT);
+            logAdmission(false, userIdentity, catalog, database, table, reason.get());
+            return false;
         }
 
-        public boolean isAdmittedAtTableLevel(ConcurrentRuleCollection userCollection, String userIdentity,
+        public boolean isAdmittedAtTableLevel(RuleCollection userCollection, String userIdentity,
                                               String catalog, String database, String table,
                                               AtomicReference<String> reason) {
 
             String catalogDatabase = catalog + "." + database;
 
             if (containsKeyValue(excludeTableRules, table, catalogDatabase)) {
-                reason.set(reasons.get(4));
+                reason.set(REASON_COMMON_TABLE_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (containsKeyValue(userCollection.excludeTableRules, table, catalogDatabase)) {
-                reason.set(reasons.get(12));
+                reason.set(REASON_USER_TABLE_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (containsKeyValue(includeTableRules, table, catalogDatabase)) {
-                reason.set(reasons.get(5));
+                reason.set(REASON_COMMON_TABLE_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (containsKeyValue(userCollection.includeTableRules, table, catalogDatabase)) {
-                reason.set(reasons.get(13));
+                reason.set(REASON_USER_TABLE_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (containsKeyValue(excludeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(2));
+                reason.set(REASON_COMMON_DATABASE_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (containsKeyValue(userCollection.excludeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(10));
+                reason.set(REASON_USER_DATABASE_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (containsKeyValue(includeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(3));
+                reason.set(REASON_COMMON_DATABASE_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (containsKeyValue(userCollection.includeDatabaseRules, database, catalog)) {
-                reason.set(reasons.get(11));
+                reason.set(REASON_USER_DATABASE_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (excludeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(0));
+                reason.set(REASON_COMMON_CATALOG_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (userCollection.excludeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(8));
+                reason.set(REASON_USER_CATALOG_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (includeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(1));
+                reason.set(REASON_COMMON_CATALOG_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (userCollection.includeCatalogRules.contains(catalog)) {
-                reason.set(reasons.get(9));
+                reason.set(REASON_USER_CATALOG_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
             if (userCollection.excludeGlobal) {
-                reason.set(reasons.get(6));
+                reason.set(REASON_USER_GLOBAL_BLACKLIST);
                 logAdmission(false, userIdentity, catalog, database, table, reason.get());
                 return false;
             }
             if (userCollection.includeGlobal) {
-                reason.set(reasons.get(7));
+                reason.set(REASON_USER_GLOBAL_WHITELIST);
                 logAdmission(true, userIdentity, catalog, database, table, reason.get());
                 return true;
             }
 
-            reason.set(reasons.get(14));
-            logAdmission(Config.file_cache_admission_control_default_allow,
-                    userIdentity, catalog, database, table, reason.get());
-            return Config.file_cache_admission_control_default_allow;
+            reason.set(REASON_DEFAULT);
+            logAdmission(false, userIdentity, catalog, database, table, reason.get());
+            return false;
         }
 
         private boolean containsKeyValue(Map<String, Set<String>> map, String key, String value) {
@@ -377,14 +372,16 @@ public class FileCacheAdmissionManager {
 
         private void logAdmission(boolean admitted, String userIdentity, String catalog, String database,
                                   String table, String reason) {
-            String status = admitted ? "admitted" : "denied";
+            if (LOG.isDebugEnabled()) {
+                String status = admitted ? "admitted" : "denied";
 
-            String logMessage = String.format(
-                    "File cache request %s by %s, user_identity: %s, "
-                        + "catalog: %s, database: %s, table: %s",
-                    status, reason, userIdentity, catalog, database, table);
+                String logMessage = String.format(
+                        "File cache request %s by %s, user_identity: %s, "
+                            + "catalog: %s, database: %s, table: %s",
+                        status, reason, userIdentity, catalog, database, table);
 
-            LOG.debug(logMessage);
+                LOG.debug(logMessage);
+            }
         }
 
         public RuleLevel getRuleLevel(RulePattern rulePattern) {
@@ -467,9 +464,10 @@ public class FileCacheAdmissionManager {
     }
 
     public static class ConcurrentRuleManager {
-        private static final int PARTITION_COUNT = 58; // A-Z + a-z + 其他字符
-        private final List<Map<String, ConcurrentRuleCollection>> maps;
-        private final ConcurrentRuleCollection commonCollection;
+        // Characters in ASCII order: A-Z, then other symbols, then a-z
+        private static final int PARTITION_COUNT = 58;
+        private final List<Map<String, RuleCollection>> maps;
+        private final RuleCollection commonCollection;
 
         static List<String> otherReasons = new ArrayList<>(Arrays.asList(
                 "empty user_identity",
@@ -478,7 +476,7 @@ public class FileCacheAdmissionManager {
 
         public ConcurrentRuleManager() {
             maps = new ArrayList<>(PARTITION_COUNT);
-            commonCollection = new ConcurrentRuleCollection();
+            commonCollection = new RuleCollection();
 
             for (int i = 0; i < PARTITION_COUNT; i++) {
                 maps.add(new ConcurrentHashMap<>());
@@ -509,7 +507,7 @@ public class FileCacheAdmissionManager {
 
                 int index = getIndex(firstChar);
                 maps.get(index).computeIfAbsent(rulePattern.getUserIdentity(),
-                        k -> new ConcurrentRuleCollection()).add(rulePattern);
+                        k -> new RuleCollection()).add(rulePattern);
             }
         }
 
@@ -518,18 +516,18 @@ public class FileCacheAdmissionManager {
             if (userIdentity.isEmpty()) {
                 reason.set(otherReasons.get(0));
                 logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
-                return Config.file_cache_admission_control_default_allow;
+                return false;
             }
 
             char firstChar = userIdentity.charAt(0);
             if (!Character.isAlphabetic(firstChar)) {
                 reason.set(otherReasons.get(1));
                 logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
-                return Config.file_cache_admission_control_default_allow;
+                return false;
             }
 
             int index = getIndex(firstChar);
-            ConcurrentRuleCollection collection = maps.get(index).get(userIdentity);
+            RuleCollection collection = maps.get(index).get(userIdentity);
             if (collection == null) {
                 return commonCollection.isAdmittedAtTableLevel(userIdentity, catalog, database, table, reason);
             } else {
@@ -540,15 +538,17 @@ public class FileCacheAdmissionManager {
 
         private void logDefaultAdmission(String userIdentity, String catalog, String database, String table,
                                          String reason) {
-            boolean admitted = Config.file_cache_admission_control_default_allow;
-            String decision = admitted ? "admitted" : "denied";
+            if (LOG.isDebugEnabled()) {
+                boolean admitted = false;
+                String decision = admitted ? "admitted" : "denied";
 
-            String logMessage = String.format(
-                    "File cache request %s by file_cache_admission_control_default_allow, "
-                    + "user_identity: %s, catalog: %s, database: %s, table: %s, reason: %s",
-                    decision, userIdentity, catalog, database, table, reason);
+                String logMessage = String.format(
+                        "File cache request %s by default rule, "
+                        + "user_identity: %s, catalog: %s, database: %s, table: %s, reason: %s",
+                        decision, userIdentity, catalog, database, table, reason);
 
-            LOG.debug(logMessage);
+                LOG.debug(logMessage);
+            }
         }
     }
 
@@ -560,13 +560,10 @@ public class FileCacheAdmissionManager {
 
     private static final FileCacheAdmissionManager INSTANCE = new FileCacheAdmissionManager();
 
-    private ScheduledExecutorService executorService;
-
-    private long lastLoadedTime;
+    private ConfigWatcher watcher;
 
     public FileCacheAdmissionManager() {
         this.ruleManager = new ConcurrentRuleManager();
-        this.lastLoadedTime = 0;
     }
 
     public static FileCacheAdmissionManager getInstance() {
@@ -588,9 +585,31 @@ public class FileCacheAdmissionManager {
 
     public void loadOnStartup() {
         LOG.info("Loading file cache admission rules...");
-
         loadRules();
-        startRefreshTask();
+
+        LOG.info("Starting file cache admission rules refreshing task");
+        watcher = new ConfigWatcher(Config.file_cache_admission_control_json_dir);
+        watcher.setOnCreateConsumer(filePath -> {
+            String fileName = filePath.toString();
+            if (fileName.endsWith(".json")) {
+                loadRules();
+            }
+        });
+        watcher.setOnDeleteConsumer(filePath -> {
+            String fileName = filePath.toString();
+            if (fileName.endsWith(".json")) {
+                loadRules();
+            }
+        });
+        watcher.setOnModifyConsumer(filePath -> {
+            String fileName = filePath.toString();
+            if (fileName.endsWith(".json")) {
+                loadRules();
+            }
+        });
+        watcher.start();
+
+        LOG.info("Started file cache admission rules refreshing task");
     }
 
     public void loadRules(String filePath) {
@@ -615,83 +634,56 @@ public class FileCacheAdmissionManager {
     }
 
     public void loadRules() {
-        if (Config.file_cache_admission_control_json_file_path == null
-                || Config.file_cache_admission_control_json_file_path.isEmpty()) {
-            LOG.warn("File cache admission JSON file path is not configured, admission control will be disabled.");
+        if (Config.file_cache_admission_control_json_dir == null
+                    || Config.file_cache_admission_control_json_dir.isEmpty()) {
+            LOG.warn("File cache admission JSON directory is not configured, admission control will be disabled.");
             return;
         }
 
         try {
-            File ruleFile = new File(Config.file_cache_admission_control_json_file_path);
+            File ruleDir = new File(Config.file_cache_admission_control_json_dir);
 
-            if (!ruleFile.exists()) {
-                LOG.warn("File cache admission JSON file does not exist: {}",
-                        Config.file_cache_admission_control_json_file_path);
+            if (!ruleDir.exists()) {
+                LOG.warn("File cache admission JSON directory does not exist: {}",
+                        Config.file_cache_admission_control_json_dir);
                 return;
             }
 
-            long lastModified = ruleFile.lastModified();
-            if (lastModified <= lastLoadedTime) {
-                LOG.info("File cache admission rules file has not been modified since last load, skip loading.");
+            if (!ruleDir.isDirectory()) {
+                LOG.error("File cache admission JSON directory is not a directory: {}",
+                        Config.file_cache_admission_control_json_dir);
                 return;
             }
 
-            List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(
-                    Config.file_cache_admission_control_json_file_path);
-            LOG.info("{} rules loaded successfully from file: {}", loadedRules.size(),
-                    Config.file_cache_admission_control_json_file_path);
+            File[] jsonFiles = ruleDir.listFiles(new FilenameFilter() {
+                @Override
+                public boolean accept(File dir, String name) {
+                    return name.toLowerCase().endsWith(".json");
+                }
+            });
+
+            LOG.info("Found {} JSON files in admission rule directory: {}",
+                    jsonFiles.length, Config.file_cache_admission_control_json_dir);
+
+            List<AdmissionRule> allRules = new ArrayList<>();
+
+            for (File jsonFile : jsonFiles) {
+                List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(jsonFile.getPath());
+                LOG.info("{} rules loaded successfully from JSON file: {}", loadedRules.size(),
+                        jsonFile.getPath());
+
+                allRules.addAll(loadedRules);
+            }
 
             ConcurrentRuleManager newRuleManager = new ConcurrentRuleManager();
-            newRuleManager.initialize(loadedRules);
+            newRuleManager.initialize(allRules);
 
             writeLock.lock();
-            lastLoadedTime = lastModified;
             ruleManager = newRuleManager;
             writeLock.unlock();
         } catch (Exception e) {
-            LOG.error("Failed to load file cache admission rules from file: {}",
-                    Config.file_cache_admission_control_json_file_path, e);
-        }
-    }
-
-    private void startRefreshTask() {
-        int interval = Config.file_cache_admission_control_fresh_interval_s;
-        if (interval <= 0) {
-            LOG.info("File cache admission control refresh interval is {} (<=0), refresh task will not be started.",
-                    interval);
-            return;
-        }
-
-        executorService = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "file-cache-admission-rule-refresh");
-            t.setDaemon(true);
-            return t;
-        });
-
-        executorService.scheduleAtFixedRate(() -> {
-            LOG.info("Refreshing file cache admission rules...");
-            loadRules();
-        }, interval, interval, TimeUnit.SECONDS);
-
-        LOG.info("Started refreshing task, interval: {} seconds", interval);
-    }
-
-    public void shutdown() {
-        if (executorService != null) {
-            LOG.info("Starting shutdown refreshing executorService");
-            executorService.shutdown();
-            try {
-                if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
-                    executorService.shutdownNow();
-                    if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
-                        LOG.warn("Refreshing executorService did not terminate");
-                    }
-                }
-            } catch (InterruptedException e) {
-                executorService.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-            LOG.info("Refreshing executorService shutdown completed");
+            LOG.error("Failed to load file cache admission rules from directory: {}",
+                    Config.file_cache_admission_control_json_dir, e);
         }
     }
 }
