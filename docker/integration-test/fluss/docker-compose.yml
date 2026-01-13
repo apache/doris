@@ -1,0 +1,263 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Doris-Fluss Integration Test Environment
+# Usage: docker-compose up -d
+# Wait for all services to be healthy before running tests
+
+networks:
+  doris-fluss-net:
+    driver: bridge
+
+volumes:
+  zookeeper-data:
+  fluss-coordinator-data:
+  fluss-tablet-data:
+  minio-data:
+
+services:
+  # ===========================================
+  # ZooKeeper - Required by Fluss
+  # ===========================================
+  zookeeper:
+    image: zookeeper:3.8
+    container_name: fluss-zookeeper
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=zookeeper:2888:3888;2181
+      ZOO_4LW_COMMANDS_WHITELIST: "*"
+    volumes:
+      - zookeeper-data:/data
+    networks:
+      - doris-fluss-net
+    healthcheck:
+      test: ["CMD", "zkServer.sh", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # MinIO - S3-compatible storage for Fluss lake
+  # Multi-arch support (works on ARM64 Mac M1/M2/M3)
+  # ===========================================
+  minio:
+    image: minio/minio:latest
+    container_name: fluss-minio
+    hostname: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - doris-fluss-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Create default bucket for Fluss
+  minio-init:
+    image: minio/mc:latest
+    container_name: fluss-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/fluss-lake --ignore-existing;
+      mc anonymous set public myminio/fluss-lake;
+      exit 0;
+      "
+    networks:
+      - doris-fluss-net
+
+  # ===========================================
+  # Fluss Coordinator Server
+  # ===========================================
+  fluss-coordinator:
+    image: fluss/fluss:latest
+    container_name: fluss-coordinator
+    hostname: fluss-coordinator
+    ports:
+      - "9123:9123"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      FLUSS_MODE: coordinator
+      FLUSS_PROPERTIES: |
+        coordinator.host=fluss-coordinator
+        coordinator.port=9123
+        zookeeper.address=zookeeper:2181
+        zookeeper.path.root=/fluss
+        remote.data.dir=s3://fluss-lake/data
+        s3.endpoint=http://minio:9000
+        s3.access-key=minioadmin
+        s3.secret-key=minioadmin
+        s3.path-style-access=true
+    volumes:
+      - fluss-coordinator-data:/opt/fluss/data
+    networks:
+      - doris-fluss-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9123/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ===========================================
+  # Fluss Tablet Server (Data Node)
+  # ===========================================
+  fluss-tablet-server:
+    image: fluss/fluss:latest
+    container_name: fluss-tablet-server
+    hostname: fluss-tablet-server
+    ports:
+      - "9124:9124"
+    depends_on:
+      fluss-coordinator:
+        condition: service_healthy
+    environment:
+      FLUSS_MODE: tablet-server
+      FLUSS_PROPERTIES: |
+        tablet-server.host=fluss-tablet-server
+        tablet-server.port=9124
+        coordinator.address=fluss-coordinator:9123
+        data.dir=/opt/fluss/data
+        remote.data.dir=s3://fluss-lake/data
+        s3.endpoint=http://minio:9000
+        s3.access-key=minioadmin
+        s3.secret-key=minioadmin
+        s3.path-style-access=true
+    volumes:
+      - fluss-tablet-data:/opt/fluss/data
+    networks:
+      - doris-fluss-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9124/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ===========================================
+  # Test Data Initializer
+  # ===========================================
+  fluss-init:
+    image: fluss/fluss:latest
+    container_name: fluss-init
+    depends_on:
+      fluss-tablet-server:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for Fluss cluster to be ready...';
+      sleep 10;
+      /opt/fluss/bin/fluss-client.sh --bootstrap-server fluss-coordinator:9123 <<EOF
+      CREATE DATABASE IF NOT EXISTS test_db;
+      
+      CREATE TABLE test_db.all_types (
+        id INT PRIMARY KEY,
+        bool_col BOOLEAN,
+        tinyint_col TINYINT,
+        smallint_col SMALLINT,
+        int_col INT,
+        bigint_col BIGINT,
+        float_col FLOAT,
+        double_col DOUBLE,
+        decimal_col DECIMAL(10, 2),
+        string_col STRING,
+        date_col DATE,
+        timestamp_col TIMESTAMP(3)
+      ) WITH (
+        'bucket.num' = '2'
+      );
+      
+      CREATE TABLE test_db.partitioned_table (
+        id INT,
+        name STRING,
+        value DOUBLE,
+        dt STRING,
+        PRIMARY KEY (id, dt) NOT ENFORCED
+      ) PARTITIONED BY (dt) WITH (
+        'bucket.num' = '2'
+      );
+      
+      CREATE TABLE test_db.log_table (
+        id INT,
+        message STRING,
+        created_at TIMESTAMP(3)
+      ) WITH (
+        'bucket.num' = '4',
+        'table.type' = 'log'
+      );
+      EOF
+      echo 'Test tables created successfully';
+      "
+    networks:
+      - doris-fluss-net
+
+  # ===========================================
+  # Flink for data loading (optional)
+  # ===========================================
+  flink-jobmanager:
+    image: flink:1.18-java17
+    container_name: flink-jobmanager
+    hostname: flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        parallelism.default: 2
+    networks:
+      - doris-fluss-net
+    profiles:
+      - flink
+
+  flink-taskmanager:
+    image: flink:1.18-java17
+    container_name: flink-taskmanager
+    hostname: flink-taskmanager
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 2
+    networks:
+      - doris-fluss-net
+    profiles:
+      - flink
