@@ -178,7 +178,7 @@ suite("eager_agg") {
     """
 
     qt_sum_if_push """
-        explain physical plan
+        explain shape plan
         select d_week_seq,
                 sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
                 sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,

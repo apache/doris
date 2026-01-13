@@ -155,23 +155,20 @@ SyntaxError:
 -- !groupkey_push_exe --
 
 -- !sum_if_push --
-cost = 28.726000000000003
-PhysicalResultSink[586] ( outputExprs=[d_week_seq#60, mon_sales#84, tue_sales#85, wed_sales#86, thu_sales#87, fri_sales#88, sat_sales#89] )
-+--PhysicalProject[582]@12 ( stats=1, projects=[d_week_seq#60, mon_sales#84, tue_sales#85, wed_sales#86, thu_sales#87, fri_sales#88, sat_sales#89] )
-   +--PhysicalHashAggregate[578]@11 ( stats=1, aggPhase=GLOBAL, aggMode=INPUT_TO_RESULT, maybeUseStreaming=false, groupByExpr=[d_week_seq#60, ws_item_sk#3], outputExpr=[d_week_seq#60, ws_item_sk#3, sum(if((d_day_name#70 = 'Monday'), sum(ws_sales_price)#21, NULL)) AS `mon_sales`#84, sum(if((d_day_name#70 = 'Tuesday'), sum(ws_sales_price)#21, NULL)) AS `tue_sales`#85, sum(if((d_day_name#70 = 'Wednesday'), sum(ws_sales_price)#21, NULL)) AS `wed_sales`#86, sum(if((d_day_name#70 = 'Thursday'), sum(ws_sales_price)#21, NULL)) AS `thu_sales`#87, sum(if((d_day_name#70 = 'Friday'), sum(ws_sales_price)#21, NULL)) AS `fri_sales`#88, sum(if((d_day_name#70 = 'Saturday'), sum(ws_sales_price)#21, NULL)) AS `sat_sales`#89], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
-      +--PhysicalProject[574]@10 ( stats=2, projects=[d_week_seq#60, ws_item_sk#3, sum(ws_sales_price)#21, d_day_name#70] )
-         +--PhysicalHashJoin[570]@9 ( stats=2, type=INNER_JOIN, hashCondition=[(d_date_sk#56 = ws_sold_date_sk#0)], otherCondition=[], markCondition=[] )
-            |--PhysicalProject[557]@6 ( stats=2, projects=[ws_sold_date_sk#0, ws_item_sk#3, sum(ws_sales_price)#21] )
-            |  +--PhysicalHashJoin[553]@5 ( stats=2, type=INNER_JOIN, hashCondition=[(ws_item_sk#3 = i_item_sk#34)], otherCondition=[], markCondition=[] )
-            |     |--PhysicalProject[536]@4 ( stats=2, projects=[i_item_sk#34] )
-            |     |  +--PhysicalOlapScan[item]@3 ( stats=2, operativeSlots=[i_item_sk#34], virtualColumns=[] )
-            |     +--PhysicalDistribute[549]@2 ( stats=1, distributionSpec=DistributionSpecReplicated )
-            |        +--PhysicalHashAggregate[545]@2 ( stats=1, aggPhase=GLOBAL, aggMode=INPUT_TO_RESULT, maybeUseStreaming=false, groupByExpr=[ws_sold_date_sk#0, ws_item_sk#3], outputExpr=[ws_sold_date_sk#0, ws_item_sk#3, sum(ws_sales_price#21) AS `sum(ws_sales_price)`#21], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
-            |           +--PhysicalProject[541]@1 ( stats=1, projects=[ws_sold_date_sk#0, ws_item_sk#3, ws_sales_price#21] )
-            |              +--PhysicalOlapScan[web_sales]@0 ( stats=1, operativeSlots=[ws_sold_date_sk#0, ws_item_sk#3, ws_sales_price#21], virtualColumns=[] )
-            +--PhysicalDistribute[566]@8 ( stats=1, distributionSpec=DistributionSpecReplicated )
-               +--PhysicalProject[562]@8 ( stats=1, projects=[d_date_sk#56, d_week_seq#60, d_day_name#70] )
-                  +--PhysicalOlapScan[date_dim]@7 ( stats=1, operativeSlots=[d_date_sk#56, d_week_seq#60, d_day_name#70], virtualColumns=[] )
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[GLOBAL]
+------PhysicalProject
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=()
+----------PhysicalProject
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+--------------PhysicalProject
+----------------PhysicalOlapScan[item]
+--------------hashAgg[GLOBAL]
+----------------PhysicalProject
+------------------PhysicalOlapScan[web_sales]
+----------PhysicalProject
+------------PhysicalOlapScan[date_dim]
 
 -- !sum_if_push --
 1	\N	\N	\N	\N	\N	\N

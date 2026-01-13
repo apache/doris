@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
-import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+//import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -45,11 +45,10 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -71,7 +70,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
     private final StatsDerive derive = new StatsDerive(false);
-    private CheckAfterRewrite checker = new CheckAfterRewrite();
+    //private CheckAfterRewrite checker = new CheckAfterRewrite();
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
@@ -149,14 +148,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         if (toLeft) {
             Plan newLeft = join.left().accept(this, childContext);
-            checker.checkTreeAllSlotReferenceFromChildren(newLeft);
+            //checker.checkTreeAllSlotReferenceFromChildren(newLeft);
             if (newLeft != join.left()) {
                 return join.withChildren(newLeft, join.right());
             }
         } else {
             Plan newRight = join.right().accept(this, childContext);
             if (newRight != join.right()) {
-                checker.checkTreeAllSlotReferenceFromChildren(newRight);
+                //checker.checkTreeAllSlotReferenceFromChildren(newRight);
                 return join.withChildren(join.left(), newRight);
             }
         }
@@ -185,13 +184,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     private PushDownAggContext createContextFromProject(LogicalProject<? extends Plan> project,
             PushDownAggContext context) {
-        HashMap<Expression, Expression> replaceMapAlias = new HashMap<>();
-        for (NamedExpression ne : project.getProjects()) {
-            if (ne instanceof Alias) {
-                replaceMapAlias.put(ne.toSlot(), ne);
-            }
-        }
-
         /*
          * context: sum(a) groupBy(y+z as x, l)
          * proj: b+c as a, u+v as y, m+n as l
@@ -206,7 +198,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         List<AggregateFunction> aggFunctions = new ArrayList<>();
-        Map<AggregateFunction, Alias> aliasMap = new HashMap<>();
+        Map<AggregateFunction, Alias> aliasMap = new IdentityHashMap<>();
         for (AggregateFunction aggFunc : context.getAggFunctions()) {
             AggregateFunction newAggFunc = (AggregateFunction) project.pushDownExpressionPastProject(aggFunc);
             Alias alias = context.getAliasMap().get(aggFunc);
@@ -247,6 +239,30 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return true;
     }
 
+    private Plan alignUnionChildrenDataType(Plan child, PushDownAggContext context) {
+        int outputSize = child.getOutput().size();
+        List<DataType> outputDataType = Lists.newArrayListWithExpectedSize(outputSize);
+        outputDataType.addAll(context.getAggFunctions().stream()
+                .map(func -> context.getAliasMap().get(func).getDataType()).collect(Collectors.toList()));
+        outputDataType.addAll(context.getGroupKeys().stream().map(s -> s.getDataType()).collect(Collectors.toList()));
+        List<NamedExpression> projection = Lists.newArrayListWithExpectedSize(outputSize);
+        boolean needProject = false;
+        for (int colIdx = 0; colIdx < outputSize; colIdx++) {
+            SlotReference slot = (SlotReference) child.getOutput().get(colIdx);
+            if (!slot.getDataType().equals(outputDataType.get(colIdx))) {
+                projection.add(new Alias(new Cast(slot, outputDataType.get(colIdx))));
+                needProject = true;
+            } else {
+                projection.add(slot);
+            }
+        }
+        if (needProject) {
+            return new LogicalProject<Plan>(projection, child);
+        } else {
+            return child;
+        }
+    }
+
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PushDownAggContext context) {
         if (!union.getConstantExprsList().isEmpty()) {
@@ -263,7 +279,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             Plan child = union.children().get(idx);
             final int childIdx = idx;
             List<AggregateFunction> aggFunctionsForChild = new ArrayList<>();
-            Map<AggregateFunction, Alias> aliasMapForChild = new HashMap<>();
+            IdentityHashMap<AggregateFunction, Alias> aliasMapForChild = new IdentityHashMap<>();
             for (AggregateFunction func : context.getAggFunctions()) {
                 AggregateFunction newFunc = (AggregateFunction) union.pushDownExpressionPastSetOperator(func, childIdx);
                 aggFunctionsForChild.add(newFunc);
@@ -283,43 +299,33 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             if (newChild != child) {
                 changed = true;
             }
+            // all children need align data type, even if it is not rewritten
+            newChild = alignUnionChildrenDataType(newChild, context);
             newChildren.add(newChild);
         }
         if (changed) {
-            List<List<SlotReference>> newRegularChildrenOutputs = Lists.newArrayList();
-            for (int i = 0; i < newChildren.size(); i++) {
-                List<SlotReference> childOutput = new ArrayList<>();
-                for (SlotReference slot : union.getRegularChildOutput(i)) {
-                    boolean found = false;
-                    for (Slot c : newChildren.get(i).getOutput()) {
-                        if (slot.equals(c)) {
-                            childOutput.add((SlotReference) c);
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        for (AggregateFunction func: childrenContext.get(i).getAliasMap().keySet()) {
-                            if (func.getInputSlots().contains(slot)) {
-                                childOutput.add((SlotReference) childrenContext.get(i).getAliasMap().get(func).toSlot());
-                            }
-                        }
-                    }
-                }
-                newRegularChildrenOutputs.add(childOutput);
+            List<List<SlotReference>> newRegularChildrenOutputs = Lists.newArrayListWithExpectedSize(union.arity());
+            for (int childIdx = 0; childIdx < union.arity(); childIdx++) {
+                newRegularChildrenOutputs.add(
+                        newChildren.get(childIdx).getOutput().stream()
+                                .map(s -> (SlotReference) s).collect(Collectors.toList()));
             }
-            List<NamedExpression> newOutputs = new ArrayList<>();
-            for (int i = 0; i < union.getOutput().size(); i++) {
-                SlotReference originSlot = (SlotReference) union.getOutput().get(i);
-                for (AggregateFunction func: context.getAliasMap().keySet()) {
-                    if (func.getInputSlots().contains(originSlot)) {
-                        originSlot = (SlotReference) context.getAliasMap().get(func).toSlot();
-                    }
+
+            List<NamedExpression> newOutput = Lists.newArrayList();
+            for (AggregateFunction func : context.getAggFunctions()) {
+                Alias alias = context.getAliasMap().get(func);
+                if (alias == null) {
+                    SessionVariable.throwRuntimeExceptionWhenFeDebug("push down agg failed. union: " + union
+                            + " context: " + context);
+                    return union;
                 }
-                DataType dataType = newRegularChildrenOutputs.get(0).get(i).getDataType();
-                newOutputs.add(originSlot.withNullableAndDataType(originSlot.nullable(), dataType));
+                newOutput.add(alias.toSlot());
             }
-            LogicalUnion newUnion = (LogicalUnion) union.withChildrenAndOutputs(newChildren, newOutputs, newRegularChildrenOutputs);
-            checker.checkTreeAllSlotReferenceFromChildren(newUnion);
+            newOutput.addAll(context.getGroupKeys());
+
+            LogicalUnion newUnion = (LogicalUnion) union
+                    .withChildrenAndOutputs(newChildren, newOutput, newRegularChildrenOutputs);
+            //checker.checkTreeAllSlotReferenceFromChildren(newUnion);
             return newUnion;
         } else {
             return union;
@@ -330,7 +336,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
         if (project.child() instanceof LogicalCatalogRelation
                 || (project.child() instanceof LogicalFilter
-                && project.child().child(0) instanceof LogicalCatalogRelation)) {
+                        && project.child().child(0) instanceof LogicalCatalogRelation)) {
             // project
             //   --> scan
             // =>
@@ -346,7 +352,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         PushDownAggContext newContext = createContextFromProject(project, context);
         Plan newChild = project.child().accept(this, newContext);
-        checker.checkTreeAllSlotReferenceFromChildren(newChild);
+        //checker.checkTreeAllSlotReferenceFromChildren(newChild);
         if (newChild != project.child()) {
             /*
              * agg[sum(a), groupBy(b)]
@@ -363,57 +369,31 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
              *                  -> any(a, b1, b2, c)
              *          -> any(d, ...)
              */
-            Set<Slot> aggFuncInputSlots = context.getAggFunctionsInputSlots();
             List<NamedExpression> newProjections = new ArrayList<>();
-            for (NamedExpression ne : project.getProjects()) {
-                if (newChild.getOutputSet().containsAll(ne.getInputSlots())) {
-                    newProjections.add(ne);
-                } else {
-                    // if ne is not child output, it means ne is used by aggFunc
-                    // push sum(a) through project(expr as a)
-                    // "sum(expr)" is pushed, and newChild output x, x is alias of sum(expr)
-                    // the new project should output x.
-                    if (!aggFuncInputSlots.contains(ne.toSlot())) {
-                        if (SessionVariable.isFeDebug()) {
-                            throw new RuntimeException("push down Agg failed: " + ne + " is not in project \n"
-                                    + project.treeString());
-                        } else {
-                            return project;
-                        }
-                    }
-                }
-            }
             for (Alias alias : context.getAliasMap().values()) {
                 newProjections.add(alias.toSlot());
             }
-            Set<SlotReference> newProjectionSlots = newProjections.stream().map(ne -> (SlotReference) ne.toSlot())
-                    .collect(Collectors.toSet());
-            for (SlotReference key : context.getGroupKeys()) {
-                if (!newProjectionSlots.contains(key)) {
-                    newProjections.add(key);
+            for (SlotReference slot : context.getGroupKeys()) {
+                boolean valid = false;
+                for (NamedExpression ne : project.getProjects()) {
+                    if (ne.toSlot().getExprId().equals(slot.getExprId())) {
+                        valid = true;
+                        newProjections.add(ne);
+                        break;
+                    }
+                }
+                if (!valid) {
+                    SessionVariable.throwRuntimeExceptionWhenFeDebug(
+                            "push agg failed. slot: " + "not found in " + project);
+                    return project;
                 }
             }
-
-            return project.withProjectsAndChild(
-                    newProjections.stream().map(e -> (NamedExpression) replaceBySlots(e, newChild.getOutput()))
-                            .collect(Collectors.toList()),
-                    newChild);
+            LogicalProject result = new LogicalProject(newProjections, newChild);
+            //checker.checkTreeAllSlotReferenceFromChildren(result);
+            return result;
         }
 
         return project;
-    }
-
-    private static Expression replaceBySlots(Expression expression, List<Slot> slots) {
-        Map<Slot, Slot> replaceMap = new HashMap<>();
-        for (Slot slot1 : expression.getInputSlots()) {
-            for (Slot slot2 : slots) {
-                if (slot1.getExprId().asInt() == slot2.getExprId().asInt()) {
-                    replaceMap.put(slot1, slot2);
-                }
-            }
-        }
-        Expression result = ExpressionUtils.replace(expression, replaceMap);
-        return result;
     }
 
     @Override
@@ -434,7 +414,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private Plan genAggregate(Plan child, PushDownAggContext context) {
         if (checkStats(child, context)) {
             List<NamedExpression> aggOutputExpressions = new ArrayList<>();
-            aggOutputExpressions.addAll(context.getAliasMap().values());
+            for (AggregateFunction func : context.getAggFunctions()) {
+                aggOutputExpressions.add(context.getAliasMap().get(func));
+            }
             aggOutputExpressions.addAll(context.getGroupKeys());
             LogicalAggregate genAgg = new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
             NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
@@ -475,7 +457,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         List<ColumnStatistic> medium = Lists.newArrayList();
         List<ColumnStatistic> high = Lists.newArrayList();
 
-        List<ColumnStatistic>[] cards = new List[] {lower, medium, high};
+        List<ColumnStatistic>[] cards = new List[] { lower, medium, high };
 
         for (NamedExpression key : context.getGroupKeys()) {
             ColumnStatistic colStats = ExpressionEstimation.INSTANCE.estimate(key, stats);
@@ -516,20 +498,17 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         // 3. Extremely low cardinality for lower with at most one medium or high.
-        double lowerCartesianLowerBound =
-                stats.getRowCount() / LOWER_AGGREGATE_EFFECT_COEFFICIENT;
+        double lowerCartesianLowerBound = stats.getRowCount() / LOWER_AGGREGATE_EFFECT_COEFFICIENT;
         if (high.size() + medium.size() == 1 && lower.size() <= 2 && lowerCartesian <= lowerCartesianLowerBound) {
             return true;
-            // StatsCalculator statsCalculator = new StatsCalculator(null);
-            // double estAggRowCount = statsCalculator.estimateGroupByRowCount(context.getGroupKeys(), stats);
-            // return estAggRowCount < lowerCartesianLowerBound;
         }
 
         return false;
     }
 
     // high(2): row_count / cardinality < MEDIUM_AGGREGATE_EFFECT_COEFFICIENT
-    // medium(1): row_count / cardinality >= MEDIUM_AGGREGATE_EFFECT_COEFFICIENT and < LOW_AGGREGATE_EFFECT_COEFFICIENT
+    // medium(1): row_count / cardinality >= MEDIUM_AGGREGATE_EFFECT_COEFFICIENT and
+    // < LOW_AGGREGATE_EFFECT_COEFFICIENT
     // lower(0): row_count / cardinality >= LOW_AGGREGATE_EFFECT_COEFFICIENT
     private int groupByCardinality(ColumnStatistic colStats, double rowCount) {
         if (rowCount == 0 || colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {

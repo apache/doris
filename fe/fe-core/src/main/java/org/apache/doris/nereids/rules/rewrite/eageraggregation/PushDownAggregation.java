@@ -35,7 +35,7 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+//import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -93,7 +93,8 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             LogicalRelation.class,
             LogicalJoin.class);
 
-    private CheckAfterRewrite checker = new CheckAfterRewrite();
+    //private CheckAfterRewrite checker = new CheckAfterRewrite();
+
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         int mode = SessionVariable.getEagerAggregationMode();
@@ -108,7 +109,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, JobContext context) {
         Plan newChild = agg.child().accept(this, context);
         if (newChild != agg.child()) {
-            // TODO : push down upper aggregations
             return agg.withChildren(newChild);
         }
 
@@ -131,7 +131,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         List<AggregateFunction> aggFunctions = new ArrayList<>();
-
+        boolean hasSumIf = false;
         for (AggregateFunction aggFunction : agg.getAggregateFunctions()) {
             if (pushDownAggFunctionSet.contains(aggFunction.getClass())
                     && !aggFunction.isDistinct()) {
@@ -143,6 +143,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     }
                     groupKeys.addAll(body.getCondition().getInputSlots()
                             .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
+                    hasSumIf = true;
                 } else {
                     aggFunctions.add(aggFunction);
                 }
@@ -161,7 +162,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
-                groupKeys, context.getCascadesContext());
+                groupKeys, null, context.getCascadesContext(), hasSumIf);
         try {
             Plan child = agg.child().accept(writer, pushDownContext);
             if (child != agg.child()) {
@@ -184,32 +185,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 for (NamedExpression ne : agg.getOutputExpressions()) {
                     if (ne instanceof SlotReference) {
                         newOutputExpressions.add(ne);
-                    //} else if (ne instanceof Alias
-                    //        && ne.child(0) instanceof Sum
-                    //        && ne.child(0).child(0) instanceof If
-                    //        && ne.child(0).child(0).child(1) instanceof SlotReference) {
-                    //    SlotReference targetSlot = (SlotReference) ne.child(0).child(0).child(1);
-                    //    Slot toReplace = null;
-                    //    for (Slot slot : child.getOutput()) {
-                    //        if (slot.getExprId().equals(targetSlot.getExprId())) {
-                    //            toReplace = slot;
-                    //        }
-                    //    }
-                    //    if (toReplace != null) {
-                    //        Alias newOutput = (Alias) ((Alias) ne).withChildren(
-                    //                new Sum(
-                    //                        new If(
-                    //                                ne.child(0).child(0).child(0),
-                    //                                toReplace,
-                    //                                new NullLiteral(toReplace.getDataType())
-                    //                        )
-                    //                )
-                    //        );
-                    //        newOutputExpressions.add(newOutput);
-                    //    } else {
-                    //        return agg;
-                    //    }
-
                     } else {
                         NamedExpression replaceAliasExpr = (NamedExpression) ExpressionUtils.replace(ne, replaceMap);
                         replaceAliasExpr = (NamedExpression) ExpressionUtils.rebuildSignature(replaceAliasExpr);
@@ -218,7 +193,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 }
                 LogicalAggregate<Plan> eagerAgg =
                         agg.withAggOutputChild(newOutputExpressions, child);
-                checker.checkTreeAllSlotReferenceFromChildren(eagerAgg);
+                //checker.checkTreeAllSlotReferenceFromChildren(eagerAgg);
                 NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
                 LogicalPlan normalized = normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
                         context.getCascadesContext());

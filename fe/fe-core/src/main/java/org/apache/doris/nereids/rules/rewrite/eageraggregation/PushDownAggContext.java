@@ -24,9 +24,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,7 +38,7 @@ public class PushDownAggContext {
     public static final int BIG_JOIN_BUILD_SIZE = 400_000;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;
-    private final Map<AggregateFunction, Alias> aliasMap;
+    private final IdentityHashMap<AggregateFunction, Alias> aliasMap;
     private final Set<Slot> aggFunctionsInputSlots;
 
     // cascadesContext is used for normalizeAgg
@@ -65,16 +65,21 @@ public class PushDownAggContext {
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
 
+        IdentityHashMap<AggregateFunction, Alias> builtAliasMap = new IdentityHashMap<>();
         if (aliasMap == null) {
-            ImmutableMap.Builder<AggregateFunction, Alias> aliasMapBuilder = ImmutableMap.builder();
             for (AggregateFunction aggFunction : this.aggFunctions) {
-                Alias alias = new Alias(aggFunction, aggFunction.getName());
-                aliasMapBuilder.put(aggFunction, alias);
+                builtAliasMap.put(aggFunction, new Alias(aggFunction, aggFunction.getName()));
             }
-            this.aliasMap = aliasMapBuilder.build();
         } else {
-            this.aliasMap = aliasMap;
+            for (AggregateFunction aggFunction : this.aggFunctions) {
+                Alias alias = aliasMap.get(aggFunction);
+                if (alias == null) {
+                    alias = new Alias(aggFunction, aggFunction.getName());
+                }
+                builtAliasMap.put(aggFunction, alias);
+            }
         }
+        this.aliasMap = builtAliasMap;
 
         this.aggFunctionsInputSlots = aggFunctions.stream()
                 .flatMap(aggFunction -> aggFunction.getInputSlots().stream())
@@ -87,7 +92,7 @@ public class PushDownAggContext {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, true);
     }
 
-    public Map<AggregateFunction, Alias> getAliasMap() {
+    public IdentityHashMap<AggregateFunction, Alias> getAliasMap() {
         return aliasMap;
     }
 
@@ -113,5 +118,15 @@ public class PushDownAggContext {
 
     public boolean isPassThroughBigJoin() {
         return passThroughBigJoin;
+    }
+
+    @Override
+    public String toString() {
+        return "PushDownAggContext{"
+                + "aggFunctions=" + aggFunctions
+                + ", groupKeys=" + groupKeys
+                + ", aliasMap=" + aliasMap
+                + ", passThroughBigJoin=" + passThroughBigJoin
+                + '}';
     }
 }
