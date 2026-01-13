@@ -341,7 +341,7 @@ public class StreamingJobUtils {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
             Preconditions.checkArgument(!col.getType().isUnsupported(),
-                    "Unsupported data type for table %s column %s", table, col.getName());
+                    "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
             if (col.getType().isVarchar()) {
                 // The length of varchar needs to be multiplied by 3.
                 int len = col.getType().getLength() * 3;
