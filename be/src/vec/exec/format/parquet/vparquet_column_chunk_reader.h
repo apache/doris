@@ -264,6 +264,19 @@ private:
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
     Status _skip_nested_rows_in_page(size_t num_rows);
 
+    level_t _rep_level_get_next() {
+        if constexpr (IN_COLLECTION) {
+            return _rep_level_decoder.get_next();
+        }
+        return 0;
+    }
+
+    void _rep_level_rewind_one() {
+        if constexpr (IN_COLLECTION) {
+            _rep_level_decoder.rewind_one();
+        }
+    }
+
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema = nullptr;
     const level_t _max_rep_level;

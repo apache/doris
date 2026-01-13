@@ -177,6 +177,7 @@ public:
     virtual void reset_filter_map_index() = 0;
 
     FieldSchema* get_field_schema() const { return _field_schema; }
+    void set_column_in_nested() { _in_nested = true; }
 
 protected:
     void _generate_read_ranges(RowRange page_row_range, RowRanges* result_ranges) const;
@@ -191,6 +192,10 @@ protected:
 
     size_t _filter_map_index = 0;
     std::set<uint64_t> _filter_column_ids;
+
+    // _in_nested: column in struct/map/array
+    // IN_COLLECTION : column in map/array
+    bool _in_nested = false;
 };
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
