@@ -66,16 +66,13 @@ public class StreamingJobUtilsTest {
         Assert.assertEquals(5, result.size());
         Assert.assertEquals("id", result.get(0).getName());
         Assert.assertEquals("name", result.get(1).getName());
-        
         // Verify varchar primary key columns have their length multiplied by 3
         Column nameColumn = result.get(1);
         Assert.assertEquals(150, nameColumn.getType().getLength()); // 50 * 3
-        
         // Verify non-primary key columns follow
         Assert.assertEquals("age", result.get(2).getName());
         Assert.assertEquals("email", result.get(3).getName());
         Assert.assertEquals("address", result.get(4).getName());
-        
         // Verify non-primary key varchar columns also have their length multiplied by 3
         Column emailColumn = result.get(3);
         Assert.assertEquals(300, emailColumn.getType().getLength()); // 100 * 3
@@ -197,7 +194,6 @@ public class StreamingJobUtilsTest {
         mockColumns.add(new Column("unsupported_col", new ScalarType(PrimitiveType.UNSUPPORTED)));
 
         Mockito.when(jdbcClient.getColumnsFromJdbc(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(mockColumns);
-        
         // This should throw IllegalArgumentException due to unsupported column type
         try {
             StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
