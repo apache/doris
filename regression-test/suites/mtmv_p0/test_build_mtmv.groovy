@@ -21,7 +21,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import org.junit.Assert;
 
-suite("test_build_mtmv") {
+suite("test_build_mtmv", "p1") {
     def tableName = "t_test_create_mtmv_user"
     def tableNamePv = "t_test_create_mtmv_user_pv"
     def mvName = "multi_mv_test_create_mtmv"

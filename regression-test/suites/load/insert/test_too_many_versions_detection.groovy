@@ -16,7 +16,7 @@
 // under the License.
 import java.sql.SQLException
 
-suite("too_many_versions_detection") {
+suite("too_many_versions_detection", "p1") {
     sql """ DROP TABLE IF EXISTS t """
 
     sql """

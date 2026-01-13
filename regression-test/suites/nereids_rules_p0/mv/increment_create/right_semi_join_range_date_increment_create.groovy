@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("right_semi_join_range_date_increment_create") {
+suite("right_semi_join_range_date_increment_create", "p1") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"

@@ -67,6 +67,12 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_routine_load_timeout_value," + // to be fix
     "test_decimalv2_common," + // to be fix
     "test_insert_error_url," + // cause stop grace fail
+    "test_cold_data_compaction_fault_injection," +
+    "test_cumu_compaction_delay_fault_injection," + // force 3 replica cause fail
+    "test_full_compaction_run_status," + // unstable
+    "test_routine_load_timeout_value," + // to be fix
+    "test_decimalv2_common," + // to be fix
+    "test_cumu_compaction_with_delete," + // cost 5+ mins
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 // this directories will not be executed

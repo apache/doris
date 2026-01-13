@@ -16,7 +16,7 @@ package mv.date_trunc
 // specific language governing permissions and limitations
 // under the License.
 
-suite("mv_with_date_trunc") {
+suite("mv_with_date_trunc", "p1") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";

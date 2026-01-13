@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("load") {
+suite("load", "p1") {
     String database = context.config.getDbNameByFile(context.file)
     sql "drop database if exists ${database}"
     sql "create database ${database}"

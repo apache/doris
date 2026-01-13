@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_text_write_insert", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_text_write_insert", "p1,external,hive,external_docker,external_docker_hive") {
     def q01 = { String format_compression, String catalog_name ->
         logger.info("hive sql: " + """ truncate table all_types_text; """)
         hive_docker """ truncate table all_types_text; """

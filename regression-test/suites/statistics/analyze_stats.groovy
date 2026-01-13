@@ -17,7 +17,7 @@ import java.util.stream.Collectors
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_analyze") {
+suite("test_analyze", "p1") {
 
     def stats_dropped = { table ->
         def result1 = sql """show column cached stats $table"""
