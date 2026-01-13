@@ -112,7 +112,8 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
             continue;
         }
 
-        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(right_literal->value(),
+        auto options = vectorized::DataTypeSerDe::get_default_format_options();
+        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(right_literal->value(options),
                                                                     index_meta->properties());
 
         std::string field_name =

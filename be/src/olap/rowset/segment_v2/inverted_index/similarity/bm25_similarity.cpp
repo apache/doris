@@ -16,6 +16,7 @@
 // under the License.
 
 #include "bm25_similarity.h"
+#include <cmath>
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -84,7 +85,7 @@ float BM25Similarity::score(float freq, int64_t encoded_norm) {
 }
 
 float BM25Similarity::max_score() {
-    return score(255, 2013265944);
+    return score(static_cast<float>(2013265944), 255);
 }
 
 int32_t BM25Similarity::number_of_leading_zeros(uint64_t value) {

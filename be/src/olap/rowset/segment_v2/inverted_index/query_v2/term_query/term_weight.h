@@ -17,12 +17,17 @@
 
 #pragma once
 
+#include <variant>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/wand/block_wand.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
+
+using TermOrEmptyScorer = std::variant<EmptyScorerPtr, TermScorerPtr>;
 
 class TermWeight : public Weight {
 public:
@@ -36,6 +41,28 @@ public:
     ~TermWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
+        auto result = specialized_scorer(ctx, binding_key);
+        return std::visit([](auto&& sc) -> ScorerPtr { return sc; }, result);
+    }
+
+    template <typename Callback>
+    void for_each_pruning(const QueryExecutionContext& context, const std::string& binding_key,
+                          float threshold, Callback&& callback) {
+        auto result = specialized_scorer(context, binding_key);
+        std::visit(
+                [&](auto&& sc) {
+                    using T = std::decay_t<decltype(sc)>;
+                    if constexpr (std::is_same_v<T, TermScorerPtr>) {
+                        block_wand_single_scorer(std::move(sc), threshold,
+                                                 std::forward<Callback>(callback));
+                    }
+                },
+                std::move(result));
+    }
+
+private:
+    TermOrEmptyScorer specialized_scorer(const QueryExecutionContext& ctx,
+                                         const std::string& binding_key) {
         auto reader = lookup_reader(_field, ctx, binding_key);
         auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
         if (!reader) {
@@ -51,7 +78,6 @@ public:
         return std::make_shared<EmptyScorer>();
     }
 
-private:
     IndexQueryContextPtr _context;
 
     std::wstring _field;

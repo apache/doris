@@ -21,6 +21,7 @@
 #include <CLucene/search/Scorer.h>
 #include <glog/logging.h>
 
+#include <limits>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <set>
@@ -39,6 +40,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query_builder.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/collect/top_k_collector.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_query.h"
@@ -278,16 +280,24 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     }
 
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    uint32_t doc = scorer->doc();
     uint32_t matched_docs = 0;
-    while (doc != query_v2::TERMINATED) {
-        roaring->add(doc);
-        if (enable_scoring) {
-            float score = scorer->score();
-            index_query_context->collection_similarity->collect(doc, score);
+
+    if (enable_scoring) {
+        auto scored_docs = collect_multi_segment_top_k(weight, exec_ctx, root_binding_key,
+                                                       std::numeric_limits<size_t>::max(), false);
+        for (const auto& scored_doc : scored_docs) {
+            roaring->add(scored_doc.doc_id);
+            index_query_context->collection_similarity->collect(scored_doc.doc_id,
+                                                                scored_doc.score);
         }
-        ++matched_docs;
-        doc = scorer->advance();
+        matched_docs = static_cast<uint32_t>(scored_docs.size());
+    } else {
+        uint32_t doc = scorer->doc();
+        while (doc != query_v2::TERMINATED) {
+            roaring->add(doc);
+            ++matched_docs;
+            doc = scorer->advance();
+        }
     }
 
     VLOG_DEBUG << "search: Query completed, matched " << matched_docs << " documents";

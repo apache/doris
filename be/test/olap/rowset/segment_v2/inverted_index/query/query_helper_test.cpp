@@ -46,6 +46,8 @@ public:
 
     MOCK_FUNCTION float score(float freq, int64_t encoded_norm) override { return _score_value; }
 
+    MOCK_FUNCTION float max_score() override { return std::numeric_limits<float>::max(); }
+
 private:
     float _score_value;
 };
