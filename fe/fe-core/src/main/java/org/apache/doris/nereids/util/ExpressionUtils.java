@@ -368,8 +368,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * Replace the slot in expressions with the lineage identifier from
-     * specifiedbaseTable sets or target table types
+     * Replace the slot in expressions with the lineage identifier from specifiedbaseTable sets or target table types
      * example as following:
      * select a + 10 as a1, d from (
      * select b - 5 as a, d from table
@@ -416,10 +415,8 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether the input expression is a
-     * {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a
-     * {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
      * <p>
      * for example:
      * - SlotReference to a column:
@@ -429,8 +426,7 @@ public class ExpressionUtils {
      * cast(cast(int_col as long) as string)
      *
      * @param expr input expression
-     * @return Return Optional[ExprId] of underlying slot reference if input
-     *         expression is a slot or cast on slot.
+     * @return Return Optional[ExprId] of underlying slot reference if input expression is a slot or cast on slot.
      *         Otherwise, return empty optional result.
      */
     public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
@@ -438,10 +434,8 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether the input expression is a
-     * {@link org.apache.doris.nereids.trees.expressions.Slot}
-     * or at least one {@link Cast} on a
-     * {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
      */
     public static Optional<Slot> extractSlotOrCastOnSlot(Expression expr) {
         while (expr instanceof Cast) {
@@ -456,8 +450,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * Generate replaceMap Slot -> Expression from NamedExpression[Expression as
-     * name]
+     * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
      */
     public static Map<Slot, Expression> generateReplaceMap(List<? extends NamedExpression> namedExpressions) {
         Map<Slot, Expression> replaceMap = Maps.newLinkedHashMapWithExpectedSize(namedExpressions.size());
@@ -485,8 +478,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * Replace expression node with predicate in the expression tree by `replaceMap`
-     * in top-down manner.
+     * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
      */
     public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
             Predicate<Expression> predicate, boolean stopWhenNotMatched) {
@@ -516,11 +508,9 @@ public class ExpressionUtils {
     }
 
     /**
-     * Replace expression node in the expression tree by `replaceMap` in top-down
-     * manner.
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * This function gives counter map to record replace count.
      * For example.
-     *
      * <pre>
      * input expression: a > 1
      * replaceMap: a -> b + c
@@ -547,10 +537,8 @@ public class ExpressionUtils {
     }
 
     /**
-     * Replace expression node in the expression tree by `replaceMap` in top-down
-     * manner.
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
-     *
      * <pre>
      * input expression: a > 1
      * replaceMap: a -> b + c
@@ -567,10 +555,8 @@ public class ExpressionUtils {
     }
 
     /**
-     * Replace expression node in the expression tree by `replaceMap` in top-down
-     * manner.
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
-     *
      * <pre>
      * input expression: a > 1
      * replaceMap: d -> b + c, transferMap: a -> d
@@ -624,8 +610,7 @@ public class ExpressionUtils {
             Expression replacedExpr = replaceMap.get(e);
             if (replacedExpr == null && e instanceof SlotReference
                     && e.getDataType() instanceof VariantType) {
-                // this is valid, because the variant expression would be extended in expression
-                // rewrite
+                // this is valid, because the variant expression would be extended in expression rewrite
                 return e;
             }
             if (replacedExpr == null && e instanceof NamedExpression) {
@@ -639,8 +624,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * Replace expression node in the expression tree by `replaceMap` in top-down
-     * manner.
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      */
     public static List<NamedExpression> replaceNamedExpressions(List<? extends NamedExpression> namedExpressions,
             Map<? extends Expression, ? extends Expression> replaceMap) {
@@ -660,8 +644,8 @@ public class ExpressionUtils {
      * set ignore unique id for unique functions
      */
     public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
-        return expression.rewriteDownShortCircuit(
-                e -> e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
+        return expression.rewriteDownShortCircuit(e ->
+                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -729,12 +713,10 @@ public class ExpressionUtils {
     public static boolean canInferNotNullForMarkSlot(Expression predicate, ExpressionRewriteContext ctx) {
         /*
          * assume predicate is from LogicalFilter
-         * the idea is replacing each mark join slot with null and false literal then
-         * run FoldConstant rule
+         * the idea is replacing each mark join slot with null and false literal then run FoldConstant rule
          * if the evaluate result are:
          * 1. all true
-         * 2. all null and false (in logicalFilter, we discard both null and false
-         * values)
+         * 2. all null and false (in logicalFilter, we discard both null and false values)
          * the mark slot can be non-nullable boolean
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
@@ -827,8 +809,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * infer notNulls slot from predicate but these slots must be in the given
-     * slots.
+     * infer notNulls slot from predicate but these slots must be in the given slots.
      */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
             CascadesContext cascadesContext) {
@@ -1099,8 +1080,7 @@ public class ExpressionUtils {
         }
         // for other datatype, only support cast.
         // example: T1 join T2 on subStr(T1.a, 1,4) = subStr(T2.a, 1,4)
-        // the cost of subStr is too high, and hence we do not generate RF subStr(T2.a,
-        // 1,4)->subStr(T1.a, 1,4)
+        // the cost of subStr is too high, and hence we do not generate RF subStr(T2.a, 1,4)->subStr(T1.a, 1,4)
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();
         }
@@ -1122,8 +1102,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check the expression is inferred or not, if inferred return true, nor return
-     * false
+     * Check the expression is inferred or not, if inferred return true, nor return false
      */
     public static boolean isInferred(Expression expression) {
         return expression.accept(new DefaultExpressionVisitor<Boolean, Void>() {
@@ -1353,8 +1332,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * check if the expressions contain a unique function which exists multiple
-     * times
+     * check if the expressions contain a unique function which exists multiple times
      */
     public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
         Set<UniqueFunction> counterSet = Sets.newHashSet();
