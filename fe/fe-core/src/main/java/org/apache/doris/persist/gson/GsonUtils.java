@@ -528,7 +528,8 @@ public class GsonUtils {
             .of(Replica.class, "clazz")
             .registerDefaultSubtype(Replica.class)
             .registerSubtype(Replica.class, Replica.class.getSimpleName())
-            .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
+            .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName())
+            .registerCompatibleSubtype(Replica.class, "LocalReplica");
 
     private static RuntimeTypeAdapterFactory<Tablet> tabletTypeAdapterFactory;
 
@@ -539,6 +540,7 @@ public class GsonUtils {
                 .registerSubtype(CloudTablet.class, CloudTablet.class.getSimpleName());
         if (Config.isNotCloudMode()) {
             tabletTypeAdapterFactory.registerDefaultSubtype(Tablet.class);
+            tabletTypeAdapterFactory.registerCompatibleSubtype(Tablet.class, "LocalTablet");
         } else {
             // compatible with old cloud code.
             tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);

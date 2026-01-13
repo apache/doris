@@ -386,6 +386,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
@@ -485,6 +487,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeToSec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
@@ -931,6 +934,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Protocol.class, "protocol"),
             scalar(QuantilePercent.class, "quantile_percent"),
             scalar(QuantileStateEmpty.class, "quantile_state_empty"),
+            scalar(QuantileStateToBase64.class, "quantile_state_to_base64"),
+            scalar(QuantileStateFromBase64.class, "quantile_state_from_base64"),
             scalar(Quarter.class, "quarter"),
             scalar(QuartersAdd.class, "quarters_add"),
             scalar(QuarterCeil.class, "quarter_ceil"),
@@ -1038,6 +1043,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Tanh.class, "tanh"),
             scalar(Time.class, "time"),
             scalar(TimeDiff.class, "timediff"),
+            scalar(TimeFormat.class, "time_format"),
             scalar(TimeToSec.class, "time_to_sec"),
             scalar(Timestamp.class, "timestamp"),
             scalar(ToBase64.class, "to_base64"),

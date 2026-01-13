@@ -47,6 +47,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/column_type_convert.h"
+#include "vec/exec/format/parquet/parquet_block_split_bloom_filter.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
@@ -98,7 +99,10 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max) {
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_filter_by_bloom_filter(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -116,7 +120,10 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max) {
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_filter_by_bloom_filter(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -140,9 +147,15 @@ void ParquetReader::_init_profile() {
         ADD_TIMER_WITH_LEVEL(_profile, parquet_profile, 1);
 
         _parquet_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "FilteredGroups", TUnit::UNIT, parquet_profile, 1);
+                _profile, "RowGroupsFiltered", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "RowGroupsFilteredByBloomFilter", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "ReadGroups", TUnit::UNIT, parquet_profile, 1);
+                _profile, "RowGroupsReadNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.total_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "RowGroupsTotalNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -153,16 +166,14 @@ void ParquetReader::_init_profile() {
                 _profile, "FilteredBytes", TUnit::BYTES, parquet_profile, 1);
         _parquet_profile.raw_rows_read = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "RawRowsRead", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.to_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "ReadBytes", TUnit::BYTES, parquet_profile, 1);
         _parquet_profile.column_read_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", parquet_profile, 1);
         _parquet_profile.parse_meta_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ParseMetaTime", parquet_profile, 1);
         _parquet_profile.parse_footer_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ParseFooterTime", parquet_profile, 1);
-        _parquet_profile.open_file_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FileOpenTime", parquet_profile, 1);
+        _parquet_profile.file_reader_create_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FileReaderCreateTime", parquet_profile, 1);
         _parquet_profile.open_file_num =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.page_index_read_calls =
@@ -184,7 +195,9 @@ void ParquetReader::_init_profile() {
         _parquet_profile.decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "DecompressCount", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.decode_header_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeHeaderTime", parquet_profile, 1);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageHeaderDecodeTime", parquet_profile, 1);
+        _parquet_profile.read_page_header_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageHeaderReadTime", parquet_profile, 1);
         _parquet_profile.decode_value_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", parquet_profile, 1);
         _parquet_profile.decode_dict_time =
@@ -201,6 +214,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
         _parquet_profile.dict_filter_rewrite_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DictFilterRewriteTime", parquet_profile, 1);
+        _parquet_profile.bloom_filter_read_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "BloomFilterReadTime", parquet_profile, 1);
     }
 }
 
@@ -220,8 +235,8 @@ Status ParquetReader::_open_file() {
         return Status::EndOfFile("stop");
     }
     if (_file_reader == nullptr) {
-        SCOPED_RAW_TIMER(&_statistics.open_file_time);
-        ++_statistics.open_file_num;
+        SCOPED_RAW_TIMER(&_reader_statistics.file_reader_create_time);
+        ++_reader_statistics.open_file_num;
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
@@ -235,7 +250,7 @@ Status ParquetReader::_open_file() {
     }
 
     if (_file_metadata == nullptr) {
-        SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
+        SCOPED_RAW_TIMER(&_reader_statistics.parse_footer_time);
         if (_tracing_file_reader->size() <= sizeof(PARQUET_VERSION_NUMBER)) {
             // Some system may generate parquet file with only 4 bytes: PAR1
             // Should consider it as empty file.
@@ -251,9 +266,8 @@ Status ParquetReader::_open_file() {
             RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
                                                 &meta_size, _io_ctx, enable_mapping_varbinary));
             _file_metadata = _file_metadata_ptr.get();
-            _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
-            _statistics.file_footer_read_calls += 1;
+            _reader_statistics.file_footer_read_calls += 1;
         } else {
             const auto& file_meta_cache_key =
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
@@ -264,10 +278,9 @@ Status ParquetReader::_open_file() {
                 _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
                                     &_meta_cache_handle);
                 _file_metadata = _meta_cache_handle.data<FileMetaData>();
-                _column_statistics.read_bytes += meta_size;
-                _statistics.file_footer_read_calls += 1;
+                _reader_statistics.file_footer_read_calls += 1;
             } else {
-                _statistics.file_footer_hit_cache++;
+                _reader_statistics.file_footer_hit_cache++;
             }
             _file_metadata = _meta_cache_handle.data<FileMetaData>();
         }
@@ -276,9 +289,6 @@ Status ParquetReader::_open_file() {
             return Status::InternalError("failed to get file meta data: {}",
                                          _file_description.path);
         }
-        _column_statistics.read_bytes += meta_size;
-        // parse magic number & parse meta data
-        _column_statistics.read_calls += 1;
     }
     return Status::OK();
 }
@@ -340,7 +350,7 @@ Status ParquetReader::init_reader(
         return Status::InternalError("failed to init parquet reader, please open reader first");
     }
 
-    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
+    SCOPED_RAW_TIMER(&_reader_statistics.parse_meta_time);
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
         return Status::EndOfFile("init reader failed, empty parquet file: " + _scan_range.path);
@@ -365,6 +375,7 @@ Status ParquetReader::init_reader(
         if (required_file_columns.contains(name)) {
             _read_file_columns.emplace_back(name);
             _read_table_columns.emplace_back(required_file_columns[name]);
+            _read_table_columns_set.insert(required_file_columns[name]);
         }
     }
     // build column predicates for column lazy read
@@ -373,7 +384,13 @@ Status ParquetReader::init_reader(
 }
 
 bool ParquetReader::_exists_in_file(const VSlotRef* slot_ref) const {
-    return _table_info_node_ptr->children_column_exists(slot_ref->expr_name());
+    // `_read_table_columns_set` is used to ensure that only columns actually read are subject to min-max filtering.
+    // This primarily handles cases where partition columns also exist in a file. The reason it's not modified
+    // in `_table_info_node_ptr` is that Iceberg、Hudi has inconsistent requirements for this node;
+    // Iceberg partition evolution need read partition columns from a file.
+    // hudi set `hoodie.datasource.write.drop.partition.columns=false` not need read partition columns from a file.
+    return _table_info_node_ptr->children_column_exists(slot_ref->expr_name()) &&
+           _read_table_columns_set.contains(slot_ref->expr_name());
 }
 
 bool ParquetReader::_type_matches(const VSlotRef* slot_ref) const {
@@ -631,7 +648,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    SCOPED_RAW_TIMER(&_statistics.column_read_time);
+    SCOPED_RAW_TIMER(&_reader_statistics.column_read_time);
     Status batch_st =
             _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
     if (batch_st.is<ErrorCode::END_OF_FILE>()) {
@@ -648,11 +665,13 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     }
 
     if (_row_group_eof) {
-        auto column_st = _current_group_reader->statistics();
+        auto column_st = _current_group_reader->merged_column_statistics();
         _column_statistics.merge(column_st);
-        _statistics.lazy_read_filtered_rows += _current_group_reader->lazy_read_filtered_rows();
-        _statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
-        _statistics.dict_filter_rewrite_time += _current_group_reader->dict_filter_rewrite_time();
+        _reader_statistics.lazy_read_filtered_rows +=
+                _current_group_reader->lazy_read_filtered_rows();
+        _reader_statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
+        _reader_statistics.dict_filter_rewrite_time +=
+                _current_group_reader->dict_filter_rewrite_time();
         if (_current_row_group_index.row_group_id + 1 == _total_groups) {
             *eof = true;
         } else {
@@ -744,23 +763,22 @@ Status ParquetReader::_next_row_group_reader() {
             group_size += column_compressed_size(field);
         }
 
-        _statistics.read_rows += candidate_row_ranges.count();
+        _reader_statistics.read_rows += candidate_row_ranges.count();
         if (_io_ctx) {
             _io_ctx->file_reader_stats->read_rows += candidate_row_ranges.count();
         }
 
         if (candidate_row_ranges.count() != 0) {
             // need read this row group.
-            _statistics.read_row_groups++;
-            _statistics.read_bytes += group_size;
-
-            _statistics.filtered_page_rows += row_group.num_rows - candidate_row_ranges.count();
+            _reader_statistics.read_row_groups++;
+            _reader_statistics.filtered_page_rows +=
+                    row_group.num_rows - candidate_row_ranges.count();
             break;
         } else {
             // this row group be filtered.
-            _statistics.filtered_row_groups++;
-            _statistics.filtered_bytes += group_size;
-            _statistics.filtered_group_rows += row_group.num_rows;
+            _reader_statistics.filtered_row_groups++;
+            _reader_statistics.filtered_bytes += group_size;
+            _reader_statistics.filtered_group_rows += row_group.num_rows;
         }
     }
 
@@ -927,11 +945,10 @@ Status ParquetReader::_process_page_index_filter(
         Slice res(off_index_buff.data(), page_index._offset_index_size);
         size_t bytes_read = 0;
         {
-            SCOPED_RAW_TIMER(&_statistics.read_page_index_time);
+            SCOPED_RAW_TIMER(&_reader_statistics.read_page_index_time);
             RETURN_IF_ERROR(_tracing_file_reader->read_at(page_index._offset_index_start, res,
                                                           &bytes_read, _io_ctx));
         }
-        _column_statistics.read_bytes += bytes_read;
         _column_statistics.page_index_read_calls++;
         _col_offsets.clear();
 
@@ -941,7 +958,7 @@ Status ParquetReader::_process_page_index_filter(
                 continue;
             }
             tparquet::OffsetIndex offset_index;
-            SCOPED_RAW_TIMER(&_statistics.parse_page_index_time);
+            SCOPED_RAW_TIMER(&_reader_statistics.parse_page_index_time);
             RETURN_IF_ERROR(
                     page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
             _col_offsets[parquet_col_id] = offset_index;
@@ -963,14 +980,13 @@ Status ParquetReader::_process_page_index_filter(
     size_t bytes_read = 0;
     Slice result(col_index_buff.data(), page_index._column_index_size);
     {
-        SCOPED_RAW_TIMER(&_statistics.read_page_index_time);
+        SCOPED_RAW_TIMER(&_reader_statistics.read_page_index_time);
         RETURN_IF_ERROR(_tracing_file_reader->read_at(page_index._column_index_start, result,
                                                       &bytes_read, _io_ctx));
     }
-    _column_statistics.read_bytes += bytes_read;
     _column_statistics.page_index_read_calls++;
 
-    SCOPED_RAW_TIMER(&_statistics.page_index_filter_time);
+    SCOPED_RAW_TIMER(&_reader_statistics.page_index_filter_time);
 
     // Construct a cacheable page index structure to avoid repeatedly reading the page index of the same column.
     ParquetPredicate::CachedPageIndexStat cached_page_index;
@@ -999,6 +1015,12 @@ Status ParquetReader::_process_page_index_filter(
             // complex type, not support page index yet.
             return false;
         }
+        if (!_col_offsets.contains(parquet_col_id)) {
+            // If the file contains partition columns and the query applies filters on those
+            // partition columns, then reading the page index is unnecessary.
+            return false;
+        }
+
         auto& column_chunk = row_group.columns[parquet_col_id];
         if (column_chunk.column_index_length == 0 || column_chunk.offset_index_length == 0) {
             // column no page index.
@@ -1007,7 +1029,7 @@ Status ParquetReader::_process_page_index_filter(
 
         tparquet::ColumnIndex column_index;
         {
-            SCOPED_RAW_TIMER(&_statistics.parse_page_index_time);
+            SCOPED_RAW_TIMER(&_reader_statistics.parse_page_index_time);
             RETURN_IF_ERROR(page_index.parse_column_index(column_chunk, col_index_buff.data(),
                                                           &column_index));
         }
@@ -1069,7 +1091,7 @@ Status ParquetReader::_process_min_max_bloom_filter(
         const RowGroupReader::RowGroupIndex& row_group_index, const tparquet::RowGroup& row_group,
         const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
         RowRanges* row_ranges) {
-    SCOPED_RAW_TIMER(&_statistics.row_group_filter_time);
+    SCOPED_RAW_TIMER(&_reader_statistics.row_group_filter_time);
     if (!_filter_groups) {
         // No row group filtering is needed;
         // for example, Iceberg reads position delete files.
@@ -1094,12 +1116,20 @@ Status ParquetReader::_process_min_max_bloom_filter(
         }
     } else {
         bool filter_this_row_group = false;
-        RETURN_IF_ERROR(
-                _process_column_stat_filter(row_group, push_down_pred, &filter_this_row_group));
-        _init_chunk_dicts();
-        RETURN_IF_ERROR(_process_dict_filter(&filter_this_row_group));
-        _init_bloom_filter();
-        RETURN_IF_ERROR(_process_bloom_filter(&filter_this_row_group));
+        bool filtered_by_min_max = false;
+        bool filtered_by_bloom_filter = false;
+        RETURN_IF_ERROR(_process_column_stat_filter(row_group, push_down_pred,
+                                                    &filter_this_row_group, &filtered_by_min_max,
+                                                    &filtered_by_bloom_filter));
+        // Update statistics based on filter type
+        if (filter_this_row_group) {
+            if (filtered_by_min_max) {
+                _reader_statistics.filtered_row_groups_by_min_max++;
+            }
+            if (filtered_by_bloom_filter) {
+                _reader_statistics.filtered_row_groups_by_bloom_filter++;
+            }
+        }
 
         if (!filter_this_row_group) {
             RETURN_IF_ERROR(_process_page_index_filter(row_group, row_group_index, push_down_pred,
@@ -1113,14 +1143,28 @@ Status ParquetReader::_process_min_max_bloom_filter(
 Status ParquetReader::_process_column_stat_filter(
         const tparquet::RowGroup& row_group,
         const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
-        bool* filter_group) {
-    if (!_enable_filter_by_min_max) {
+        bool* filter_group, bool* filtered_by_min_max, bool* filtered_by_bloom_filter) {
+    // If both filters are disabled, skip filtering
+    if (!_enable_filter_by_min_max && !_enable_filter_by_bloom_filter) {
         return Status::OK();
     }
 
-    for (const auto& predicate : push_down_pred) {
+    // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
+    // when there are multiple predicates on the same column
+    std::unordered_map<int, std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter>>
+            bloom_filter_cache;
+
+    // Initialize output parameters
+    *filtered_by_min_max = false;
+    *filtered_by_bloom_filter = false;
+
+    for (const auto& predicate : _push_down_predicates) {
         std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
                 [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    // Check if min-max filter is enabled
+                    if (!_enable_filter_by_min_max) {
+                        return false;
+                    }
                     auto* slot = _tuple_descriptor->slots()[cid];
                     if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
                         return false;
@@ -1137,28 +1181,97 @@ Status ParquetReader::_process_column_stat_filter(
                                                                _t_metadata->created_by, stat)
                             .ok();
                 };
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                    auto* slot = _tuple_descriptor->slots()[cid];
+                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                        return false;
+                    }
+                    const auto& file_col_name =
+                            _table_info_node_ptr->children_file_column_name(slot->col_name());
+                    const FieldSchema* col_schema =
+                            _file_metadata->schema().get_column(file_col_name);
+                    int parquet_col_id = col_schema->physical_column_index;
+                    auto meta_data = row_group.columns[parquet_col_id].meta_data;
+                    if (!meta_data.__isset.bloom_filter_offset) {
+                        return false;
+                    }
+                    auto primitive_type =
+                            remove_nullable(col_schema->data_type)->get_primitive_type();
+                    if (!ParquetPredicate::bloom_filter_supported(primitive_type)) {
+                        return false;
+                    }
+
+                    // Check if bloom filter is enabled
+                    if (!_enable_filter_by_bloom_filter) {
+                        return false;
+                    }
+
+                    // Check cache first
+                    auto cache_iter = bloom_filter_cache.find(parquet_col_id);
+                    if (cache_iter != bloom_filter_cache.end()) {
+                        // Bloom filter already loaded for this column, reuse it
+                        stat->bloom_filter = std::move(cache_iter->second);
+                        bloom_filter_cache.erase(cache_iter);
+                        return stat->bloom_filter != nullptr;
+                    }
+
+                    if (!stat->bloom_filter) {
+                        SCOPED_RAW_TIMER(&_reader_statistics.bloom_filter_read_time);
+                        auto st = ParquetPredicate::read_bloom_filter(
+                                meta_data, _tracing_file_reader, _io_ctx, stat);
+                        if (!st.ok()) {
+                            LOG(WARNING) << "Failed to read bloom filter for column "
+                                         << col_schema->name << " in file " << _scan_range.path
+                                         << ", status: " << st.to_string();
+                            stat->bloom_filter.reset();
+                            return false;
+                        }
+                    }
+                    return stat->bloom_filter != nullptr;
+                };
         ParquetPredicate::ColumnStat stat;
         stat.ctz = _ctz;
         stat.get_stat_func = &get_stat_func;
+        stat.get_bloom_filter_func = &get_bloom_filter_func;
 
         if (!predicate->evaluate_and(&stat)) {
             *filter_group = true;
+
+            // Track which filter was used for filtering
+            // If bloom filter was loaded, it means bloom filter was used
+            if (stat.bloom_filter) {
+                *filtered_by_bloom_filter = true;
+            }
+            // If col_schema was set but no bloom filter, it means min-max stats were used
+            if (stat.col_schema && !stat.bloom_filter) {
+                *filtered_by_min_max = true;
+            }
+
             return Status::OK();
+        }
+
+        // After evaluating, if the bloom filter was used, cache it for subsequent predicates
+        if (stat.bloom_filter) {
+            // Find the column id for caching
+            for (auto* slot : _tuple_descriptor->slots()) {
+                if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                    const auto& file_col_name =
+                            _table_info_node_ptr->children_file_column_name(slot->col_name());
+                    const FieldSchema* col_schema =
+                            _file_metadata->schema().get_column(file_col_name);
+                    int parquet_col_id = col_schema->physical_column_index;
+                    if (stat.col_schema == col_schema) {
+                        bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
+                        break;
+                    }
+                }
+            }
         }
     }
 
-    return Status::OK();
-}
-
-void ParquetReader::_init_chunk_dicts() {}
-
-Status ParquetReader::_process_dict_filter(bool* filter_group) {
-    return Status::OK();
-}
-
-void ParquetReader::_init_bloom_filter() {}
-
-Status ParquetReader::_process_bloom_filter(bool* filter_group) {
+    // Update filter statistics if this row group was not filtered
+    // The statistics will be updated in _init_row_groups when filter_group is true
     return Status::OK();
 }
 
@@ -1174,36 +1287,53 @@ void ParquetReader::_collect_profile() {
     if (_current_group_reader != nullptr) {
         _current_group_reader->collect_profile_before_close();
     }
-    COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _statistics.filtered_row_groups);
-    COUNTER_UPDATE(_parquet_profile.to_read_row_groups, _statistics.read_row_groups);
-    COUNTER_UPDATE(_parquet_profile.filtered_group_rows, _statistics.filtered_group_rows);
-    COUNTER_UPDATE(_parquet_profile.filtered_page_rows, _statistics.filtered_page_rows);
-    COUNTER_UPDATE(_parquet_profile.lazy_read_filtered_rows, _statistics.lazy_read_filtered_rows);
-    COUNTER_UPDATE(_parquet_profile.filtered_bytes, _statistics.filtered_bytes);
-    COUNTER_UPDATE(_parquet_profile.raw_rows_read, _statistics.read_rows);
-    COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
-    COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
-    COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
-    COUNTER_UPDATE(_parquet_profile.parse_footer_time, _statistics.parse_footer_time);
-    COUNTER_UPDATE(_parquet_profile.open_file_time, _statistics.open_file_time);
-    COUNTER_UPDATE(_parquet_profile.open_file_num, _statistics.open_file_num);
-    COUNTER_UPDATE(_parquet_profile.page_index_filter_time, _statistics.page_index_filter_time);
-    COUNTER_UPDATE(_parquet_profile.read_page_index_time, _statistics.read_page_index_time);
-    COUNTER_UPDATE(_parquet_profile.parse_page_index_time, _statistics.parse_page_index_time);
-    COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
-    COUNTER_UPDATE(_parquet_profile.file_footer_read_calls, _statistics.file_footer_read_calls);
-    COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache, _statistics.file_footer_hit_cache);
+    COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _reader_statistics.filtered_row_groups);
+    COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_min_max,
+                   _reader_statistics.filtered_row_groups_by_min_max);
+    COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_bloom_filter,
+                   _reader_statistics.filtered_row_groups_by_bloom_filter);
+    COUNTER_UPDATE(_parquet_profile.to_read_row_groups, _reader_statistics.read_row_groups);
+    COUNTER_UPDATE(_parquet_profile.total_row_groups, _total_groups);
+    COUNTER_UPDATE(_parquet_profile.filtered_group_rows, _reader_statistics.filtered_group_rows);
+    COUNTER_UPDATE(_parquet_profile.filtered_page_rows, _reader_statistics.filtered_page_rows);
+    COUNTER_UPDATE(_parquet_profile.lazy_read_filtered_rows,
+                   _reader_statistics.lazy_read_filtered_rows);
+    COUNTER_UPDATE(_parquet_profile.filtered_bytes, _reader_statistics.filtered_bytes);
+    COUNTER_UPDATE(_parquet_profile.raw_rows_read, _reader_statistics.read_rows);
+    COUNTER_UPDATE(_parquet_profile.column_read_time, _reader_statistics.column_read_time);
+    COUNTER_UPDATE(_parquet_profile.parse_meta_time, _reader_statistics.parse_meta_time);
+    COUNTER_UPDATE(_parquet_profile.parse_footer_time, _reader_statistics.parse_footer_time);
+    COUNTER_UPDATE(_parquet_profile.file_reader_create_time,
+                   _reader_statistics.file_reader_create_time);
+    COUNTER_UPDATE(_parquet_profile.open_file_num, _reader_statistics.open_file_num);
+    COUNTER_UPDATE(_parquet_profile.page_index_filter_time,
+                   _reader_statistics.page_index_filter_time);
+    COUNTER_UPDATE(_parquet_profile.read_page_index_time, _reader_statistics.read_page_index_time);
+    COUNTER_UPDATE(_parquet_profile.parse_page_index_time,
+                   _reader_statistics.parse_page_index_time);
+    COUNTER_UPDATE(_parquet_profile.row_group_filter_time,
+                   _reader_statistics.row_group_filter_time);
+    COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
+                   _reader_statistics.file_footer_read_calls);
+    COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
+                   _reader_statistics.file_footer_hit_cache);
 
     COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
                    _column_statistics.parse_page_header_num);
-    COUNTER_UPDATE(_parquet_profile.predicate_filter_time, _statistics.predicate_filter_time);
-    COUNTER_UPDATE(_parquet_profile.dict_filter_rewrite_time, _statistics.dict_filter_rewrite_time);
+    COUNTER_UPDATE(_parquet_profile.predicate_filter_time,
+                   _reader_statistics.predicate_filter_time);
+    COUNTER_UPDATE(_parquet_profile.dict_filter_rewrite_time,
+                   _reader_statistics.dict_filter_rewrite_time);
+    COUNTER_UPDATE(_parquet_profile.bloom_filter_read_time,
+                   _reader_statistics.bloom_filter_read_time);
     COUNTER_UPDATE(_parquet_profile.page_index_read_calls,
                    _column_statistics.page_index_read_calls);
     COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
     COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
     COUNTER_UPDATE(_parquet_profile.decode_header_time, _column_statistics.decode_header_time);
+    COUNTER_UPDATE(_parquet_profile.read_page_header_time,
+                   _column_statistics.read_page_header_time);
     COUNTER_UPDATE(_parquet_profile.decode_value_time, _column_statistics.decode_value_time);
     COUNTER_UPDATE(_parquet_profile.decode_dict_time, _column_statistics.decode_dict_time);
     COUNTER_UPDATE(_parquet_profile.decode_level_time, _column_statistics.decode_level_time);

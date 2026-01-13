@@ -25,11 +25,13 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_normal1"
     def table2 = "user_info_normal2"
+    def table3 = "user_info_normal3_empty"
     def mysqlDb = "test_cdc_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
     sql """drop table if exists ${currentDb}.${table2} force"""
+    sql """drop table if exists ${currentDb}.${table3} force"""
 
     // Pre-create table2
     sql """
@@ -71,6 +73,11 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             // mock snapshot data
             sql """INSERT INTO ${mysqlDb}.${table2} (name, age) VALUES ('A2', 1);"""
             sql """INSERT INTO ${mysqlDb}.${table2} (name, age) VALUES ('B2', 2);"""
+            sql """CREATE TABLE ${mysqlDb}.${table3} (
+                  `name` varchar(200) NOT NULL,
+                  `age` int DEFAULT NULL,
+                  PRIMARY KEY (`name`)
+                ) ENGINE=InnoDB"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -82,7 +89,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
                     "user" = "root",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
-                    "include_tables" = "${table1},${table2}", 
+                    "include_tables" = "${table3},${table1},${table2}", 
                     "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
@@ -96,6 +103,8 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         assert showTables.size() == 1
         def showTables2 = sql """ show tables from ${currentDb} like '${table2}'; """
         assert showTables2.size() == 1
+        def showTables3 = sql """ show tables from ${currentDb} like '${table3}'; """
+        assert showTables3.size() == 1
 
         // check table schema correct
         def showTbl1 = sql """show create table ${currentDb}.${table1}"""
@@ -113,7 +122,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
                         // check job status and succeed task count larger than 2
-                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
+                        jobSuccendCount.size() == 1 && '3' <= jobSuccendCount.get(0).get(0)
                     }
             )
         } catch (Exception ex){
@@ -127,6 +136,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         // check snapshot data
         qt_select_snapshot_table1 """ SELECT * FROM ${table1} order by name asc """
         qt_select_snapshot_table2 """ SELECT * FROM ${table2} order by name asc """
+        qt_select_snapshot_table3 """ SELECT * FROM ${table3} order by name asc """
 
         // mock mysql incremental into
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {

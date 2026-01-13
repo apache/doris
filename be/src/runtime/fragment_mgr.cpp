@@ -670,6 +670,7 @@ void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
 }
 
 void FragmentMgr::remove_query_context(const TUniqueId& key) {
+    _query_ctx_map_delay_delete.erase(key);
 #ifndef BE_TEST
     _query_ctx_map.erase(key);
 #endif
@@ -768,6 +769,9 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
+                                if (!handler->empty()) {
+                                    _query_ctx_map_delay_delete.insert(query_id, query_ctx);
+                                }
                             }
                             if (info.__isset.topn_filter_descs) {
                                 query_ctx->init_runtime_predicates(info.topn_filter_descs);
@@ -970,10 +974,12 @@ void FragmentMgr::cancel_worker() {
 
         std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
+            std::vector<std::shared_ptr<QueryContext>> contexts;
             _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&
                                              map) -> Status {
                 for (auto it = map.begin(); it != map.end();) {
                     if (auto q_ctx = it->second.lock()) {
+                        contexts.push_back(q_ctx);
                         if (q_ctx->is_timeout(now)) {
                             LOG_WARNING("Query {} is timeout", print_id(it->first));
                             queries_timeout.push_back(it->first);
@@ -995,6 +1001,7 @@ void FragmentMgr::cancel_worker() {
                 }
                 return Status::OK();
             });
+            std::vector<std::shared_ptr<QueryContext>> {}.swap(contexts);
 
             // We use a very conservative cancel strategy.
             // 0. If there are no running frontends, do not cancel any queries.
@@ -1007,11 +1014,13 @@ void FragmentMgr::cancel_worker() {
                            "starting? "
                         << "We will not cancel any outdated queries in this situation.";
             } else {
+                std::vector<std::shared_ptr<QueryContext>> q_contexts;
                 _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId,
                                                               std::weak_ptr<QueryContext>>& map)
                                              -> Status {
                     for (const auto& it : map) {
                         if (auto q_ctx = it.second.lock()) {
+                            q_contexts.push_back(q_ctx);
                             const int64_t fe_process_uuid = q_ctx->get_fe_process_uuid();
 
                             if (fe_process_uuid == 0) {
@@ -1365,11 +1374,13 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
 
 void FragmentMgr::get_runtime_query_info(
         std::vector<std::weak_ptr<ResourceContext>>* _resource_ctx_list) {
+    std::vector<std::shared_ptr<QueryContext>> contexts;
     _query_ctx_map.apply(
             [&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>& map) -> Status {
                 for (auto iter = map.begin(); iter != map.end();) {
                     if (auto q_ctx = iter->second.lock()) {
                         _resource_ctx_list->push_back(q_ctx->resource_ctx());
+                        contexts.push_back(q_ctx);
                         iter++;
                     } else {
                         iter = map.erase(iter);

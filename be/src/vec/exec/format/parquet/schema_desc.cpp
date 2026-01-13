@@ -312,6 +312,8 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
         } else {
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
         }
+    } else if (logicalType.__isset.FLOAT16) {
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {
         throw Exception(Status::InternalError("Not supported parquet logicalType"));
     }
