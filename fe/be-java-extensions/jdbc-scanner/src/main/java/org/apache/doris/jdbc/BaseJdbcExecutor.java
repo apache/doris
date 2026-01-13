@@ -254,18 +254,86 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
 
             do {
+                // Check connection and resultSet validity before processing each row
+                if (conn != null) {
+                    try {
+                        if (conn.isClosed()) {
+                            throw new SQLException("Connection has been closed");
+                        }
+                    } catch (SQLException e) {
+                        throw new SQLException("Failed to check connection status: " + e.getMessage(), e);
+                    }
+                }
+                if (resultSet == null) {
+                    throw new SQLException("ResultSet is null");
+                }
+                try {
+                    if (resultSet.isClosed()) {
+                        throw new SQLException("ResultSet has been closed");
+                    }
+                } catch (SQLException e) {
+                    // ResultSet.isClosed() may throw SQLException if connection is invalid
+                    throw new SQLException("Failed to check ResultSet status (connection may be invalid): " + e.getMessage(), e);
+                }
+                
                 for (int i = 0; i < outputColumnCount; ++i) {
                     String outputColumnName = outputTable.getFields()[i];
                     int columnIndex = getRealColumnIndex(outputColumnName, i);
                     if (columnIndex > -1) {
                         ColumnType type = convertTypeIfNecessary(i, outputTable.getColumnType(i), replaceStringList);
-                        block.get(i)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
+                        try {
+                            block.get(i)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
+                        } catch (SQLException e) {
+                            // Check if connection is still valid when SQLException occurs during column read
+                            if (conn != null) {
+                                try {
+                                    if (conn.isClosed() || !conn.isValid(1)) {
+                                        throw new SQLException(
+                                            String.format("Connection is closed or invalid while reading column '%s' (index %d)", 
+                                                outputColumnName, columnIndex), e);
+                                    }
+                                } catch (SQLException connCheckEx) {
+                                    throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(), e);
+                                }
+                            }
+                            // Re-throw the original exception with context
+                            throw new SQLException(
+                                String.format("Error reading column '%s' (index %d): %s", 
+                                    outputColumnName, columnIndex, e.getMessage()), e);
+                        }
                     } else {
                         throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
                     }
                 }
                 curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
+                
+                // Check if there are more rows, with explicit exception handling
+                boolean hasNext;
+                try {
+                    hasNext = resultSet.next();
+                } catch (SQLException e) {
+                    // Check connection status when next() fails
+                    if (conn != null) {
+                        try {
+                            if (conn.isClosed() || !conn.isValid(1)) {
+                                throw new SQLException(
+                                    String.format("Connection is closed or invalid while calling resultSet.next() " +
+                                        "(read %d rows so far)", curBlockRows), e);
+                            }
+                        } catch (SQLException connCheckEx) {
+                            throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(), e);
+                        }
+                    }
+                    // Re-throw with context about how many rows were successfully read
+                    throw new SQLException(
+                        String.format("Error calling resultSet.next() after reading %d rows: %s", 
+                            curBlockRows, e.getMessage()), e);
+                }
+                
+                if (!hasNext) {
+                    break;
+                }
+            } while (curBlockRows < batchSize);
 
             for (int i = 0; i < outputColumnCount; ++i) {
                 String outputColumnName = outputTable.getFields()[i];
@@ -287,11 +355,36 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
                 }
             }
+        } catch (SQLException e) {
+            // Enhanced error handling for SQL exceptions
+            String errorMsg = "JDBC get block address failed";
+            if (conn != null) {
+                try {
+                    boolean isClosed = conn.isClosed();
+                    boolean isValid = conn.isValid(1);
+                    errorMsg += String.format(" (Connection closed: %s, valid: %s)", isClosed, isValid);
+                } catch (SQLException connCheckEx) {
+                    errorMsg += " (Failed to check connection status: " + connCheckEx.getMessage() + ")";
+                }
+            }
+            if (resultSet != null) {
+                try {
+                    boolean isClosed = resultSet.isClosed();
+                    errorMsg += String.format(" (ResultSet closed: %s)", isClosed);
+                } catch (SQLException rsCheckEx) {
+                    // ResultSet.isClosed() may throw SQLException if connection is invalid
+                    errorMsg += " (ResultSet status unknown)";
+                }
+            }
+            LOG.error(errorMsg + ": " + e.getMessage(), e);
+            throw new JdbcExecutorException(errorMsg + ": " + e.getMessage(), e);
         } catch (Exception e) {
-            LOG.warn("jdbc get block address exception: ", e);
+            LOG.error("jdbc get block address exception: ", e);
             throw new JdbcExecutorException("jdbc get block address: ", e);
         } finally {
-            block.clear();
+            if (block != null) {
+                block.clear();
+            }
         }
         return outputTable.getMetaAddress();
     }
