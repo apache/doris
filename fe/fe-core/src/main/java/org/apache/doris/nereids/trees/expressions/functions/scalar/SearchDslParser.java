@@ -36,6 +36,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Search DSL Parser using ANTLR-generated parser.
@@ -74,7 +76,9 @@ public class SearchDslParser {
      *                    - default_operator: "and" or "or" for multi-term queries
      *                    - mode: "standard" or "lucene"
      *                    - minimum_should_match: integer for Lucene mode
+     *                    - fields: array of field names for multi-field search
      *                    Example: '{"default_field":"title","mode":"lucene","minimum_should_match":0}'
+     *                    Example: '{"fields":["title","content"],"default_operator":"and"}'
      * @return Parsed QsPlan
      */
     public static QsPlan parseDsl(String dsl, String optionsJson) {
@@ -87,7 +91,17 @@ public class SearchDslParser {
 
         // Use Lucene mode parser if specified
         if (searchOptions.isLuceneMode()) {
+            // Multi-field + Lucene mode: first expand DSL, then parse with Lucene semantics
+            if (searchOptions.isMultiFieldMode()) {
+                return parseDslMultiFieldLuceneMode(dsl, searchOptions.getFields(),
+                        defaultOperator, searchOptions);
+            }
             return parseDslLuceneMode(dsl, defaultField, defaultOperator, searchOptions);
+        }
+
+        // Multi-field mode parsing (standard mode)
+        if (searchOptions.isMultiFieldMode()) {
+            return parseDslMultiFieldMode(dsl, searchOptions.getFields(), defaultOperator);
         }
 
         // Standard mode parsing
@@ -461,6 +475,361 @@ public class SearchDslParser {
         return false;
     }
 
+    // ============ Common Helper Methods ============
+
+    /**
+     * Create an error QsPlan for empty DSL input.
+     */
+    private static QsPlan createEmptyDslErrorPlan() {
+        return new QsPlan(new QsNode(QsClauseType.TERM, "error", "empty_dsl"), new ArrayList<>());
+    }
+
+    /**
+     * Validate that DSL is not null or empty.
+     * @return true if DSL is valid (non-null, non-empty)
+     */
+    private static boolean isValidDsl(String dsl) {
+        return dsl != null && !dsl.trim().isEmpty();
+    }
+
+    /**
+     * Validate fields list for multi-field mode.
+     * @throws IllegalArgumentException if fields is null or empty
+     */
+    private static void validateFieldsList(List<String> fields) {
+        if (fields == null || fields.isEmpty()) {
+            throw new IllegalArgumentException("fields list cannot be null or empty for multi-field mode");
+        }
+    }
+
+    /**
+     * Common ANTLR parsing helper with visitor pattern.
+     * Reduces code duplication across parsing methods.
+     *
+     * @param expandedDsl The expanded DSL string to parse
+     * @param visitorFactory Factory function to create the appropriate visitor
+     * @param originalDsl Original DSL for error messages
+     * @param modeDescription Description of the parsing mode for error messages
+     * @return Parsed QsPlan
+     */
+    private static QsPlan parseWithVisitor(String expandedDsl,
+            Function<SearchParser, FieldTrackingVisitor> visitorFactory,
+            String originalDsl, String modeDescription) {
+        try {
+            // Create ANTLR lexer and parser
+            SearchLexer lexer = new SearchLexer(new ANTLRInputStream(expandedDsl));
+            CommonTokenStream tokens = new CommonTokenStream(lexer);
+            SearchParser parser = new SearchParser(tokens);
+
+            // Add error listener
+            parser.removeErrorListeners();
+            parser.addErrorListener(new org.antlr.v4.runtime.BaseErrorListener() {
+                @Override
+                public void syntaxError(org.antlr.v4.runtime.Recognizer<?, ?> recognizer,
+                        Object offendingSymbol,
+                        int line, int charPositionInLine,
+                        String msg, org.antlr.v4.runtime.RecognitionException e) {
+                    throw new RuntimeException("Invalid search DSL syntax at line " + line
+                            + ":" + charPositionInLine + " " + msg);
+                }
+            });
+
+            ParseTree tree = parser.search();
+            if (tree == null) {
+                throw new RuntimeException("Invalid search DSL syntax");
+            }
+
+            // Build AST using provided visitor
+            FieldTrackingVisitor visitor = visitorFactory.apply(parser);
+            QsNode root = visitor.visit(tree);
+
+            // Extract field bindings
+            Set<String> fieldNames = visitor.getFieldNames();
+            List<QsFieldBinding> bindings = new ArrayList<>();
+            int slotIndex = 0;
+            for (String fieldName : fieldNames) {
+                bindings.add(new QsFieldBinding(fieldName, slotIndex++));
+            }
+
+            return new QsPlan(root, bindings);
+
+        } catch (Exception e) {
+            LOG.error("Failed to parse search DSL in {}: '{}' (expanded: '{}')",
+                    modeDescription, originalDsl, expandedDsl, e);
+            throw new RuntimeException("Invalid search DSL syntax: " + originalDsl
+                    + ". Error: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Expand a single item (term or function) across multiple fields with OR.
+     * Example: "hello" + ["title", "content"] -> "(title:hello OR content:hello)"
+     * Example: "EXACT(foo)" + ["title", "content"] -> "(title:EXACT(foo) OR content:EXACT(foo))"
+     *
+     * @param item The term or function to expand
+     * @param fields List of field names
+     * @return Expanded DSL string
+     */
+    private static String expandItemAcrossFields(String item, List<String> fields) {
+        if (fields.size() == 1) {
+            return fields.get(0) + ":" + item;
+        }
+        return fields.stream()
+                .map(field -> field + ":" + item)
+                .collect(Collectors.joining(" OR ", "(", ")"));
+    }
+
+    // ============ Multi-Field Expansion Methods ============
+
+    /**
+     * Parse DSL in multi-field mode.
+     * Each term without field prefix is expanded to OR across all specified fields.
+     *
+     * @param dsl DSL query string
+     * @param fields List of field names to search
+     * @param defaultOperator "and" or "or" for joining term groups
+     * @return Parsed QsPlan
+     */
+    private static QsPlan parseDslMultiFieldMode(String dsl, List<String> fields, String defaultOperator) {
+        if (!isValidDsl(dsl)) {
+            return createEmptyDslErrorPlan();
+        }
+        validateFieldsList(fields);
+
+        String expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizeDefaultOperator(defaultOperator));
+        return parseWithVisitor(expandedDsl, parser -> new QsAstBuilder(), dsl, "multi-field mode");
+    }
+
+    /**
+     * Parse DSL in multi-field mode with Lucene boolean semantics.
+     * First expands DSL across fields, then applies Lucene-style MUST/SHOULD/MUST_NOT logic.
+     *
+     * @param dsl DSL query string
+     * @param fields List of field names to search
+     * @param defaultOperator "and" or "or" for joining term groups
+     * @param options Search options containing Lucene mode settings
+     * @return Parsed QsPlan with Lucene boolean semantics
+     */
+    private static QsPlan parseDslMultiFieldLuceneMode(String dsl, List<String> fields,
+            String defaultOperator, SearchOptions options) {
+        if (!isValidDsl(dsl)) {
+            return createEmptyDslErrorPlan();
+        }
+        validateFieldsList(fields);
+
+        String expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizeDefaultOperator(defaultOperator));
+        return parseWithVisitor(expandedDsl, parser -> new QsLuceneModeAstBuilder(options),
+                dsl, "multi-field Lucene mode");
+    }
+
+    /**
+     * Expand simplified DSL to multi-field format.
+     * Each term without field prefix is expanded to OR across all fields.
+     *
+     * @param dsl Simple DSL string
+     * @param fields List of field names to search
+     * @param defaultOperator "and" or "or" for joining term groups
+     * @return Expanded full DSL
+     */
+    private static String expandMultiFieldDsl(String dsl, List<String> fields, String defaultOperator) {
+        if (fields == null || fields.isEmpty()) {
+            throw new IllegalArgumentException("fields list cannot be null or empty");
+        }
+
+        if (fields.size() == 1) {
+            // Single field - delegate to existing method
+            return expandSimplifiedDsl(dsl, fields.get(0), defaultOperator);
+        }
+
+        // 1. If DSL already contains field names, handle mixed case
+        if (containsFieldReference(dsl)) {
+            return expandOperatorExpressionAcrossFields(dsl, fields);
+        }
+
+        // 2. Check if DSL starts with a function keyword (EXACT, ANY, ALL, IN)
+        if (startsWithFunction(dsl)) {
+            // Expand function across fields: EXACT(foo) -> (f1:EXACT(foo) OR f2:EXACT(foo))
+            return expandFunctionAcrossFields(dsl, fields);
+        }
+
+        // 3. Check for explicit boolean operators in DSL
+        if (containsExplicitOperators(dsl)) {
+            return expandOperatorExpressionAcrossFields(dsl, fields);
+        }
+
+        // 4. Tokenize and analyze terms
+        List<String> terms = tokenizeDsl(dsl);
+        if (terms.isEmpty()) {
+            return expandTermAcrossFields(dsl, fields);
+        }
+
+        // 5. Single term - expand across fields
+        if (terms.size() == 1) {
+            return expandTermAcrossFields(terms.get(0), fields);
+        }
+
+        // 6. Multiple terms - expand each across fields, join with operator
+        String joinOperator = "and".equals(defaultOperator) ? " AND " : " OR ";
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < terms.size(); i++) {
+            if (i > 0) {
+                result.append(joinOperator);
+            }
+            result.append(expandTermAcrossFields(terms.get(i), fields));
+        }
+        return result.toString();
+    }
+
+    /**
+     * Expand a single term across multiple fields with OR.
+     * Example: "hello" + ["title", "content"] -> "(title:hello OR content:hello)"
+     * Delegates to expandItemAcrossFields for DRY compliance.
+     */
+    private static String expandTermAcrossFields(String term, List<String> fields) {
+        return expandItemAcrossFields(term, fields);
+    }
+
+    /**
+     * Expand a function call across multiple fields.
+     * Example: "EXACT(foo bar)" + ["title", "content"] -> "(title:EXACT(foo bar) OR content:EXACT(foo bar))"
+     * Delegates to expandItemAcrossFields for DRY compliance.
+     */
+    private static String expandFunctionAcrossFields(String dsl, List<String> fields) {
+        return expandItemAcrossFields(dsl, fields);
+    }
+
+    /**
+     * Handle DSL with explicit operators (AND/OR/NOT).
+     * Each operand without field prefix is expanded across fields.
+     * Example: "hello AND world" + ["title", "content"] ->
+     *          "(title:hello OR content:hello) AND (title:world OR content:world)"
+     */
+    private static String expandOperatorExpressionAcrossFields(String dsl, List<String> fields) {
+        StringBuilder result = new StringBuilder();
+        StringBuilder currentTerm = new StringBuilder();
+        int i = 0;
+
+        while (i < dsl.length()) {
+            // Skip whitespace
+            while (i < dsl.length() && Character.isWhitespace(dsl.charAt(i))) {
+                i++;
+            }
+            if (i >= dsl.length()) {
+                break;
+            }
+
+            // Handle escape sequences
+            if (dsl.charAt(i) == '\\' && i + 1 < dsl.length()) {
+                currentTerm.append(dsl.charAt(i));
+                currentTerm.append(dsl.charAt(i + 1));
+                i += 2;
+                continue;
+            }
+
+            // Handle parentheses - include entire group as a term
+            if (dsl.charAt(i) == '(') {
+                int depth = 1;
+                currentTerm.append('(');
+                i++;
+                while (i < dsl.length() && depth > 0) {
+                    char c = dsl.charAt(i);
+                    if (c == '(') {
+                        depth++;
+                    } else if (c == ')') {
+                        depth--;
+                    }
+                    currentTerm.append(c);
+                    i++;
+                }
+                continue;
+            }
+
+            // Try to match operators
+            String remaining = dsl.substring(i);
+            String upperRemaining = remaining.toUpperCase();
+
+            // Check for AND operator
+            if (matchesOperatorWord(upperRemaining, "AND")) {
+                flushTermAcrossFields(result, currentTerm, fields);
+                appendWithSpace(result, "AND");
+                i += 3;
+                continue;
+            }
+
+            // Check for OR operator
+            if (matchesOperatorWord(upperRemaining, "OR")) {
+                flushTermAcrossFields(result, currentTerm, fields);
+                appendWithSpace(result, "OR");
+                i += 2;
+                continue;
+            }
+
+            // Check for NOT operator
+            if (matchesOperatorWord(upperRemaining, "NOT")) {
+                flushTermAcrossFields(result, currentTerm, fields);
+                appendWithSpace(result, "NOT");
+                i += 3;
+                continue;
+            }
+
+            // Accumulate term character
+            currentTerm.append(dsl.charAt(i));
+            i++;
+        }
+
+        // Flush final term
+        flushTermAcrossFields(result, currentTerm, fields);
+
+        return result.toString().trim();
+    }
+
+    /**
+     * Check if the string starts with an operator word followed by whitespace or end of string.
+     */
+    private static boolean matchesOperatorWord(String upper, String op) {
+        if (!upper.startsWith(op)) {
+            return false;
+        }
+        int opLen = op.length();
+        // Must be followed by whitespace or end of string
+        return upper.length() == opLen || Character.isWhitespace(upper.charAt(opLen));
+    }
+
+    /**
+     * Flush accumulated term, expanding across fields if needed.
+     */
+    private static void flushTermAcrossFields(StringBuilder result, StringBuilder term, List<String> fields) {
+        String trimmed = term.toString().trim();
+        if (!trimmed.isEmpty()) {
+            // Check if term already has a field reference
+            if (containsFieldReference(trimmed)) {
+                appendWithSpace(result, trimmed);
+            } else if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+                // Parenthesized expression - recursively expand
+                String inner = trimmed.substring(1, trimmed.length() - 1).trim();
+                String expanded = expandOperatorExpressionAcrossFields(inner, fields);
+                appendWithSpace(result, "(" + expanded + ")");
+            } else if (startsWithFunction(trimmed)) {
+                // Function - expand across fields
+                appendWithSpace(result, expandFunctionAcrossFields(trimmed, fields));
+            } else {
+                // Regular term - expand across fields
+                appendWithSpace(result, expandTermAcrossFields(trimmed, fields));
+            }
+            term.setLength(0);
+        }
+    }
+
+    /**
+     * Append text to StringBuilder with a leading space if not empty.
+     */
+    private static void appendWithSpace(StringBuilder sb, String text) {
+        if (sb.length() > 0) {
+            sb.append(" ");
+        }
+        sb.append(text);
+    }
+
     /**
      * Clause types supported
      */
@@ -491,9 +860,19 @@ public class SearchDslParser {
     }
 
     /**
+     * Common interface for AST builders that track field names.
+     * Both QsAstBuilder and QsLuceneModeAstBuilder implement this interface.
+     */
+    private interface FieldTrackingVisitor {
+        Set<String> getFieldNames();
+
+        QsNode visit(ParseTree tree);
+    }
+
+    /**
      * ANTLR visitor to build QsNode AST from parse tree
      */
-    private static class QsAstBuilder extends SearchParserBaseVisitor<QsNode> {
+    private static class QsAstBuilder extends SearchParserBaseVisitor<QsNode> implements FieldTrackingVisitor {
         private final Set<String> fieldNames = new HashSet<>();
         // Context stack to track current field name during parsing
         private String currentFieldName = null;
@@ -676,7 +1055,9 @@ public class SearchDslParser {
                 return createExactNode(fieldName, ctx.exactValue().getText());
             }
 
-            // Fallback for unknown types
+            // Fallback for unknown types - should not normally reach here
+            LOG.warn("Unexpected search value type encountered, falling back to TERM: field={}, text={}",
+                    fieldName, ctx.getText());
             return createTermNode(fieldName, ctx.getText());
         }
 
@@ -747,8 +1128,10 @@ public class SearchDslParser {
                 return new QsNode(QsClauseType.ALL, fieldName, sanitizedContent);
             }
 
-            // Fallback to ANY for unknown cases
-            return new QsNode(QsClauseType.ANY, fieldName, sanitizedContent);
+            // Unknown ANY/ALL clause type - this should not happen with valid grammar
+            throw new IllegalArgumentException(
+                    "Unknown ANY/ALL clause type: '" + anyAllText + "'. "
+                    + "Expected ANY(...) or ALL(...).");
         }
 
         private QsNode createExactNode(String fieldName, String exactText) {
@@ -808,8 +1191,8 @@ public class SearchDslParser {
             try {
                 return JSON_MAPPER.readValue(json, QsPlan.class);
             } catch (JsonProcessingException e) {
-                LOG.warn("Failed to parse QsPlan from JSON: {}", json, e);
-                return new QsPlan(new QsNode(QsClauseType.TERM, "error", null), new ArrayList<>());
+                throw new IllegalArgumentException(
+                        "Failed to parse search plan from JSON: " + e.getMessage(), e);
             }
         }
 
@@ -820,8 +1203,7 @@ public class SearchDslParser {
             try {
                 return JSON_MAPPER.writeValueAsString(this);
             } catch (JsonProcessingException e) {
-                LOG.warn("Failed to serialize QsPlan to JSON", e);
-                return "{}";
+                throw new RuntimeException("Failed to serialize QsPlan to JSON", e);
             }
         }
 
@@ -980,12 +1362,14 @@ public class SearchDslParser {
      * - default_operator: "and" or "or" for multi-term queries (default: "or")
      * - mode: "standard" (default) or "lucene" (ES/Lucene-style boolean parsing)
      * - minimum_should_match: integer for Lucene mode (default: 0 for filter context)
+     * - fields: array of field names for multi-field search (mutually exclusive with default_field)
      */
     public static class SearchOptions {
         private String defaultField = null;
         private String defaultOperator = null;
         private String mode = "standard";
         private Integer minimumShouldMatch = null;
+        private List<String> fields = null;
 
         public String getDefaultField() {
             return defaultField;
@@ -1022,6 +1406,22 @@ public class SearchDslParser {
         public void setMinimumShouldMatch(Integer minimumShouldMatch) {
             this.minimumShouldMatch = minimumShouldMatch;
         }
+
+        public List<String> getFields() {
+            return fields;
+        }
+
+        public void setFields(List<String> fields) {
+            this.fields = fields;
+        }
+
+        /**
+         * Check if multi-field mode is enabled.
+         * Multi-field mode is active when fields array is non-null and non-empty.
+         */
+        public boolean isMultiFieldMode() {
+            return fields != null && !fields.isEmpty();
+        }
     }
 
     /**
@@ -1031,6 +1431,7 @@ public class SearchDslParser {
      * - default_operator: "and" or "or" for multi-term queries
      * - mode: "standard" or "lucene"
      * - minimum_should_match: integer for Lucene mode
+     * - fields: array of field names for multi-field search
      */
     private static SearchOptions parseOptions(String optionsJson) {
         SearchOptions options = new SearchOptions();
@@ -1054,8 +1455,34 @@ public class SearchDslParser {
             if (jsonNode.has("minimum_should_match")) {
                 options.setMinimumShouldMatch(jsonNode.get("minimum_should_match").asInt());
             }
+            // Parse fields array for multi-field search
+            if (jsonNode.has("fields")) {
+                com.fasterxml.jackson.databind.JsonNode fieldsNode = jsonNode.get("fields");
+                if (fieldsNode.isArray()) {
+                    List<String> fieldsList = new ArrayList<>();
+                    for (com.fasterxml.jackson.databind.JsonNode fieldNode : fieldsNode) {
+                        String fieldValue = fieldNode.asText().trim();
+                        if (!fieldValue.isEmpty()) {
+                            fieldsList.add(fieldValue);
+                        }
+                    }
+                    if (!fieldsList.isEmpty()) {
+                        options.setFields(fieldsList);
+                    }
+                }
+            }
+
+            // Validation: fields and default_field are mutually exclusive
+            if (options.getFields() != null && !options.getFields().isEmpty()
+                    && options.getDefaultField() != null && !options.getDefaultField().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "'fields' and 'default_field' are mutually exclusive. Use only one.");
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
-            LOG.warn("Failed to parse search options JSON: {}", optionsJson, e);
+            throw new IllegalArgumentException(
+                    "Invalid search options JSON: '" + optionsJson + "'. Error: " + e.getMessage(), e);
         }
 
         return options;
@@ -1138,7 +1565,8 @@ public class SearchDslParser {
      * ANTLR visitor for Lucene-mode AST building.
      * Transforms standard boolean expressions into Lucene-style OCCUR_BOOLEAN queries.
      */
-    private static class QsLuceneModeAstBuilder extends SearchParserBaseVisitor<QsNode> {
+    private static class QsLuceneModeAstBuilder extends SearchParserBaseVisitor<QsNode>
+            implements FieldTrackingVisitor {
         private final Set<String> fieldNames = new HashSet<>();
         private final SearchOptions options;
         private String currentFieldName = null;
