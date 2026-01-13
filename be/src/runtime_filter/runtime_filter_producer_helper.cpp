@@ -164,4 +164,13 @@ void RuntimeFilterProducerHelper::collect_realtime_profile(
     build_timer->set(_runtime_filter_compute_timer->value());
 }
 
+bool RuntimeFilterProducerHelper::detect_local_in_filter(RuntimeState* state) {
+    for (const auto& filter : _producers) {
+        if (filter->detect_in_filter()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace doris
