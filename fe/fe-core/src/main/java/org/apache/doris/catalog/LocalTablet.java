@@ -28,6 +28,9 @@ import java.util.Comparator;
 public class LocalTablet extends Tablet {
     private static final Logger LOG = LogManager.getLogger(LocalTablet.class);
 
+    @SerializedName(value = "lastCheckTime")
+    private long lastCheckTime;
+
     // cooldown conf
     @SerializedName(value = "cri", alternate = {"cooldownReplicaId"})
     private long cooldownReplicaId = -1;
@@ -147,5 +150,15 @@ public class LocalTablet extends Tablet {
     @Override
     public void setLastTimeNoPathForNewReplica(long lastTimeNoPathForNewReplica) {
         this.lastTimeNoPathForNewReplica = lastTimeNoPathForNewReplica;
+    }
+
+    @Override
+    public long getLastCheckTime() {
+        return lastCheckTime;
+    }
+
+    @Override
+    public void setLastCheckTime(long lastCheckTime) {
+        this.lastCheckTime = lastCheckTime;
     }
 }
