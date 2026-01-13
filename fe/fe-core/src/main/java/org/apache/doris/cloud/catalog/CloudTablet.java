@@ -64,8 +64,9 @@ public class CloudTablet extends Tablet {
         return backendPathMapReprocess(pathMap);
     }
 
-    public Multimap<Long, Long> getNormalReplicaBackendPathMapCloud(String beEndpoint) throws UserException {
-        Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMapCloud(beEndpoint);
+    public Multimap<Long, Long> getNormalReplicaBackendPathMap(String beEndpoint) throws UserException {
+        Multimap<Long, Long> pathMap = getNormalReplicaBackendPathMapImpl(beEndpoint,
+                (rep, be) -> ((CloudReplica) rep).getBackendId(be));
         return backendPathMapReprocess(pathMap);
     }
 

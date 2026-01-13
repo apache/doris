@@ -702,7 +702,7 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.a", 3));
         auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        EXPECT_EQ(pair.first.get<Int32>(), 20);
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.c", 3));
@@ -720,7 +720,7 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
         auto data = path->get_data_at(start);
         auto pair = dst->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        EXPECT_EQ(pair.first.get<Int32>(), 20);
 
         auto data2 = path->get_data_at(start);
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
@@ -744,7 +744,7 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
         auto data = path->get_data_at(start);
         auto pair = dst->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        EXPECT_EQ(pair.first.get<Int32>(), 20);
 
         auto data2 = path->get_data_at(start);
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
