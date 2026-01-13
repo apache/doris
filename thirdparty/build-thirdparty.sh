@@ -153,7 +153,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+bash "${TP_DIR}/download-thirdparty.sh" ${packages[*]}
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
