@@ -1214,13 +1214,13 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
         for (int seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
             auto idx_file_info = rowset->rowset_meta()->inverted_index_file_info(seg_id);
 
-            // === Fast path: V2 format check index_size ===
+            // === Fast path: V2+ format check index_size in metadata without opening file ===
             if (storage_format >= InvertedIndexStorageFormatPB::V2) {
                 if (!idx_file_info.has_index_size() || idx_file_info.index_size() == 0) {
                     // Compound file is empty, indexes not built
-                    LOG(INFO) << "[index_change] Index file is empty for tablet "
-                              << _tablet_meta->tablet_id() << ", segment " << seg_id
-                              << ", need to build index";
+                    VLOG_DEBUG << "[index_change] Index file is empty for tablet "
+                               << _tablet_meta->tablet_id() << ", segment " << seg_id
+                               << ", need to build index";
                     return false;
                 }
             }
@@ -1229,6 +1229,10 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
             if (storage_format == InvertedIndexStorageFormatPB::V1) {
                 auto seg_path_result = rowset->segment_path(seg_id);
                 if (!seg_path_result.has_value()) {
+                    LOG(WARNING) << "[index_change] Failed to get segment path for tablet "
+                                 << _tablet_meta->tablet_id() << ", rowset "
+                                 << rowset->rowset_id().to_string() << ", segment " << seg_id
+                                 << ", will rebuild index";
                     return false;
                 }
                 auto fs = rowset->rowset_meta()->fs();
@@ -1240,18 +1244,28 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
                             prefix, index_meta->index_id(), index_meta->get_index_suffix());
                     bool exists = false;
                     auto st = fs->exists(index_path, &exists);
-                    if (!st.ok() || !exists) {
-                        LOG(INFO) << "[index_change] Index file not found: " << index_path
-                                  << ", need to build index";
+                    if (!st.ok()) {
+                        LOG(WARNING) << "[index_change] Failed to check index file existence: "
+                                     << index_path << ", error: " << st.to_string()
+                                     << ", will rebuild index";
+                        return false;
+                    }
+                    if (!exists) {
+                        VLOG_DEBUG << "[index_change] Index file not found: " << index_path
+                                   << ", need to build index";
                         return false;
                     }
                 }
                 continue; // V1 check done, continue to next segment
             }
 
-            // === V2 format: need to open file to check specific indexes ===
+            // === V2+ format: need to open file to check specific indexes ===
             auto seg_path_result = rowset->segment_path(seg_id);
             if (!seg_path_result.has_value()) {
+                LOG(WARNING) << "[index_change] Failed to get segment path for tablet "
+                             << _tablet_meta->tablet_id() << ", rowset "
+                             << rowset->rowset_id().to_string() << ", segment " << seg_id
+                             << ", will rebuild index";
                 return false;
             }
 
@@ -1263,9 +1277,9 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
 
             auto init_st = idx_file_reader->init();
             if (!init_st.ok()) {
-                LOG(INFO) << "[index_change] Failed to init index file reader for tablet "
-                          << _tablet_meta->tablet_id() << ", segment " << seg_id
-                          << ", error: " << init_st << ", need to build index";
+                LOG(WARNING) << "[index_change] Failed to init index file reader for tablet "
+                             << _tablet_meta->tablet_id() << ", segment " << seg_id
+                             << ", error: " << init_st << ", will rebuild index";
                 return false;
             }
 
@@ -1273,11 +1287,19 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
             for (const auto* index_meta : indexes_to_check) {
                 bool exists = false;
                 auto st = idx_file_reader->index_file_exist(index_meta, &exists);
-                if (!st.ok() || !exists) {
-                    LOG(INFO) << "[index_change] Index " << index_meta->index_id()
-                              << " not found in compound file for tablet "
-                              << _tablet_meta->tablet_id() << ", segment " << seg_id
-                              << ", need to build index";
+                if (!st.ok()) {
+                    LOG(WARNING) << "[index_change] Failed to check index "
+                                 << index_meta->index_id()
+                                 << " existence in compound file for tablet "
+                                 << _tablet_meta->tablet_id() << ", segment " << seg_id
+                                 << ", error: " << st.to_string() << ", will rebuild index";
+                    return false;
+                }
+                if (!exists) {
+                    VLOG_DEBUG << "[index_change] Index " << index_meta->index_id()
+                               << " not found in compound file for tablet "
+                               << _tablet_meta->tablet_id() << ", segment " << seg_id
+                               << ", need to build index";
                     return false;
                 }
             }
@@ -1297,17 +1319,27 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
                        << rs->rowset_id().to_string();
         }
 
-        if (rs->tablet_schema()->schema_version() >= schema_version) {
-            VLOG_DEBUG << "[index_change] skip rowset " << rs->tablet_schema()->schema_version()
-                       << "," << schema_version;
-            continue;
-        }
-
         // Skip rowsets where all required indexes are already built
+        // This check must come FIRST, before schema_version check, to handle
+        // skip_write_index_on_load=true case where rowsets have the same schema_version
+        // but index files were not built during loading
         if (are_indexes_built_in_files(rs)) {
             VLOG_DEBUG << "[index_change] skip rowset " << rs->rowset_id().to_string()
                        << " because indexes are already built";
             continue;
+        }
+
+        // For ADD INDEX: rowsets with older schema need the index added
+        // For BUILD INDEX with skip_write_index_on_load: rowsets have same schema_version
+        // but index files don't exist (handled by are_indexes_built_in_files above)
+        // So we only skip if schema_version >= and indexes ARE built (already handled above)
+        if (rs->tablet_schema()->schema_version() >= schema_version) {
+            // If we reach here, schema_version >= task's version but index files don't exist
+            // This is the skip_write_index_on_load case - don't skip, need to build
+            VLOG_DEBUG << "[index_change] rowset schema_version="
+                       << rs->tablet_schema()->schema_version()
+                       << " >= task schema_version=" << schema_version
+                       << ", but index not built yet, need to process";
         }
 
         if (ret_rowset == nullptr) {

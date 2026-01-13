@@ -183,7 +183,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         tbl.getTimeSeriesCompactionLevelThreshold(),
-                        tbl.disableAutoCompaction(),
+                        tbl.disableAutoCompaction(), tbl.skipWriteIndexOnLoad(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
@@ -220,7 +220,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-            List<Integer> rowStoreColumnUniqueIds,
+            boolean skipWriteIndexOnLoad, List<Integer> rowStoreColumnUniqueIds,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
@@ -357,6 +357,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
+        schemaBuilder.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
 
         if (invertedIndexFileStorageFormat != null) {
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
