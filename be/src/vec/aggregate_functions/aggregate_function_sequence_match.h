@@ -123,7 +123,8 @@ public:
     void merge(const AggregateFunctionSequenceMatchData& other) {
         if (other.events_list.empty()) return;
 
-        events_list.insert(std::begin(other.events_list), std::end(other.events_list));
+        events_list.insert(std::end(events_list), std::begin(other.events_list),
+                           std::end(other.events_list));
         sorted = false;
         conditions_met |= other.conditions_met;
     }
@@ -570,7 +571,7 @@ private:
 
 public:
     bool sorted = true;
-    PODArrayWithStackMemory<TimestampEvents, 64> events_list;
+    std::vector<TimestampEvents> events_list;
     // sequenceMatch conditions met at least once in events_list
     std::bitset<MAX_EVENTS> conditions_met;
     // sequenceMatch conditions met at least once in the pattern
