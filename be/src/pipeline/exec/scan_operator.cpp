@@ -347,49 +347,63 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
         std::visit(
                 [&](auto& value_range) {
                     auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
-                    switch (expr->node_type()) {
-                    case TExprNodeType::IN_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_in_predicate(context, expr, slot,
-                                                        _slot_id_to_predicates[slot->id()],
-                                                        value_range, &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::BINARY_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_binary_predicate(context, expr, slot,
+                    {
+                        Defer attach_defer = [&]() {
+                            if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
+                                auto* rf_expr =
+                                        assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
+                                _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
+                                        rf_expr->filter_id(),
+                                        rf_expr->predicate_filtered_rows_counter(),
+                                        rf_expr->predicate_input_rows_counter(),
+                                        rf_expr->predicate_always_true_rows_counter());
+                            }
+                        };
+                        switch (expr->node_type()) {
+                        case TExprNodeType::IN_PRED:
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_in_predicate(context, expr, slot,
                                                             _slot_id_to_predicates[slot->id()],
                                                             value_range, &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::FUNCTION_CALL:
-                        if (expr->is_topn_filter()) {
-                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
-                                                        context, expr, slot,
+                                    status);
+                            break;
+                        case TExprNodeType::BINARY_PRED:
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_binary_predicate(context, expr, slot,
+                                                                _slot_id_to_predicates[slot->id()],
+                                                                value_range, &pdt),
+                                    status);
+                            break;
+                        case TExprNodeType::FUNCTION_CALL:
+                            if (expr->is_topn_filter()) {
+                                RETURN_IF_PUSH_DOWN(
+                                        _normalize_topn_filter(context, expr, slot,
+                                                               _slot_id_to_predicates[slot->id()],
+                                                               &pdt),
+                                        status);
+                            } else {
+                                RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
+                                                            context, expr, slot,
+                                                            _slot_id_to_predicates[slot->id()],
+                                                            value_range, &pdt),
+                                                    status);
+                            }
+                            break;
+                        case TExprNodeType::BITMAP_PRED:
+                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
+                                                        context, root, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
                                                 status);
-                        } else {
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_is_null_predicate(context, expr, slot,
-                                                                 _slot_id_to_predicates[slot->id()],
-                                                                 value_range, &pdt),
-                                    status);
-                        }
-                        break;
-                    case TExprNodeType::BITMAP_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_bitmap_filter(context, root, slot,
-                                                         _slot_id_to_predicates[slot->id()], &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::BLOOM_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_bloom_filter(context, root, slot,
+                            break;
+                        case TExprNodeType::BLOOM_PRED:
+                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
+                                                        context, root, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
-                                status);
-                        break;
-                    default:
-                        break;
+                                                status);
+                            break;
+                        default:
+                            break;
+                        }
                     }
                     // `node_type` of function filter is FUNCTION_CALL or COMPOUND_PRED
                     if (state()->enable_function_pushdown()) {
@@ -437,16 +451,11 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
     DCHECK(root->is_rf_wrapper());
     *pdt = _should_push_down_bloom_filter();
     if (*pdt != PushDownType::UNACCEPTABLE) {
-        auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
         pred = create_bloom_filter_predicate(
                 _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bloom_filter_func());
-        pred->attach_profile_counter(rf_expr->filter_id(),
-                                     rf_expr->predicate_filtered_rows_counter(),
-                                     rf_expr->predicate_input_rows_counter(),
-                                     rf_expr->predicate_always_true_rows_counter());
     }
     return Status::OK();
 }
@@ -492,16 +501,11 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
     if (*pdt != PushDownType::UNACCEPTABLE) {
         DCHECK(expr->get_num_children() == 1);
         DCHECK(root->is_rf_wrapper());
-        auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
         pred = create_bitmap_filter_predicate(
                 _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bitmap_filter_func());
-        pred->attach_profile_counter(rf_expr->filter_id(),
-                                     rf_expr->predicate_filtered_rows_counter(),
-                                     rf_expr->predicate_input_rows_counter(),
-                                     rf_expr->predicate_always_true_rows_counter());
     }
     return Status::OK();
 }
