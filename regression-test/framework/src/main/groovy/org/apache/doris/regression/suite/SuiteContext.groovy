@@ -347,13 +347,13 @@ class SuiteContext implements Closeable {
             String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
             if (!url.contains("clientCertificateKeyStoreUrl")){
                 if (url.charAt(url.length() - 1) == '?') {
-                    return url + tlsUrl
+                    url = url + tlsUrl
                     // e.g: jdbc:mysql://locahost:8080/dbname?a=b
                 } else if (url.contains('?')) {
-                    return url + '&' + tlsUrl
+                    url = url + '&' + tlsUrl
                     // e.g: jdbc:mysql://locahost:8080/dbname
                 } else {
-                    return url + '?' + tlsUrl
+                    url = url + '?' + tlsUrl
                 }
             }
         }

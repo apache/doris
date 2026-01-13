@@ -1168,13 +1168,26 @@ class Config {
         def san = ""
         if (otherConfigs.get("userSAN") != null && !otherConfigs.get("userSAN").toString().trim().isEmpty()) {
             san = otherConfigs.get("userSAN").toString().trim()
-        } else {
-            def clusterFile = otherConfigs.get("clusterFile")?.toString()
-            if (clusterFile) {
-                ClusterInfoAgent info = ClusterInfoAgent.LoadFromFile(clusterFile)
-                def clusterNodes = info.collectAllModuleIPs()
-                if (clusterNodes != null && !clusterNodes.isEmpty()) {
-                    san = clusterNodes.collect { "IP:${it}" }.join(",")
+        } else {         
+            // Try to extract SAN from certificate
+            def trustCert = otherConfigs.get("trustCert")?.toString()
+            if (trustCert == null || trustCert.trim().isEmpty()) {
+                log.error("trustCert is empty or not configured, cannot extract SAN from certificate")
+            } else {
+                try {
+                    // Execute: openssl x509 -in trustCert -noout -ext subjectAltName
+                    def cmd = "openssl x509 -in ${trustCert} -noout -ext subjectAltName"
+                    def process = cmd.execute()
+                    def output = process.text
+                    def lines = output.split('\n')
+                    
+                    // Get the last line and trim leading spaces
+                    if (lines.size() > 0) {
+                        san = lines[lines.size() - 1].replaceAll("^\\s+", "")
+                        log.info("Extracted SAN from certificate: ${san}".toString())
+                    }
+                } catch (Throwable t) {
+                    log.error("Failed to extract SAN from certificate: ${t.getMessage()}".toString())
                 }
             }
         }

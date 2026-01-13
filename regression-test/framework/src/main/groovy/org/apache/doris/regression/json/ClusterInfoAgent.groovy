@@ -43,6 +43,17 @@ class ClusterInfoAgent {
 
     Set<String> collectAllModuleIPs() {
         Set<String> ips = new LinkedHashSet<>()
+        this.metaService?.node?.each { n ->
+            if (n?.ip) {
+                ips.add(n.ip as String)
+            }
+        }
+
+        this.recycler?.node?.each { n ->
+            if (n?.ip) {
+                ips.add(n.ip as String)
+            }
+        }
 
         this.fe.node.each { n ->
             if (n?.ip) {
@@ -55,18 +66,6 @@ class ClusterInfoAgent {
                 if (n?.ip) {
                     ips.add(n.ip as String)
                 }
-            }
-        }
-
-        this.metaService?.node?.each { n ->
-            if (n?.ip) {
-                ips.add(n.ip as String)
-            }
-        }
-
-        this.recycler?.node?.each { n ->
-            if (n?.ip) {
-                ips.add(n.ip as String)
             }
         }
 
