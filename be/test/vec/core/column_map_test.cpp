@@ -344,7 +344,7 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeysNestedMap) {
     auto v2_values = map_value2[1].get<TYPE_ARRAY>();
     ASSERT_EQ(v2_values.size(), 2);
     ASSERT_EQ(v2_values[0].get<TYPE_INT>(), 11);
-    ASSERT_EQ(v2_values[0].get<TYPE_INT>(), 333);
+    ASSERT_EQ(v2_values[1].get<TYPE_INT>(), 333);
 };
 
 TEST(ColumnMapTest2, StringValueTest) {

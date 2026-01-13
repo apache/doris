@@ -124,7 +124,7 @@ const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
 template <PrimitiveType T>
 void Field::destroy() {
     using TargetType = typename PrimitiveTypeTraits<T>::CppType;
-    DCHECK(T == type || is_string_type(T) && is_string_type(type))
+    DCHECK(T == type || (is_string_type(T) && is_string_type(type)))
             << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
     auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
     ptr->~TargetType();

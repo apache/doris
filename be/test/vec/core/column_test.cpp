@@ -160,14 +160,14 @@ TEST_F(ColumnTest, ShrinkColumnArray) {
     EXPECT_EQ(data_col->size(), 3);
     auto v = shrunk_col->operator[](0).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 3);
-    EXPECT_EQ(v[0].get<TYPE_INT>(), 1);
-    EXPECT_EQ(v[1].get<TYPE_INT>(), 2);
-    EXPECT_EQ(v[2].get<TYPE_INT>(), 3);
+    EXPECT_EQ(v[0].get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(v[1].get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(v[2].get<TYPE_BIGINT>(), 3);
     v = shrunk_col->operator[](1).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 0);
-    EXPECT_EQ(data_col->operator[](0).get<TYPE_INT>(), 1);
-    EXPECT_EQ(data_col->operator[](1).get<TYPE_INT>(), 2);
-    EXPECT_EQ(data_col->operator[](2).get<TYPE_INT>(), 3);
+    EXPECT_EQ(data_col->operator[](0).get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(data_col->operator[](1).get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(data_col->operator[](2).get<TYPE_BIGINT>(), 3);
 
     // expand will not make data expand
     EXPECT_EQ(col_arr->size(), 2);
@@ -177,9 +177,9 @@ TEST_F(ColumnTest, ShrinkColumnArray) {
     EXPECT_EQ(data_col->size(), 3);
     v = shrunk_col->operator[](0).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 3);
-    EXPECT_EQ(v[0].get<TYPE_INT>(), 1);
-    EXPECT_EQ(v[1].get<TYPE_INT>(), 2);
-    EXPECT_EQ(v[2].get<TYPE_INT>(), 3);
+    EXPECT_EQ(v[0].get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(v[1].get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(v[2].get<TYPE_BIGINT>(), 3);
     v = shrunk_col->operator[](1).get<TYPE_ARRAY>();
     EXPECT_EQ(v.size(), 0);
     v = shrunk_col->operator[](2).get<TYPE_ARRAY>();
@@ -205,9 +205,9 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
     EXPECT_EQ(v.size(), 2);
     EXPECT_EQ(v[0].get<TYPE_ARRAY>(), Array());
     EXPECT_EQ(v[1].get<TYPE_ARRAY>(), Array());
-    EXPECT_EQ(data_col->operator[](0).get<TYPE_INT>(), 1);
-    EXPECT_EQ(data_col->operator[](1).get<TYPE_INT>(), 2);
-    EXPECT_EQ(data_col->operator[](2).get<TYPE_INT>(), 3);
+    EXPECT_EQ(data_col->operator[](0).get<TYPE_BIGINT>(), 1);
+    EXPECT_EQ(data_col->operator[](1).get<TYPE_BIGINT>(), 2);
+    EXPECT_EQ(data_col->operator[](2).get<TYPE_BIGINT>(), 3);
 
     // expand will not make data expand
     EXPECT_EQ(col_map->size(), 2);
