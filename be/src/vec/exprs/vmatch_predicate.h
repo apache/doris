@@ -67,7 +67,11 @@ private:
     FunctionBasePtr _function;
     std::string _expr_name;
     std::string _function_name;
-    InvertedIndexCtxSPtr _inverted_index_ctx;
+
+    // Lifecycle management: holds ownership of the analyzer
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
+
+    // Runtime context: holds raw pointer to analyzer and necessary runtime info
+    InvertedIndexAnalyzerCtxSPtr _analyzer_ctx;
 };
 } // namespace doris::vectorized
