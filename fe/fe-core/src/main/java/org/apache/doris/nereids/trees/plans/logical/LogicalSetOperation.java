@@ -77,12 +77,35 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
         this.regularChildrenOutputs = ImmutableList.of();
     }
 
+    /**
+     * constructor
+     */
     public LogicalSetOperation(PlanType planType, Qualifier qualifier,
             List<NamedExpression> outputs, List<List<SlotReference>> regularChildrenOutputs, List<Plan> children) {
         super(planType, children);
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
+        // for (List<SlotReference> regular : regularChildrenOutputs) {
+        //     if (outputs.size() != regular.size()) {
+        //         System.out.println("eeeee");
+        //     }
+        // }
+        // for (int childIdx = 0; childIdx < children().size(); childIdx++) {
+        //     if (regularChildrenOutputs.isEmpty()) {
+        //         continue;
+        //     }
+        //     List<SlotReference> regularList = regularChildrenOutputs.get(childIdx);
+        //     for (int colIdx = 0; colIdx < outputs.size(); colIdx++) {
+        //         SlotReference regularSlot = regularList.get(colIdx);
+        //         Plan currChild = children.get(childIdx);
+        //         boolean contains = currChild.getOutputExprIds().contains(regularSlot.getExprId());
+        //         if (!contains) {
+        //             System.out.println("errrr");
+        //         }
+        //     }
+        // }
+
     }
 
     public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<NamedExpression> outputs,

@@ -126,7 +126,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public String toString() {
-        return Utils.toSqlStringSkipNull("LogicalFileScan",
+        return Utils.toSqlStringSkipNull("LogicalFileScan[" + id.asInt() + "]",
                 "qualified", qualifiedName(),
                 "alias", tableAlias,
                 "output", getOutput(),

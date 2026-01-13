@@ -5936,6 +5936,12 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public static void throwRuntimeExceptionWhenFeDebug(String msg) {
+        if (isFeDebug()) {
+            throw new RuntimeException(msg);
+        }
+    }
+
     public Map<String, String> getAffectQueryResultInPlanVariables() {
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         try {

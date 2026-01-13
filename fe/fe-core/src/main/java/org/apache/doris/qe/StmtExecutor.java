@@ -775,6 +775,7 @@ public class StmtExecutor {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+                e.printStackTrace();
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                         new AnalysisException(e.getMessage() == null ? e.toString() : e.getMessage(), e));
             }
