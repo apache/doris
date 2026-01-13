@@ -160,10 +160,13 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_VARBINARY: {
-        _get_value_fn = [](const Field& field) {
-            return field.get<StringViewField>().get_string();
-        };
-        break;
+        // For VARBINARY type, use StringViewField to store binary data
+        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>();
+        auto length = v.size();
+        char* buffer = _predicate_arena.alloc(length);
+        memset(buffer, 0, length);
+        memcpy(buffer, v.data(), length);
+        return {buffer, length};
     }
     default:
         break;

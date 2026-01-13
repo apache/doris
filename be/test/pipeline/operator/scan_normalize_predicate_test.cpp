@@ -1455,7 +1455,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     for (auto const_v : test_tz_values) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
         op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref =
@@ -1483,7 +1485,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
@@ -1501,7 +1503,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
         op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1524,7 +1528,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
 
-        auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
@@ -1540,7 +1544,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     for (auto const_v : test_tz_values) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
         op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1570,7 +1576,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
         op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1597,10 +1605,10 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", true, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&nullable_slot_desc, range);
-        // local_state->_slot_id_to_predicates[SlotId] =
-        //         std::vector<std::shared_ptr<ColumnPredicate>>();
-        // op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
+        op->_slot_id_to_slot_desc[SlotId] = &nullable_slot_desc;
         auto slot_ref = std::make_shared<MockSlotRef>(
                 0, std::make_shared<DataTypeNullable>(
                            std::make_shared<DataTypeTimeStampTz>(test_scale)));
@@ -1637,8 +1645,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", true, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
-        op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
         auto slot_ref = std::make_shared<MockSlotRef>(
                 0, std::make_shared<DataTypeNullable>(
                            std::make_shared<DataTypeTimeStampTz>(test_scale)));
@@ -1675,7 +1684,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         // std::cout << "test less const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
         op->_slot_id_to_slot_desc[SlotId] = &slot_desc;
 
         auto slot_ref =
@@ -1703,7 +1714,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         /*
         _low_value = -inf,
         _high_value = 90,
@@ -1735,7 +1746,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         // std::cout << "test less or equal const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1762,7 +1775,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
@@ -1791,7 +1804,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         // std::cout << "test greater const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1818,7 +1833,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         /*
         _low_value = 90,
         _high_value = nan,
@@ -1850,7 +1865,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         // std::cout << "test greater or equal const_v=" << const_v << std::endl;
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
         ColumnValueRange<TYPE_TIMESTAMPTZ> range("mock", false, 0, test_scale);
-        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+        local_state->_slot_id_to_value_range[SlotId] = range;
+        local_state->_slot_id_to_predicates[SlotId] =
+                std::vector<std::shared_ptr<ColumnPredicate>>();
 
         auto slot_ref =
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
@@ -1877,7 +1894,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         EXPECT_EQ(new_root, nullptr);
 
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
-        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [&](auto&& arg) {
                     using T = std::decay_t<decltype(arg)>;
