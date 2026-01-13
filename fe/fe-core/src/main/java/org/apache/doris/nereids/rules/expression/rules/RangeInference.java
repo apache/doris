@@ -253,8 +253,22 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc intersect(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
-        List<ValueDesc> resultValues = Lists.newArrayList();
+        if (collector.hasIsNullValue) {
+            if (!collector.rangeValues.isEmpty()
+                    || !collector.discreteValues.isEmpty()
+                    || !collector.notDiscreteValues.isEmpty()) {
+                // TA is null and TA > 1
+                // => TA is null and (null)
+                // => TA is null and null
+                // => EmptyValue(TA)
+                collector.rangeValues.clear();
+                collector.discreteValues.clear();
+                collector.notDiscreteValues.clear();
+                collector.add(new EmptyValue(context, reference));
+            }
+        }
 
+        List<ValueDesc> resultValues = Lists.newArrayList();
         // merge all the range values
         Range<ComparableLiteral> mergeRangeValue = null;
         if (!collector.hasEmptyValue && !collector.rangeValues.isEmpty()) {
@@ -388,6 +402,21 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc union(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
+        if (collector.hasIsNotNullValue()) {
+            if (!collector.rangeValues.isEmpty()
+                    || !collector.discreteValues.isEmpty()
+                    || !collector.notDiscreteValues.isEmpty()) {
+                // TA is not null or TA > 1
+                // => TA is not null or (null)
+                // => TA is not null or null
+                // => RangeAll(TA)
+                collector.rangeValues.clear();
+                collector.discreteValues.clear();
+                collector.notDiscreteValues.clear();
+                collector.add(new RangeValue(context, reference, Range.all()));
+            }
+        }
+
         List<ValueDesc> resultValues = Lists.newArrayListWithExpectedSize(collector.size() + 3);
         // Since in-predicate's options is a list, the discrete values need to kept options' order.
         // If not keep options' order, the result in-predicate's option list will not equals to
