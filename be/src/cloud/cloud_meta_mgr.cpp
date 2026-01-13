@@ -568,7 +568,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.inject_error", {
         auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (target_tablet_id == tablet->tablet_id()) {
-            return Status::InternalError("injected error for testing");
+            return Status::InternalError("[sync_tablet_rowsets_unlocked] injected error for testing");
         }
     });
 
