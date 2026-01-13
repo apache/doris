@@ -307,7 +307,7 @@ protected:
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
