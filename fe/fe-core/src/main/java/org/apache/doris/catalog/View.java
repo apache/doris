@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.lang.ref.SoftReference;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Table metadata representing a catalog view or a local view from a WITH clause.
@@ -274,8 +275,10 @@ public class View extends Table implements GsonPostProcessable, ViewIf {
     public void resetViewDefForRestore(String srcDbName, String dbName) {
         // the source db name is not setted in old BackupMeta, keep compatible with the old one.
         if (srcDbName != null) {
-            // replace dbName with a regular expression
-            inlineViewDef = inlineViewDef.replaceAll("(?<=`internal`\\.`)([^`]+)(?=`\\.`)", dbName);
+            // Only replace the source database name, preserve cross-database references
+            // Pattern: `internal`.`srcDbName`.`table` -> `internal`.`dbName`.`table`
+            String pattern = "(?<=`internal`\\.`)" + Pattern.quote(srcDbName) + "(?=`\\.`)";
+            inlineViewDef = inlineViewDef.replaceAll(pattern, dbName);
         }
     }
 
