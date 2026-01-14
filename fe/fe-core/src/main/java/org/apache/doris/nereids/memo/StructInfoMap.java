@@ -89,7 +89,7 @@ public class StructInfoMap {
 
         @Override
         public int computeMemoVersion(BitSet targetIdMap, CascadesContext cascadesContext) {
-            return Integer.MAX_VALUE;
+            return getMemoVersion(targetIdMap, cascadesContext.getMemo().getRefreshVersion());
         }
     };
 
