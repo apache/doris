@@ -267,6 +267,7 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
 }
 
 Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Block* block,
+                                                const uint8_t* __restrict filter,
                                                 ColumnPtr& result_column,
                                                 ColumnPtr* arg_column) const {
     return _do_execute(context, block, result_column, arg_column);

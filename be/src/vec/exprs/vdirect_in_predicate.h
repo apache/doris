@@ -56,12 +56,13 @@ public:
 
     Status execute_column(VExprContext* context, const Block* block,
                           ColumnPtr& result_column) const override {
-        return _do_execute(context, block, result_column, nullptr);
+        return _do_execute(context, block, nullptr, result_column, nullptr);
     }
 
     Status execute_runtime_filter(VExprContext* context, const Block* block,
-                                  ColumnPtr& result_column, ColumnPtr* arg_column) const override {
-        return _do_execute(context, block, result_column, arg_column);
+                                  const uint8_t* __restrict filter, ColumnPtr& result_column,
+                                  ColumnPtr* arg_column) const override {
+        return _do_execute(context, block, filter, result_column, arg_column);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
@@ -109,8 +110,8 @@ public:
     uint64_t get_digest(uint64_t seed) const override { return _filter->get_digest(seed); }
 
 private:
-    Status _do_execute(VExprContext* context, const Block* block, ColumnPtr& result_column,
-                       ColumnPtr* arg_column) const {
+    Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
+                       ColumnPtr& result_column, ColumnPtr* arg_column) const {
         DCHECK(_open_finished || _getting_const_col);
 
         ColumnPtr argument_column;
@@ -130,9 +131,10 @@ private:
                                          ->get_nested_column_ptr();
             const auto& null_map =
                     static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
-            _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data());
+            _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data(),
+                                         filter);
         } else {
-            _filter->find_batch(*argument_column, sz, res_data_column->get_data());
+            _filter->find_batch(*argument_column, sz, res_data_column->get_data(), filter);
         }
 
         DCHECK(!_data_type->is_nullable());
