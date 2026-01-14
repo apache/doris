@@ -505,7 +505,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/initReader")
-                .setParams(new Gson().toJson(requestParams)).build();
+                .setParams(Gsons.gson.toJson(requestParams)).build();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
