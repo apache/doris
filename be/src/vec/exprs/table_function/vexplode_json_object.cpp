@@ -45,7 +45,7 @@ Status VExplodeJsonObjectTableFunction::process_init(Block* block, RuntimeState*
             << _expr_context->root()->children().size();
 
     RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
-            _expr_context.get(), block, block->rows(), _json_object_column));
+            _expr_context.get(), block, nullptr, block->rows(), _json_object_column));
 
     return Status::OK();
 }

@@ -103,8 +103,8 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block, size_t count,
-                                      ColumnPtr& result_column) const {
+Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                      size_t count, ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
@@ -112,7 +112,8 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
     }
 
     ColumnWithTypeAndName col_type_name = block->get_by_position(_column_id);
-    result_column = col_type_name.column;
+
+    result_column = filter_column_with_selector(col_type_name.column, selector, count);
 
     if (!col_type_name.column) {
         // Maybe we need to create a column in this situation.
@@ -130,7 +131,7 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
             // because the vector might be resized during execution, causing previous references to become invalid.
             ColumnPtr tmp_column;
             RETURN_IF_ERROR(
-                    _virtual_column_expr->execute_column(context, block, count, tmp_column));
+                    _virtual_column_expr->execute_column(context, block, selector, count, tmp_column));
             result_column = std::move(tmp_column);
 
             VLOG_DEBUG << fmt::format(

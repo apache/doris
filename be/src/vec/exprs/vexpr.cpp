@@ -47,6 +47,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/short_circuit_evaluation_expr.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
@@ -479,7 +480,12 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::FUNCTION_CALL: {
             if (expr_node.fn.name.function_name == "if") {
-                expr = VectorizedIfExpr::create_shared(expr_node);
+                if (expr_node.__isset.short_circuit_evaluation &&
+                    expr_node.short_circuit_evaluation) {
+                    expr = ShortCircuitIfExpr::create_shared(expr_node);
+                } else {
+                    expr = VectorizedIfExpr::create_shared(expr_node);
+                }
                 break;
             } else if (expr_node.fn.name.function_name == "ifnull" ||
                        expr_node.fn.name.function_name == "nvl") {
@@ -739,7 +745,7 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     ColumnPtr result;
-    RETURN_IF_ERROR(execute_column(context, nullptr, 1, result));
+    RETURN_IF_ERROR(execute_column(context, nullptr, nullptr, 1, result));
     _constant_col = std::make_shared<ColumnPtrWrapper>(result);
     if (column_wrapper != nullptr) {
         *column_wrapper = _constant_col;
@@ -966,11 +972,13 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(VExprContext* context, ColumnPtr& result_column) const {
+bool VExpr::fast_execute(VExprContext* context, Selector* selector, size_t count,
+                         ColumnPtr& result_column) const {
     if (context->get_index_context() &&
         context->get_index_context()->get_index_result_column().contains(this)) {
         // prepare a column to save result
-        result_column = context->get_index_context()->get_index_result_column()[this];
+        result_column = filter_column_with_selector(
+                context->get_index_context()->get_index_result_column()[this], selector, count);
         if (_data_type->is_nullable()) {
             result_column = make_nullable(result_column);
         }
