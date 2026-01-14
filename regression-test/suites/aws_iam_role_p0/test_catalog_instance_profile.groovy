@@ -43,7 +43,7 @@ suite("test_catalog_instance_profile_with_role") {
         assertTrue(countValue == expectCounts.toInteger())
         sql """drop catalog if exists ${catalogName}"""
     }
-    def assertCatalogAndQueryException = { catalogProps, catalogName, queryTableName errMsg ->
+    def assertCatalogAndQueryException = { catalogProps, catalogName, queryTableName, errMsg ->
         sql """drop catalog if exists ${catalogName}"""
         sql """
             ${catalogProps}
