@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -85,6 +86,10 @@ public:
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
+
+    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts);
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::Scanner;
@@ -118,6 +123,7 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
+    std::mutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
 };
 
