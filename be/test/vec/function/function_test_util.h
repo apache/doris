@@ -214,6 +214,14 @@ inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
 inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y, int scale) {
     return Decimal256::from_int_frac(x, y, scale);
 };
+inline auto DECIMALV2VALUE = [](int128_t x, int128_t y, int scale) {
+    return DecimalV2Value(Decimal128V2::from_int_frac(x, y, 9).value);
+};
+inline auto DECIMALV2VALUEFROMDOUBLE = [](double value) {
+    DecimalV2Value decimal_value;
+    decimal_value.assign_from_double(value);
+    return DecimalV2Value(binary_cast<DecimalV2Value, Int128>(decimal_value));
+};
 
 using DATETIME = std::string;
 

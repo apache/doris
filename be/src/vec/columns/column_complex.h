@@ -128,7 +128,7 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        const value_type& s = doris::vectorized::get<const value_type&>(x);
+        const value_type& s = x.get<T>();
         data.push_back(s);
     }
 
@@ -190,6 +190,18 @@ public:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "deserialize_and_insert_from_arena not implemented");
         __builtin_unreachable();
+    }
+
+    /// Do NOT remove these following two functions,
+    /// There are used by some `EngineChecksumTask::_compute_checksum()`.
+    // maybe we do not need to impl the function
+    void update_hash_with_value(size_t n, SipHash& hash) const override {
+        // TODO add hash function
+    }
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override {
+        // TODO add hash function
     }
 
     StringRef get_raw_data() const override {

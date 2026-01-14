@@ -181,7 +181,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private KeysType keysType;
     @Setter
     @SerializedName(value = "pi", alternate = {"partitionInfo"})
-    private PartitionInfo partitionInfo;
+    private PartitionInfo partitionInfo; // should modify only under table's lock
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
@@ -969,7 +969,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
-                                Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                Replica replica = new LocalReplica(newReplicaId, beId, ReplicaState.NORMAL,
                                         visibleVersion, schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
                             }
@@ -3784,5 +3784,29 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
         return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+    }
+
+    public void setColumnSeqMapping(Map<String, List<String>> columnSeqMapping) {
+        getOrCreatTableProperty().setColumnSeqMapping(columnSeqMapping);
+    }
+
+    public Map<String, List<String>> getColumnSeqMapping() {
+        return getOrCreatTableProperty().getColumnSeqMapping();
+    }
+
+    public boolean hasColumnSeqMapping() {
+        return getOrCreatTableProperty().hasColumnSeqMapping();
+    }
+
+    public boolean isSeqMappingKeyColumn(String column) {
+        return getOrCreatTableProperty().isSeqMappingKeyColumn(column);
+    }
+
+    public boolean isSeqMappingValueColumn(String column) {
+        return getOrCreatTableProperty().isSeqMappingValueColumn(column);
+    }
+
+    public String getSeqMappingKey(String column) {
+        return getOrCreatTableProperty().getSeqMappingKey(column);
     }
 }

@@ -117,31 +117,6 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type) {
     return last_array ? last_array->get_nested_type() : type;
 }
 
-size_t get_size_of_interger(PrimitiveType type) {
-    switch (type) {
-    case PrimitiveType::TYPE_TINYINT:
-        return sizeof(int8_t);
-    case PrimitiveType::TYPE_SMALLINT:
-        return sizeof(int16_t);
-    case PrimitiveType::TYPE_INT:
-        return sizeof(int32_t);
-    case PrimitiveType::TYPE_BIGINT:
-        return sizeof(int64_t);
-    case PrimitiveType::TYPE_LARGEINT:
-        return sizeof(int128_t);
-    case PrimitiveType::TYPE_BOOLEAN:
-        return sizeof(uint8_t);
-    default:
-        throw Exception(Status::FatalError("Unknown integer type: {}", type_to_string(type)));
-        return 0;
-    }
-}
-
-bool is_conversion_required_between_integers(const PrimitiveType& lhs, const PrimitiveType& rhs) {
-    bool is_native_int = is_int_or_bool(lhs) && is_int_or_bool(rhs);
-    return !is_native_int || get_size_of_interger(lhs) > get_size_of_interger(rhs);
-}
-
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
     ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
 
@@ -1177,7 +1152,7 @@ class FieldVisitorToNumberOfDimensions : public StaticVisitor<size_t> {
 public:
     FieldVisitorToNumberOfDimensions() = default;
     template <PrimitiveType T>
-    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+    size_t apply(const typename PrimitiveTypeTraits<T>::CppType& x) {
         if constexpr (T == TYPE_ARRAY) {
             const size_t size = x.size();
             size_t dimensions = 0;
@@ -1198,22 +1173,9 @@ public:
 class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
     template <PrimitiveType T>
-    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+    size_t apply(const typename PrimitiveTypeTraits<T>::CppType& x) {
         if constexpr (T == TYPE_ARRAY) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
-        } else if constexpr (T == TYPE_BIGINT) {
-            if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-                type = PrimitiveType::TYPE_TINYINT;
-            } else if (x <= std::numeric_limits<Int16>::max() &&
-                       x >= std::numeric_limits<Int16>::min()) {
-                type = PrimitiveType::TYPE_SMALLINT;
-            } else if (x <= std::numeric_limits<Int32>::max() &&
-                       x >= std::numeric_limits<Int32>::min()) {
-                type = PrimitiveType::TYPE_INT;
-            } else {
-                type = PrimitiveType::TYPE_BIGINT;
-            }
-            return 1;
         } else if constexpr (T == TYPE_NULL) {
             have_nulls = true;
             return 1;
@@ -1238,32 +1200,17 @@ private:
 class FieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
     template <PrimitiveType T>
-    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+    size_t apply(const typename PrimitiveTypeTraits<T>::CppType& x) {
         if constexpr (T == TYPE_ARRAY) {
             size_t size = x.size();
             for (size_t i = 0; i < size; ++i) {
                 apply_visitor(*this, x[i]);
             }
             return 0;
-        } else if constexpr (T == TYPE_BIGINT) {
-            field_types.insert(PrimitiveType::TYPE_BIGINT);
-            if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-                type_indexes.insert(PrimitiveType::TYPE_TINYINT);
-            } else if (x <= std::numeric_limits<Int16>::max() &&
-                       x >= std::numeric_limits<Int16>::min()) {
-                type_indexes.insert(PrimitiveType::TYPE_SMALLINT);
-            } else if (x <= std::numeric_limits<Int32>::max() &&
-                       x >= std::numeric_limits<Int32>::min()) {
-                type_indexes.insert(PrimitiveType::TYPE_INT);
-            } else {
-                type_indexes.insert(PrimitiveType::TYPE_BIGINT);
-            }
-            return 0;
         } else if constexpr (T == TYPE_NULL) {
             have_nulls = true;
             return 0;
         } else {
-            PrimitiveTypeTraits<PrimitiveType::TYPE_ARRAY>::CppType a;
             field_types.insert(T);
             type_indexes.insert(T);
             return 0;

@@ -53,6 +53,12 @@ public:
         }
         return false;
     }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (requires { Impl::get_variadic_argument_types_impl(); }) {
+            return Impl::get_variadic_argument_types_impl();
+        }
+        return {};
+    }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 

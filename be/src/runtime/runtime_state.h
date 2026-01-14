@@ -73,6 +73,7 @@ class MemTrackerLimiter;
 class QueryContext;
 class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
+class TaskExecutionContext;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -511,7 +512,7 @@ public:
         _runtime_filter_mgr = runtime_filter_mgr;
     }
 
-    QueryContext* get_query_ctx() { return _query_ctx; }
+    QueryContext* get_query_ctx() const { return _query_ctx; }
 
     [[nodiscard]] bool low_memory_mode() const;
 
@@ -526,6 +527,12 @@ public:
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
+
+    int cte_max_recursion_depth() const {
+        return _query_options.__isset.cte_max_recursion_depth
+                       ? _query_options.cte_max_recursion_depth
+                       : 0;
     }
 
     int rpc_verbose_profile_max_instance_count() const {
@@ -687,6 +694,11 @@ public:
         }
     }
 
+    MOCK_FUNCTION bool enable_use_hybrid_sort() const {
+        return _query_options.__isset.enable_use_hybrid_sort &&
+               _query_options.enable_use_hybrid_sort;
+    }
+
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
 
     int max_operator_id() const { return _max_operator_id; }
@@ -708,6 +720,17 @@ public:
         return VectorSearchUserParams(_query_options.hnsw_ef_search,
                                       _query_options.hnsw_check_relative_distance,
                                       _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
+    }
+
+    void reset_to_rerun();
+
+    void set_force_make_rf_wait_infinite() {
+        _query_options.__set_runtime_filter_wait_infinitely(true);
+    }
+
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
     }
 
 private:

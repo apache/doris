@@ -174,6 +174,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         props.put("hdfs.security.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
+            props.put("hadoop.security.authentication", "kerberos");
             props.put("hadoop.kerberos.principal", hdfsKerberosPrincipal);
             props.put("hadoop.kerberos.keytab", hdfsKerberosKeytab);
         }

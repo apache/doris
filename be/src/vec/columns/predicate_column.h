@@ -46,7 +46,8 @@ private:
     PredicateColumnType(const size_t n) : data(n) {}
     PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
-    using T = typename PrimitiveTypeTraits<Type>::CppType;
+    using T = std::conditional_t<is_string_type(Type), StringRef,
+                                 typename PrimitiveTypeTraits<Type>::CppType>;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, ColumnString* res_ptr) {

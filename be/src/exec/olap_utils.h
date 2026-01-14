@@ -67,60 +67,31 @@ enum SQLFilterOp {
     FILTER_LESS = 2,
     FILTER_LESS_OR_EQUAL = 3,
     FILTER_IN = 4,
-    FILTER_NOT_IN = 5
+    FILTER_NOT_IN = 5,
+    FILTER_EQ = 6,
+    FILTER_NE = 7
 };
 
 template <PrimitiveType>
 constexpr bool always_false_v = false;
 
-inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
-    switch (type) {
-    case TExprOpcode::LT:
-        return opposite ? FILTER_LARGER : FILTER_LESS;
-
-    case TExprOpcode::LE:
-        return opposite ? FILTER_LARGER_OR_EQUAL : FILTER_LESS_OR_EQUAL;
-
-    case TExprOpcode::GT:
-        return opposite ? FILTER_LESS : FILTER_LARGER;
-
-    case TExprOpcode::GE:
-        return opposite ? FILTER_LESS_OR_EQUAL : FILTER_LARGER_OR_EQUAL;
-
-    case TExprOpcode::EQ:
-        return opposite ? FILTER_NOT_IN : FILTER_IN;
-
-    case TExprOpcode::NE:
-        return opposite ? FILTER_IN : FILTER_NOT_IN;
-
-    case TExprOpcode::EQ_FOR_NULL:
-        return FILTER_IN;
-
-    default:
-        VLOG_CRITICAL << "TExprOpcode: " << type;
-        DCHECK(false);
-    }
-
-    return FILTER_IN;
-}
-
-inline SQLFilterOp to_olap_filter_type(const std::string& function_name, bool opposite) {
+inline SQLFilterOp to_olap_filter_type(const std::string& function_name) {
     if (function_name == "lt") {
-        return opposite ? FILTER_LARGER : FILTER_LESS;
+        return FILTER_LESS;
     } else if (function_name == "gt") {
-        return opposite ? FILTER_LESS : FILTER_LARGER;
+        return FILTER_LARGER;
     } else if (function_name == "le") {
-        return opposite ? FILTER_LARGER_OR_EQUAL : FILTER_LESS_OR_EQUAL;
+        return FILTER_LESS_OR_EQUAL;
     } else if (function_name == "ge") {
-        return opposite ? FILTER_LESS_OR_EQUAL : FILTER_LARGER_OR_EQUAL;
+        return FILTER_LARGER_OR_EQUAL;
     } else if (function_name == "eq") {
-        return opposite ? FILTER_NOT_IN : FILTER_IN;
+        return FILTER_EQ;
     } else if (function_name == "ne") {
-        return opposite ? FILTER_IN : FILTER_NOT_IN;
+        return FILTER_NE;
     } else if (function_name == "in") {
-        return opposite ? FILTER_NOT_IN : FILTER_IN;
+        return FILTER_IN;
     } else if (function_name == "not_in") {
-        return opposite ? FILTER_IN : FILTER_NOT_IN;
+        return FILTER_NOT_IN;
     } else {
         DCHECK(false) << "Function Name: " << function_name;
         return FILTER_IN;

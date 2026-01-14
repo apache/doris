@@ -583,6 +583,31 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
     return Status::OK();
 }
 
+bool FSFileCacheStorage::handle_already_loaded_block(
+        BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset, size_t new_size,
+        int64_t tablet_id, std::lock_guard<std::mutex>& cache_lock) const {
+    auto file_it = mgr->_files.find(hash);
+    if (file_it == mgr->_files.end()) {
+        return false;
+    }
+
+    auto cell_it = file_it->second.find(offset);
+    if (cell_it == file_it->second.end()) {
+        return false;
+    }
+
+    auto block = cell_it->second.file_block;
+    if (tablet_id != 0 && block->tablet_id() == 0) {
+        block->set_tablet_id(tablet_id);
+    }
+
+    size_t old_size = block->range().size();
+    if (old_size != new_size) {
+        mgr->reset_range(hash, offset, old_size, new_size, cache_lock);
+    }
+    return true;
+}
+
 void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mgr) const {
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
@@ -592,8 +617,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mg
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
-            if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
-                // TODO(zhengyu): update type&expiration if need
+            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size,
+                                            args.ctx.tablet_id, cache_lock)) {
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed
@@ -773,11 +798,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
-            if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
-                auto block = _mgr->_files[args.hash][args.offset].file_block;
-                if (block->tablet_id() == 0) {
-                    block->set_tablet_id(args.ctx.tablet_id);
-                }
+            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size,
+                                            args.ctx.tablet_id, cache_lock)) {
                 return;
             }
             _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
@@ -920,7 +942,10 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     context_original.cache_type = static_cast<FileCacheType>(block_meta->type);
     context_original.tablet_id = key.meta.tablet_id;
 
-    if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(key.offset)) {
+    if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,
+                                    cache_lock)) {
+        return;
+    } else {
         mgr->add_cell(key.hash, context_original, key.offset, block_meta->size,
                       FileBlock::State::DOWNLOADED, cache_lock);
     }

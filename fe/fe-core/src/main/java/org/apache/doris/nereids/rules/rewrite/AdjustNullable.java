@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -287,6 +288,53 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             replaceMap.put(newOutput.getExprId(), newOutput.toSlot());
         }
         return repeat.withGroupSetsAndOutput(repeat.getGroupingSets(), newOutputs).recomputeLogicalProperties();
+    }
+
+    @Override
+    public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, Map<ExprId, Slot> replaceMap) {
+        recursiveCte = (LogicalRecursiveCte) super.visit(recursiveCte, replaceMap);
+        ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
+        List<Boolean> inputNullable = null;
+        if (!recursiveCte.children().isEmpty()) {
+            inputNullable = Lists.newArrayListWithCapacity(recursiveCte.getOutputs().size());
+            for (int i = 0; i < recursiveCte.getOutputs().size(); i++) {
+                inputNullable.add(false);
+            }
+            for (int i = 0; i < recursiveCte.arity(); i++) {
+                List<Slot> childOutput = recursiveCte.child(i).getOutput();
+                List<SlotReference> setChildOutput = recursiveCte.getRegularChildOutput(i);
+                ImmutableList.Builder<SlotReference> newChildOutputs = ImmutableList.builder();
+                for (int j = 0; j < setChildOutput.size(); j++) {
+                    for (Slot slot : childOutput) {
+                        if (slot.getExprId().equals(setChildOutput.get(j).getExprId())) {
+                            inputNullable.set(j, slot.nullable() || inputNullable.get(j));
+                            newChildOutputs.add((SlotReference) slot);
+                            break;
+                        }
+                    }
+                }
+                newChildrenOutputs.add(newChildOutputs.build());
+            }
+        }
+        if (inputNullable == null) {
+            // this is a fail-safe
+            // means there is no children and having no getConstantExprsList
+            // no way to update the nullable flag, so just do nothing
+            return recursiveCte;
+        }
+        List<NamedExpression> outputs = recursiveCte.getOutputs();
+        List<NamedExpression> newOutputs = Lists.newArrayListWithCapacity(outputs.size());
+        for (int i = 0; i < inputNullable.size(); i++) {
+            NamedExpression ne = outputs.get(i);
+            Slot slot = ne instanceof Alias ? (Slot) ((Alias) ne).child() : (Slot) ne;
+            slot = slot.withNullable(inputNullable.get(i));
+            NamedExpression newOutput = ne instanceof Alias ? (NamedExpression) ne.withChildren(slot) : slot;
+            newOutputs.add(newOutput);
+            replaceMap.put(newOutput.getExprId(), newOutput.toSlot());
+        }
+        return recursiveCte.withNewOutputs(newOutputs)
+                .withChildrenAndTheirOutputs(recursiveCte.children(), newChildrenOutputs.build())
+                .recomputeLogicalProperties();
     }
 
     @Override

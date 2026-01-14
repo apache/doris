@@ -17,9 +17,8 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import org.apache.doris.cdcclient.model.response.RecordWithMeta;
+import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
-import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
@@ -34,23 +33,29 @@ import java.util.Map;
 
 /** Source Reader Interface */
 public interface SourceReader {
+    String SPLIT_ID = "splitId";
+
     /** Initialization, called when the program starts */
-    void initialize(Map<String, String> config);
+    void initialize(long jobId, DataSource dataSource, Map<String, String> config);
 
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
 
-    /** Reading Data */
-    RecordWithMeta read(FetchRecordRequest meta) throws Exception;
-
-    /** Reading Data for split reader */
+    /**
+     * 1. If the SplitRecords iterator has it, read the iterator directly. 2. If there is a stream
+     * reader, poll it. 3. If there is none, resubmit split. 4. If reload is true, need to reset
+     * streamSplitReader and submit split.
+     */
     SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception;
 
     /** Extract offset information from snapshot split state. */
-    Map<String, String> extractSnapshotOffset(SourceSplit split, Object splitState);
+    Map<String, String> extractSnapshotStateOffset(Object splitState);
+
+    /** Extract offset information from binlog split states. */
+    Map<String, String> extractBinlogStateOffset(Object splitState);
 
     /** Extract offset information from binlog split. */
-    Map<String, String> extractBinlogOffset(SourceSplit split);
+    Map<String, String> extractBinlogOffset(SourceSplit splitState);
 
     /** Is the split a binlog split */
     boolean isBinlogSplit(SourceSplit split);
@@ -68,7 +73,13 @@ public interface SourceReader {
     int compareOffset(CompareOffsetRequest compareOffsetRequest);
 
     /** Called when closing */
-    void close(Long jobId);
+    void close(JobBaseConfig jobConfig);
 
     List<String> deserialize(Map<String, String> config, SourceRecord element) throws IOException;
+
+    /**
+     * Commits the given offset with the source database. Used by some source like Postgres to
+     * indicate how far the source TX log can be discarded.
+     */
+    default void commitSourceOffset(Long jobId, SourceSplit sourceSplit) {}
 }
