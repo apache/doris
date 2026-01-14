@@ -189,9 +189,10 @@ Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,
     return local_state._shared_state->sorter->merge_sort_read_for_spill(state, block, batch_size,
                                                                         eos);
 }
-void SortSinkOperatorX::reset(RuntimeState* state) {
+Status SortSinkOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     local_state._shared_state->sorter->reset();
+    return Status::OK();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -365,7 +365,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                 if (dec_val.greater_than_scale(type->get_scale())) {
                     auto code =
                             dec_val.round(&dec_val, remove_nullable(type)->get_scale(), HALF_UP);
-                    column_decimal->get_data()[j] = dec_val.value();
+                    column_decimal->get_data()[j] = dec_val;
 
                     if (code != E_DEC_OK) {
                         fmt::format_to(error_msg, "round one decimal failed.value={}; ",

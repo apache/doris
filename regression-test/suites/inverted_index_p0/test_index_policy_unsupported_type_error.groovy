@@ -15,14 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cast_to_decimal.h"
+suite("test_index_policy_unsupported_type_error") {
+    test {
+        sql """
+            CREATE INVERTED INDEX TOKENIZER test_invalid_tokenizer
+            PROPERTIES("type" = "invalid_type_xyz")
+        """
+        exception "Unsupported tokenizer type: invalid_type_xyz"
+    }
 
-namespace doris::vectorized {
+    test {
+        sql """
+            CREATE INVERTED INDEX TOKEN_FILTER test_invalid_token_filter
+            PROPERTIES("type" = "invalid_filter_type")
+        """
+        exception "Unsupported token filter type: invalid_filter_type"
+    }
 
-TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_decimal128_overflow) {
-    between_decimal_overflow_test_func<Decimal128V3, Decimal128V3>();
+    test {
+        sql """
+            CREATE INVERTED INDEX CHAR_FILTER test_invalid_char_filter
+            PROPERTIES("type" = "invalid_char_filter_type")
+        """
+        exception "Unsupported char filter type: invalid_char_filter_type"
+    }
 }
-TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_decimalv2_overflow) {
-    between_decimal_overflow_test_func<DecimalV2Value, Decimal128V3>();
-}
-} // namespace doris::vectorized
