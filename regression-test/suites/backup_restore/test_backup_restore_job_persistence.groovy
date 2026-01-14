@@ -55,6 +55,7 @@ suite("test_backup_restore_job_persistence", "backup_restore") {
         ON (`${tableName}`)
         PROPERTIES (
             "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true",
             "storage_medium" = "ssd",
             "medium_allocation_mode" = "adaptive"
         )

@@ -1654,13 +1654,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // generate new partition id
         long newPartId = env.getNextId();
         long oldPartId = remotePart.getId();
-        remotePart.setIdForRestore(newPartId);
 
         // Use decision maker to decide medium for new partition in atomic restore
         // Note: This is called when adding a new partition to an existing table
         MediumDecisionMaker decisionMaker = new MediumDecisionMaker(storageMedium, mediumAllocationMode);
         try {
-            DataProperty remotePartitionDataProperty = remoteTbl.getPartitionInfo().getDataProperty(newPartId);
+            // IMPORTANT: Use oldPartId to query DataProperty before changing partition ID
+            // because remoteTbl's PartitionInfo still uses the original partition IDs
+            DataProperty remotePartitionDataProperty = remoteTbl.getPartitionInfo().getDataProperty(oldPartId);
             if (remotePartitionDataProperty != null) {
                 MediumDecisionMaker.MediumDecision decision = decisionMaker.decideForNewPartition(
                         partName, remotePartitionDataProperty, replicaAlloc);
@@ -1689,6 +1690,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             + ": " + e.getMessage());
             return null;
         }
+
+        // Change partition ID after processing DataProperty
+        remotePart.setIdForRestore(newPartId);
 
         // indexes
         Map<String, Long> localIdxNameToId = localTbl.getIndexNameToId();
