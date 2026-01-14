@@ -17,12 +17,15 @@
 
 #include "short_circuit_evaluation_expr.h"
 
+#include "common/exception.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 
@@ -80,124 +83,81 @@ void execute_true_and_false_selector(const ColumnPtr& cond_column, size_t count,
 }
 
 template <PrimitiveType PType>
-struct ScalarInsertResultWithSelector {
+struct ScalarFillWithSelector {
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    using ArrayType = typename ColumnType::Container;
 
 public:
-    static ColumnPtr insert(const DataTypePtr& result_type, const ColumnPtr& true_column,
-                            const Selector& true_selector, const ColumnPtr& false_column,
-                            const Selector& false_selector, size_t count) {
+    static ColumnPtr fill_if(const DataTypePtr& result_type, const ColumnPtr& true_column,
+                             const Selector& true_selector, const ColumnPtr& false_column,
+                             const Selector& false_selector, size_t count) {
         DCHECK_EQ(false_selector.size() + true_selector.size(), count);
         DCHECK_EQ(true_column->size(), true_selector.size());
         DCHECK_EQ(false_column->size(), false_selector.size());
         DCHECK_EQ(PType, result_type->get_primitive_type());
         auto result_column = result_type->create_column();
         result_column->resize(count);
-        dispatch_const(result_column, true_column, true_selector, false_column, false_selector);
-
+        dispatch_const(result_column, true_column, true_selector);
+        dispatch_const(result_column, false_column, false_selector);
         DCHECK_EQ(result_column->size(), count);
         return result_column;
     }
 
 private:
-    static void dispatch_const(MutableColumnPtr& result_column, const ColumnPtr& true_column,
-                               const Selector& true_selector, const ColumnPtr& false_column,
-                               const Selector& false_selector) {
-        const auto& [true_data_column, true_is_const] = unpack_if_const(true_column);
-        const auto& [false_data_column, false_is_const] = unpack_if_const(false_column);
-        if (true_is_const && false_is_const) {
-            return dispatch_nullable<true, true>(result_column, true_data_column, true_selector,
-                                                 false_data_column, false_selector);
-        } else if (true_is_const) {
-            return dispatch_nullable<true, false>(result_column, true_data_column, true_selector,
-                                                  false_data_column, false_selector);
-        } else if (false_is_const) {
-            return dispatch_nullable<false, true>(result_column, true_data_column, true_selector,
-                                                  false_data_column, false_selector);
+    static void dispatch_const(MutableColumnPtr& result_column, const ColumnPtr& from_column,
+                               const Selector& selector) {
+        const auto& [from_data_column, is_const] = unpack_if_const(from_column);
+        if (is_const) {
+            dispatch_nullable<true>(result_column, from_data_column, selector);
         } else {
-            return dispatch_nullable<false, false>(result_column, true_data_column, true_selector,
-                                                   false_data_column, false_selector);
+            dispatch_nullable<false>(result_column, from_data_column, selector);
         }
     }
 
-    const auto& get_column_data(const ColumnPtr& column_ptr) {
-        return assert_cast<const ColumnType&>(*column_ptr).get_data();
+    template <bool is_const>
+    static void dispatch_nullable(MutableColumnPtr& result_column, const ColumnPtr& from_column,
+                                  const Selector& selector) {
+        NullMap* result_null_map_data = nullptr;
+        const NullMap* from_null_map_data = nullptr;
+        ArrayType* result_data = nullptr;
+        const ArrayType* from_data = nullptr;
+
+        if (auto* result_nullable_column =
+                    check_and_get_column<ColumnNullable>(result_column.get())) {
+            result_null_map_data = &result_nullable_column->get_null_map_data();
+            auto& nested_result_column = result_nullable_column->get_nested_column();
+            result_data = &(assert_cast<ColumnType&>(nested_result_column).get_data());
+        } else {
+            result_data = &(assert_cast<ColumnType&>(*result_column).get_data());
+        }
+
+        if (const auto* from_nullable_column =
+                    check_and_get_column<ColumnNullable>(from_column.get())) {
+            from_null_map_data = &from_nullable_column->get_null_map_data();
+            const auto& nested_from_column = from_nullable_column->get_nested_column();
+            from_data = &(assert_cast<const ColumnType&>(nested_from_column).get_data());
+        } else {
+            from_data = &(assert_cast<const ColumnType&>(*from_column).get_data());
+        }
+
+        insert_into_result<is_const>(*result_data, *from_data, result_null_map_data,
+                                     from_null_map_data, selector);
     }
 
-    template <bool is_true_const, bool is_false_const>
-    static void dispatch_nullable(MutableColumnPtr& result_column, const ColumnPtr& true_column,
-                                  const Selector& true_selector, const ColumnPtr& false_column,
-                                  const Selector& false_selector) {
-        if (const auto* true_nullable_column = check_and_get_column<ColumnNullable>(*true_column)) {
-            if (const auto* false_nullable_column =
-                        check_and_get_column<ColumnNullable>(*false_column)) {
-                DCHECK(is_column_nullable(*result_column));
-                auto& result_nullable_column = assert_cast<ColumnNullable&>(*result_column);
-                auto& result_null_map_data = result_nullable_column.get_null_map_data();
-                auto& result_data =
-                        assert_cast<ColumnType&>(result_nullable_column.get_nested_column())
-                                .get_data();
-
-                const auto& true_null_map_data = true_nullable_column->get_null_map_data();
-                const auto& true_data =
-                        assert_cast<const ColumnType&>(true_nullable_column->get_nested_column())
-                                .get_data();
-
-                const auto& false_null_map_data = false_nullable_column->get_null_map_data();
-                const auto& false_data =
-                        assert_cast<const ColumnType&>(false_nullable_column->get_nested_column())
-                                .get_data();
-
-                insert_with_selector<is_true_const>(result_data, true_data, true_selector);
-                insert_with_selector<is_false_const>(result_data, false_data, false_selector);
-                insert_with_selector<is_true_const>(result_null_map_data, true_null_map_data,
-                                                    true_selector);
-                insert_with_selector<is_false_const>(result_null_map_data, false_null_map_data,
-                                                     false_selector);
-
-            } else {
-                DCHECK(is_column_nullable(*result_column));
-                auto& result_nullable_column = assert_cast<ColumnNullable&>(*result_column);
-                auto& result_null_map_data = result_nullable_column.get_null_map_data();
-                auto& result_data =
-                        assert_cast<ColumnType&>(result_nullable_column.get_nested_column())
-                                .get_data();
-
-                const auto& true_null_map_data = true_nullable_column->get_null_map_data();
-                const auto& true_data =
-                        assert_cast<const ColumnType&>(true_nullable_column->get_nested_column())
-                                .get_data();
-                const auto& false_data = assert_cast<const ColumnType&>(*false_column).get_data();
-
-                insert_with_selector<is_true_const>(result_data, true_data, true_selector);
-                insert_with_selector<is_false_const>(result_data, false_data, false_selector);
-                insert_all<is_true_const>(result_null_map_data, true_null_map_data);
-            }
+    template <bool is_const>
+    static void insert_into_result(ArrayType& result_data, const ArrayType& from_data,
+                                   NullMap* result_null_map_data, const NullMap* from_null_map_data,
+                                   const Selector& selector) {
+        insert_with_selector<is_const>(result_data, from_data, selector);
+        if (result_null_map_data != nullptr && from_null_map_data != nullptr) {
+            insert_with_selector<is_const>(*result_null_map_data, *from_null_map_data, selector);
+        } else if (result_null_map_data != nullptr && from_null_map_data == nullptr) {
+            // do nothing , because result_null_map_data default value is false
+        } else if (result_null_map_data == nullptr && from_null_map_data != nullptr) {
+            throw doris::Exception(doris::Status::InternalError(
+                    "Internal error: null map data mismatch in ShortCircuitIfExpr"));
         } else {
-            if (const auto* false_nullable_column =
-                        check_and_get_column<ColumnNullable>(*false_column)) {
-                DCHECK(is_column_nullable(*result_column));
-                auto& result_nullable_column = assert_cast<ColumnNullable&>(*result_column);
-                auto& result_null_map_data = result_nullable_column.get_null_map_data();
-                auto& result_data =
-                        assert_cast<ColumnType&>(result_nullable_column.get_nested_column())
-                                .get_data();
-                const auto& true_data = assert_cast<const ColumnType&>(*true_column).get_data();
-                const auto& false_null_map_data = false_nullable_column->get_null_map_data();
-                const auto& false_data =
-                        assert_cast<const ColumnType&>(false_nullable_column->get_nested_column())
-                                .get_data();
-                insert_with_selector<is_true_const>(result_data, true_data, true_selector);
-                insert_with_selector<is_false_const>(result_data, false_data, false_selector);
-                insert_all<is_false_const>(result_null_map_data, false_null_map_data);
-            } else {
-                DCHECK(!is_column_nullable(*result_column));
-                auto& result_data = assert_cast<ColumnType&>(*result_column).get_data();
-                const auto& true_data = assert_cast<const ColumnType&>(*true_column).get_data();
-                const auto& false_data = assert_cast<const ColumnType&>(*false_column).get_data();
-                insert_with_selector<is_true_const>(result_data, true_data, true_selector);
-                insert_with_selector<is_false_const>(result_data, false_data, false_selector);
-            }
+            // do nothing
         }
     }
 
@@ -209,19 +169,12 @@ private:
             result_data[index] = data[index_check_const<is_const>(i)];
         }
     }
-
-    template <bool is_const>
-    static void insert_all(auto& result_data, const auto& data) {
-        for (size_t i = 0; i < data.size(); ++i) {
-            result_data[i] = data[index_check_const<is_const>(i)];
-        }
-    }
 };
 
-struct InsertResultWithSelector {
-    static ColumnPtr insert(const DataTypePtr& result_type, ColumnPtr& true_column,
-                            const Selector& true_selector, ColumnPtr& false_column,
-                            const Selector& false_selector, size_t count) {
+struct NonScalarFillWithSelector {
+    static ColumnPtr fill_if(const DataTypePtr& result_type, ColumnPtr& true_column,
+                             const Selector& true_selector, ColumnPtr& false_column,
+                             const Selector& false_selector, size_t count) {
         DCHECK_EQ(false_selector.size() + true_selector.size(), count);
         DCHECK_EQ(true_column->size(), true_selector.size());
         DCHECK_EQ(false_column->size(), false_selector.size());
@@ -277,15 +230,15 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
 
     auto call = [&](const auto& type) -> bool {
         using DataType = std::decay_t<decltype(type)>;
-        result_column = ScalarInsertResultWithSelector<DataType::PType>::insert(
+        result_column = ScalarFillWithSelector<DataType::PType>::fill_if(
                 _data_type, true_column, true_selector, false_column, false_selector, count);
         return true;
     };
 
     auto can_use_vec_exec = dispatch_switch_scalar(_data_type->get_primitive_type(), call);
     if (!can_use_vec_exec) {
-        result_column = InsertResultWithSelector::insert(_data_type, true_column, true_selector,
-                                                         false_column, false_selector, count);
+        result_column = NonScalarFillWithSelector::fill_if(_data_type, true_column, true_selector,
+                                                           false_column, false_selector, count);
     }
     return Status::OK();
 }

@@ -113,8 +113,6 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
 
     ColumnWithTypeAndName col_type_name = block->get_by_position(_column_id);
 
-    result_column = filter_column_with_selector(col_type_name.column, selector, count);
-
     if (!col_type_name.column) {
         // Maybe we need to create a column in this situation.
         return Status::InternalError(
@@ -123,16 +121,17 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
     }
 
     const auto* col_nothing = check_and_get_column<ColumnNothing>(col_type_name.column.get());
-
+    bool column_from_virtual_column_expr = false;
     if (this->_virtual_column_expr != nullptr) {
         if (col_nothing != nullptr) {
             // Virtual column is not materialized, so we need to materialize it.
             // Note: After executing 'execute', we cannot use the column from line 120 in subsequent code,
             // because the vector might be resized during execution, causing previous references to become invalid.
             ColumnPtr tmp_column;
-            RETURN_IF_ERROR(
-                    _virtual_column_expr->execute_column(context, block, selector, count, tmp_column));
+            RETURN_IF_ERROR(_virtual_column_expr->execute_column(context, block, selector, count,
+                                                                 tmp_column));
             result_column = std::move(tmp_column);
+            column_from_virtual_column_expr = true;
 
             VLOG_DEBUG << fmt::format(
                     "Materialization of virtual column, slot_id {}, column_id {}, "
@@ -161,6 +160,12 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
             return Status::OK();
         }
     }
+
+    if (!column_from_virtual_column_expr) {
+        // if the column is from virtual column expr, result_column has been filter already
+        result_column = filter_column_with_selector(col_type_name.column, selector, count);
+    }
+
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
