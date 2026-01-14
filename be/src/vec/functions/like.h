@@ -20,12 +20,12 @@
 #include <hs/hs_common.h>
 #include <hs/hs_runtime.h>
 #include <re2/re2.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/regex.hpp>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -43,13 +43,8 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
-namespace doris {
-namespace vectorized {
-class Block;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+class Block;
 
 // FastPath types for LIKE pattern matching optimization
 // This allows per-row pattern analysis to avoid regex when possible
@@ -64,6 +59,7 @@ enum class LikeFastPath {
 
 // Lightweight pattern analysis without RE2
 // Returns the fast path type and extracts the search string (without wildcards)
+// Correctly handles escape sequences: backslash-% -> literal %, backslash-_ -> literal _
 inline LikeFastPath extract_like_fast_path(const char* pattern, size_t len,
                                            std::string& search_string) {
     search_string.clear();
@@ -71,51 +67,70 @@ inline LikeFastPath extract_like_fast_path(const char* pattern, size_t len,
         return LikeFastPath::EQUALS;
     }
 
-    // Check for '_' wildcard anywhere - must use regex
-    // Also check for '%' positions
-    bool starts_with_percent = (pattern[0] == '%');
-    bool ends_with_percent = (pattern[len - 1] == '%');
+    // Returns true if the character is NOT escaped (even number of preceding backslashes)
+    auto is_unescaped = [&pattern](size_t pos) -> bool {
+        size_t backslash_count = 0;
+        while (pos > 0 && pattern[pos - 1] == '\\') {
+            backslash_count++;
+            pos--;
+        }
+        return (backslash_count % 2 == 0);
+    };
 
-    // Quick check: if starts or ends with '_', need regex
-    if (pattern[0] == '_' || pattern[len - 1] == '_') {
+    bool starts_with_percent = (pattern[0] == '%');
+    bool ends_with_percent = (pattern[len - 1] == '%' && is_unescaped(len - 1));
+
+    // Quick check: if starts or ends with unescaped '_', need regex
+    if (pattern[0] == '_') {
+        return LikeFastPath::REGEX;
+    }
+    if (pattern[len - 1] == '_' && is_unescaped(len - 1)) {
         return LikeFastPath::REGEX;
     }
 
-    // Scan the middle part (excluding first and last char if they are '%')
-    size_t start = starts_with_percent ? 1 : 0;
-    size_t end = ends_with_percent ? len - 1 : len;
+    // Helper lambda: check if character is a wildcard that needs escaping
+    auto is_wildcard = [](char c) { return c == '%' || c == '_' || c == '\\'; };
 
-    // Skip leading '%' characters
-    while (start < end && pattern[start] == '%') {
-        start++;
+    size_t i = 0;
+    // Skip leading '%' characters (unescaped)
+    while (i < len && pattern[i] == '%') {
+        i++;
     }
-    // Skip trailing '%' characters
-    while (end > start && pattern[end - 1] == '%') {
-        end--;
-    }
-
-    // Check if all '%' (allpass pattern)
-    if (start >= end && starts_with_percent) {
+    // If pattern is all '%', it's ALLPASS
+    if (i >= len) {
         return LikeFastPath::ALLPASS;
     }
 
-    // Now scan the middle part for wildcards
-    search_string.reserve(end - start);
-    for (size_t i = start; i < end;) {
+    search_string.reserve(len);
+    while (i < len) {
         char c = pattern[i];
-        if (c == '\\' && i + 1 < end) {
-            char next = pattern[i + 1];
-            if (next == '%' || next == '_' || next == '\\') {
-                // Escaped character - add the literal
-                search_string.push_back(next);
-                i += 2;
-                continue;
-            }
+        // Escaped character - add the literal
+        if (c == '\\' && i + 1 < len && is_wildcard(pattern[i + 1])) {
+            search_string.push_back(pattern[i + 1]);
+            i += 2;
+            continue;
         }
-        if (c == '%' || c == '_') {
-            // Unescaped wildcard in the middle - need regex
+
+        // Unescaped '_' requires regex
+        if (c == '_') {
             return LikeFastPath::REGEX;
         }
+
+        // Check for trailing '%' or middle '%' (which needs regex)
+        if (c == '%') {
+            // Check if this is a trailing '%' sequence
+            size_t j = i;
+            while (j < len && pattern[j] == '%') {
+                j++;
+            }
+            if (j >= len) {
+                // All remaining chars are '%', we're done parsing
+                break;
+            }
+            // '%' in the middle with more content after - need regex
+            return LikeFastPath::REGEX;
+        }
+
         search_string.push_back(c);
         i++;
     }
