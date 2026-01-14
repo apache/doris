@@ -2717,6 +2717,115 @@ TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
     ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
 }
 
+TEST(MetaServiceTest, GetPrepareTxnByCoordinatorTest) {
+    auto meta_service = get_meta_service();
+
+    const int64_t db_id = 888;
+    const int64_t table_id = 999;
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+    const int64_t coordinator_id = 12345;
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    std::string host = "127.0.0.1:9050";
+
+    // Create multiple transactions with the same coordinator
+    std::vector<int64_t> txn_ids;
+    for (int i = 0; i < 5; ++i) {
+        brpc::Controller begin_txn_cntl;
+        BeginTxnRequest begin_txn_req;
+        BeginTxnResponse begin_txn_res;
+        TxnInfoPB txn_info_pb;
+        TxnCoordinatorPB coordinator;
+
+        begin_txn_req.set_cloud_unique_id(cloud_unique_id);
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label("test_label_" + std::to_string(i));
+        txn_info_pb.add_table_ids(table_id);
+        txn_info_pb.set_timeout_ms(36000);
+        coordinator.set_id(coordinator_id);
+        coordinator.set_ip(host);
+        coordinator.set_sourcetype(::doris::cloud::TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+        coordinator.set_start_time(cur_time);
+        txn_info_pb.mutable_coordinator()->CopyFrom(coordinator);
+        begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
+
+        meta_service->begin_txn(
+                reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+                &begin_txn_req, &begin_txn_res, nullptr);
+        ASSERT_EQ(begin_txn_res.status().code(), MetaServiceCode::OK);
+        txn_ids.push_back(begin_txn_res.txn_id());
+    }
+
+    // Test 1: Get all prepared transactions without limit
+    {
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_id(coordinator_id);
+        req.set_ip(host);
+
+        meta_service->get_prepare_txn_by_coordinator(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.txn_infos_size(), 5);
+    }
+
+    // Test 2: Get prepared transactions with start_time filter
+    {
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_id(coordinator_id);
+        req.set_ip(host);
+        req.set_start_time(cur_time + 100); // Future time, should match all transactions
+
+        meta_service->get_prepare_txn_by_coordinator(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.txn_infos_size(), 5);
+    }
+
+    // Test 3: Get prepared transactions with invalid coordinator
+    {
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_id(99999); // Non-existent coordinator
+        req.set_ip("192.168.1.1:9999");
+
+        meta_service->get_prepare_txn_by_coordinator(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.txn_infos_size(), 0); // Should return empty list
+    }
+
+    // Test 4: Invalid request without coordinator id
+    {
+        brpc::Controller cntl;
+        GetPrepareTxnByCoordinatorRequest req;
+        GetPrepareTxnByCoordinatorResponse resp;
+
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_ip(host);
+        // Missing coordinator id
+
+        meta_service->get_prepare_txn_by_coordinator(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+}
+
 TEST(MetaServiceTest, CheckTxnConflictTest) {
     auto meta_service = get_meta_service();
 
