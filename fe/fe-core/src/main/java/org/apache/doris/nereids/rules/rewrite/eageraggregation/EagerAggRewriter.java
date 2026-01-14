@@ -227,7 +227,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         // if x is not used as group key, do not push through
         for (Slot slot : context.getAggFunctionsInputSlots()) {
             for (NamedExpression prj : project.getProjects()) {
-                if (prj instanceof Alias && prj.getExprId() == slot.getExprId()) {
+                if (prj instanceof Alias && prj.getExprId().equals(slot.getExprId())) {
                     if (prj.getInputSlots().stream()
                             .anyMatch(
                                     s -> project.getOutputSet().contains(s)

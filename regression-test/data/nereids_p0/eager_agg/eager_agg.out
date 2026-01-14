@@ -5,14 +5,14 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=() build RFs:RF0 ws_item_sk->[ss_item_sk];RF1 ws_item_sk->[ss_item_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
+------------------------PhysicalOlapScan[store_sales(ss)] apply RFs: RF0 RF1
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[web_sales(ws)]
 ------------PhysicalProject
@@ -31,14 +31,14 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=() build RFs:RF0 ws_item_sk->[ss_item_sk];RF1 ws_item_sk->[ss_item_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
+------------------------PhysicalOlapScan[store_sales(ss)] apply RFs: RF0 RF1
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[web_sales(ws)]
 ------------PhysicalProject
@@ -57,14 +57,14 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=() build RFs:RF0 ws_item_sk->[ss_item_sk];RF1 ws_item_sk->[ss_item_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales(ss)]
+------------------------PhysicalOlapScan[store_sales(ss)] apply RFs: RF0 RF1
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[web_sales(ws)]
 ------------PhysicalProject
@@ -83,11 +83,11 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecHash]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+--------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=() build RFs:RF0 ws_item_sk->[ss_item_sk];RF1 ws_item_sk->[ss_item_sk]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales(ss)]
+------------------PhysicalOlapScan[store_sales(ss)] apply RFs: RF0 RF1
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[web_sales(ws)]
 ------------PhysicalProject
@@ -107,14 +107,14 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=() build RFs:RF2 ws_item_sk->[ss_item_sk];RF3 ws_item_sk->[ss_item_sk]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales(ss)]
+--------------------------PhysicalOlapScan[store_sales(ss)] apply RFs: RF2 RF3
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[date_dim(dt)]
 --------------PhysicalProject
@@ -134,14 +134,14 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=() build RFs:RF2 ws_item_sk->[ss_item_sk];RF3 ws_item_sk->[ss_item_sk]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales(ss)]
+--------------------------PhysicalOlapScan[store_sales(ss)] apply RFs: RF2 RF3
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[date_dim(dt)]
 --------------PhysicalProject
@@ -158,18 +158,25 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalProject
 ----hashAgg[GLOBAL]
-------PhysicalProject
---------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=()
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=()
 --------------PhysicalProject
-----------------PhysicalOlapScan[item]
---------------hashAgg[GLOBAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[web_sales]
-----------PhysicalProject
-------------PhysicalOlapScan[date_dim]
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+------------------hashAgg[GLOBAL]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[web_sales]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[item]
+--------------PhysicalProject
+----------------PhysicalOlapScan[date_dim]
 
--- !sum_if_push --
+Hint log:
+Used: leading({ web_sales item } date_dim )
+UnUsed:
+SyntaxError:
+
+-- !sum_if_push_exe --
 1	\N	\N	\N	\N	\N	\N
 
