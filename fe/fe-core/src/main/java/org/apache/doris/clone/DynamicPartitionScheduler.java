@@ -858,7 +858,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 // get table write lock to add partition, edit log and modify table state must be atomic
                 olapTable.writeLockOrDdlException();
                 try {
-                    boolean isTempPartition = addPartitionOps.get(i).isTempPartition();
+                    boolean isTempPartition = addPartitionClauses.get(i).isTempPartition();
                     Partition toAddPartition = batchPartsInfo.get(i).second;
                     String partitionName = toAddPartition.getName();
                     // ATTN: Check here to see if the newly created dynamic
