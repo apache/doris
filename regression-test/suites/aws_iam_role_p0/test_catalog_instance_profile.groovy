@@ -22,7 +22,7 @@ suite("test_catalog_instance_profile_with_role") {
     if (Strings.isNullOrEmpty(context.config.otherConfigs.get("hiveGlueInstanceProfileQueryTableName"))) {
         return
     }
-    
+    sql """ ADMIN SET FRONTEND CONFIG ("aws_credentials_provider_version"="v2"); """
     String hiveGlueQueryTableName = context.config.otherConfigs.get("hiveGlueInstanceProfileQueryTableName")
     String hiveGlueExpectCounts = context.config.otherConfigs.get("hiveGlueInstanceProfileExpectCounts")
     String icebergFsQueryTableName = context.config.otherConfigs.get("icebergFsInstanceProfileQueryTableName")
