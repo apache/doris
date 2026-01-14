@@ -53,19 +53,26 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         DUMMY_BACKEND.setAlive(true);
     }
 
-    private final Supplier<ImmutableMap<Long, Backend>> allClusterBackends = Suppliers.memoize(() -> {
-        try {
-            return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
-        } catch (Exception t) {
-            throw new NereidsException("Can not get backends: " + t, t);
-        }
-    });
+    private final Map<Long, Supplier<ImmutableMap<Long, Backend>>> allClusterBackends = Maps.newHashMap();
 
-    private final ImmutableMap<Long, Backend> currentClusterBackends;
+    private final Map<Long, ImmutableMap<Long, Backend>> currentClusterBackends;
 
+    /**
+     * Constructor
+     */
     public BackendDistributedPlanWorkerManager(
             ConnectContext context, boolean notNeedBackend, boolean isLoadJob) throws UserException {
-        this.currentClusterBackends = checkAndInitClusterBackends(context, notNeedBackend, isLoadJob);
+        this.currentClusterBackends = Maps.newHashMap();
+        ImmutableMap<Long, Backend> internalBackends = checkAndInitClusterBackends(context, notNeedBackend, isLoadJob);
+        this.currentClusterBackends.put(Env.getCurrentInternalCatalog().getId(), internalBackends);
+        allClusterBackends.put(Env.getCurrentInternalCatalog().getId(),
+                Suppliers.memoize(() -> {
+                    try {
+                        return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+                    } catch (Exception t) {
+                        throw new NereidsException("Can not get backends: " + t, t);
+                    }
+                }));
     }
 
     private ImmutableMap<Long, Backend> checkAndInitClusterBackends(
@@ -115,28 +122,38 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     }
 
     @Override
-    public DistributedPlanWorker getWorker(long backendId) {
-        ImmutableMap<Long, Backend> backends = this.allClusterBackends.get();
+    public void addBackends(long catalogId, ImmutableMap<Long, Backend> backends) {
+        if (!currentClusterBackends.containsKey(catalogId)) {
+            currentClusterBackends.put(catalogId, backends);
+        }
+        if (!allClusterBackends.containsKey(catalogId)) {
+            allClusterBackends.put(catalogId, Suppliers.ofInstance(backends));
+        }
+    }
+
+    @Override
+    public DistributedPlanWorker getWorker(long catalogId, long backendId) {
+        ImmutableMap<Long, Backend> backends = this.allClusterBackends.get(catalogId).get();
         Backend backend = backends.get(backendId);
         if (backend == null) {
             throw new IllegalStateException("Backend " + backendId + " is not exist");
         }
-        return new BackendWorker(backend);
+        return new BackendWorker(catalogId, backend);
     }
 
     @Override
-    public DistributedPlanWorker getWorker(Backend backend) {
-        return new BackendWorker(backend);
+    public DistributedPlanWorker getWorker(long catalogId, Backend backend) {
+        return new BackendWorker(catalogId, backend);
     }
 
     @Override
-    public DistributedPlanWorker randomAvailableWorker() {
+    public DistributedPlanWorker randomAvailableWorker(long catalogId) {
         try {
             Reference<Long> selectedBackendId = new Reference<>();
-            ImmutableMap<Long, Backend> backends = this.currentClusterBackends;
+            ImmutableMap<Long, Backend> backends = this.currentClusterBackends.get(catalogId);
             SimpleScheduler.getHost(backends, selectedBackendId);
             Backend selctedBackend = backends.get(selectedBackendId.getRef());
-            return new BackendWorker(selctedBackend);
+            return new BackendWorker(catalogId, selctedBackend);
         } catch (Exception t) {
             throw new NereidsException("Can not get backends: " + t, t);
         }
@@ -149,17 +166,17 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     }
 
     @Override
-    public List<Backend> getAllBackends(boolean needAlive) {
+    public List<Backend> getAllBackends(long catalogId, boolean needAlive) {
         List<Backend> backends = null;
         if (needAlive) {
             backends = Lists.newArrayList();
-            for (Map.Entry<Long, Backend> entry : this.allClusterBackends.get().entrySet()) {
+            for (Map.Entry<Long, Backend> entry : this.allClusterBackends.get(catalogId).get().entrySet()) {
                 if (entry.getValue().isQueryAvailable()) {
                     backends.add(entry.getValue());
                 }
             }
         } else {
-            backends = Lists.newArrayList(this.allClusterBackends.get().values());
+            backends = Lists.newArrayList(this.allClusterBackends.get(catalogId).get().values());
         }
         return backends;
     }

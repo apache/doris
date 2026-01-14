@@ -64,7 +64,7 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
     sql """
         ALTER TABLE ${tableName1} rename ${tableName2};
         """
-    order_qt_rename "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_rename "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     sql """
             INSERT INTO ${tableName2} VALUES(2,2);
@@ -72,7 +72,7 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
 
     // after rename, should not refresh auto
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_rename "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_rename "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_rename "select * from ${mvName}"
 
     // create t1
@@ -92,7 +92,7 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
          """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_recreate_auto "select Name,State,RefreshState,SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_recreate_auto "select * from ${mvName}"
 
     // t2 should not trigger refresh

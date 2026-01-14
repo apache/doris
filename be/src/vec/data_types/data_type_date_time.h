@@ -96,7 +96,7 @@ public:
         VecDateTimeValue value;
         if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
             value.to_datetime();
-            return Field::create_field<TYPE_DATETIME>(Int64(*reinterpret_cast<__int64_t*>(&value)));
+            return Field::create_field<TYPE_DATETIME>(std::move(value));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateTime", node.date_literal.value);
@@ -132,6 +132,11 @@ template <typename DataType>
 constexpr bool IsTimeV2Type = false;
 template <>
 inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
+
+template <typename DataType>
+constexpr bool IsTimeStampTzType = false;
+template <>
+inline constexpr bool IsTimeStampTzType<DataTypeTimeStampTz> = true;
 
 template <typename DataType>
 constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;

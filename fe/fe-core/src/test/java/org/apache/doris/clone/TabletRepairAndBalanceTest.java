@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.BackendClause;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -45,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.BackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -230,7 +230,7 @@ public class TabletRepairAndBalanceTest {
         properties.put("tag.compution", "abc");
         ModifyBackendOp op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
         AlterSystemCommand command0 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.NEED_LOCATION_TAG_MSG,
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendOp.NEED_LOCATION_TAG_MSG,
                 () -> command0.validate(connectContext));
 
         // Test set multi tag for a Backend when Config.enable_multi_tags is false
@@ -241,7 +241,7 @@ public class TabletRepairAndBalanceTest {
         properties.put("tag.compution", "abc");
         op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
         final AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.MUTLI_TAG_DISABLED_MSG,
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendOp.MUTLI_TAG_DISABLED_MSG,
                 () -> command.validate(connectContext));
 
         // Test set multi tag for a Backend when Config.enable_multi_tags is true

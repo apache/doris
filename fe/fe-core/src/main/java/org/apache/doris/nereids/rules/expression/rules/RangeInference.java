@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -198,7 +199,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
         boolean convertIsNullToEmptyValue = isAnd && hasNullExpression && hasIsNullExpression;
         boolean convertNotIsNullToRangeAll = !isAnd && hasNullExpression && hasNotIsNullExpression;
-        Map<Expression, ValueDescCollector> groupByReference = Maps.newLinkedHashMap();
+        Map<Pair<Expression, Integer>, ValueDescCollector> groupByReference = Maps.newLinkedHashMap();
+        int nextUniqueNum = 1;
         for (Expression predicate : predicates) {
             // given an expression A, no matter A is nullable or not,
             // 'A is null and null' can represent as EmptyValue(A),
@@ -213,13 +215,25 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else {
                 valueDesc = predicate.accept(this, context);
             }
+
+            int uniqueNum = 0;
+
+            // for compound value with diff source value reference like 'a > 1 and b > 1',
+            // don't merge it with other values, so give them a unique num > 0.
+            // for other value desc, their unique num is always 0.
+            if (valueDesc instanceof CompoundValue && !((CompoundValue) valueDesc).isSameReference) {
+                nextUniqueNum++;
+                uniqueNum = nextUniqueNum;
+            }
+
             Expression reference = valueDesc.reference;
-            groupByReference.computeIfAbsent(reference, key -> new ValueDescCollector()).add(valueDesc);
+            groupByReference.computeIfAbsent(Pair.of(reference, uniqueNum),
+                    key -> new ValueDescCollector()).add(valueDesc);
         }
 
         List<ValueDesc> valuePerRefs = Lists.newArrayList();
-        for (Entry<Expression, ValueDescCollector> referenceValues : groupByReference.entrySet()) {
-            Expression reference = referenceValues.getKey();
+        for (Entry<Pair<Expression, Integer>, ValueDescCollector> referenceValues : groupByReference.entrySet()) {
+            Expression reference = referenceValues.getKey().first;
             ValueDescCollector collector = referenceValues.getValue();
             ValueDesc mergedValue;
             if (isAnd) {
@@ -324,12 +338,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             resultValues.add(new EmptyValue(context, reference));
         }
 
+        // RangeAll = (a is not null or null), only a is not nullable, then RangeAll equals IsNotNull
         // process is null and is not null
         // for non-nullable a: EmptyValue(a) = a is null and null
         boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && reference.nullable();
         boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent()
                 || collector.isGenerateNotNullValueOpt.isPresent()
-                || mergeRangeValue != null && !mergeRangeValue.hasLowerBound() && !mergeRangeValue.hasUpperBound();
+                || (!reference.nullable() && mergeRangeValue != null
+                    && !mergeRangeValue.hasLowerBound() && !mergeRangeValue.hasUpperBound());
         if (hasIsNullValue && hasIsNotNullValue) {
             return new UnknownValue(context, BooleanLiteral.FALSE);
         }
@@ -463,10 +479,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         // if A's range is bigger than B, then A or (B and C) = A
         // if A or B is true/all, then A or (B and C) = A or C
         for (CompoundValue compoundValue : collector.compoundValues) {
-            if (isAnd != compoundValue.isAnd
-                    && compoundValue.reference.equals(reference)
-                    // no process the compose value which reference different
-                    && compoundValue.sourceValues.get(0).reference.equals(reference)) {
+            if (isAnd != compoundValue.isAnd && compoundValue.reference.equals(reference)) {
                 ImmutableList.Builder<ValueDesc> newSourceValuesBuilder
                         = ImmutableList.builderWithExpectedSize(compoundValue.sourceValues.size());
                 boolean skipWholeCompoundValue = false;
@@ -1221,6 +1234,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         private final Set<Class<? extends ValueDesc>> subClasses;
         private final boolean hasNullable;
         private final boolean hasNoneNullable;
+        private final boolean isSameReference;
 
         /** constructor */
         public CompoundValue(ExpressionRewriteContext context, Expression reference,
@@ -1232,20 +1246,24 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             this.subClasses.add(getClass());
             boolean hasNullable = false;
             boolean hasNonNullable = false;
+            boolean isSameReference = true;
             for (ValueDesc sourceValue : sourceValues) {
                 if (sourceValue instanceof CompoundValue) {
                     CompoundValue compoundSource = (CompoundValue) sourceValue;
                     this.subClasses.addAll(compoundSource.subClasses);
                     hasNullable = hasNullable || compoundSource.hasNullable;
                     hasNonNullable = hasNonNullable || compoundSource.hasNoneNullable;
+                    isSameReference = isSameReference && compoundSource.isSameReference;
                 } else {
                     this.subClasses.add(sourceValue.getClass());
                     hasNullable = hasNullable || sourceValue.nullable();
                     hasNonNullable = hasNonNullable || !sourceValue.nullable();
                 }
+                isSameReference = isSameReference && sourceValue.getReference().equals(reference);
             }
             this.hasNullable = hasNullable;
             this.hasNoneNullable = hasNonNullable;
+            this.isSameReference = isSameReference;
         }
 
         public List<ValueDesc> getSourceValues() {

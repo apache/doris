@@ -551,7 +551,7 @@ namespace fdb {
 
 class Network {
 public:
-    Network(FDBNetworkOption opt) : opt_(opt) {}
+    Network() {}
 
     /**
      * @return 0 for success otherwise non-zero
@@ -570,7 +570,6 @@ public:
 
 private:
     std::shared_ptr<std::thread> network_thread_;
-    FDBNetworkOption opt_;
 
     // Global state, only one instance of Network is allowed
     static std::atomic<bool> working;
@@ -841,6 +840,10 @@ private:
     //
     // It only works when the report_conflicting_ranges option is enabled.
     TxnErrorCode get_conflicting_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode get_read_conflict_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode get_write_conflict_range(
             std::vector<std::pair<std::string, std::string>>* key_values);
     TxnErrorCode report_conflicting_range();
 

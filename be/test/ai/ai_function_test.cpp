@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -551,6 +552,35 @@ TEST(AIFunctionTest, MockResourceSendRequest) {
     ASSERT_EQ(val, "this is a mock response. test input");
 }
 
+TEST(AIFunctionTest, MissingAIResourcesMetadataTest) {
+    auto query_ctx = MockQueryContext::create();
+    TQueryOptions query_options;
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    std::vector<std::string> resources = {"resource_name"};
+    std::vector<std::string> texts = {"test"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto sentiment_func = FunctionAISentiment::create();
+    Status exec_status =
+            sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_NE(exec_status.to_string().find("AI resources metadata missing"), std::string::npos);
+}
+
 TEST(AIFunctionTest, ReturnTypeTest) {
     FunctionAIClassify func_classify;
     DataTypes args;
@@ -607,6 +637,29 @@ TEST(AIFunctionTest, ReturnTypeTest) {
     ret_type = func_embed.get_return_type_impl(args);
     ASSERT_TRUE(ret_type != nullptr);
     ASSERT_EQ(ret_type->get_family_name(), "Array");
+}
+
+class FunctionAISentimentTestHelper : public FunctionAISentiment {
+public:
+    using FunctionAISentiment::normalize_endpoint;
+};
+
+TEST(AIFunctionTest, NormalizeLegacyCompletionsEndpoint) {
+    TAIResource resource;
+    resource.endpoint = "https://api.openai.com/v1/completions";
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
+}
+
+TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
+    TAIResource resource;
+    resource.endpoint = "https://api.openai.com/v1/chat/completions";
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
+
+    resource.endpoint = "https://localhost/v1/responses";
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint, "https://localhost/v1/responses");
 }
 
 } // namespace doris::vectorized

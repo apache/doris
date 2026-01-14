@@ -89,6 +89,9 @@ import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalPartitionTopNToPhysicalPartitionTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
+import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChild;
+import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteScanToPhysicalRecursiveCteScan;
+import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteToPhysicalRecursiveCte;
 import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepeat;
 import org.apache.doris.nereids.rules.implementation.LogicalResultSinkToPhysicalResultSink;
 import org.apache.doris.nereids.rules.implementation.LogicalSchemaScanToPhysicalSchemaScan;
@@ -124,6 +127,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushDownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -175,6 +179,7 @@ public class RuleSet {
             new PushDownFilterThroughSetOperation(),
             new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
+            new PushDownProject(),
             new EliminateOuterJoin(),
             new MergeProjectable(),
             new MergeFilters(),
@@ -203,6 +208,7 @@ public class RuleSet {
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
             .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalEsScanToPhysicalEsScan())
+            .add(new LogicalRecursiveCteScanToPhysicalRecursiveCteScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
             .add(new LogicalWindowToPhysicalWindow())
@@ -218,6 +224,8 @@ public class RuleSet {
             .add(SplitAggWithoutDistinct.INSTANCE)
             .add(SplitAggMultiPhase.INSTANCE)
             .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
+            .add(new LogicalRecursiveCteToPhysicalRecursiveCte())
+            .add(new LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChild())
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())

@@ -269,7 +269,40 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
 
             sql """ drop catalog if exists ${catalog_name} """
 
+
+            db2_docker """CREATE TABLE doris_test.VARBINARY_TABLE (
+                id_column INT GENERATED ALWAYS AS IDENTITY,
+                blob_column BLOB
+            );"""
+
+            db2_docker """INSERT INTO doris_test.VARBINARY_TABLE (
+                blob_column
+            ) VALUES (
+                BLOB(X'48656C6C6F20576F726C6421')  -- 'Hello World!'
+            );"""
+
+            sql """drop catalog if exists test_db2_varbinary """
+
+            sql """create catalog if not exists test_db2_varbinary properties(
+                "type"="jdbc",
+                "user"="db2inst1",
+                "password"="123456",
+                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris:allowNextOnExhaustedResultSet=1;resultSetHoldability=1;",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.ibm.db2.jcc.DB2Driver",
+                "enable.mapping.varbinary" = "true"
+            );"""
+
+            sql """switch test_db2_varbinary"""
+            sql """ use ${ex_db_name}"""
+            order_qt_varbinary_desc """ desc VARBINARY_TABLE; """
+            order_qt_varbinary_select  """ select * from VARBINARY_TABLE order by ID_COLUMN;"""
+            sql """ insert into VARBINARY_TABLE (blob_column) values (X'48656C6C6F20576F726C6421'); """
+            sql """ insert into VARBINARY_TABLE (blob_column) values (NULL); """
+            order_qt_varbinary_select_after_insert  """ select * from VARBINARY_TABLE order by ID_COLUMN; """
+
             db2_docker "DROP TABLE IF EXISTS doris_test.sample_table;"
+            db2_docker "DROP TABLE IF EXISTS doris_test.VARBINARY_TABLE;"
             db2_docker "DROP SCHEMA doris_test restrict;"
             db2_docker "DROP TABLE IF EXISTS test.books;"
             db2_docker "DROP SCHEMA test restrict;"

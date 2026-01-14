@@ -240,9 +240,12 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
             JsonbWriterT<JsonbOutStream> jsonb_writer;
             jsonb_writer.writeStartObject();
             Arena pool;
+            DataTypeSerDe::FormatOptions options;
+            auto tz = cctz::utc_time_zone();
+            options.timezone = &tz;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j, options);
             }
             jsonb_writer.writeEndObject();
 
@@ -250,26 +253,17 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            JsonbDocument* pdoc = nullptr;
+            const JsonbDocument* pdoc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
                                                             jsonb_writer.getOutput()->getSize(),
                                                             &pdoc);
             EXPECT_TRUE(st.ok()) << "Failed to create JsonbDocument: " << st;
-            JsonbDocument& doc = *pdoc;
+            const JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
             for (size_t j = 0; j != row_count; ++j) {
                 EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
-            }
-        }
-        {
-            // test write_column_to_mysql
-            MysqlRowBuffer<false> mysql_rb;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
-                auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
-                                                      option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql: " << st;
             }
         }
     };

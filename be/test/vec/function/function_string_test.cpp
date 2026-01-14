@@ -2572,43 +2572,6 @@ TEST(function_string_test, function_unhex_test) {
     check_function_all_arg_comb<DataTypeString, true>(unhex_null_func_name, input_types, data_set);
 }
 
-TEST(function_string_test, function_coalesce_test) {
-    std::string func_name = "coalesce";
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT,
-                                    PrimitiveType::TYPE_INT};
-        DataSet data_set = {{{Null(), Null(), (int32_t)1}, {(int32_t)1}},
-                            {{Null(), Null(), (int32_t)2}, {(int32_t)2}},
-                            {{Null(), Null(), (int32_t)3}, {(int32_t)3}},
-                            {{Null(), Null(), (int32_t)4}, {(int32_t)4}}};
-        static_cast<void>(
-                check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
-                                    PrimitiveType::TYPE_INT};
-        DataSet data_set = {
-                {{std::string("qwer"), Null(), (int32_t)1}, {std::string("qwer")}},
-                {{std::string("asdf"), Null(), (int32_t)2}, {std::string("asdf")}},
-                {{std::string("zxcv"), Null(), (int32_t)3}, {std::string("zxcv")}},
-                {{std::string("vbnm"), Null(), (int32_t)4}, {std::string("vbnm")}},
-        };
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
-    }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
-                                    PrimitiveType::TYPE_VARCHAR};
-        DataSet data_set = {
-                {{Null(), std::string("abc"), std::string("hij")}, {std::string("abc")}},
-                {{Null(), std::string("def"), std::string("klm")}, {std::string("def")}},
-                {{Null(), std::string(""), std::string("xyz")}, {std::string("")}},
-                {{Null(), Null(), std::string("uvw")}, {std::string("uvw")}}};
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
-    }
-}
-
 TEST(function_string_test, function_replace) {
     std::string func_name = "replace";
     InputTypeSet input_types = {
@@ -3813,6 +3776,97 @@ TEST(function_string_test, function_sha1_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
+}
+
+TEST(function_string_test, function_unicode_normalize_nfc_basic) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_VARCHAR},
+    };
+
+    std::string cafe_decomposed = std::string("Cafe\xCC\x81");
+    std::string cafe_composed = std::string("Caf\xC3\xA9");
+
+    {
+        DataSet data_set = {
+                {{cafe_decomposed, std::string("NFC")}, cafe_composed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{cafe_composed, std::string("NFC")}, cafe_composed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_string_test, function_unicode_normalize_modes_and_trim) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_VARCHAR},
+    };
+
+    std::string cafe_decomposed = std::string("Cafe\xCC\x81");
+    std::string cafe_composed = std::string("Caf\xC3\xA9");
+
+    {
+        DataSet data_set = {
+                {{cafe_composed, std::string("  nFd  ")}, cafe_decomposed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{std::string("ABC 123"), std::string(" nfkc_cf ")}, std::string("abc 123")},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{std::string("plain-ascii"), std::string("NFKD")}, std::string("plain-ascii")},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_string_test, function_unicode_normalize_mode_not_const) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR,
+    };
+
+    DataSet data_set = {
+            {{std::string("abc"), std::string("NFC")}, std::string("abc")},
+    };
+
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
+    EXPECT_NE(Status::OK(), st);
+}
+
+TEST(function_string_test, function_unicode_normalize_invalid_mode) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_VARCHAR},
+    };
+
+    DataSet data_set = {
+            {{std::string("abc"), std::string("INVALID_MODE")}, std::string("abc")},
+    };
+
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
+    EXPECT_NE(Status::OK(), st);
 }
 
 } // namespace doris::vectorized

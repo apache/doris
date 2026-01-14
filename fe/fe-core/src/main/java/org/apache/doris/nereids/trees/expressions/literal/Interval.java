@@ -79,10 +79,17 @@ public class Interval extends Expression implements UnaryExpression, AlwaysNotNu
         return sb.toString();
     }
 
+    @Override
+    protected boolean extraEquals(Expression that) {
+        return that instanceof Interval && this.timeUnit().equals(((Interval) that).timeUnit());
+    }
+
     /**
      * Supported time unit.
      */
     public enum TimeUnit {
+        SECOND_MICROSECOND("SECOND_MICROSECOND", false, 1200),
+        MINUTE_SECOND("MINUTE_SECOND", false, 1100),
         DAY_HOUR("DAY_HOUR", false, 1000),
         DAY_SECOND("DAY_SECOND", false, 900),
         YEAR("YEAR", false, 800),

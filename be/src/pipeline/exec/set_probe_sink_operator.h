@@ -66,6 +66,8 @@ private:
 
     RuntimeProfile::Counter* _extract_probe_data_timer = nullptr;
     RuntimeProfile::Counter* _probe_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size = nullptr;
+    RuntimeProfile::Counter* _valid_element_in_hash_table = nullptr;
 };
 
 template <bool is_intersect>
@@ -83,8 +85,11 @@ public:
               _cur_child_id(child_id),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
-              _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
-                                            : tnode.except_node.result_expr_lists[child_id]) {}
+              _partition_exprs(
+                      tnode.__isset.distribute_expr_lists
+                              ? tnode.distribute_expr_lists[child_id]
+                              : (is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
+                                              : tnode.except_node.result_expr_lists[child_id])) {}
 
 #ifdef BE_TEST
     SetProbeSinkOperatorX(int cur_child_id)
@@ -110,6 +115,8 @@ public:
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    bool is_shuffled_operator() const override { return true; }
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

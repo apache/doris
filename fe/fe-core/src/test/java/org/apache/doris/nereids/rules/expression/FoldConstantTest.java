@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -80,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteSecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
@@ -90,6 +89,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
@@ -112,7 +112,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -135,7 +134,6 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Locale;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
 
@@ -450,6 +448,38 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new VarcharLiteral("-1 -1"));
         rewritten = executor.rewrite(dayHourAdd, context);
         Assertions.assertEquals(dayHourAdd, rewritten);
+
+        MinuteSecondAdd minuteSecondAdd = new MinuteSecondAdd(
+                DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0),
+                new VarcharLiteral("1:1"));
+        rewritten = executor.rewrite(minuteSecondAdd, context);
+        Assertions.assertEquals(new DateTimeV2Literal("0001-01-01 01:02:02"), rewritten);
+        // fail to fold, because the result is out of range
+        minuteSecondAdd = new MinuteSecondAdd(
+                    DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 1), 0),
+                    new VarcharLiteral("3:1"));
+        rewritten = executor.rewrite(minuteSecondAdd, context);
+        Assertions.assertEquals(minuteSecondAdd, rewritten);
+        minuteSecondAdd = new MinuteSecondAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1), 0),
+                new VarcharLiteral("-2:-1"));
+        rewritten = executor.rewrite(minuteSecondAdd, context);
+        Assertions.assertEquals(minuteSecondAdd, rewritten);
+
+        SecondMicrosecondAdd secondMicrosecondAdd = new SecondMicrosecondAdd(
+                DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 6),
+                new VarcharLiteral("1.123456"));
+        rewritten = executor.rewrite(secondMicrosecondAdd, context);
+        Assertions.assertEquals(new DateTimeV2Literal("0001-01-01 01:01:02.123456"), rewritten);
+        // fail to fold, because the result is out of range
+        secondMicrosecondAdd = new SecondMicrosecondAdd(
+                    DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 1), 6),
+                    new VarcharLiteral("59.123456"));
+        rewritten = executor.rewrite(secondMicrosecondAdd, context);
+        Assertions.assertEquals(secondMicrosecondAdd, rewritten);
+        secondMicrosecondAdd = new SecondMicrosecondAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(0, 1, 1, 0, 1, 1), 6),
+                new VarcharLiteral("-600.123456"));
+        rewritten = executor.rewrite(secondMicrosecondAdd, context);
+        Assertions.assertEquals(secondMicrosecondAdd, rewritten);
     }
 
     @Test
@@ -470,15 +500,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                         StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(d, context);
         Assertions.assertEquals(new VarcharLiteral("01 01 01"), rewritten);
-        d = new DateFormat(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+        d = new DateFormat(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                         StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(d, context);
         Assertions.assertEquals(new VarcharLiteral("01 01 01"), rewritten);
 
-        d = new DateFormat(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+        d = new DateFormat(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                         StringLiteral.of(StringUtils.repeat("s", 128) + " "));
         rewritten = executor.rewrite(d, context);
-        Assertions.assertEquals(new VarcharLiteral(StringUtils.repeat("s", 128) + " "), rewritten);
+        // Overlength output (>100 chars) is not folded
+        Assertions.assertEquals(d, rewritten);
 
         DateTrunc t = new DateTrunc(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
@@ -1130,94 +1161,15 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testTimestampFold() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
-        ));
-        String interval = "'1991-05-01' - interval 1 day";
-        Expression e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        Expression e8 = new DateV2Literal(1991, 4, 30);
-        assertRewrite(e7, e8);
-
-        interval = "'1991-05-01' + interval '1' day";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 2);
-        assertRewrite(e7, e8);
-
-        interval = "'1991-05-01' + interval 1+1 day";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 3);
-        assertRewrite(e7, e8);
-
-        interval = "date '1991-05-01' + interval 10 / 2 + 1 day";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 7);
-        assertRewrite(e7, e8);
-
-        interval = "interval '1' day + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 5, 2);
-        assertRewrite(e7, e8);
-
-        interval = "interval '3' month + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 8, 1);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 + 1 month + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1991, 9, 1);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 + 1 year + '1991-05-01'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateV2Literal(1995, 5, 1);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 + 3 / 3 hour + '1991-05-01 10:00:00'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeV2Literal(1991, 5, 1, 14, 0, 0);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 * 2 / 3 minute + '1991-05-01 10:00:00'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeV2Literal(1991, 5, 1, 10, 2, 0);
-        assertRewrite(e7, e8);
-
-        interval = "interval 3 / 3 + 1 second + '1991-05-01 10:00:00'";
-        e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeV2Literal(1991, 5, 1, 10, 0, 2);
-        assertRewrite(e7, e8);
-
-        // a + interval 1 day
-        Slot a = SlotReference.of("a", DateTimeV2Type.SYSTEM_DEFAULT);
-        TimestampArithmetic arithmetic = new TimestampArithmetic(Operator.ADD, a, Literal.of(1), TimeUnit.DAY);
-        Expression process = process(arithmetic);
-        assertRewrite(process, process);
-    }
-
-    Expression process(TimestampArithmetic arithmetic) {
-        String funcOpName;
-        if (arithmetic.getFuncName() == null) {
-            funcOpName = String.format("%sS_%s", arithmetic.getTimeUnit(),
-                    (arithmetic.getOp() == Operator.ADD) ? "ADD" : "SUB");
-        } else {
-            funcOpName = arithmetic.getFuncName();
-        }
-        return arithmetic.withFuncName(funcOpName.toLowerCase(Locale.ROOT));
-    }
-
-    @Test
     void testDateV2TypeDateTimeArithmeticFunctions() {
         DateV2Literal dateLiteral = new DateV2Literal("1999-12-31");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
-        VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
                 "'2000-01-30'", "'1999-12-01'", "'2029-12-31'", "'1969-12-31'",
                 "'2002-06-30'", "'1997-06-30'", "'2000-01-30'", "'1999-12-01'",
                 "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'"
+                "'1999-12-27'", "'1999-12-31'"
         };
         int answerIdx = 0;
 
@@ -1238,8 +1190,6 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.day(dateLiteral).toSql(), answer[answerIdx++]);
 
-        Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(),
-                answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx]);
     }

@@ -30,11 +30,13 @@
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
+#include "vec/core/hybrid_sorter.h"
 #include "vec/core/types.h"
 
 namespace doris {
@@ -408,6 +410,19 @@ public:
                                "Method update_crc_with_value is not supported for " + get_name());
     }
 
+    virtual void update_crc32c_batch(uint32_t* __restrict hashes,
+                                     const uint8_t* __restrict null_map) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_crc32c_batch is not supported for " + get_name());
+    }
+
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                      const uint8_t* __restrict null_map) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_crc32c_single is not supported for " + get_name());
+    }
+
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.
       * If result_size_hint > 0, then makes advance reserve(result_size_hint) for the result column;
@@ -477,10 +492,18 @@ public:
       * nan_direction_hint - see above.
       */
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                 Permutation& res) const {
+                                 HybridSorter& sorter, Permutation& res) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "get_permutation for " + get_name());
     }
+
+#ifdef BE_TEST
+    void get_permutation_default(bool reverse, size_t limit, int nan_direction_hint,
+                                 Permutation& res) const {
+        HybridSorter sorter;
+        get_permutation(reverse, limit, nan_direction_hint, sorter, res);
+    }
+#endif
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
@@ -647,6 +670,20 @@ public:
       */
     String dump_structure() const;
 
+    // count how many const column including self
+    int count_const_column() const;
+
+    bool null_map_check() const;
+
+    // const column nested check, eg. const(nullable(...)) is allowed
+    //  const(array(const(...))) is not allowed
+    bool const_nested_check() const;
+
+    // column boolean check, only allow 0 and 1
+    bool column_boolean_check() const;
+
+    Status column_self_check() const;
+
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
@@ -654,6 +691,9 @@ public:
     // usage: nested_column.replace_column_null_data(nested_null_map.data())
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
+    // whether support replace null data, default return false
+    // column_vector and column_decimal override this method to return true
+    virtual bool support_replace_column_null_data() const { return false; }
 
     // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
     // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
@@ -748,7 +788,18 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(raw_type_ptr);
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::Ptr cast_to_column(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = assert_cast<const ColumnType*>(column.get());
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+template <typename ColumnType>
+ColumnType::MutablePtr cast_to_column(MutableColumnPtr column) {
+    ColumnType* raw_type_ptr = assert_cast<ColumnType*>(column.get());
+    return ColumnType::cast_to_column_mutptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

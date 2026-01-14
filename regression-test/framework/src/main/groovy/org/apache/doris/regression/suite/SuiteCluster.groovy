@@ -39,6 +39,7 @@ class ClusterOptions {
     int feNum = 1
     int beNum = 3
     int msNum = 1
+    int recyclerNum = 1
 
     Boolean sqlModeNodeMgr = false
     Boolean beMetaServiceEndpoint = true
@@ -69,6 +70,9 @@ class ClusterOptions {
     // host mapping(host:IP), for example: myhost:192.168.10.10
     // just as `docker run --add-host myhost:192.168.10.10` do.
     List<String> extraHosts = []
+
+    // environment variables, each environment should be 'name=value'
+    List<String> environments = []
 
     boolean connectToFollower = false
 
@@ -340,6 +344,9 @@ class SuiteCluster {
         if (options.msNum > 0) {
             cmd += ['--add-ms-num', String.valueOf(options.msNum)]
         }
+        if (options.recyclerNum > 0) {
+            cmd += ['--add-recycle-num', String.valueOf(options.recyclerNum)]
+        }
         // TODO: need escape white space in config
         if (!options.feConfigs.isEmpty()) {
             cmd += ['--fe-config']
@@ -364,6 +371,10 @@ class SuiteCluster {
         if (!options.extraHosts.isEmpty()) {
             cmd += ['--extra-hosts']
             cmd += options.extraHosts
+        }
+        if (!options.environments.isEmpty()) {
+            cmd += ['--env']
+            cmd += options.environments
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]

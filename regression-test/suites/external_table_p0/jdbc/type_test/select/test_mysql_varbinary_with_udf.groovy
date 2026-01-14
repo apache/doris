@@ -31,7 +31,8 @@ suite("test_mysql_varbinary_with_udf", "p0,external,mysql,external_docker,extern
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true"
         );"""
 
         sql """use mysql_varbinary_udf_catalog.test_varbinary_db"""

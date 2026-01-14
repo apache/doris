@@ -95,7 +95,7 @@ struct TQueryOptions {
   4: optional i32 batch_size = 0
   5: optional i32 num_nodes = NUM_NODES_ALL
   6: optional i64 max_scan_range_length = 0 // Deprecated
-  7: optional i32 num_scanner_threads = 0
+  7: optional i32 max_scanners_concurrency = 0
   8: optional i32 max_io_buffers = 0 // Deprecated
   9: optional bool allow_unsupported_formats = 0 // Deprecated
   10: optional i64 default_order_by_limit = -1
@@ -146,7 +146,7 @@ struct TQueryOptions {
   // if set, this will overwrite the BE config.
   30: optional i32 max_pushdown_conditions_per_column
   // whether enable spilling to disk
-  31: optional bool enable_spilling = false;
+  // 31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
   32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
 
@@ -178,7 +178,7 @@ struct TQueryOptions {
   // For debug purpose, skip delete predicates when reading data
   50: optional bool skip_delete_predicate = false
 
-  51: optional bool enable_new_shuffle_hash_method // deprecated
+  51: optional bool enable_new_shuffle_hash_method
 
   52: optional i32 be_exec_version = 0
 
@@ -372,8 +372,8 @@ struct TQueryOptions {
 
   147: optional i32 profile_level = 1;
 
-  148: optional i32 min_scanner_concurrency = 1;
-  149: optional i32 min_scan_scheduler_concurrency = 0;
+  148: optional i32 min_scanners_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -415,6 +415,15 @@ struct TQueryOptions {
   // Target file size in bytes for Iceberg write operations
   // Default 0 means use config::iceberg_sink_max_file_size
   178: optional i64 iceberg_write_target_file_size_bytes = 0;
+  179: optional bool enable_parquet_filter_by_bloom_filter = true;
+  180: optional i32 max_file_scanners_concurrency = 0;
+  181: optional i32 min_file_scanners_concurrency = 0;
+  182: optional i32 ivf_nprobe = 1;
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  183: optional bool enable_use_hybrid_sort = false;
+  184: optional i32 cte_max_recursion_depth;
+
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -662,6 +671,7 @@ struct TPipelineFragmentParams {
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
   45: optional map<string, TAIResource> ai_resources
+  46: optional bool need_notify_close
 
   // For cloud
   1000: optional bool is_mow_table;

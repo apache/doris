@@ -34,7 +34,6 @@ import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
@@ -47,18 +46,14 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
-        this(value, Config.enable_decimal_conversion);
-    }
-
-    public DecimalLiteral(BigDecimal value, boolean isDecimalV3) {
-        init(value, isDecimalV3);
-        analysisDone();
+        init(value, Config.enable_decimal_conversion);
+        this.nullable = false;
     }
 
     public DecimalLiteral(BigDecimal value, Type type) {
         this.value = value;
         this.type = type;
-        analysisDone();
+        this.nullable = false;
     }
 
     public DecimalLiteral(String value) throws AnalysisException {
@@ -69,21 +64,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         init(v);
-        analysisDone();
-    }
-
-    public DecimalLiteral(String value, int scale) throws AnalysisException {
-        BigDecimal v = null;
-        try {
-            v = new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid floating-point literal: " + value, e);
-        }
-        if (scale >= 0) {
-            v = v.setScale(scale, RoundingMode.HALF_UP);
-        }
-        init(v);
-        analysisDone();
+        this.nullable = false;
     }
 
     protected DecimalLiteral(DecimalLiteral other) {

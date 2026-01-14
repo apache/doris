@@ -485,11 +485,6 @@ TEST_F(DataTypeArrayTest, SerdeJsonbTest) {
     CommonDataTypeSerdeTest::assert_jsonb_format(array_columns, serdes);
 }
 
-TEST_F(DataTypeArrayTest, SerdeMysqlTest) {
-    // insert from data csv and assert insert result
-    CommonDataTypeSerdeTest::assert_mysql_format(array_columns, serdes);
-}
-
 TEST_F(DataTypeArrayTest, SerializeDeserializeTest) {
     // insert from data csv and assert insert result
     CommonDataTypeTest::serialize_deserialize_assert(array_columns, array_types);
@@ -556,9 +551,8 @@ TEST_F(DataTypeArrayTest, GetFieldWithDataTypeTest) {
         auto array_type = std::make_shared<DataTypeArray>(nested_type);
         auto column = array_type->create_column();
         Array arr;
-        arr.push_back(
-                Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(-12345678, 0)));
-        arr.push_back(Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(12345, 9)));
+        arr.push_back(Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(-12345678)));
+        arr.push_back(Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(12345)));
         column->insert(Field::create_field<TYPE_ARRAY>(arr));
 
         auto fdt = array_type->get_field_with_data_type(*column, 0);

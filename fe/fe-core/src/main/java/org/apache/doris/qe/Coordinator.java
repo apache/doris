@@ -19,8 +19,10 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -89,6 +91,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
+import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
@@ -1985,15 +1988,17 @@ public class Coordinator implements CoordInterface {
     private int findMaxParallelFragmentIndex(PlanFragment fragment) {
         Preconditions.checkState(!fragment.getChildren().isEmpty(), "fragment has no children");
 
-        // exclude broadcast join right side's child fragments
-        List<PlanFragment> childFragmentCandidates = fragment.getChildren().stream()
-                .filter(e -> e.getOutputPartition() != DataPartition.UNPARTITIONED)
-                .collect(Collectors.toList());
+        List<PlanFragment> childFragmentCandidates = fragment.getChildren();
 
         int maxParallelism = 0;
         int maxParaIndex = 0;
         for (int i = 0; i < childFragmentCandidates.size(); i++) {
-            PlanFragmentId childFragmentId = childFragmentCandidates.get(i).getFragmentId();
+            PlanFragment planFragment = childFragmentCandidates.get(i);
+            // exclude broadcast join right side's child fragments
+            if (planFragment.getOutputPartition() == DataPartition.UNPARTITIONED) {
+                continue;
+            }
+            PlanFragmentId childFragmentId = planFragment.getFragmentId();
             int currentChildFragmentParallelism = fragmentExecParamsMap.get(childFragmentId).instanceExecParams.size();
             if (currentChildFragmentParallelism > maxParallelism) {
                 maxParallelism = currentChildFragmentParallelism;
@@ -3235,6 +3240,17 @@ public class Coordinator implements CoordInterface {
                     if (ignoreDataDistribution) {
                         params.setParallelInstances(parallelTasksNum);
                     }
+
+                    // Used for AI Functions
+                    Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+                    for (Resource resource : Env.getCurrentEnv().getResourceMgr()
+                                                    .getResource(Resource.ResourceType.AI)) {
+                        if (resource instanceof AIResource) {
+                            aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
+                        }
+                    }
+
+                    params.setAiResources(aiResourceMap);
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());

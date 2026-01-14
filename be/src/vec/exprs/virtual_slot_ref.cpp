@@ -75,14 +75,7 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
     _column_name = &slot_desc->col_name();
     _column_data_type = slot_desc->get_data_type_ptr();
     DCHECK(_column_data_type != nullptr);
-    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
-        // slot should be ignored manually
-        _column_id = -1;
-        _prepare_finished = true;
-        return Status::OK();
-    }
-
-    _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
+    _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "VirtualSlotRef {} has invalid slot id: "
@@ -110,7 +103,7 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
+Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block, size_t count,
                                       ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -136,7 +129,8 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
             // Note: After executing 'execute', we cannot use the column from line 120 in subsequent code,
             // because the vector might be resized during execution, causing previous references to become invalid.
             ColumnPtr tmp_column;
-            RETURN_IF_ERROR(_virtual_column_expr->execute_column(context, block, tmp_column));
+            RETURN_IF_ERROR(
+                    _virtual_column_expr->execute_column(context, block, count, tmp_column));
             result_column = std::move(tmp_column);
 
             VLOG_DEBUG << fmt::format(
@@ -166,6 +160,7 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
             return Status::OK();
         }
     }
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

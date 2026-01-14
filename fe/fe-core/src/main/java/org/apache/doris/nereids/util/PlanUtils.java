@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -64,6 +65,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.map.CaseInsensitiveMap;
 
@@ -341,6 +343,9 @@ public class PlanUtils {
         }
 
         private static void doCollect(Expression expression, List<AggregateFunction> aggFunctions) {
+            if (!expression.containsType(AggregateFunction.class)) {
+                return;
+            }
             expression.foreach(expr -> {
                 if (expr instanceof AggregateFunction) {
                     aggFunctions.add((AggregateFunction) expr);
@@ -350,6 +355,49 @@ public class PlanUtils {
                     for (Expression exprInWindowsSpec : windowExpression.getExpressionsInWindowSpec()) {
                         doCollect(exprInWindowsSpec, aggFunctions);
                     }
+                    return true;
+                } else {
+                    return false;
+                }
+            });
+        }
+    }
+
+    /**
+     * collect non_window_agg_func with session var
+     */
+    public static class CollectNonWindowedAggFuncsWithSessionVar {
+        public static Map<AggregateFunction, Map<String, String>> collect(
+                Collection<? extends Expression> expressions) {
+            Map<AggregateFunction, Map<String, String>> aggFunctions = Maps.newLinkedHashMap();
+            for (Expression expression : expressions) {
+                doCollect(expression, aggFunctions);
+            }
+            return aggFunctions;
+        }
+
+        public static Map<AggregateFunction, Map<String, String>> collect(Expression expression) {
+            Map<AggregateFunction, Map<String, String>> aggFunctions = Maps.newLinkedHashMap();
+            doCollect(expression, aggFunctions);
+            return aggFunctions;
+        }
+
+        private static void doCollect(Expression expression, Map<AggregateFunction, Map<String, String>> aggFunctions) {
+            if (!expression.containsType(AggregateFunction.class)) {
+                return;
+            }
+            expression.foreach(expr -> {
+                if (expr instanceof AggregateFunction) {
+                    aggFunctions.put((AggregateFunction) expr, null);
+                    return true;
+                } else if (expr instanceof WindowExpression) {
+                    WindowExpression windowExpression = (WindowExpression) expr;
+                    for (Expression exprInWindowsSpec : windowExpression.getExpressionsInWindowSpec()) {
+                        doCollect(exprInWindowsSpec, aggFunctions);
+                    }
+                    return true;
+                } else if (expr instanceof SessionVarGuardExpr && expr.child(0) instanceof AggregateFunction) {
+                    aggFunctions.put((AggregateFunction) expr.child(0), ((SessionVarGuardExpr) expr).getSessionVars());
                     return true;
                 } else {
                     return false;

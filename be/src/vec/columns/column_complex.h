@@ -192,6 +192,8 @@ public:
         __builtin_unreachable();
     }
 
+    /// Do NOT remove these following two functions,
+    /// There are used by some `EngineChecksumTask::_compute_checksum()`.
     // maybe we do not need to impl the function
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         // TODO add hash function

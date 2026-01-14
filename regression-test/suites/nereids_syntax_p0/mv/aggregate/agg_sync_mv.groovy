@@ -20,9 +20,10 @@ suite("agg_sync_mv") {
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
     sql """ analyze table agg_mv_test with sync"""
-    sql """ set enable_stats=false"""
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
+    sql """alter table agg_mv_test modify column id set stats ('row_count'='27');"""
 
     qt_select_any_value """select id, any_value(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync1 on agg_mv_test;"""

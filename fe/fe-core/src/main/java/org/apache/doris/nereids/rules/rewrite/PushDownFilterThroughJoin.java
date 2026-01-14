@@ -116,6 +116,10 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
             Set<Expression> rightPredicates = Sets.newLinkedHashSet();
             Set<Expression> remainingPredicates = Sets.newLinkedHashSet();
             for (Expression p : filterPredicates) {
+                if (p.containsUniqueFunction()) {
+                    remainingPredicates.add(p);
+                    continue;
+                }
                 Set<Slot> slots = p.collect(SlotReference.class::isInstance);
                 if (slots.isEmpty()) {
                     leftPredicates.add(p);
@@ -152,6 +156,9 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
             return false;
         }
         if (!(predicate instanceof EqualTo)) {
+            return false;
+        }
+        if (predicate.containsUniqueFunction()) {
             return false;
         }
 

@@ -50,7 +50,7 @@ public:
     [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
-    Status _hash_table_init(RuntimeState* state);
+    Status _hash_table_init(RuntimeState* state, const vectorized::ColumnRawPtrs& raw_ptrs);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
                                               const std::vector<int>& res_col_ids);
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
@@ -192,11 +192,8 @@ struct ProcessHashTableBuild {
                bool* has_null_key) {
         if (null_map) {
             // first row is mocked and is null
-            // TODO: Need to test the for loop. break may better
-            for (uint32_t i = 1; i < _rows; i++) {
-                if ((*null_map)[i]) {
-                    *has_null_key = true;
-                }
+            if (simd::contain_one(null_map->data() + 1, _rows - 1)) {
+                *has_null_key = true;
             }
             if (short_circuit_for_null && *has_null_key) {
                 return Status::OK();
@@ -204,11 +201,11 @@ struct ProcessHashTableBuild {
         }
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
-                                                                      *has_null_key);
+        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(
+                _rows, _batch_size, *has_null_key, hash_table_ctx.direct_mapping_range());
 
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
-        if (_build_raw_ptrs.size() == 1 && null_map) {
+        if (_build_raw_ptrs.size() == 1 && null_map && *has_null_key) {
             _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
         }
 

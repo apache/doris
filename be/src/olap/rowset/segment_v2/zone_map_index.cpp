@@ -58,7 +58,8 @@ void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count)
     if (count > 0) {
         _page_zone_map.has_not_null = true;
     }
-    using ValType = PrimitiveTypeTraits<Type>::StorageFieldType;
+    using ValType = std::conditional_t<is_string_type(Type), StringRef,
+                                       typename PrimitiveTypeTraits<Type>::StorageFieldType>;
     const auto* vals = reinterpret_cast<const ValType*>(values);
     if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
         ValType min = std::numeric_limits<ValType>::max();
@@ -167,7 +168,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), false);
+    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), {}, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
     IndexedColumnWriter writer(options, type_info, file_writer);
@@ -240,6 +241,7 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_TIMESTAMPTZ)          \
     M(TYPE_IPV4)                 \
     M(TYPE_IPV6)                 \
     M(TYPE_VARCHAR)              \

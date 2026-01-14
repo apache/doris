@@ -272,6 +272,11 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
         }
     }
     size_t row_num = 0;
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone = &time_zone;
+
     for (const auto& bucket : buckets) {
         if constexpr (std::is_same_v<T, std::string>) {
             lower_val.SetString(bucket.lower.data(),
@@ -279,8 +284,8 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
             upper_val.SetString(bucket.upper.data(),
                                 static_cast<rapidjson::SizeType>(bucket.upper.size()), allocator);
         } else {
-            std::string lower_str = data_type->to_string(*lower_column, row_num);
-            std::string upper_str = data_type->to_string(*upper_column, row_num);
+            std::string lower_str = data_type->to_string(*lower_column, row_num, format_options);
+            std::string upper_str = data_type->to_string(*upper_column, row_num, format_options);
             ++row_num;
             lower_val.SetString(lower_str.data(),
                                 static_cast<rapidjson::SizeType>(lower_str.size()), allocator);

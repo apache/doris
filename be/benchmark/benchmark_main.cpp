@@ -18,6 +18,7 @@
 #include <benchmark/benchmark.h>
 
 #include "benchmark_bit_pack.hpp"
+#include "benchmark_bits.hpp"
 #include "benchmark_block_bloom_filter.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"

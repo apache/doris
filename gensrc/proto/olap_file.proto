@@ -65,6 +65,13 @@ message SplitSchemaPB {
     optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
 }
 
+message PackedSliceLocationPB {
+    optional string packed_file_path = 1;
+    optional int64 offset = 2;
+    optional int64 size = 3;
+    optional int64 packed_file_size = 4;  // Total size of the packed file
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -151,6 +158,10 @@ message RowsetMetaPB {
 
     optional int64 visible_ts_ms = 1010;
     optional string reference_instance_id = 1011;  // For cluster snapshot
+    map<string, PackedSliceLocationPB> packed_slice_locations = 1012;
+    
+    optional bool is_recycled = 1013; // for recycler mark rowset as recycled
+    optional string job_id = 1014;
 }
 
 message SchemaDictKeyList {
@@ -249,6 +260,10 @@ message RowsetMetaCloudPB {
 
     optional int64 visible_ts_ms = 109;
     optional string reference_instance_id = 110;  // For cluster snapshot
+    map<string, PackedSliceLocationPB> packed_slice_locations = 111;
+
+    optional bool is_recycled = 112;
+    optional string job_id = 113;
 }
 
 message SegmentStatisticsPB {
@@ -342,7 +357,7 @@ message ColumnPB {
     optional bool is_bf_column = 12; // ColumnMessage.is_bf_column
     optional int32 referenced_column_id = 13; // deprecated
     optional string referenced_column = 14; // deprecated
-    optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
+    optional bool has_bitmap_index = 15 [default=false]; // deprecated
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
@@ -410,6 +425,15 @@ enum UniqueKeyUpdateModePB {
     UPDATE_FLEXIBLE_COLUMNS = 2;
 }
 
+message ColumnGroupPB {
+  required uint32 sequence_column = 1; // sequence column unique id
+  repeated uint32 columns_in_group = 2; // mapping column unique id
+};
+
+message ColumnGroupsPB {
+  repeated ColumnGroupPB cg = 1; // vector<ColumnGroupPB>
+};
+
 // ATTN: When adding or deleting fields, please update `message TabletSchemaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message TabletSchemaPB {
@@ -448,6 +472,14 @@ message TabletSchemaPB {
     optional int64 storage_page_size = 30 [default=65536];
     optional int64 storage_dict_page_size = 31 [default=262144];
 
+    // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
+    optional bool is_external_segment_column_meta_used = 32 [default = false];
+
+    optional bool integer_type_default_use_plain_encoding = 33;
+    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 34;
+    // mapping from seq column unique id to value column unique id
+    optional ColumnGroupsPB seq_map = 35;
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -484,6 +516,14 @@ message TabletSchemaCloudPB {
     optional int64 storage_page_size = 31 [default=65536];
     optional int64 storage_dict_page_size = 32 [default=262144];
 
+    // Whether new segments of this tablet use externalized ColumnMetaPB layout (CMO)
+    optional bool is_external_segment_column_meta_used = 33 [default = false];
+
+    optional bool integer_type_default_use_plain_encoding = 34;
+    optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 35;
+    // mapping from seq column unique id to value column unique id
+    optional ColumnGroupsPB seq_map = 36;
+
     optional bool is_dynamic_schema = 100 [default=false];
 
     // FIXME(gavin): deprecate and remove in the future
@@ -510,6 +550,11 @@ enum StorageMediumPB {
     SSD = 1;
     S3 = 2;
     REMOTE_CACHE = 99;
+}
+
+enum BinaryPlainEncodingTypePB {
+    BINARY_PLAIN_ENCODING_V1 = 1;
+    BINARY_PLAIN_ENCODING_V2 = 2;
 }
 
 message S3StorageParamPB {

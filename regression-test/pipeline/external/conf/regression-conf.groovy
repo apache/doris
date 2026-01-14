@@ -31,6 +31,7 @@ extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 extArrowFlightHttpPort= 8131
+extFeThriftPort = 9020
 
 ccrDownstreamUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
 ccrDownstreamUser = "root"
@@ -63,7 +64,7 @@ testSuites = ""
 testDirectories = ""
 
 // this groups will not be executed
-excludeGroups = ""
+excludeGroups = "p1,p2"
 // this suites will not be executed
 // load_stream_fault_injection may cause bad disk
 
@@ -196,3 +197,12 @@ enableLakesoulTest = true
 
 // AWS iam role config
 
+// hudi p0 external regression test config
+// To enable hudi test, you need first start hudi container.
+// See `docker/thirdparties/run-thirdparties-docker.sh -c hudi`
+enableHudiTest=true
+// hudi catalog config
+hudiHmsPort=19083
+hudiMinioPort=19100
+hudiMinioAccessKey="minio"
+hudiMinioSecretKey="minio123"

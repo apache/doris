@@ -28,6 +28,7 @@
 #include "cast_to_map.h"
 #include "cast_to_string.h"
 #include "cast_to_struct.h"
+#include "cast_to_timestamptz.h"
 #include "cast_to_variant.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_agg_state.h"
@@ -57,6 +58,15 @@ WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& f
     }
 
     return CastWrapper::create_unsupport_wrapper("Cast to BitMap only support from String type");
+}
+
+WrapperType create_varbinary_wrapper(const DataTypePtr& from_type_untyped) {
+    /// Conversion from String through parsing.
+    if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+        return cast_from_string_to_generic;
+    }
+
+    return CastWrapper::create_unsupport_wrapper("Cast to Varbinary only support from String type");
 }
 
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
@@ -255,6 +265,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
     case PrimitiveType::TYPE_DATETIMEV2:
         return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return create_timestamptz_wrapper(context, from_type);
     case PrimitiveType::TYPE_TIMEV2:
         return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
     case PrimitiveType::TYPE_IPV4:
@@ -291,6 +303,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
                                             context ? context->string_as_jsonb_string() : false);
+    case PrimitiveType::TYPE_VARBINARY:
+        return create_varbinary_wrapper(from_type);
     default:
         break;
     }

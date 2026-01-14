@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -213,11 +214,17 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(plan, new RoaringBitmap());
     }
 
+    @Override
+    public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, PruneContext context) {
+        // keep LogicalRecursiveCte's output unchanged
+        return skipPruneThis(recursiveCte);
+    }
+
     // union can not prune children by the common logic, we must override visit method to write special code.
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PruneContext context) {
         if (union.getQualifier() == Qualifier.DISTINCT) {
-            return skipPruneThisAndFirstLevelChildren(union);
+            return skipPruneThis(union);
         }
         LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
@@ -256,12 +263,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     // we should keep the output of LogicalSetOperation and all the children
     @Override
     public Plan visitLogicalExcept(LogicalExcept except, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(except);
+        return skipPruneThis(except);
     }
 
     @Override
     public Plan visitLogicalIntersect(LogicalIntersect intersect, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(intersect);
+        return skipPruneThis(intersect);
     }
 
     @Override
@@ -284,7 +291,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(cteProducer);
+        return skipPruneThis(cteProducer);
     }
 
     @Override
@@ -325,8 +332,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(fillUpAggregate, new RoaringBitmap());
     }
 
-    private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
-        return pruneChildren(plan, plan.getChildrenOutputExprIdBitSet());
+    private Plan skipPruneThis(Plan plan) {
+        return pruneChildren(plan, plan.getOutputExprIdBitSet());
     }
 
     // some rules want to match the aggregate which contains all the group by keys and aggregate functions
@@ -366,7 +373,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         Set<AggregateFunction> aggregateFunctions = prunedOutputAgg.getAggregateFunctions();
         ImmutableList.Builder<Expression> newGroupByExprList
                 = ImmutableList.builderWithExpectedSize(newOutputList.size());
-        for (NamedExpression e : newOutputList) {
+        for (Expression e : groupBy) {
             if (!(e instanceof Alias && aggregateFunctions.contains(e.child(0)))) {
                 newGroupByExprList.add(e);
             }
@@ -400,6 +407,54 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         } else {
             return withPrunedOutput.apply(prunedOutputs);
+        }
+    }
+
+    private LogicalRecursiveCte pruneRecursiveCteOutput(LogicalRecursiveCte recursiveCte, PruneContext context) {
+        List<NamedExpression> originOutput = recursiveCte.getOutputs();
+        if (originOutput.isEmpty()) {
+            return recursiveCte;
+        }
+        List<NamedExpression> prunedOutputs = Lists.newArrayList();
+        List<List<SlotReference>> regularChildrenOutputs = recursiveCte.getRegularChildrenOutputs();
+        List<Plan> children = recursiveCte.children();
+        List<Integer> extractColumnIndex = Lists.newArrayList();
+        for (int i = 0; i < originOutput.size(); i++) {
+            NamedExpression output = originOutput.get(i);
+            if (context.requiredSlotsIds.contains(output.getExprId().asInt())) {
+                prunedOutputs.add(output);
+                extractColumnIndex.add(i);
+            }
+        }
+
+        if (prunedOutputs.isEmpty()) {
+            // process prune all columns
+            NamedExpression originSlot = originOutput.get(0);
+            prunedOutputs = ImmutableList.of(new SlotReference(originSlot.getExprId(), originSlot.getName(),
+                    TinyIntType.INSTANCE, false, originSlot.getQualifier()));
+            regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
+            children = Lists.newArrayListWithCapacity(children.size());
+            for (int i = 0; i < recursiveCte.children().size(); i++) {
+                Plan child = recursiveCte.child(i);
+                List<NamedExpression> newProjectOutput = ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)));
+                LogicalProject<?> project;
+                if (child instanceof LogicalProject) {
+                    LogicalProject<Plan> childProject = (LogicalProject<Plan>) child;
+                    List<NamedExpression> mergeProjections = PlanUtils.mergeProjections(
+                            childProject.getProjects(), newProjectOutput);
+                    project = new LogicalProject<>(mergeProjections, childProject.child());
+                } else {
+                    project = new LogicalProject<>(newProjectOutput, child);
+                }
+                regularChildrenOutputs.add((List) project.getOutput());
+                children.add(project);
+            }
+        }
+
+        if (prunedOutputs.equals(originOutput) && !context.requiredSlotsIds.isEmpty()) {
+            return recursiveCte;
+        } else {
+            return recursiveCte.withNewOutputsAndChildren(prunedOutputs, children, regularChildrenOutputs);
         }
     }
 

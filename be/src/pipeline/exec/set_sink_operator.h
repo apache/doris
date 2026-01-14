@@ -57,10 +57,11 @@ private:
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
-    vectorized::Arena _arena;
 
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size = nullptr;
+    RuntimeProfile::Counter* _valid_element_in_hash_table = nullptr;
 
     std::shared_ptr<RuntimeFilterProducerHelperSet> _runtime_filter_producer_helper;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;
@@ -83,8 +84,11 @@ public:
                                       : tnode.except_node.result_expr_lists.size()),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
-              _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
-                                            : tnode.except_node.result_expr_lists[child_id]),
+              _partition_exprs(tnode.__isset.distribute_expr_lists
+                                       ? tnode.distribute_expr_lists[child_id]
+                                       : (is_intersect
+                                                  ? tnode.intersect_node.result_expr_lists[child_id]
+                                                  : tnode.except_node.result_expr_lists[child_id])),
               _runtime_filter_descs(tnode.runtime_filters) {
         DCHECK_EQ(child_id, _cur_child_id);
         DCHECK_GT(_child_quantity, 1);
@@ -115,6 +119,8 @@ public:
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    bool is_shuffled_operator() const override { return true; }
 
 private:
     template <class HashTableContext, bool is_intersected>

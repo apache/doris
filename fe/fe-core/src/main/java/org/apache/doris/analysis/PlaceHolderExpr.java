@@ -37,25 +37,17 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     public PlaceHolderExpr() {
         type = Type.UNSUPPORTED;
+        this.nullable = false;
     }
 
     protected PlaceHolderExpr(LiteralExpr literal) {
         this.lExpr = literal;
         this.type = literal.getType();
+        this.nullable = false;
     }
 
     public LiteralExpr getLiteral() {
         return lExpr;
-    }
-
-    @Override
-    protected void analysisDone() {
-        if (lExpr != null && !lExpr.isAnalyzed) {
-            lExpr.analysisDone();
-        }
-        if (!isAnalyzed) {
-            super.analysisDone();
-        }
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -122,11 +114,6 @@ public class PlaceHolderExpr extends LiteralExpr {
             }
         }
         return lExpr.getHashValue(colType);
-    }
-
-    @Override
-    public boolean isNullable() {
-        return this.lExpr instanceof NullLiteral;
     }
 
     @Override

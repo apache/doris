@@ -147,6 +147,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                         type = Type.DATETIMEV2;
                         break;
                     case DATETIMEV2:
+                    case TIMESTAMPTZ:
                         type = subExpr.getChild(1).getType();
                         break;
                     default:

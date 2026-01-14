@@ -67,4 +67,9 @@ public class InnerProductApproximate extends ScalarFunction implements Explicitl
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
+    }
 }

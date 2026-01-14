@@ -1612,7 +1612,8 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    void quickRunTest(String tag, Object arg, boolean isOrder = false) {
+    // rowConverter: { row -> convertedRow }
+    void quickRunTest(String tag, Object arg, boolean isOrder = false, Closure rowConverter = null) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
@@ -1646,6 +1647,9 @@ class Suite implements GroovyInterceptable {
                 }
             }
             def (result, meta) = tupleResult
+            if (rowConverter != null) {
+                result = result.collect { rowConverter.call(it) }
+            }
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -1695,6 +1699,9 @@ class Suite implements GroovyInterceptable {
                 }
             }
             def (realResults, meta) = tupleResult
+            if (rowConverter != null) {
+                realResults = realResults.collect { rowConverter.call(it) }
+            }
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -1758,7 +1765,7 @@ class Suite implements GroovyInterceptable {
     }
 
     // test results of two sqls are the same
-    void quickRunTest(String tag, Object arg1, Object arg2) {
+    void quickRunTestTwoSQL(String tag, Object arg1, Object arg2) {
         def (realResults1, meta1) = executeQueryByTag(tag, arg1)
         Iterator<List<Object>> realResultsIter1 = realResults1.iterator()
 
@@ -1802,7 +1809,7 @@ class Suite implements GroovyInterceptable {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
             sql = cleanedSqlStr
         }
-        quickRunTest(tag, sql1, sql2)
+        quickRunTestTwoSQL(tag, sql1, sql2)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {
@@ -1873,8 +1880,17 @@ class Suite implements GroovyInterceptable {
             // e.g: jdbc:mysql://locahost:8080
             sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
         }
+        String tlsUrl = ""
         // set server side prepared statement url
-        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
+            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("keyStorePath")
+            String clientCAPwd = "clientCertificateKeyStorePassword=" + context.config.otherConfigs.get("keyStorePassword")
+            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("trustStorePath")
+            String trustCAPwd = "trustCertificateKeyStorePassword=" + context.config.otherConfigs.get("trustStorePassword")
+            tlsUrl = "&" + useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+        }
+        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true" + tlsUrl
     }
 
     DebugPoint GetDebugPoint() {
@@ -3230,12 +3246,13 @@ class Suite implements GroovyInterceptable {
         def jsonOutput = new JsonOutput()
         def map = []
         def js = jsonOutput.toJson(map)
-        log.info("fix tablet stat req: /MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id} ".toString())
+        def cloudUniqueId = context.config.cloudUniqueId
+        log.info("fix tablet stat req: /MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${cloudUniqueId}&table_id=${table_id} ".toString())
 
         def fix_tablet_stats_api = { request_body, check_func ->
             httpTest {
                 endpoint context.config.metaServiceHttpAddress
-                uri "/MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id}"
+                uri "/MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${cloudUniqueId}&table_id=${table_id}"
                 body request_body
                 check check_func
             }
@@ -3307,6 +3324,9 @@ class Suite implements GroovyInterceptable {
             logger.info("tablet: $tablet_info")
             def compact_url = tablet_info.get("CompactionStatus")
             String command = "curl ${compact_url}"
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                command = url.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            }
             Process process = command.execute()
             def code = process.waitFor()
             def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));

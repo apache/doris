@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -120,7 +121,6 @@ public:
     Status write_data();
     Status write_ordinal_index();
     Status write_zone_map();
-    Status write_bitmap_index();
     Status write_inverted_index();
     Status write_bloom_filter_index();
     uint64_t estimate_buffer_size();
@@ -137,8 +137,8 @@ private:
                                vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                int& column_id);
     // prepare a column for finalize
-    doris::vectorized::MutableColumnPtr _column;
-    doris::vectorized::ColumnUInt8 _null_column;
+    doris::vectorized::ColumnVariant::MutablePtr _column;
+    doris::vectorized::ColumnUInt8::MutablePtr _null_column;
     ColumnWriterOptions _opts;
     const TabletColumn* _tablet_column = nullptr;
     bool _is_finalized = false;

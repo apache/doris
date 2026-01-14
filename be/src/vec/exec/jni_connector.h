@@ -33,6 +33,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/jni-util.h"
 #include "util/profile_collector.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
@@ -224,8 +225,7 @@ public:
      * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
      * Then, pass the byte array address in configuration map, like "push_down_predicates=${address}"
      */
-    Status init(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init();
 
     /**
      * Call java side function JniScanner.getNextBatchMeta. The columns information are stored as long array:
@@ -256,6 +256,14 @@ public:
      * Close scanner and release jni resources.
      */
     Status close();
+
+    /**
+     * Set column name to block index map from FileScanner to avoid repeated map creation.
+     */
+    void set_col_name_to_block_idx(
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
+    }
 
     static std::string get_jni_type(const DataTypePtr& data_type);
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
@@ -302,22 +310,26 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    jclass _jni_scanner_cls = nullptr;
-    jobject _jni_scanner_obj = nullptr;
-    jmethodID _jni_scanner_open = nullptr;
-    jmethodID _jni_scanner_get_append_data_time = nullptr;
-    jmethodID _jni_scanner_get_create_vector_table_time = nullptr;
-    jmethodID _jni_scanner_get_next_batch = nullptr;
-    jmethodID _jni_scanner_get_table_schema = nullptr;
-    jmethodID _jni_scanner_close = nullptr;
-    jmethodID _jni_scanner_release_column = nullptr;
-    jmethodID _jni_scanner_release_table = nullptr;
-    jmethodID _jni_scanner_get_statistics = nullptr;
+
+    Jni::GlobalClass _jni_scanner_cls;
+    Jni::GlobalObject _jni_scanner_obj;
+    Jni::MethodId _jni_scanner_open;
+    Jni::MethodId _jni_scanner_get_append_data_time;
+    Jni::MethodId _jni_scanner_get_create_vector_table_time;
+    Jni::MethodId _jni_scanner_get_next_batch;
+    Jni::MethodId _jni_scanner_get_table_schema;
+    Jni::MethodId _jni_scanner_close;
+    Jni::MethodId _jni_scanner_release_column;
+    Jni::MethodId _jni_scanner_release_table;
+    Jni::MethodId _jni_scanner_get_statistics;
 
     TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates;
+
+    // Column name to block index map, passed from FileScanner to avoid repeated map creation
+    const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
@@ -363,9 +375,6 @@ private:
     static long _get_fixed_length_column_address(const IColumn& doris_column) {
         return (long)assert_cast<const COLUMN_TYPE&>(doris_column).get_data().data();
     }
-
-    void _generate_predicates(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,

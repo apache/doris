@@ -26,6 +26,9 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_weight.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -495,8 +498,8 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexBasic) {
     uint32_t num_rows = 100;
     InvertedIndexResultBitmap bitmap_result;
 
-    auto status = function_search->evaluate_inverted_index(arguments, data_type_with_names,
-                                                           iterators, num_rows, bitmap_result);
+    auto status = function_search->evaluate_inverted_index(
+            arguments, data_type_with_names, iterators, num_rows, nullptr, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should return OK for legacy method
 }
 
@@ -1678,9 +1681,524 @@ TEST_F(FunctionSearchTest, TestOrWithNotSameFieldMatchesMatchAllRows) {
     EXPECT_TRUE(result_diff.isEmpty());
 }
 
-// Note: Full testing of evaluate_inverted_index_with_search_param with real InvertedIndexIterator
-// and actual file operations would require complex setup with real index files
-// and is better suited for integration tests. The tests above cover the main
-// execution paths and error handling logic in the function.
+TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
+    TSearchClause clause;
+    clause.clause_type = "PHRASE";
+    clause.field_name = "content";
+    clause.value = "hello world";
+    clause.__isset.field_name = true;
+    clause.__isset.value = true;
+
+    auto context = std::make_shared<IndexQueryContext>();
+
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace("content",
+                                 vectorized::IndexFieldNameAndTypePair {"content", nullptr});
+
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context);
+
+    FieldReaderBinding binding;
+    binding.logical_field_name = "content";
+    binding.stored_field_name = "content";
+    binding.stored_field_wstr = L"content";
+    binding.index_properties["parser"] = "unicode";
+    binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+
+    auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
+    binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
+            dummy_reader, [](lucene::index::IndexReader* /*ptr*/) {});
+
+    std::string key =
+            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+    binding.binding_key = key;
+    resolver._cache[key] = binding;
+
+    inverted_index::query_v2::QueryPtr out;
+    std::string out_binding_key;
+    Status st =
+            function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key);
+    EXPECT_TRUE(st.ok());
+
+    auto phrase_query = std::dynamic_pointer_cast<inverted_index::query_v2::PhraseQuery>(out);
+    EXPECT_NE(phrase_query, nullptr);
+}
+
+TEST_F(FunctionSearchTest, TestMultiPhraseQueryCase) {
+    using doris::segment_v2::InvertedIndexQueryInfo;
+    using doris::segment_v2::TermInfo;
+    using doris::CollectionStatistics;
+    using doris::CollectionStatisticsPtr;
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    std::wstring field = doris::segment_v2::inverted_index::StringHelper::to_wstring("content");
+
+    std::vector<TermInfo> term_infos;
+
+    TermInfo t1;
+    t1.term = std::vector<std::string> {"quick", "fast", "speedy"};
+    t1.position = 0;
+    term_infos.push_back(t1);
+
+    TermInfo t2;
+    t2.term = std::string("brown");
+    t2.position = 1;
+    term_infos.push_back(t2);
+
+    auto query = std::make_shared<doris::segment_v2::inverted_index::query_v2::MultiPhraseQuery>(
+            context, field, term_infos);
+    ASSERT_NE(query, nullptr);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(weight, nullptr);
+
+    auto multi_phrase_weight = std::dynamic_pointer_cast<
+            doris::segment_v2::inverted_index::query_v2::MultiPhraseWeight>(weight);
+    ASSERT_NE(multi_phrase_weight, nullptr);
+}
+
+// ============== Lucene Mode (OCCUR_BOOLEAN) Tests ==============
+
+TEST_F(FunctionSearchTest, TestOccurBooleanClauseTypeCategory) {
+    // Test that OCCUR_BOOLEAN is classified as COMPOUND
+    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
+              function_search->get_clause_type_category("OCCUR_BOOLEAN"));
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanQueryType) {
+    // Test that OCCUR_BOOLEAN maps to BOOLEAN_QUERY
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
+              function_search->clause_type_to_query_type("OCCUR_BOOLEAN"));
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanSearchParam) {
+    // Test creating OCCUR_BOOLEAN search param (Lucene mode)
+    TSearchParam searchParam;
+    searchParam.original_dsl = "field:a AND field:b OR field:c";
+
+    // Create child clauses with occur types
+    TSearchClause mustClause1;
+    mustClause1.clause_type = "TERM";
+    mustClause1.field_name = "field";
+    mustClause1.value = "a";
+    mustClause1.__isset.field_name = true;
+    mustClause1.__isset.value = true;
+    mustClause1.occur = TSearchOccur::MUST;
+    mustClause1.__isset.occur = true;
+
+    TSearchClause mustClause2;
+    mustClause2.clause_type = "TERM";
+    mustClause2.field_name = "field";
+    mustClause2.value = "b";
+    mustClause2.__isset.field_name = true;
+    mustClause2.__isset.value = true;
+    mustClause2.occur = TSearchOccur::MUST;
+    mustClause2.__isset.occur = true;
+
+    // Create root OCCUR_BOOLEAN clause
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {mustClause1, mustClause2};
+    rootClause.__isset.children = true;
+    rootClause.minimum_should_match = 0;
+    rootClause.__isset.minimum_should_match = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(2, searchParam.root.children.size());
+    EXPECT_EQ(TSearchOccur::MUST, searchParam.root.children[0].occur);
+    EXPECT_EQ(TSearchOccur::MUST, searchParam.root.children[1].occur);
+    EXPECT_EQ(0, searchParam.root.minimum_should_match);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanWithMustNotClause) {
+    // Test OCCUR_BOOLEAN with MUST_NOT (NOT operator in Lucene mode)
+    TSearchParam searchParam;
+    searchParam.original_dsl = "NOT field:a";
+
+    TSearchClause mustNotClause;
+    mustNotClause.clause_type = "TERM";
+    mustNotClause.field_name = "field";
+    mustNotClause.value = "a";
+    mustNotClause.__isset.field_name = true;
+    mustNotClause.__isset.value = true;
+    mustNotClause.occur = TSearchOccur::MUST_NOT;
+    mustNotClause.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {mustNotClause};
+    rootClause.__isset.children = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(1, searchParam.root.children.size());
+    EXPECT_EQ(TSearchOccur::MUST_NOT, searchParam.root.children[0].occur);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanWithShouldClauses) {
+    // Test OCCUR_BOOLEAN with SHOULD clauses (OR in Lucene mode)
+    TSearchParam searchParam;
+    searchParam.original_dsl = "field:a OR field:b";
+
+    TSearchClause shouldClause1;
+    shouldClause1.clause_type = "TERM";
+    shouldClause1.field_name = "field";
+    shouldClause1.value = "a";
+    shouldClause1.__isset.field_name = true;
+    shouldClause1.__isset.value = true;
+    shouldClause1.occur = TSearchOccur::SHOULD;
+    shouldClause1.__isset.occur = true;
+
+    TSearchClause shouldClause2;
+    shouldClause2.clause_type = "TERM";
+    shouldClause2.field_name = "field";
+    shouldClause2.value = "b";
+    shouldClause2.__isset.field_name = true;
+    shouldClause2.__isset.value = true;
+    shouldClause2.occur = TSearchOccur::SHOULD;
+    shouldClause2.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {shouldClause1, shouldClause2};
+    rootClause.__isset.children = true;
+    rootClause.minimum_should_match = 1;
+    rootClause.__isset.minimum_should_match = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(2, searchParam.root.children.size());
+    EXPECT_EQ(TSearchOccur::SHOULD, searchParam.root.children[0].occur);
+    EXPECT_EQ(TSearchOccur::SHOULD, searchParam.root.children[1].occur);
+    EXPECT_EQ(1, searchParam.root.minimum_should_match);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanMixedOccurTypes) {
+    // Test OCCUR_BOOLEAN with mixed MUST, SHOULD, MUST_NOT (complex Lucene query)
+    // Example: +a +b c -d (a AND b, c is optional, NOT d)
+    TSearchParam searchParam;
+    searchParam.original_dsl = "field:a AND field:b OR field:c NOT field:d";
+
+    TSearchClause mustClause1;
+    mustClause1.clause_type = "TERM";
+    mustClause1.field_name = "field";
+    mustClause1.value = "a";
+    mustClause1.__isset.field_name = true;
+    mustClause1.__isset.value = true;
+    mustClause1.occur = TSearchOccur::MUST;
+    mustClause1.__isset.occur = true;
+
+    TSearchClause mustClause2;
+    mustClause2.clause_type = "TERM";
+    mustClause2.field_name = "field";
+    mustClause2.value = "b";
+    mustClause2.__isset.field_name = true;
+    mustClause2.__isset.value = true;
+    mustClause2.occur = TSearchOccur::MUST;
+    mustClause2.__isset.occur = true;
+
+    TSearchClause shouldClause;
+    shouldClause.clause_type = "TERM";
+    shouldClause.field_name = "field";
+    shouldClause.value = "c";
+    shouldClause.__isset.field_name = true;
+    shouldClause.__isset.value = true;
+    shouldClause.occur = TSearchOccur::SHOULD;
+    shouldClause.__isset.occur = true;
+
+    TSearchClause mustNotClause;
+    mustNotClause.clause_type = "TERM";
+    mustNotClause.field_name = "field";
+    mustNotClause.value = "d";
+    mustNotClause.__isset.field_name = true;
+    mustNotClause.__isset.value = true;
+    mustNotClause.occur = TSearchOccur::MUST_NOT;
+    mustNotClause.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {mustClause1, mustClause2, shouldClause, mustNotClause};
+    rootClause.__isset.children = true;
+    rootClause.minimum_should_match = 0;
+    rootClause.__isset.minimum_should_match = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(4, searchParam.root.children.size());
+    EXPECT_EQ(TSearchOccur::MUST, searchParam.root.children[0].occur);
+    EXPECT_EQ(TSearchOccur::MUST, searchParam.root.children[1].occur);
+    EXPECT_EQ(TSearchOccur::SHOULD, searchParam.root.children[2].occur);
+    EXPECT_EQ(TSearchOccur::MUST_NOT, searchParam.root.children[3].occur);
+    EXPECT_EQ(0, searchParam.root.minimum_should_match);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanMinimumShouldMatchZero) {
+    // Test that SHOULD clauses are effectively ignored when minimum_should_match=0
+    // and MUST clauses exist
+    TSearchParam searchParam;
+    searchParam.original_dsl = "field:a AND field:b OR field:c";
+
+    TSearchClause mustClause1;
+    mustClause1.clause_type = "TERM";
+    mustClause1.field_name = "field";
+    mustClause1.value = "a";
+    mustClause1.__isset.field_name = true;
+    mustClause1.__isset.value = true;
+    mustClause1.occur = TSearchOccur::MUST;
+    mustClause1.__isset.occur = true;
+
+    TSearchClause mustClause2;
+    mustClause2.clause_type = "TERM";
+    mustClause2.field_name = "field";
+    mustClause2.value = "b";
+    mustClause2.__isset.field_name = true;
+    mustClause2.__isset.value = true;
+    mustClause2.occur = TSearchOccur::MUST;
+    mustClause2.__isset.occur = true;
+
+    // Note: In Lucene mode with minimum_should_match=0 and MUST clauses,
+    // SHOULD clauses are filtered out during FE parsing.
+    // So only MUST clauses should be present.
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {mustClause1, mustClause2};
+    rootClause.__isset.children = true;
+    rootClause.minimum_should_match = 0;
+    rootClause.__isset.minimum_should_match = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(2, searchParam.root.children.size());
+    EXPECT_EQ(0, searchParam.root.minimum_should_match);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanMinimumShouldMatchOne) {
+    // Test that at least one SHOULD clause must match when minimum_should_match=1
+    TSearchParam searchParam;
+    searchParam.original_dsl = "field:a OR field:b OR field:c";
+
+    TSearchClause shouldClause1;
+    shouldClause1.clause_type = "TERM";
+    shouldClause1.field_name = "field";
+    shouldClause1.value = "a";
+    shouldClause1.__isset.field_name = true;
+    shouldClause1.__isset.value = true;
+    shouldClause1.occur = TSearchOccur::SHOULD;
+    shouldClause1.__isset.occur = true;
+
+    TSearchClause shouldClause2;
+    shouldClause2.clause_type = "TERM";
+    shouldClause2.field_name = "field";
+    shouldClause2.value = "b";
+    shouldClause2.__isset.field_name = true;
+    shouldClause2.__isset.value = true;
+    shouldClause2.occur = TSearchOccur::SHOULD;
+    shouldClause2.__isset.occur = true;
+
+    TSearchClause shouldClause3;
+    shouldClause3.clause_type = "TERM";
+    shouldClause3.field_name = "field";
+    shouldClause3.value = "c";
+    shouldClause3.__isset.field_name = true;
+    shouldClause3.__isset.value = true;
+    shouldClause3.occur = TSearchOccur::SHOULD;
+    shouldClause3.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {shouldClause1, shouldClause2, shouldClause3};
+    rootClause.__isset.children = true;
+    rootClause.minimum_should_match = 1;
+    rootClause.__isset.minimum_should_match = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(3, searchParam.root.children.size());
+    EXPECT_EQ(1, searchParam.root.minimum_should_match);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanAnalyzeFieldQueryType) {
+    // Test field query type analysis for OCCUR_BOOLEAN
+    TSearchClause mustClause;
+    mustClause.clause_type = "TERM";
+    mustClause.field_name = "title";
+    mustClause.value = "hello";
+    mustClause.__isset.field_name = true;
+    mustClause.__isset.value = true;
+    mustClause.occur = TSearchOccur::MUST;
+    mustClause.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {mustClause};
+    rootClause.__isset.children = true;
+
+    // Test field-specific query type analysis
+    auto title_query_type = function_search->analyze_field_query_type("title", rootClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
+
+    // Test field not in query
+    auto other_query_type = function_search->analyze_field_query_type("other_field", rootClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, other_query_type);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanWithPhraseQuery) {
+    // Test OCCUR_BOOLEAN with PHRASE child clause
+    TSearchParam searchParam;
+    searchParam.original_dsl = "content:\"machine learning\" AND title:hello";
+
+    TSearchClause phraseClause;
+    phraseClause.clause_type = "PHRASE";
+    phraseClause.field_name = "content";
+    phraseClause.value = "machine learning";
+    phraseClause.__isset.field_name = true;
+    phraseClause.__isset.value = true;
+    phraseClause.occur = TSearchOccur::MUST;
+    phraseClause.__isset.occur = true;
+
+    TSearchClause termClause;
+    termClause.clause_type = "TERM";
+    termClause.field_name = "title";
+    termClause.value = "hello";
+    termClause.__isset.field_name = true;
+    termClause.__isset.value = true;
+    termClause.occur = TSearchOccur::MUST;
+    termClause.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {phraseClause, termClause};
+    rootClause.__isset.children = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(2, searchParam.root.children.size());
+    EXPECT_EQ("PHRASE", searchParam.root.children[0].clause_type);
+    EXPECT_EQ("TERM", searchParam.root.children[1].clause_type);
+
+    // Test field-specific query type analysis
+    auto content_query_type =
+            function_search->analyze_field_query_type("content", searchParam.root);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, content_query_type);
+
+    auto title_query_type = function_search->analyze_field_query_type("title", searchParam.root);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
+}
+
+TEST_F(FunctionSearchTest, TestOccurBooleanNestedQuery) {
+    // Test nested OCCUR_BOOLEAN query
+    TSearchParam searchParam;
+    searchParam.original_dsl = "(field:a AND field:b) OR field:c";
+
+    TSearchClause innerMust1;
+    innerMust1.clause_type = "TERM";
+    innerMust1.field_name = "field";
+    innerMust1.value = "a";
+    innerMust1.__isset.field_name = true;
+    innerMust1.__isset.value = true;
+    innerMust1.occur = TSearchOccur::MUST;
+    innerMust1.__isset.occur = true;
+
+    TSearchClause innerMust2;
+    innerMust2.clause_type = "TERM";
+    innerMust2.field_name = "field";
+    innerMust2.value = "b";
+    innerMust2.__isset.field_name = true;
+    innerMust2.__isset.value = true;
+    innerMust2.occur = TSearchOccur::MUST;
+    innerMust2.__isset.occur = true;
+
+    TSearchClause innerOccurBoolean;
+    innerOccurBoolean.clause_type = "OCCUR_BOOLEAN";
+    innerOccurBoolean.children = {innerMust1, innerMust2};
+    innerOccurBoolean.__isset.children = true;
+    innerOccurBoolean.occur = TSearchOccur::SHOULD;
+    innerOccurBoolean.__isset.occur = true;
+
+    TSearchClause shouldClause;
+    shouldClause.clause_type = "TERM";
+    shouldClause.field_name = "field";
+    shouldClause.value = "c";
+    shouldClause.__isset.field_name = true;
+    shouldClause.__isset.value = true;
+    shouldClause.occur = TSearchOccur::SHOULD;
+    shouldClause.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {innerOccurBoolean, shouldClause};
+    rootClause.__isset.children = true;
+    rootClause.minimum_should_match = 1;
+    rootClause.__isset.minimum_should_match = true;
+    searchParam.root = rootClause;
+
+    // Verify structure
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
+    EXPECT_EQ(2, searchParam.root.children.size());
+    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.children[0].clause_type);
+    EXPECT_EQ("TERM", searchParam.root.children[1].clause_type);
+    EXPECT_EQ(1, searchParam.root.minimum_should_match);
+}
+
+TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
+    // Test evaluate_inverted_index_with_search_param with OCCUR_BOOLEAN
+    TSearchParam search_param;
+    search_param.original_dsl = "title:hello AND content:world";
+
+    TSearchClause mustClause1;
+    mustClause1.clause_type = "TERM";
+    mustClause1.field_name = "title";
+    mustClause1.value = "hello";
+    mustClause1.__isset.field_name = true;
+    mustClause1.__isset.value = true;
+    mustClause1.occur = TSearchOccur::MUST;
+    mustClause1.__isset.occur = true;
+
+    TSearchClause mustClause2;
+    mustClause2.clause_type = "TERM";
+    mustClause2.field_name = "content";
+    mustClause2.value = "world";
+    mustClause2.__isset.field_name = true;
+    mustClause2.__isset.value = true;
+    mustClause2.occur = TSearchOccur::MUST;
+    mustClause2.__isset.occur = true;
+
+    TSearchClause rootClause;
+    rootClause.clause_type = "OCCUR_BOOLEAN";
+    rootClause.children = {mustClause1, mustClause2};
+    rootClause.__isset.children = true;
+    rootClause.minimum_should_match = 0;
+    rootClause.__isset.minimum_should_match = true;
+    search_param.root = rootClause;
+
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+
+    // No real iterators - will fail but tests the code path
+    data_types["title"] = {"title", nullptr};
+    data_types["content"] = {"content", nullptr};
+    iterators["title"] = nullptr;
+    iterators["content"] = nullptr;
+
+    uint32_t num_rows = 100;
+    InvertedIndexResultBitmap bitmap_result;
+
+    auto status = function_search->evaluate_inverted_index_with_search_param(
+            search_param, data_types, iterators, num_rows, bitmap_result);
+    // Will return OK because root_query is nullptr (all child queries fail)
+    //    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>());
+}
 
 } // namespace doris::vectorized

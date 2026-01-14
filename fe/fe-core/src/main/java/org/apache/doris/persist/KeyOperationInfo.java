@@ -35,7 +35,9 @@ import java.util.List;
 
 public class KeyOperationInfo implements Writable {
     public enum KeyOPType {
-        SET_ROOT_KEY;
+        SET_ROOT_KEY,
+        ROTATE_ROOT_KEY,
+        ROTATE_MASTER_KEYS
     }
 
     @Setter

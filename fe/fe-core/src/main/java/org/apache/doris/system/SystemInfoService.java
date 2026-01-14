@@ -17,11 +17,10 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.analysis.ModifyBackendClause;
-import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -32,6 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendHostNameOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
@@ -84,7 +84,8 @@ public class SystemInfoService {
 
     public static final ImmutableSet<String> NEED_REPLAN_ERRORS = ImmutableSet.of(
             NO_SCAN_NODE_BACKEND_AVAILABLE_MSG,
-            ERROR_E230
+            ERROR_E230,
+            ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE.toString()
     );
 
     protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
@@ -958,66 +959,18 @@ public class SystemInfoService {
         Env.getCurrentEnv().getEditLog().logModifyBackend(be);
     }
 
-    public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
-        Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
+    public void modifyBackendHost(ModifyBackendHostNameOp op) throws UserException {
+        Backend be = getBackendWithHeartbeatPort(op.getHost(), op.getPort());
         if (be == null) {
             throw new DdlException("backend does not exists[" + NetUtils
-                    .getHostPortInAccessibleFormat(clause.getHost(), clause.getPort()) + "]");
+                .getHostPortInAccessibleFormat(op.getHost(), op.getPort()) + "]");
         }
-        if (be.getHost().equals(clause.getNewHost())) {
+        if (be.getHost().equals(op.getNewHost())) {
             // no need to modify
             return;
         }
-        be.setHost(clause.getNewHost());
+        be.setHost(op.getNewHost());
         Env.getCurrentEnv().getEditLog().logModifyBackend(be);
-    }
-
-    public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
-        List<HostInfo> hostInfos = alterClause.getHostInfos();
-        List<Backend> backends = Lists.newArrayList();
-        if (hostInfos.isEmpty()) {
-            List<String> ids = alterClause.getIds();
-            for (String id : ids) {
-                long backendId = Long.parseLong(id);
-                Backend be = getBackend(backendId);
-                if (be == null) {
-                    throw new DdlException("backend does not exists[" + backendId + "]");
-                }
-                backends.add(be);
-            }
-        } else {
-            for (HostInfo hostInfo : hostInfos) {
-                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
-                if (be == null) {
-                    throw new DdlException(
-                            "backend does not exists[" + NetUtils
-                                    .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
-                }
-                backends.add(be);
-            }
-        }
-
-        for (Backend be : backends) {
-            boolean shouldModify = false;
-            Map<String, String> tagMap = alterClause.getTagMap();
-            if (!tagMap.isEmpty()) {
-                be.setTagMap(tagMap);
-                shouldModify = true;
-            }
-
-            if (alterClause.isQueryDisabled() != null) {
-                shouldModify = be.setQueryDisabled(alterClause.isQueryDisabled());
-            }
-
-            if (alterClause.isLoadDisabled() != null) {
-                shouldModify = be.setLoadDisabled(alterClause.isLoadDisabled());
-            }
-
-            if (shouldModify) {
-                Env.getCurrentEnv().getEditLog().logModifyBackend(be);
-                LOG.info("finished to modify backend {} ", be);
-            }
-        }
     }
 
     public void modifyBackends(ModifyBackendOp op) throws UserException {
@@ -1158,6 +1111,7 @@ public class SystemInfoService {
             return false;
         }
         for (String keyword : NEED_REPLAN_ERRORS) {
+            LOG.debug("key {}, errorMsg {}", keyword, errorMsg);
             if (errorMsg.contains(keyword)) {
                 return true;
             }

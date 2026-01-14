@@ -580,6 +580,7 @@ suite("limit_rewrite") {
             where o_orderdate > '2023-12-08'
             limit 2 offset 5;
             """
+    // mv data can not cover query limit offset, should fail
     async_mv_rewrite_fail(db, mv5_1, query5_1, "mv5_1")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
 
@@ -606,6 +607,7 @@ suite("limit_rewrite") {
             where o_orderdate > '2023-12-09'
             limit 4 offset 2;
             """
+    // mv data can not cover query limit offset, should fail
     async_mv_rewrite_fail(db, mv5_2, query5_2, "mv5_2")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_2"""
 
@@ -657,6 +659,7 @@ suite("limit_rewrite") {
             orders
             limit 2 offset 5;
             """
+    // mv data can not cover query limit offset, should fail
     async_mv_rewrite_fail(db, mv6_1, query6_1, "mv6_1")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
 

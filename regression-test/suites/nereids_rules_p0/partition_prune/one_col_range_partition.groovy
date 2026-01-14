@@ -28,8 +28,8 @@ suite("one_col_range_partition") {
     properties("replication_num"="1");
     """
     sql """
-    INSERT INTO one_col_range_partition_date SELECT number, 
-    date_add('2020-01-01 00:00:00', interval number hour), 
+    INSERT INTO one_col_range_partition_date SELECT number,
+    date_add('2020-01-01 00:00:00', interval number hour),
     cast(date_add('2020-01-01 00:00:00', interval number hour) as date), cast(number as varchar(65533)) FROM numbers('number'='10000');
     """
 
@@ -256,7 +256,7 @@ suite("one_col_range_partition") {
     explain {
         sql """SELECT * FROM one_col_range_partition_date WHERE case when dt<'2021-1-01 00:00:00' then false when dt<'2021-5-01' then false
         else true end;"""
-        contains("partitions=417/1826")
+        contains("VEMPTYSET")
     }
     explain {
         sql """SELECT * FROM one_col_range_partition_date WHERE case when dt<'2022-1-01 00:00:00' then dt

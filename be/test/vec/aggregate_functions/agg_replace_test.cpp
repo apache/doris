@@ -164,11 +164,12 @@ public:
                     array[j] = Field::create_field<TYPE_STRING>(item);
                 } else if constexpr (IsDecimalNumber<FieldType>) {
                     auto item = FieldType(static_cast<uint64_t>(j));
-                    array[j] =
-                            Field::create_field<TYPE_DECIMALV2>(DecimalField<FieldType>(item, 20));
+                    array[j] = Field::create_field<TYPE_DECIMALV2>(
+                            *(typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType*)&item);
                 } else {
+                    auto v = static_cast<uint64_t>(j);
                     array[j] = Field::create_field<TYPE_DATETIMEV2>(
-                            FieldType(static_cast<uint64_t>(j)));
+                            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
                 }
             }
             input_col->insert(Field::create_field<TYPE_ARRAY>(array));
@@ -220,7 +221,7 @@ public:
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, nullable, -1);
+        auto agg_function = factory.get(fn_name, data_types, nullptr, nullable, -1);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -244,7 +245,7 @@ public:
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, nullable, -1);
+        auto agg_function = factory.get(fn_name, data_types, nullptr, nullable, -1);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

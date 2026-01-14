@@ -68,8 +68,6 @@ public:
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
                                 const size_t size) override;
-    Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration,
-                                      const size_t size) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;
@@ -112,6 +110,10 @@ private:
     [[nodiscard]] std::string get_version_path() const;
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
+
+    bool handle_already_loaded_block(BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset,
+                                     size_t new_size, int64_t tablet_id,
+                                     std::lock_guard<std::mutex>& cache_lock) const;
 
 private:
     // Helper function to count files in cache directory using statfs

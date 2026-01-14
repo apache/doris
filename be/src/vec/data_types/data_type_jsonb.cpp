@@ -70,17 +70,17 @@ bool DataTypeJsonb::equals(const IDataType& rhs) const {
 }
 
 int64_t DataTypeJsonb::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                         int data_version) const {
-    return data_type_string.get_uncompressed_serialized_bytes(column, data_version);
+                                                         int be_exec_version) const {
+    return data_type_string.get_uncompressed_serialized_bytes(column, be_exec_version);
 }
 
-char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int data_version) const {
-    return data_type_string.serialize(column, buf, data_version);
+char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int be_exec_version) const {
+    return data_type_string.serialize(column, buf, be_exec_version);
 }
 
 const char* DataTypeJsonb::deserialize(const char* buf, MutableColumnPtr* column,
-                                       int data_version) const {
-    return data_type_string.deserialize(buf, column, data_version);
+                                       int be_exec_version) const {
+    return data_type_string.deserialize(buf, column, be_exec_version);
 }
 
 FieldWithDataType DataTypeJsonb::get_field_with_data_type(const IColumn& column,

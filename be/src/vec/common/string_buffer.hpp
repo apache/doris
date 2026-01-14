@@ -52,6 +52,12 @@ public:
         _now_offset = 0;
     }
 
+    char* data() { return reinterpret_cast<char*>(_data.data() + _now_offset + _offsets.back()); }
+
+    void add_offset(size_t len) { _now_offset += len; }
+
+    void resize(size_t size) { _data.resize(size + _now_offset + _offsets.back()); }
+
     template <typename T>
     void write_number(T data) {
         fmt::memory_buffer buffer;
@@ -235,6 +241,10 @@ public:
         _data += len;
     }
 
+    const char* data() { return _data; }
+
+    void add_offset(size_t len) { _data += len; }
+
     void read_var_uint(UInt64& x) {
         x = 0;
         // get length from first byte firstly
@@ -256,7 +266,8 @@ public:
     template <typename Type>
     void read_binary(Type& x) {
         static_assert(std::is_standard_layout_v<Type>);
-        read(reinterpret_cast<char*>(&x), sizeof(x));
+        memcpy_fixed<Type>(reinterpret_cast<char*>(&x), _data);
+        _data += sizeof(x);
     }
 
     template <typename Type>

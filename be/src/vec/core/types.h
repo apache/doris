@@ -481,6 +481,12 @@ using Decimal64 = Decimal<Int64>;
 using Decimal128V2 = Decimal<Int128>;
 using Decimal256 = Decimal<wide::Int256>;
 
+static_assert(std::is_trivial_v<Decimal32>, "Decimal32 must be trivial");
+static_assert(std::is_trivial_v<Decimal64>, "Decimal64 must be trivial");
+static_assert(std::is_trivial_v<Decimal128V2>, "Decimal128V2 must be trivial");
+static_assert(std::is_trivial_v<Decimal128V3>, "Decimal128V3 must be trivial");
+static_assert(std::is_trivial_v<Decimal256>, "Decimal256 must be trivial");
+
 inline bool operator<(const Decimal256& x, const Decimal256& y) {
     return x.value < y.value;
 }

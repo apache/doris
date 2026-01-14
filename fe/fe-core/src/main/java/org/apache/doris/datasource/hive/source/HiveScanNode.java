@@ -186,7 +186,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends);
+            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends, false);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
             }
@@ -226,7 +226,8 @@ public class HiveScanNode extends FileQueryScanNode {
                         try {
                             List<Split> allFiles = Lists.newArrayList();
                             getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName, numBackends);
+                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName,
+                                    numBackends, true);
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
@@ -277,7 +278,8 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
-            List<Split> allFiles, String bindBrokerName, int numBackends) throws IOException, UserException {
+            List<Split> allFiles, String bindBrokerName, int numBackends,
+            boolean isBatchMode) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
         if (hiveTransaction != null) {
             try {
@@ -293,9 +295,11 @@ public class HiveScanNode extends FileQueryScanNode {
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                     directoryLister, hmsTable);
         }
+
+        long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
-            splitAllFiles(allFiles, hiveFileStatuses);
+            splitAllFiles(allFiles, hiveFileStatuses, targetFileSplitSize);
             return;
         }
 
@@ -319,27 +323,67 @@ public class HiveScanNode extends FileQueryScanNode {
             int parallelNum = sessionVariable.getParallelExecInstanceNum();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
+
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
-            if (fileCacheValue.getFiles() != null) {
-                boolean isSplittable = fileCacheValue.isSplittable();
-                for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    allFiles.addAll(FileSplitter.splitFile(status.getPath(),
-                            // set block size to Long.MAX_VALUE to avoid splitting the file.
-                            getRealFileSplitSize(needSplit ? status.getBlockSize() : Long.MAX_VALUE),
-                            status.getBlockLocations(), status.getLength(), status.getModificationTime(),
-                            isSplittable, fileCacheValue.getPartitionValues(),
-                            new HiveSplitCreator(fileCacheValue.getAcidInfo())));
-                }
+            if (fileCacheValue.getFiles() == null) {
+                continue;
+            }
+            boolean isSplittable = fileCacheValue.isSplittable();
+
+            for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                allFiles.addAll(fileSplitter.splitFile(
+                        status.getPath(),
+                        targetFileSplitSize,
+                        status.getBlockLocations(),
+                        status.getLength(),
+                        status.getModificationTime(),
+                        isSplittable && needSplit,
+                        fileCacheValue.getPartitionValues(),
+                        new HiveSplitCreator(fileCacheValue.getAcidInfo())));
             }
         }
     }
 
+    private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,
+            boolean isBatchMode) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        /** Hive batch split mode will return 0. and <code>FileSplitter</code>
+         *  will determine file split size.
+         */
+        if (isBatchMode) {
+            return 0;
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
+        long totalFileSize = 0;
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
+            if (fileCacheValue.getFiles() == null) {
+                continue;
+            }
+            for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
+                totalFileSize += status.getLength();
+                if (totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    result = sessionVariable.getMaxSplitSize();
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+
     private void splitAllFiles(List<Split> allFiles,
-                               List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
+                               List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses,
+            long realFileSplitSize) throws IOException {
         for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
-            allFiles.addAll(FileSplitter.splitFile(status.getPath(), getRealFileSplitSize(status.getBlockSize()),
-                    status.getBlockLocations(), status.getLength(), status.getModificationTime(),
-                    status.isSplittable(), status.getPartitionValues(),
+            allFiles.addAll(fileSplitter.splitFile(
+                    status.getPath(),
+                    realFileSplitSize,
+                    status.getBlockLocations(),
+                    status.getLength(),
+                    status.getModificationTime(),
+                    status.isSplittable(),
+                    status.getPartitionValues(),
                     new HiveSplitCreator(status.getAcidInfo())));
         }
     }
@@ -408,43 +452,8 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
-        TFileFormatType type = null;
-        Table table = hmsTable.getRemoteTable();
-        String inputFormatName = table.getSd().getInputFormat();
-        String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
-        if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
-            type = TFileFormatType.FORMAT_PARQUET;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
-            type = TFileFormatType.FORMAT_ORC;
-        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
-            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
-            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
-                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
-                type = TFileFormatType.FORMAT_JSON;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
-                if (!sessionVariable.isReadHiveJsonInOneColumn()) {
-                    type = TFileFormatType.FORMAT_JSON;
-                } else if (sessionVariable.isReadHiveJsonInOneColumn()
-                        && hmsTable.firstColumnIsString()) {
-                    type = TFileFormatType.FORMAT_CSV_PLAIN;
-                } else {
-                    throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
-                            + "table " + hmsTable.getName()
-                            + " is not a string column.");
-                }
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
-                type = TFileFormatType.FORMAT_TEXT;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_OPEN_CSV_SERDE)) {
-                type = TFileFormatType.FORMAT_CSV_PLAIN;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
-                type = TFileFormatType.FORMAT_TEXT;
-            } else {
-                throw new UserException("Unsupported hive table serde: " + serDeLib);
-            }
-        }
-        return type;
+        return hmsTable.getFileFormatType(sessionVariable);
     }
-
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {

@@ -33,11 +33,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 
 public class PasswordPolicyManager implements Writable {
     @SerializedName(value = "policyMap")
-    private Map<UserIdentity, PasswordPolicy> policyMap = Maps.newConcurrentMap();
+    private ConcurrentMap<UserIdentity, PasswordPolicy> policyMap = Maps.newConcurrentMap();
 
     public PasswordPolicyManager() {
 

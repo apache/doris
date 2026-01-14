@@ -55,7 +55,7 @@ std::string metric_to_string(AnnIndexMetric metric);
 
 AnnIndexMetric string_to_metric(const std::string& metric);
 
-enum class AnnIndexType { UNKNOWN, HNSW };
+enum class AnnIndexType { UNKNOWN, HNSW, IVF };
 
 std::string ann_index_type_to_string(AnnIndexType type);
 
@@ -119,10 +119,13 @@ public:
 
     void set_metric(AnnIndexMetric metric) { _metric = metric; }
 
+    void set_type(AnnIndexType type) { _index_type = type; }
+
 protected:
     // When adding vectors to the index, use this variable to check the dimension of the vectors.
     size_t _dimension = 0;
-    AnnIndexMetric _metric = AnnIndexMetric::L2; // Default metric is L2 distance
+    AnnIndexMetric _metric = AnnIndexMetric::L2;   // Default metric is L2 distance
+    AnnIndexType _index_type = AnnIndexType::HNSW; // Default index type is hnsw
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

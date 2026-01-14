@@ -107,6 +107,8 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_DATEV2;
     case PrimitiveType::TYPE_DATETIMEV2:
         return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
     case PrimitiveType::TYPE_TIMEV2:
         return FieldType::OLAP_FIELD_TYPE_TIMEV2;
     case PrimitiveType::TYPE_DECIMAL32:
@@ -176,6 +178,7 @@ PrimitiveType TabletColumn::get_primitive_type_by_field_type(FieldType type) {
             /* 37 OLAP_FIELD_TYPE_DECIMAL256        */ PrimitiveType::TYPE_DECIMAL256,
             /* 38 OLAP_FIELD_TYPE_IPV4              */ PrimitiveType::TYPE_IPV4,
             /* 39 OLAP_FIELD_TYPE_IPV6              */ PrimitiveType::TYPE_IPV6,
+            /* 40 OLAP_FIELD_TYPE_TIMESTAMPTZ       */ PrimitiveType::TYPE_TIMESTAMPTZ,
     };
 
     int idx = static_cast<int>(type);
@@ -226,6 +229,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
+    } else if (0 == upper_type_str.compare("TIMESTAMPTZ")) {
+        type = FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
     } else if (0 == upper_type_str.compare("DECIMAL32")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL32;
     } else if (0 == upper_type_str.compare("DECIMAL64")) {
@@ -364,6 +369,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
 
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        return "TIMESTAMPTZ";
+
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return "DECIMAL";
 
@@ -475,6 +483,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATETIME:
         return 8;
     case TPrimitiveType::DATETIMEV2:
+    case TPrimitiveType::TIMESTAMPTZ:
         return 8;
     case TPrimitiveType::FLOAT:
         return 4;
@@ -604,11 +613,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     } else {
         _is_bf_column = false;
     }
-    if (column.has_has_bitmap_index()) {
-        _has_bitmap_index = column.has_bitmap_index();
-    } else {
-        _has_bitmap_index = false;
-    }
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
         _aggregation_name = column.aggregation();
@@ -710,9 +714,6 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_result_is_nullable(_result_is_nullable);
     column->set_be_exec_version(_be_exec_version);
-    if (_has_bitmap_index) {
-        column->set_has_bitmap_index(_has_bitmap_index);
-    }
     column->set_visible(_visible);
 
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -784,7 +785,8 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
         function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                agg_name, {type}, type->is_nullable(), BeExecVersionManager::get_newest_version());
+                agg_name, {type}, type, type->is_nullable(),
+                BeExecVersionManager::get_newest_version());
         if (!function) {
             LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                          << ", column_type=" << type->get_name();
@@ -997,6 +999,35 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     }
     _num_columns++;
     _num_virtual_columns = _vir_col_idx_to_unique_id.size();
+    // generate column index mapping for seq map
+    if (_seq_col_uid_to_value_cols_uid.contains(column.unique_id())) {
+        const auto seq_idx = _field_uniqueid_to_index[column.unique_id()];
+        if (!_seq_col_idx_to_value_cols_idx.contains(seq_idx)) {
+            _seq_col_idx_to_value_cols_idx[seq_idx] = {};
+        }
+    }
+    if (_value_col_uid_to_seq_col_uid.contains(column.unique_id())) {
+        const auto seq_uid = _value_col_uid_to_seq_col_uid[column.unique_id()];
+        if (_field_uniqueid_to_index.contains(seq_uid)) {
+            bool all_uid_index_found = true;
+            std::vector<int32_t> value_cols_index;
+            for (const auto value_col_uid : _seq_col_uid_to_value_cols_uid[seq_uid]) {
+                if (!_field_uniqueid_to_index.contains(value_col_uid)) {
+                    all_uid_index_found = false;
+                    break;
+                }
+                value_cols_index.push_back(_field_uniqueid_to_index[value_col_uid]);
+            }
+            if (all_uid_index_found) {
+                const auto seq_idx = _field_uniqueid_to_index[seq_uid];
+                for (const auto col_idx : value_cols_index) {
+                    _seq_col_idx_to_value_cols_idx[seq_idx].push_back(col_idx);
+                    _value_col_idx_to_seq_col_idx[col_idx] = seq_idx;
+                }
+                _value_col_idx_to_seq_col_idx[seq_idx] = seq_idx;
+            }
+        }
+    }
 }
 
 void TabletSchema::append_index(TabletIndex&& index) {
@@ -1058,6 +1089,8 @@ void TabletSchema::clear_columns() {
     _num_variant_columns = 0;
     _num_null_columns = 0;
     _num_key_columns = 0;
+    _seq_col_idx_to_value_cols_idx.clear();
+    _value_col_idx_to_seq_col_idx.clear();
     _cols.clear();
 }
 
@@ -1165,6 +1198,64 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _storage_page_size = schema.storage_page_size();
     _storage_dict_page_size = schema.storage_dict_page_size();
     _schema_version = schema.schema_version();
+    if (schema.has_seq_map()) {
+        auto column_groups_pb = schema.seq_map();
+        _seq_col_uid_to_value_cols_uid.clear();
+        _value_col_uid_to_seq_col_uid.clear();
+        _seq_col_idx_to_value_cols_idx.clear();
+        _value_col_idx_to_seq_col_idx.clear();
+        /*
+         * ColumnGroupsPB is a list of cg_pb, and
+         * ColumnGroupsPB do not have begin() or end() method.
+         * we must use for(i=0;i<xx;i++) loop
+         */
+        for (int i = 0; i < column_groups_pb.cg_size(); i++) {
+            ColumnGroupPB cg_pb = column_groups_pb.cg(i);
+            uint32_t key_uid = cg_pb.sequence_column();
+            auto found = _field_uniqueid_to_index.find(key_uid);
+            DCHECK(found != _field_uniqueid_to_index.end())
+                    << "could not find sequence col with unique id = " << key_uid
+                    << " table_id=" << _table_id;
+            int32_t seq_index = found->second;
+            _seq_col_uid_to_value_cols_uid[key_uid] = {};
+            _seq_col_idx_to_value_cols_idx[seq_index] = {};
+            for (auto val_uid : cg_pb.columns_in_group()) {
+                _seq_col_uid_to_value_cols_uid[key_uid].push_back(val_uid);
+                found = _field_uniqueid_to_index.find(val_uid);
+                DCHECK(found != _field_uniqueid_to_index.end())
+                        << "could not find value col with unique id = " << key_uid
+                        << " table_id=" << _table_id;
+                int32_t val_index = found->second;
+                _seq_col_idx_to_value_cols_idx[seq_index].push_back(val_index);
+            }
+        }
+
+        if (!_seq_col_uid_to_value_cols_uid.empty()) {
+            /*
+                |** KEY **|        ** VALUE **     |
+                ------------------------------------
+                |** KEY **|  CDE is value| sequence|
+                |----|----|----|----|----|----|----|
+                A    B    C    D    E   S1   S2
+                0    1    2    3    4    5    6
+                for example: _seq_map is {5:{2,3}, 6:{4}}
+                then, _value_to_seq = {2:5,3:5,5:5,4:6,6:6}
+            */
+            for (auto& [seq_uid, cols_uid] : _seq_col_uid_to_value_cols_uid) {
+                for (auto col_uid : cols_uid) {
+                    _value_col_uid_to_seq_col_uid[col_uid] = seq_uid;
+                }
+                _value_col_uid_to_seq_col_uid[seq_uid] = seq_uid;
+            }
+
+            for (auto& [seq_idx, value_cols_idx] : _seq_col_idx_to_value_cols_idx) {
+                for (auto col_idx : value_cols_idx) {
+                    _value_col_idx_to_seq_col_idx[col_idx] = seq_idx;
+                }
+                _value_col_idx_to_seq_col_idx[seq_idx] = seq_idx;
+            }
+        }
+    }
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
         _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
@@ -1175,6 +1266,17 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
+    if (schema.has_is_external_segment_column_meta_used()) {
+        _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
+    } else {
+        _is_external_segment_column_meta_used = false;
+    }
+    if (schema.has_integer_type_default_use_plain_encoding()) {
+        _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
+    }
+    if (schema.has_binary_plain_encoding_default_impl()) {
+        _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
+    }
     update_metadata_size();
 }
 
@@ -1215,7 +1317,6 @@ void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
             continue;
         }
         col->set_is_bf_column(tablet_schema._cols[col_idx]->is_bf_column());
-        col->set_has_bitmap_index(tablet_schema._cols[col_idx]->has_bitmap_index());
     }
 }
 
@@ -1290,7 +1391,16 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
             _skip_bitmap_col_idx = _num_columns;
         }
-        _cols.emplace_back(std::make_shared<TabletColumn>(*column));
+        // Reuse TabletColumn object from pool to reduce memory consumption
+        TabletColumnPtr new_column;
+        ColumnPB column_pb;
+        column->to_schema_pb(&column_pb);
+        auto pair = TabletColumnObjectPool::instance()->insert(
+                deterministic_string_serialize(column_pb));
+        new_column = pair.second;
+        // Release the handle quickly, because we use shared ptr to manage column
+        TabletColumnObjectPool::instance()->release(pair.first);
+        _cols.emplace_back(std::move(new_column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_uniqueid_to_index[_cols.back()->unique_id()] = _num_columns;
         _num_columns++;
@@ -1298,7 +1408,16 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
 
     for (const auto& i : index->indexes) {
         size_t index_pos = _indexes.size();
-        _indexes.emplace_back(std::make_shared<TabletIndex>(*i));
+        // Reuse TabletIndex object from pool to reduce memory consumption
+        TabletIndexPtr new_index;
+        TabletIndexPB index_pb;
+        i->to_schema_pb(&index_pb);
+        auto pair = TabletColumnObjectPool::instance()->insert_index(
+                deterministic_string_serialize(index_pb));
+        new_index = pair.second;
+        // Release the handle quickly, because we use shared ptr to manage index
+        TabletColumnObjectPool::instance()->release(pair.first);
+        _indexes.emplace_back(std::move(new_index));
         for (int32_t col_uid : _indexes.back()->col_unique_ids()) {
             if (auto field_pattern = _indexes.back()->field_pattern(); !field_pattern.empty()) {
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
@@ -1428,6 +1547,20 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
+    tablet_schema_pb->set_is_external_segment_column_meta_used(
+            _is_external_segment_column_meta_used);
+    tablet_schema_pb->set_integer_type_default_use_plain_encoding(
+            _integer_type_default_use_plain_encoding);
+    tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
+    auto column_groups_pb = tablet_schema_pb->mutable_seq_map();
+    for (const auto& it : _seq_col_uid_to_value_cols_uid) {
+        uint32_t key = it.first;
+        ColumnGroupPB* cg_pb = column_groups_pb->add_cg(); // ColumnGroupPB {key: {v1, v2, v3}}
+        cg_pb->set_sequence_column(key);
+        for (auto v : it.second) {
+            cg_pb->add_columns_in_group(v);
+        }
+    }
 }
 
 size_t TabletSchema::row_size() const {
@@ -1673,6 +1806,18 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
     return nullptr;
 }
 
+const TabletIndex* TabletSchema::get_index(int32_t col_unique_id, IndexType index_type,
+                                           const std::string& suffix_path) const {
+    IndexKey index_key(index_type, col_unique_id, suffix_path);
+    auto it = _col_id_suffix_to_index.find(index_key);
+    if (it != _col_id_suffix_to_index.end()) {
+        if (!it->second.empty() && it->second[0] < _indexes.size()) {
+            return _indexes[it->second[0]].get();
+        }
+    }
+    return nullptr;
+}
+
 vectorized::Block TabletSchema::create_block(
         const std::vector<uint32_t>& return_columns,
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
@@ -1684,6 +1829,14 @@ vectorized::Block TabletSchema::create_block(
                             tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
+            col.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
+
         if (_vir_col_idx_to_unique_id.contains(cid)) {
             block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
             VLOG_DEBUG << fmt::format(
@@ -1703,7 +1856,13 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
         if (ignore_dropped_col && is_dropped_column(*col)) {
             continue;
         }
+
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
+        if (col->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col->unique_id())) {
+                data_type = _pruned_columns_data_type.at(col->unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col->name()});
     }
     return block;
@@ -1714,6 +1873,11 @@ vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>
     for (const auto& cid : cids) {
         const auto& col = *_cols[cid];
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col.name()});
     }
     return block;
@@ -1738,7 +1902,6 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._length != b._length) return false;
     if (a._index_length != b._index_length) return false;
     if (a._is_bf_column != b._is_bf_column) return false;
-    if (a._has_bitmap_index != b._has_bitmap_index) return false;
     if (a._column_path == nullptr && a._column_path != nullptr) return false;
     if (b._column_path == nullptr && a._column_path != nullptr) return false;
     if (b._column_path != nullptr && a._column_path != nullptr &&
@@ -1778,6 +1941,12 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._storage_dict_page_size != b._storage_dict_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
+    if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
+        return false;
+    if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
+        return false;
+    if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
+        return false;
     return true;
 }
 

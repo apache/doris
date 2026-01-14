@@ -39,7 +39,7 @@ public:
     ~VInfoFunc() override = default;
 
     const std::string& expr_name() const override { return _expr_name; }
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override;
 
 private:

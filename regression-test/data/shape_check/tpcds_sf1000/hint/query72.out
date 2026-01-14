@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=() build RFs:RF10 w_warehouse_sk->[inv_warehouse_sk]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF8 d_date_sk->[inv_date_sk];RF9 cs_item_sk->[inv_item_sk]
+--------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = inventory.inv_item_sk) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=((inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)) build RFs:RF8 d_date_sk->[inv_date_sk];RF9 cs_item_sk->[inv_item_sk]
 ----------------------PhysicalOlapScan[inventory] apply RFs: RF8 RF9 RF10
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_week_seq = d2.d_week_seq)) otherCondition=() build RFs:RF7 d_week_seq->[d_week_seq]
@@ -31,7 +31,7 @@ PhysicalResultSink
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
 --------------------------------------------------PhysicalProject
-----------------------------------------------------NestedLoopJoin[INNER_JOIN](d3.d_date > days_add(d_date, INTERVAL 5 DAY))
+----------------------------------------------------NestedLoopJoin[INNER_JOIN](d3.d_date > days_add(d_date, 5))
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------PhysicalOlapScan[date_dim(d3)]
 ------------------------------------------------------PhysicalProject

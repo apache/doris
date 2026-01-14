@@ -263,6 +263,7 @@ public class MaxComputeJniScanner extends JniScanner {
 
                 List<FieldVector> fieldVectors = data.getFieldVectors();
                 int batchRows = 0;
+                long startTime = System.nanoTime();
                 for (FieldVector column : fieldVectors) {
                     Integer readColumnId = readColumnsToId.get(column.getName());
                     batchRows = column.getValueCount();
@@ -275,6 +276,8 @@ public class MaxComputeJniScanner extends JniScanner {
                         appendData(readColumnId, columnValue);
                     }
                 }
+                appendDataTime += System.nanoTime() - startTime;
+
                 curReadRows += batchRows;
             } catch (Exception e) {
                 String errorMsg = String.format("MaxComputeJniScanner Fail to read arrow data. "

@@ -31,14 +31,12 @@ namespace vectorized {
 class Arena;
 } // namespace vectorized
 
-TabletColumnPtr create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false,
-                               bool has_bitmap_index = false);
+TabletColumnPtr create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false);
 
 TabletColumnPtr create_int_value(
         int32_t id,
         FieldAggregationMethod agg_method = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
-        bool is_nullable = true, const std::string default_value = "", bool is_bf_column = false,
-        bool has_bitmap_index = false);
+        bool is_nullable = true, const std::string default_value = "", bool is_bf_column = false);
 
 TabletColumnPtr create_char_key(int32_t id, bool is_nullable = true);
 

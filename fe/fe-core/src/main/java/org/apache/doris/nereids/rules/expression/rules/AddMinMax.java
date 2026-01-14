@@ -49,7 +49,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -311,17 +310,17 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
 
     @Override
     public Map<Expression, MinMaxValue> visitNotDiscreteValue(NotDiscreteValue value, Void context) {
-        return ImmutableMap.of();
+        return Maps.newHashMap();
     }
 
     @Override
     public Map<Expression, MinMaxValue> visitIsNullValue(IsNullValue value, Void context) {
-        return ImmutableMap.of();
+        return Maps.newHashMap();
     }
 
     @Override
     public Map<Expression, MinMaxValue> visitIsNotNullValue(IsNotNullValue value, Void context) {
-        return ImmutableMap.of();
+        return Maps.newHashMap();
     }
 
     @Override
@@ -412,6 +411,6 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
 
     @Override
     public Map<Expression, MinMaxValue> visitUnknownValue(UnknownValue valueDesc, Void context) {
-        return ImmutableMap.of();
+        return Maps.newHashMap();
     }
 }

@@ -94,6 +94,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected TableScanParams scanParams;
 
+    protected FileSplitter fileSplitter;
+
     /**
      * External file scan node for Query hms table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -134,6 +136,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         initBackendPolicy();
         initSchemaParams();
+        fileSplitter = new FileSplitter(sessionVariable.maxInitialSplitSize, sessionVariable.maxSplitSize,
+                sessionVariable.maxInitialSplitNum);
     }
 
     // Init schema (Tuple/Slot) related params.
@@ -157,6 +161,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
+        // Set enable_mapping_varbinary from catalog or TVF
+        params.setEnableMappingVarbinary(getEnableMappingVarbinary());
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -549,6 +555,30 @@ public abstract class FileQueryScanNode extends FileScanNode {
         throw new NotImplementedException("getFileAttributes is not implemented.");
     }
 
+    protected boolean getEnableMappingVarbinary() {
+        try {
+            TableIf table = getTargetTable();
+            // For External Catalog tables get from catalog properties
+            if (table instanceof ExternalTable) {
+                ExternalTable externalTable = (ExternalTable) table;
+                CatalogIf<?> catalog = externalTable.getCatalog();
+                if (catalog instanceof ExternalCatalog) {
+                    return ((ExternalCatalog) catalog).getEnableMappingVarbinary();
+                }
+            }
+            // For TVF read directly from fileFormatProperties
+            if (table instanceof FunctionGenTable) {
+                FunctionGenTable functionGenTable = (FunctionGenTable) table;
+                ExternalFileTableValuedFunction tvf = (ExternalFileTableValuedFunction) functionGenTable.getTvf();
+                return tvf.fileFormatProperties.enableMappingVarbinary;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to get enable_mapping_varbinary from catalog, use default value false. Error: {}",
+                    e.getMessage());
+        }
+        return false;
+    }
+
     protected abstract List<String> getPathPartitionKeys() throws UserException;
 
     protected abstract TableIf getTargetTable() throws UserException;
@@ -591,20 +621,5 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return scan;
         }
         return this.scanParams;
-    }
-
-    /**
-     * The real file split size is determined by:
-     * 1. If user specify the split size in session variable `file_split_size`, use user specified value.
-     * 2. Otherwise, use the max value of DEFAULT_SPLIT_SIZE and block size.
-     * @param blockSize, got from file system, eg, hdfs
-     * @return the real file split size
-     */
-    protected long getRealFileSplitSize(long blockSize) {
-        long realSplitSize = sessionVariable.getFileSplitSize();
-        if (realSplitSize <= 0) {
-            realSplitSize = Math.max(DEFAULT_SPLIT_SIZE, blockSize);
-        }
-        return realSplitSize;
     }
 }

@@ -21,6 +21,7 @@
 
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -140,7 +141,7 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         auto int_column = int_type->create_column();
@@ -221,6 +222,8 @@ TEST_F(TryCastExprTest, row_exec1) {
     Block block;
     int result_column_id = -1;
     try_cast_expr._original_cast_return_is_nullable = false;
+    block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
+                                        "mock_input_column"});
     auto st = try_cast_expr.execute(context.get(), &block, &result_column_id);
     EXPECT_TRUE(st.ok()) << st.msg();
 
@@ -240,6 +243,8 @@ TEST_F(TryCastExprTest, row_exec2) {
     Block block;
     int result_column_id = -1;
     try_cast_expr._original_cast_return_is_nullable = true;
+    block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
+                                        "mock_input_column"});
     auto st = try_cast_expr.execute(context.get(), &block, &result_column_id);
     EXPECT_TRUE(st.ok()) << st.msg();
 
@@ -259,6 +264,8 @@ TEST_F(TryCastExprTest, row_exec3) {
     Block block;
     int result_column_id = -1;
     try_cast_expr._original_cast_return_is_nullable = true;
+    block.insert(ColumnWithTypeAndName {ColumnNothing::create(3), std::make_shared<DataTypeInt32>(),
+                                        "mock_input_column"});
     auto st = try_cast_expr.execute(context.get(), &block, &result_column_id);
     EXPECT_FALSE(st.ok()) << st.msg();
 }

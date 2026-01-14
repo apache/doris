@@ -101,6 +101,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     size_t local_size = 0;
     for (int i = 0; i < channels.size(); ++i) {
         if (channels[i]->is_local()) {
+            local_channel_ids.push_back(i);
             local_size++;
             _last_local_channel_idx = i;
         }
@@ -118,13 +119,18 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     if (_part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                        channels.size());
+        if (_state->query_options().__isset.enable_new_shuffle_hash_method &&
+            _state->query_options().enable_new_shuffle_hash_method) {
+            _partitioner = std::make_unique<vectorized::Crc32CHashPartitioner>(channels.size());
+        } else {
+            _partitioner = std::make_unique<
+                    vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                    channels.size());
+        }
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string(
-                "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
+                "Partitioner", fmt::format("Crc32CHashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channels.size();
         _partitioner =
@@ -330,7 +336,7 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
                     vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
+            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc));
             RETURN_IF_ERROR(
                     vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
         }
@@ -350,11 +356,11 @@ void ExchangeSinkOperatorX::_init_sink_buffer() {
 }
 
 template <typename ChannelPtrType>
-void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
-                                                Status st) {
+Status ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
+                                                  Status st) {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    static_cast<void>(channel->close(state));
+    return channel->close(state);
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
@@ -379,6 +385,16 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     if (block->empty() && !eos) {
         return Status::OK();
     }
+
+    auto get_serializer_mem_bytes = [&local_state]() -> int64_t {
+        int64_t mem_usage = local_state._serializer.mem_usage();
+        for (auto& channel : local_state.channels) {
+            mem_usage += channel->mem_usage();
+        }
+        return mem_usage;
+    };
+
+    int64_t before_serializer_mem_bytes = get_serializer_mem_bytes();
 
     auto send_to_current_channel = [&]() -> Status {
         // 1. select channel
@@ -422,11 +438,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
             {
                 bool serialized = false;
-                int64_t old_block_mem_bytes = local_state._serializer.mem_usage();
-                Defer update_mem([&]() {
-                    COUNTER_UPDATE(local_state.memory_used_counter(),
-                                   local_state._serializer.mem_usage() - old_block_mem_bytes);
-                });
                 RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
                         block, block_holder->get_block(), local_state._rpc_channels_num,
                         &serialized, eos));
@@ -474,6 +485,17 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             }
         }
     } else if (_part_type == TPartitionType::RANDOM) {
+        if (!local_state.local_channel_ids.empty()) {
+            const auto& ids = local_state.local_channel_ids;
+            // Find the first channel ID >= current_channel_idx
+            auto it = std::lower_bound(ids.begin(), ids.end(), local_state.current_channel_idx);
+            if (it != ids.end()) {
+                local_state.current_channel_idx = *it;
+            } else {
+                // All IDs are < current_channel_idx; wrap around to the first one
+                local_state.current_channel_idx = ids[0];
+            }
+        }
         RETURN_IF_ERROR(send_to_current_channel());
         local_state.current_channel_idx =
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
@@ -500,13 +522,16 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         // 2. dispatch rows to channel
     }
 
+    int64_t after_serializer_mem_bytes = get_serializer_mem_bytes();
+
+    int64_t delta_mem_bytes = after_serializer_mem_bytes - before_serializer_mem_bytes;
+    COUNTER_UPDATE(local_state.memory_used_counter(), delta_mem_bytes);
+
     Status final_st = Status::OK();
     if (eos) {
-        int64_t block_mem_bytes = local_state._serializer.mem_usage();
-        COUNTER_UPDATE(local_state.memory_used_counter(), -block_mem_bytes);
+        COUNTER_UPDATE(local_state.memory_used_counter(), -after_serializer_mem_bytes);
         local_state._serializer.reset_block();
         for (auto& channel : local_state.channels) {
-            COUNTER_UPDATE(local_state.memory_used_counter(), -channel->mem_usage());
             Status st = channel->close(state);
             /**
              * Consider this case below:

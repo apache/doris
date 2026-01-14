@@ -31,44 +31,17 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool is_binary_format>
-Status DataTypeIPv6SerDe::_write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                 int64_t row_idx, bool col_const,
-                                                 const FormatOptions& options) const {
+Status DataTypeIPv6SerDe::write_column_to_mysql_binary(const IColumn& column,
+                                                       MysqlRowBinaryBuffer& result,
+                                                       int64_t row_idx, bool col_const,
+                                                       const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv6Value ipv6_val(data[col_index]);
-    // _nesting_level >= 2 means this datetimev2 is in complex type
-    // and we should add double quotes
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     if (UNLIKELY(0 != result.push_ipv6(ipv6_val))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    if (_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     return Status::OK();
-}
-
-Status DataTypeIPv6SerDe::write_column_to_mysql_binary(const IColumn& column,
-                                                       MysqlRowBinaryBuffer& row_buffer,
-                                                       int64_t row_idx, bool col_const,
-                                                       const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-Status DataTypeIPv6SerDe::write_column_to_mysql_text(const IColumn& column,
-                                                     MysqlRowTextBuffer& row_buffer,
-                                                     int64_t row_idx, bool col_const,
-                                                     const FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
@@ -78,7 +51,8 @@ void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbVal
 
 void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column,
                                                 JsonbWriterT<JsonbOutStream>& result, Arena& arena,
-                                                int col_id, int64_t row_num) const {
+                                                int col_id, int64_t row_num,
+                                                const FormatOptions& options) const {
     // we make ipv6 as BinaryValue in jsonb
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
@@ -200,7 +174,8 @@ Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::A
 Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                               const NullMap* null_map,
                                               orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                              int64_t end, vectorized::Arena& arena) const {
+                                              int64_t end, vectorized::Arena& arena,
+                                              const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
 

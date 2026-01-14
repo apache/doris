@@ -107,6 +107,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot("ms", "abort_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot("ms", "drop_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot("ms", "list_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_clone_instance("ms", "clone_instance");
+BvarLatencyRecorderWithTag g_bvar_ms_update_packed_file_info("ms", "update_packed_file_info");
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -117,6 +118,11 @@ BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count("ms", "
 MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count("instance", "txn_commit_with_partition_count", {"instance_id"});
 MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count("instance", "txn_commit_with_tablet_count", {"instance_id"});
 bvar::LatencyRecorder g_bvar_ms_scan_instance_update("ms", "scan_instance_update");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration("txn_lazy_committer", "waiting");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration("txn_lazy_committer", "committing");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_commit_partition_duration("txn_lazy_committer", "commit_partition");
+bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted("txn_lazy_committer", "submitted");
+bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished("txn_lazy_committer", "finished");
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
@@ -158,6 +164,27 @@ mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_
 mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource("recycler_instance_recycle_time_per_resource", {"instance_id", "resource_type"});
 // represents the bytes of resources that can be recycled per ms
 mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms("recycler_instance_recycle_bytes_per_ms", {"instance_id", "resource_type"});
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_num("recycler",
+                                                                       "packed_file_recycled_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_bytes(
+        "recycler", "packed_file_recycled_kv_bytes");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycle_cost_ms(
+        "recycler", "packed_file_recycle_cost_ms");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_scanned_kv_num(
+        "recycler", "packed_file_scanned_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_corrected_kv_num(
+        "recycler", "packed_file_corrected_kv_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_object_num(
+        "recycler", "packed_file_recycled_object_num");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted(
+        "recycler", "packed_file_bytes_object_deleted");
+BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num(
+        "recycler", "packed_file_rowset_scanned_num");
+
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count(
+        "recycler", "batch_delete_rowset_plan_count");
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures(
+        "recycler", "batch_delete_failures");
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
@@ -220,19 +247,9 @@ bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns("fdb_qos_w
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns("fdb_qos_worst_durability_lag_storage_server_ns", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes("fdb_qos_worst_log_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes("fdb_qos_worst_storage_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_conflict_rate_hz("fdb_workload_conflict_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_location_rate_hz("fdb_workload_location_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_keys_read_hz("fdb_workload_keys_read_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_read_bytes_hz("fdb_workload_read_bytes_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_read_rate_hz("fdb_workload_read_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_write_rate_hz("fdb_workload_write_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz("fdb_workload_written_bytes_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz("fdb_workload_transactions_started_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz("fdb_workload_transactions_committed_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz("fdb_workload_transactions_rejected_hz", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent("fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
-mBvarStatus<int64_t> g_bvar_fdb_process_status_int("fdb_process_status_int", {"process_id", "component", "metric"});
-mBvarStatus<double> g_bvar_fdb_process_status_float("fdb_process_status_float", {"process_id", "component", "metric"});
+mBvarStatus<double> g_bvar_fdb_cluster_processes("fdb_cluster_processes", {"process_id", "component", "metric"});
+mBvarStatus<double> g_bvar_fdb_cluster_workload("fdb_cluster_workload", {"component", "metric"});
 
 // checker's bvars
 BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned("checker", "num_scanned");

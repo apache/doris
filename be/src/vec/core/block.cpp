@@ -54,6 +54,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 class SipHash;
 
@@ -86,12 +87,8 @@ Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {}
 
 Block::Block(ColumnsWithTypeAndName data_) : data {std::move(data_)} {}
 
-Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
-             bool ignore_trivial_slot) {
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
     for (auto* const slot_desc : slots) {
-        if (ignore_trivial_slot && !slot_desc->is_materialized()) {
-            continue;
-        }
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
@@ -99,15 +96,14 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
     }
 }
 
-Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
-             bool ignore_trivial_slot) {
+Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size) {
     std::vector<SlotDescriptor*> slot_ptrs(slots.size());
     for (size_t i = 0; i < slots.size(); ++i) {
         // Slots remain unmodified and are used to read column information; const_cast can be employed.
         // used in src/exec/rowid_fetcher.cpp
         slot_ptrs[i] = const_cast<SlotDescriptor*>(&slots[i]);
     }
-    *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
+    *this = Block(slot_ptrs, block_size);
 }
 
 Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
@@ -293,6 +289,7 @@ Status Block::check_type_and_column() const {
         const auto& type = elem.type;
         const auto& column = elem.column;
 
+        RETURN_IF_ERROR(column->column_self_check());
         auto st = type->check_column(*column);
         if (!st.ok()) {
             return Status::InternalError(
@@ -426,6 +423,10 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
     size_t start_row = std::min(begin, rows());
     size_t end_row = std::min(rows(), begin + row_limit);
 
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone = &time_zone;
+
     ss << "[";
     for (size_t row_num = start_row; row_num < end_row; ++row_num) {
         if (row_num > start_row) {
@@ -448,11 +449,11 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
                 assert(allow_null_mismatch);
                 s = assert_cast<const DataTypeNullable*>(data[i].type.get())
                             ->get_nested_type()
-                            ->to_string(*data[i].column, row_num);
+                            ->to_string(*data[i].column, row_num, format_options);
             } else {
                 // This is the standard path. The to_string method is expected to correctly
                 // handle all cases, including when the column is null (e.g., by returning "NULL").
-                s = data[i].to_string(row_num);
+                s = data[i].to_string(row_num, format_options);
             }
             ss << "\"" << s << "\"";
         }
@@ -491,6 +492,11 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
     if (rows() == 0) {
         return out.str();
     }
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone = &time_zone;
+
     // content
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
@@ -506,9 +512,9 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
                     assert(allow_null_mismatch);
                     s = assert_cast<const DataTypeNullable*>(data[i].type.get())
                                 ->get_nested_type()
-                                ->to_string(*data[i].column, row_num);
+                                ->to_string(*data[i].column, row_num, format_options);
                 } else {
-                    s = data[i].to_string(row_num);
+                    s = data[i].to_string(row_num, format_options);
                 }
             }
             if (s.length() > headers_size[i]) {
@@ -530,12 +536,17 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
 std::string Block::dump_one_line(size_t row, int column_end) const {
     assert(column_end <= columns());
     fmt::memory_buffer line;
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone = &time_zone;
+
     for (int i = 0; i < column_end; ++i) {
         if (LIKELY(i != 0)) {
             // TODO: need more effective function of to string. now the impl is slow
-            fmt::format_to(line, " {}", data[i].to_string(row));
+            fmt::format_to(line, " {}", data[i].to_string(row, format_options));
         } else {
-            fmt::format_to(line, "{}", data[i].to_string(row));
+            fmt::format_to(line, "{}", data[i].to_string(row, format_options));
         }
     }
     return fmt::to_string(line);
@@ -1015,6 +1026,11 @@ std::string MutableBlock::dump_data_json(size_t row_limit) const {
     }
     size_t num_rows_to_dump = std::min(rows(), row_limit);
     ss << "[";
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone = &time_zone;
+
     for (size_t row_num = 0; row_num < num_rows_to_dump; ++row_num) {
         if (row_num > 0) {
             ss << ",";
@@ -1025,7 +1041,7 @@ std::string MutableBlock::dump_data_json(size_t row_limit) const {
                 ss << ",";
             }
             ss << "\"" << headers[i] << "\":";
-            std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
+            std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num, format_options);
             ss << "\"" << s << "\"";
         }
         ss << "}";
@@ -1063,6 +1079,11 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     if (rows() == 0) {
         return out.str();
     }
+
+    auto format_options = DataTypeSerDe::get_default_format_options();
+    auto time_zone = cctz::utc_time_zone();
+    format_options.timezone = &time_zone;
+
     // content
     for (size_t row_num = 0; row_num < rows() && row_num < row_limit; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
@@ -1071,7 +1092,7 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
                     << std::right;
                 continue;
             }
-            std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
+            std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num, format_options);
             if (s.length() > headers_size[i]) {
                 s = s.substr(0, headers_size[i] - 3) + "...";
             }

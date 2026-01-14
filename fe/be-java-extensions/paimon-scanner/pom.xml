@@ -37,10 +37,11 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>preload-extensions</artifactId>
+            <artifactId>java-common</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
@@ -50,6 +51,11 @@ under the License.
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-common</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-hive-connector-3.1</artifactId>
             <version>${paimon.version}</version>
         </dependency>
 

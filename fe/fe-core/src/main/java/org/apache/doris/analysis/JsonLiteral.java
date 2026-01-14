@@ -42,6 +42,7 @@ public class JsonLiteral extends LiteralExpr {
     public JsonLiteral() {
         super();
         type = Type.JSONB;
+        this.nullable = false;
     }
 
     public JsonLiteral(String value) throws AnalysisException {
@@ -52,7 +53,7 @@ public class JsonLiteral extends LiteralExpr {
         }
         this.value = value;
         type = Type.JSONB;
-        analysisDone();
+        this.nullable = false;
     }
 
     protected JsonLiteral(JsonLiteral other) {

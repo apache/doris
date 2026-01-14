@@ -23,14 +23,16 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
@@ -131,7 +133,8 @@ public class RuntimeFilterTranslator {
 
                 // adjust data type
                 if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
-                    targetExpr = new CastExpr(src.getType(), targetExpr, null);
+                    targetExpr = new CastExpr(src.getType(), targetExpr, Cast.castNullable(src.isNullable(),
+                            DataType.fromCatalogType(src.getType()), DataType.fromCatalogType(targetExpr.getType())));
                 }
                 TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();

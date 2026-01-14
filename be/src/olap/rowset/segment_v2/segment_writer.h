@@ -148,7 +148,7 @@ public:
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_index_file_writer->close());
+        RETURN_IF_ERROR(_index_file_writer->begin_close());
         *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
@@ -164,7 +164,6 @@ private:
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
-    Status _write_bitmap_index();
     Status _write_inverted_index();
     Status _write_ann_index();
     Status _write_bloom_filter_index();

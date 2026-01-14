@@ -97,6 +97,7 @@ public:
 
     Status start() override;
     void stop() override;
+    void wait() override;
 
     Result<std::shared_ptr<TaskHandle>> create_task(
             const TaskId& task_id, std::function<double()> utilization_supplier,
@@ -245,8 +246,6 @@ private:
             std::unique_lock<std::mutex>& lock);
     void _record_leaf_splits_size(std::unique_lock<std::mutex>& lock);
     void _split_finished(std::shared_ptr<PrioritizedSplitRunner> split, const Status& status);
-    // Waits until all the tasks are completed.
-    void wait();
 
     int64_t _get_running_tasks_for_level(int level) const;
 

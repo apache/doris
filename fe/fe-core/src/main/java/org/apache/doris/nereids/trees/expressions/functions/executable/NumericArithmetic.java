@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -45,6 +46,7 @@ import org.apache.commons.math3.util.FastMath;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * executable functions:
@@ -360,7 +362,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(0).getDouble());
     }
 
@@ -369,7 +372,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(second.getValue()).getDouble());
     }
 
@@ -395,7 +399,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(0).getDouble());
     }
 
@@ -404,7 +409,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(second.getValue()).getDouble());
     }
 
@@ -430,7 +436,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(0).getDouble());
     }
 
@@ -439,7 +446,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(second.getValue()).getDouble());
     }
 
@@ -1101,5 +1109,41 @@ public class NumericArithmetic {
     @ExecFunction(name = "bool_xor")
     public static Expression boolxor(BooleanLiteral first) {
         return first;
+    }
+
+    /**
+     * interval
+     */
+    @ExecFunction(name = "interval")
+    public static Expression interval(NullLiteral compareValue, Literal... thresholds) {
+        return new IntegerLiteral(-1);
+    }
+
+    /**
+     * interval
+     */
+    @ExecFunction(name = "interval")
+    public static Expression interval(BigIntLiteral compareValue, Literal... thresholds) {
+        long value = compareValue.getValue();
+
+        long[] thresholdValues = new long[thresholds.length];
+        for (int i = 0; i < thresholds.length; i++) {
+            if (thresholds[i] instanceof NullLiteral) {
+                thresholdValues[i] = 0;
+            } else if (thresholds[i] instanceof BigIntLiteral) {
+                thresholdValues[i] = ((BigIntLiteral) thresholds[i]).getValue();
+            } else {
+                throw new AnalysisException("Thresholds must be BigIntLiteral or NullLiteral");
+            }
+        }
+
+        int pos = Arrays.binarySearch(thresholdValues, value);
+
+        if (pos >= 0) {
+            return new IntegerLiteral(pos + 1);
+        } else {
+            int insertionPoint = -(pos + 1);
+            return new IntegerLiteral(insertionPoint);
+        }
     }
 }

@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nothing.h"
@@ -83,9 +84,21 @@ String ColumnWithTypeAndName::dump_structure() const {
     return out.str();
 }
 
-std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
-    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num);
+std::string ColumnWithTypeAndName::to_string(
+        size_t row_num, const vectorized::DataTypeSerDe::FormatOptions& format_options) const {
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
 }
+
+#ifdef BE_TEST
+std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto timezone = cctz::utc_time_zone();
+    format_options.timezone = &timezone;
+    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num,
+                           format_options);
+}
+#endif
 
 void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_name(name);
@@ -116,7 +129,9 @@ ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
                 const auto& null_map = source_column->get_null_map_data();
                 // only need to mutate nested column, avoid to copy nullmap
                 auto mutable_nested_col = (*std::move(nested_column)).mutate();
-                mutable_nested_col->replace_column_null_data(null_map.data());
+                if (simd::contain_one(null_map.data(), null_map.size())) {
+                    mutable_nested_col->replace_column_null_data(null_map.data());
+                }
 
                 return {std::move(mutable_nested_col), nested_type, ""};
             }

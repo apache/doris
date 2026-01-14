@@ -32,19 +32,16 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/olap_common.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/tracing_file_reader.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/Reader.hh"
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
-#include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
@@ -112,6 +109,12 @@ struct LazyReadContext {
     std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+
+    std::vector<std::string> partial_predicate_columns;
+
+    // Record the number of rows filled in filter phase for lazy materialization
+    // This is used to check if a column was already processed in filter phase
+    size_t filter_phase_rows = 0;
 };
 
 class OrcReader : public GenericReader {
@@ -152,13 +155,15 @@ public:
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts, bool is_acid,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
-                    TableSchemaChangeHelper::ConstNode::get_instance());
+                    TableSchemaChangeHelper::ConstNode::get_instance(),
+            const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& filter_column_ids = {});
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -177,7 +182,7 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
-    void set_position_delete_rowids(std::vector<int64_t>* delete_rows) {
+    void set_position_delete_rowids(const std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }
 
@@ -195,7 +200,8 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
-    static DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
+    DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
+
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
     void set_row_id_column_iterator(
@@ -335,8 +341,6 @@ private:
     Status _fill_missing_columns(
             Block* block, uint64_t rows,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
-    void _init_bloom_filter(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
     void _init_file_description();
 
@@ -630,7 +634,7 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
-    const std::string& _ctz;
+    std::string _ctz;
 
     int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
@@ -653,6 +657,9 @@ private:
     // file column name to orc type
     std::unordered_map<std::string, const orc::Type*> _type_map;
 
+    // Column ID to file original type mapping for handling incomplete MAP type due to column pruning.
+    std::unordered_map<uint64_t, const orc::Type*> _column_id_to_file_type;
+
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
@@ -673,7 +680,6 @@ private:
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
 
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;
     LazyReadContext _lazy_read_ctx;
@@ -698,7 +704,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
 
     //support iceberg position delete .
-    std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+    const std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
@@ -714,6 +720,12 @@ private:
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
+
+    std::set<uint64_t> _column_ids;
+    std::set<uint64_t> _filter_column_ids;
+
+    // Pointer to external column name to block index mapping (from FileScanner)
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     VExprSPtrs _push_down_exprs;
 };

@@ -72,8 +72,8 @@ private:
         ColumnPtr column_result = nullptr;
 
         auto res = ColumnInt64::create(1);
-        res->get_element(0) = Impl::apply(column_left_ptr->template get_value<int64_t>(),
-                                          column_right_ptr->template get_value<int8_t>());
+        res->get_element(0) = Impl::apply(column_left_ptr->template get_value<TYPE_BIGINT>(),
+                                          column_right_ptr->template get_value<TYPE_TINYINT>());
         column_result = std::move(res);
         return ColumnConst::create(std::move(column_result), column_left->size());
     }
@@ -87,7 +87,7 @@ private:
         auto& c = column_result->get_data();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(a[i], column_right_ptr->template get_value<int8_t>());
+            c[i] = Impl::apply(a[i], column_right_ptr->template get_value<TYPE_TINYINT>());
         }
         return column_result;
     }
@@ -101,7 +101,7 @@ private:
         auto& c = column_result->get_data();
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
-            c[i] = Impl::apply(column_left_ptr->template get_value<int64_t>(), b[i]);
+            c[i] = Impl::apply(column_left_ptr->template get_value<TYPE_BIGINT>(), b[i]);
         }
         return column_result;
     }

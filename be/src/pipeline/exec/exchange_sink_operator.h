@@ -104,6 +104,7 @@ public:
         return _distribute_rows_into_channels_timer;
     }
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
+    std::vector<int> local_channel_ids;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool _only_local_exchange {false};
 
@@ -233,7 +234,7 @@ private:
     MOCK_FUNCTION void _init_sink_buffer();
 
     template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     // Use ExchangeSinkOperatorX to create a sink buffer.
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,

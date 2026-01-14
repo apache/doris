@@ -179,7 +179,7 @@ suite("create_ann_index_test") {
                 id INT NOT NULL COMMENT "",
                 embedding ARRAY<FLOAT> NOT NULL COMMENT "",
                 INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
-                    "index_type"="ivf",
+                    "index_type"="unknown",
                     "metric_type"="l2_distance",
                     "dim"="1"
                 )
@@ -190,7 +190,7 @@ suite("create_ann_index_test") {
                 "replication_num" = "1"
             );
         """
-        exception "only support ann index with type hnsw"
+        exception "only support ann index with type hnsw or ivf"
     }
 
     // metric_type is incorrect

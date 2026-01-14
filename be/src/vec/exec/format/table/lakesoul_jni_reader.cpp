@@ -60,9 +60,8 @@ LakeSoulJniReader::LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
                                                     params, required_fields);
 }
 
-Status LakeSoulJniReader::init_reader(
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
+Status LakeSoulJniReader::init_reader() {
+    RETURN_IF_ERROR(_jni_connector->init());
     return _jni_connector->open(_state, _profile);
 }
 #include "common/compile_check_end.h"

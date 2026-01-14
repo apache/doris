@@ -166,6 +166,7 @@ public class HadoopHudiJniScanner extends JniScanner {
             return preExecutionAuthenticator.execute(() -> {
                 NullWritable key = reader.createKey();
                 ArrayWritable value = reader.createValue();
+                long startTime = System.nanoTime();
                 int numRows = 0;
                 for (; numRows < fetchSize; numRows++) {
                     if (!reader.next(key, value)) {
@@ -185,6 +186,7 @@ public class HadoopHudiJniScanner extends JniScanner {
                 if (fields.length == 0) {
                     vectorTable.appendVirtualData(numRows);
                 }
+                appendDataTime += System.nanoTime() - startTime;
                 return numRows;
             });
         } catch (Exception e) {

@@ -37,6 +37,9 @@ enum class HashKeyType {
     int256_key,
     string_key,
     fixed64,
+    fixed72,
+    fixed96,
+    fixed104,
     fixed128,
     fixed136,
     fixed256
@@ -59,6 +62,12 @@ inline HashKeyType get_hash_key_type_with_fixed(size_t size) {
     using namespace vectorized;
     if (size <= sizeof(UInt64)) {
         return HashKeyType::fixed64;
+    } else if (size <= sizeof(UInt72)) {
+        return HashKeyType::fixed72;
+    } else if (size <= sizeof(UInt96)) {
+        return HashKeyType::fixed96;
+    } else if (size <= sizeof(UInt104)) {
+        return HashKeyType::fixed104;
     } else if (size <= sizeof(UInt128)) {
         return HashKeyType::fixed128;
     } else if (size <= sizeof(UInt136)) {
@@ -71,6 +80,10 @@ inline HashKeyType get_hash_key_type_with_fixed(size_t size) {
 }
 
 inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTypePtr>& data_types) {
+    if (data_types.size() >= vectorized::BITSIZE) {
+        return HashKeyType::serialized;
+    }
+
     bool has_null = false;
     size_t key_byte_size = 0;
 
@@ -85,8 +98,7 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTyp
         }
     }
 
-    size_t bitmap_size = has_null ? vectorized::get_bitmap_size(data_types.size()) : 0;
-    return get_hash_key_type_with_fixed(bitmap_size + key_byte_size);
+    return get_hash_key_type_with_fixed(has_null + key_byte_size);
 }
 
 inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>& data_types) {

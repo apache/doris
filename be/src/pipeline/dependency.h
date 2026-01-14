@@ -382,31 +382,31 @@ public:
     // Refresh the top limit heap with a new row
     void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
 
+    vectorized::Arena agg_arena_pool;
+    vectorized::Arena agg_profile_arena;
+
 private:
     vectorized::MutableColumns _get_keys_hash_table();
 
     void _close_with_serialized_key() {
-        std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
-                                             // Do nothing
-                                         },
-                                         [&](auto& agg_method) -> void {
-                                             auto& data = *agg_method.hash_table;
-                                             data.for_each_mapped([&](auto& mapped) {
-                                                 if (mapped) {
-                                                     static_cast<void>(_destroy_agg_status(mapped));
-                                                     mapped = nullptr;
-                                                 }
-                                             });
-                                             if (data.has_null_key_data()) {
-                                                 auto st = _destroy_agg_status(
-                                                         data.template get_null_key_data<
-                                                                 vectorized::AggregateDataPtr>());
-                                                 if (!st) {
-                                                     throw Exception(st.code(), st.to_string());
-                                                 }
-                                             }
-                                         }},
-                   agg_data->method_variant);
+        std::visit(
+                vectorized::Overload {[&](std::monostate& arg) -> void {
+                                          // Do nothing
+                                      },
+                                      [&](auto& agg_method) -> void {
+                                          auto& data = *agg_method.hash_table;
+                                          data.for_each_mapped([&](auto& mapped) {
+                                              if (mapped) {
+                                                  _destroy_agg_status(mapped);
+                                                  mapped = nullptr;
+                                              }
+                                          });
+                                          if (data.has_null_key_data()) {
+                                              _destroy_agg_status(data.template get_null_key_data<
+                                                                  vectorized::AggregateDataPtr>());
+                                          }
+                                      }},
+                agg_data->method_variant);
     }
 
     void _close_without_key() {
@@ -414,11 +414,11 @@ private:
         //but finally call close to destory agg data, if agg data has bitmapValue
         //will be core dump, it's not initialized
         if (agg_data_created_without_key) {
-            static_cast<void>(_destroy_agg_status(agg_data->without_key));
+            _destroy_agg_status(agg_data->without_key);
             agg_data_created_without_key = false;
         }
     }
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
+    void _destroy_agg_status(vectorized::AggregateDataPtr data);
 };
 
 struct BasicSpillSharedState {
@@ -580,6 +580,7 @@ public:
     std::mutex buffer_mutex;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    vectorized::Arena agg_arena_pool;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -702,13 +703,15 @@ public:
 
     std::atomic<bool> ready_for_read = false;
 
+    vectorized::Arena arena;
+
     /// called in setup_local_state
     Status hash_table_init();
 };
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
-    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
+    // Shuffle data by Crc32CHashPartitioner
     HASH_SHUFFLE = 1,
     // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,

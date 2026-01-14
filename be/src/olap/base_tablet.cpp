@@ -18,6 +18,7 @@
 #include "olap/base_tablet.h"
 
 #include <bthread/mutex.h>
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
@@ -44,11 +45,11 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/txn_manager.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
-#include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
@@ -525,13 +526,12 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 // user can get all delete bitmaps from that token.
 // if `token` is nullptr, the calculation will run in local, and user can get the result
 // delete bitmap from `delete_bitmap` directly.
-Status BaseTablet::calc_delete_bitmap(
-        const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-        const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
-        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
-        DeleteBitmapPtr tablet_delete_bitmap,
-        std::function<void(segment_v2::SegmentSharedPtr, Status)> callback) {
+Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
+                                      CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+                                      DeleteBitmapPtr tablet_delete_bitmap) {
     if (specified_rowsets.empty() || segments.empty()) {
         return Status::OK();
     }
@@ -541,8 +541,7 @@ Status BaseTablet::calc_delete_bitmap(
         const auto& seg = segment;
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet, rowset, seg, specified_rowsets, end_version,
-                                          delete_bitmap, rowset_writer, tablet_delete_bitmap,
-                                          callback));
+                                          delete_bitmap, rowset_writer, tablet_delete_bitmap));
         } else {
             RETURN_IF_ERROR(tablet->calc_segment_delete_bitmap(
                     rowset, segment, specified_rowsets, delete_bitmap, end_version, rowset_writer,
@@ -583,14 +582,6 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                rowset_schema->sequence_col_idx()) != including_cids.cend());
         }
     }
-
-    DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.sleep", {
-        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
-        auto sleep = dp->param<int64_t>("sleep", 10);
-        if (target_tablet_id == tablet_id()) {
-            std::this_thread::sleep_for(std::chrono::seconds(sleep));
-        }
-    });
 
     if (rowset_schema->num_variant_columns() > 0) {
         // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
@@ -2034,7 +2025,7 @@ Status BaseTablet::calc_file_crc(uint32_t* crc_value, int64_t start_version, int
             return st;
         }
         // crc_value is calculated based on the crc_value of each rowset.
-        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const char*>(&rs_crc_value),
+        *crc_value = crc32c::Extend(*crc_value, reinterpret_cast<const uint8_t*>(&rs_crc_value),
                                     sizeof(rs_crc_value));
         *file_count += rs_file_count;
     }

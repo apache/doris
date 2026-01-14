@@ -61,7 +61,7 @@ suite("regression_test_variant_schema_change", "variant_type"){
 
     // sql "set experimental_enable_nereids_planner = true"
     // add, drop index
-    sql "alter table ${table_name} add index btm_idxk (k) using bitmap ;"
+    sql "alter table ${table_name} add index btm_idxk (k) USING INVERTED ;"
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
     // drop column is linked schema change

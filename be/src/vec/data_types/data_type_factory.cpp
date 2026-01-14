@@ -64,6 +64,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_timestamptz.h"
 #include "vec/data_types/data_type_varbinary.h"
 #include "vec/data_types/data_type_variant.h"
 
@@ -155,6 +156,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         result = vectorized::create_datetimev2(scale);
+        break;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        result = std::make_shared<DataTypeTimeStampTz>(scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
         result = std::make_shared<vectorized::DataTypeDateTime>();
@@ -255,6 +259,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::DATETIME:
         nested = std::make_shared<DataTypeDateTime>();
+        break;
+    case PGenericType::TIMESTAMPTZ:
+        nested = std::make_shared<DataTypeTimeStampTz>(pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL32:
         nested = std::make_shared<DataTypeDecimal32>(pcolumn.decimal_param().precision(),
@@ -435,6 +442,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTimeV2>(scale);
         break;
+    case TYPE_TIMESTAMPTZ:
+        nested = std::make_shared<vectorized::DataTypeTimeStampTz>(scale);
+        break;
     case TYPE_DOUBLE:
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
@@ -460,8 +470,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimalV2>(
-                precision > 0 ? precision : 0, precision > 0 ? scale : 0, precision, scale);
+        nested = std::make_shared<vectorized::DataTypeDecimalV2>(27, 9, precision, scale);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();

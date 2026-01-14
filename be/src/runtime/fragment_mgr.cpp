@@ -367,6 +367,13 @@ Status FragmentMgr::trigger_pipeline_context_report(
 // Also, the reported status will always reflect the most recent execution status,
 // including the final status when execution finishes.
 void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
+    DBUG_EXECUTE_IF("FragmentMgr::coordinator_callback.report_delay", {
+        int random_seconds = req.status.is<ErrorCode::DATA_QUALITY_ERROR>() ? 8 : 2;
+        LOG_INFO("sleep : ").tag("time", random_seconds).tag("query_id", print_id(req.query_id));
+        std::this_thread::sleep_for(std::chrono::seconds(random_seconds));
+        LOG_INFO("sleep done").tag("query_id", print_id(req.query_id));
+    });
+
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
     if (req.coord_addr.hostname == "external") {
         // External query (flink/spark read tablets) not need to report to FE.
@@ -663,6 +670,7 @@ void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
 }
 
 void FragmentMgr::remove_query_context(const TUniqueId& key) {
+    _query_ctx_map_delay_delete.erase(key);
 #ifndef BE_TEST
     _query_ctx_map.erase(key);
 #endif
@@ -761,6 +769,9 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
+                                if (!handler->empty()) {
+                                    _query_ctx_map_delay_delete.insert(query_id, query_ctx);
+                                }
                             }
                             if (info.__isset.topn_filter_descs) {
                                 query_ctx->init_runtime_predicates(info.topn_filter_descs);
@@ -912,6 +923,7 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
             return;
         }
     }
+    SCOPED_ATTACH_TASK(query_ctx->resource_ctx());
     query_ctx->cancel(reason);
     remove_query_context(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
@@ -1401,6 +1413,64 @@ Status FragmentMgr::get_query_statistics(const TUniqueId& query_id, TQueryStatis
 
     return ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_query_statistics(
             print_id(query_id), query_stats);
+}
+
+Status FragmentMgr::transmit_rec_cte_block(
+        const TUniqueId& query_id, const TUniqueId& instance_id, int node_id,
+        const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks, bool eos) {
+    if (auto q_ctx = get_query_ctx(query_id)) {
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        return q_ctx->send_block_to_cte_scan(instance_id, node_id, pblocks, eos);
+    } else {
+        return Status::EndOfFile(
+                "Transmit rec cte block failed: Query context (query-id: {}) not found, maybe "
+                "finished",
+                print_id(query_id));
+    }
+}
+
+Status FragmentMgr::rerun_fragment(const TUniqueId& query_id, int fragment,
+                                   PRerunFragmentParams_Opcode stage) {
+    if (auto q_ctx = get_query_ctx(query_id)) {
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        auto fragment_ctx = _pipeline_map.find({query_id, fragment});
+        if (!fragment_ctx) {
+            return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
+                                    print_id(query_id), fragment);
+        }
+
+        if (stage == PRerunFragmentParams::wait) {
+            return fragment_ctx->wait_close(false);
+        } else if (stage == PRerunFragmentParams::release) {
+            return fragment_ctx->set_to_rerun();
+        } else if (stage == PRerunFragmentParams::rebuild) {
+            return fragment_ctx->rebuild(_thread_pool.get());
+        } else if (stage == PRerunFragmentParams::submit) {
+            return fragment_ctx->submit();
+        } else if (stage == PRerunFragmentParams::close) {
+            return fragment_ctx->wait_close(true);
+        } else {
+            return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
+        }
+    } else {
+        return Status::NotFound(
+                "reset_fragment: Query context (query-id: {}) not found, maybe finished",
+                print_id(query_id));
+    }
+    return Status::OK();
+}
+
+Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
+                                    const google::protobuf::RepeatedField<int32_t>& filter_ids) {
+    if (auto q_ctx = get_query_ctx(query_id)) {
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        return q_ctx->reset_global_rf(filter_ids);
+    } else {
+        return Status::NotFound(
+                "reset_fragment: Query context (query-id: {}) not found, maybe finished",
+                print_id(query_id));
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

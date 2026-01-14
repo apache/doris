@@ -41,6 +41,7 @@ Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
           _has_prepared(false) {
+    _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
@@ -78,8 +79,39 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
-        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+        if (_alreay_eos) {
+            *eos = true;
+            _padding_block.swap(_origin_block);
+        } else {
+            _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+            const auto min_batch_size = std::max(state->batch_size() / 2, 1);
+            while (_padding_block.rows() < min_batch_size && !*eos) {
+                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+                if (_origin_block.rows() >= min_batch_size) {
+                    break;
+                }
+
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size()) {
+                    RETURN_IF_ERROR(_merge_padding_block());
+                    _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                } else {
+                    if (_origin_block.rows() < _padding_block.rows()) {
+                        _padding_block.swap(_origin_block);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // first output the origin block change eos = false, next time output padding block
+        // set the eos to true
+        if (*eos && !_padding_block.empty() && !_origin_block.empty()) {
+            _alreay_eos = true;
+            *eos = false;
+        }
+        if (_origin_block.empty() && !_padding_block.empty()) {
+            _padding_block.swap(_origin_block);
+        }
         return _do_projections(&_origin_block, block);
     } else {
         return get_block(state, block, eos);
@@ -94,10 +126,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (auto* const slot_desc : _output_tuple_desc->slots()) {
-            if (!slot_desc->is_materialized()) {
-                // should be ignore from reading
-                continue;
-            }
             block->insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                                 slot_desc->get_data_type_ptr(),
                                                 slot_desc->col_name()));
@@ -183,10 +211,15 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+        mutable_columns[i] = column_ptr->assume_mutable();
     }
-    DCHECK(mutable_block.rows() == rows);
+
     output_block->set_columns(std::move(mutable_columns));
+
+    // origin columns was moved into output_block, so we need to set origin_block to empty columns
+    auto empty_columns = origin_block->clone_empty_columns();
+    origin_block->set_columns(std::move(empty_columns));
+    DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
 }
@@ -214,7 +247,8 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     }
     // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    RETURN_IF_ERROR(_local_state->_helper.clone_conjunct_ctxs(_state, _conjuncts,
+                                                              _local_state->_conjuncts));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }

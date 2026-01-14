@@ -70,6 +70,7 @@ public class MaterializedViewLimitJoinRule extends AbstractMaterializedViewJoinR
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate()
                 && !checkContext.isContainsTopTopN()
+                && !checkContext.isContainsTopWindow()
                 && checkContext.isContainsTopLimit() && checkContext.getTopLimitNum() == 1;
     }
 

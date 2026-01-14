@@ -45,8 +45,7 @@ const int agg_test_batch_size = 4096;
 
 namespace doris::vectorized {
 // declare function
-void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory);
 
 class AggMinMaxByTest : public ::testing::TestWithParam<std::string> {};
 
@@ -60,9 +59,8 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
     auto max_pair = std::make_pair<std::string, int32_t>("foo_0", 0);
     auto min_pair = max_pair;
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_value->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
-        column_vector_key_int32->insert(
-                Field::create_field<TYPE_INT>(cast_to_nearest_field_type(agg_test_batch_size - i)));
+        column_vector_value->insert(Field::create_field<TYPE_INT>(i));
+        column_vector_key_int32->insert(Field::create_field<TYPE_INT>(agg_test_batch_size - i));
         std::string str_val = fmt::format("foo_{}", i);
         if (max_pair.first < str_val) {
             max_pair.first = str_val;
@@ -72,21 +70,19 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
             min_pair.first = str_val;
             min_pair.second = i;
         }
-        column_vector_key_str->insert(
-                Field::create_field<TYPE_STRING>(cast_to_nearest_field_type(str_val)));
+        column_vector_key_str->insert(Field::create_field<TYPE_STRING>(str_val));
     }
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_min_by(factory);
-    register_aggregate_function_max_by(factory);
+    register_aggregate_function_max_min_by(factory);
 
     // Test on 2 kind of key types (int32, string).
     for (int i = 0; i < 2; i++) {
         DataTypes data_types = {std::make_shared<DataTypeInt32>(),
                                 i == 0 ? (DataTypePtr)std::make_shared<DataTypeInt32>()
                                        : (DataTypePtr)std::make_shared<DataTypeString>()};
-        auto agg_function = factory.get(min_max_by_type, data_types, false, -1);
+        auto agg_function = factory.get(min_max_by_type, data_types, nullptr, false, -1);
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);

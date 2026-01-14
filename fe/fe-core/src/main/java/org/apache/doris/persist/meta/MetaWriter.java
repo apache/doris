@@ -113,11 +113,14 @@ public class MetaWriter {
             // 2. write other modules
             for (MetaPersistMethod m : PersistMetaModules.MODULES_IN_ORDER) {
                 checksum.setRef(writer.doWork(m.name, () -> {
+                    long cnt1 = dos.getCount();
                     try {
                         return (long) m.writeMethod.invoke(env, dos, checksum.getRef());
                     } catch (IllegalAccessException | InvocationTargetException e) {
                         LOG.warn("failed to write meta module: {}", m.name, e);
                         throw new RuntimeException(e);
+                    } finally {
+                        LOG.info("write meta module: {} size in bytes: {}", m.name, dos.getCount() - cnt1);
                     }
                 }));
             }

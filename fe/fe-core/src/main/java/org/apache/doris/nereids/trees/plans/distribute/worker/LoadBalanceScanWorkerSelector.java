@@ -100,7 +100,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             long bytes = getScanRangeSize(scanNode, onePartitionOneScanRangeLocation);
 
             WorkerScanRanges assigned = selectScanReplicaAndMinWorkloadWorker(
-                    onePartitionOneScanRangeLocation, bytes, orderedScanRangeLocations);
+                    onePartitionOneScanRangeLocation, bytes, orderedScanRangeLocations, scanNode.getCatalogId());
             UninstancedScanSource scanRanges = workerScanRanges.computeIfAbsent(
                     assigned.worker,
                     w -> new UninstancedScanSource(
@@ -132,7 +132,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
         Function<ScanNode, Map<Integer, Long>> bucketBytesSupplier = bucketBytesSupplier();
         // all are olap scan nodes
         if (!scanNodes.isEmpty() && scanNodes.size() == olapScanNodes.size()) {
-            if (olapScanNodes.size() == 1 && fragment.hasBucketShuffleJoin()) {
+            if (olapScanNodes.size() == 1 && fragment.hasBucketShuffleNode()) {
                 return selectForBucket(
                         unassignedJob, scanNodes, bucketScanRangeSupplier,
                         bucketBytesSupplier, orderedScanRangeLocations
@@ -148,7 +148,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                     unassignedJob, scanNodes, bucketScanRangeSupplier, bucketBytesSupplier, orderedScanRangeLocations);
         }
         throw new IllegalStateException(
-                "Illegal bucket shuffle join or colocate join in fragment:\n"
+                "Illegal bucket shuffle or colocate join in fragment:\n"
                         + fragment.getExplainString(TExplainLevel.VERBOSE)
         );
     }
@@ -202,7 +202,8 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                     WorkerScanRanges replicaAndWorker = selectScanReplicaAndMinWorkloadWorker(
                             allPartitionTabletsInOneBucketInOneTable.get(0),
                             allScanNodeScanBytesInOneBucket,
-                            orderedScanRangeLocations
+                            orderedScanRangeLocations,
+                            scanNode.getCatalogId()
                     );
                     selectedWorker = replicaAndWorker.worker;
                     break;
@@ -240,11 +241,11 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
     }
 
     private WorkerScanRanges selectScanReplicaAndMinWorkloadWorker(
-            TScanRangeLocations tabletLocation, long tabletBytes, boolean orderedScanRangeLocations) {
+            TScanRangeLocations tabletLocation, long tabletBytes, boolean orderedScanRangeLocations, long catalogId) {
         List<TScanRangeLocation> replicaLocations = tabletLocation.getLocations();
         if (replicaLocations.size() == 1) {
             TScanRangeLocation replicaLocation = replicaLocations.get(0);
-            DistributedPlanWorker worker = workerManager.getWorker(replicaLocation.getBackendId());
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
             ScanRanges scanRanges = new ScanRanges();
             TScanRangeParams scanReplicaParams =
                     ScanWorkerSelector.buildScanReplicaParams(tabletLocation, replicaLocation);
@@ -265,7 +266,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
 
         for (int i = 0; i < replicaNum; i++) {
             TScanRangeLocation replicaLocation = replicaLocations.get(i);
-            DistributedPlanWorker worker = workerManager.getWorker(replicaLocation.getBackendId());
+            DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
             if (!worker.available()) {
                 continue;
             }

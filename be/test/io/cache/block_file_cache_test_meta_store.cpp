@@ -18,15 +18,32 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/tests/gtest_lru_file_cache.cpp
 // and modified by Doris
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+
+#define private public
+#define protected public
 #include "block_file_cache_test_common.h"
+#undef private
+#undef protected
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace doris::io {
 
 namespace {
 
+static size_t verify_meta_key_cnt = 0;
+
 void verify_meta_key(CacheBlockMetaStore& meta_store, int64_t tablet_id,
                      const std::string& key_name, size_t offset, FileCacheType expected_type,
                      uint64_t ttl, size_t size) {
+    verify_meta_key_cnt++;
+    std::cout << "verify_meta_key called " << verify_meta_key_cnt << " times" << std::endl;
     BlockMetaKey mkey(tablet_id, io::BlockFileCache::hash(key_name), offset);
     auto meta = meta_store.get(mkey);
     ASSERT_TRUE(meta.has_value());
@@ -65,7 +82,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
     settings.max_file_block_size = 100000;
     settings.max_query_cache_size = 30;
 
-    uint64_t expiration_time = UnixSeconds() + 120;
+    uint64_t expiration_time = 120;
 
     int i = 0;
     { // cache1
@@ -349,7 +366,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             ASSERT_EQ(blocks.size(), 1);
             auto block = blocks[0];
             ASSERT_EQ(block->tablet_id(), 49);
-            ASSERT_EQ(block->expiration_time(), expiration_time);
         }
 
         // do some meta change - type
@@ -394,7 +410,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             auto blocks = fromHolder(holder);
             ASSERT_EQ(blocks.size(), 1);
             auto block = blocks[0];
-            ASSERT_EQ(block->expiration_time(), expiration_time + 3600);
         }
         // check the meta
         {
@@ -404,13 +419,305 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
                     << "Expected FSFileCacheStorage but got different storage type";
 
             auto& meta_store = fs_storage->_meta_store;
-            verify_meta_key(*meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time + 3600,
-                            100000);
+            verify_meta_key(
+                    *meta_store, 49, "key3", 0, FileCacheType::TTL, expiration_time,
+                    100000); // won't change ttl when get_or_set now as we introduce ttl mgr to manage ttl
         }
     }
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries) {
+    config::enable_evict_file_cache_in_advance = false;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id.hi = 1;
+    context.query_id.lo = 2;
+    context.tablet_id = 314;
+    auto key = io::BlockFileCache::hash("meta_clear_key");
+
+    auto holder = cache.get_or_set(key, 0, 100000, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 1);
+    assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
+    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(blocks[0]);
+    assert_range(2, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::DOWNLOADED);
+    blocks.clear();
+
+    auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+    ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
+    auto& meta_store = fs_storage->_meta_store;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    verify_meta_key(*meta_store, context.tablet_id, "meta_clear_key", 0, FileCacheType::NORMAL, 0,
+                    100000);
+
+    cache.clear_file_cache_directly();
+
+    std::string meta_dir = cache.get_base_path() + "/meta";
+    ASSERT_TRUE(fs::exists(meta_dir));
+    ASSERT_TRUE(fs::is_directory(meta_dir));
+
+    BlockMetaKey mkey(context.tablet_id, key, 0);
+    auto meta = meta_store->get(mkey);
+    ASSERT_FALSE(meta.has_value());
+
+    auto iterator = meta_store->get_all();
+    if (iterator != nullptr) {
+        bool has_entry = false;
+        for (; iterator->valid(); iterator->next()) {
+            has_entry = true;
+            break;
+        }
+        ASSERT_FALSE(has_entry) << "Meta store still contains entries after clearing cache";
+    }
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, handle_already_loaded_block_updates_size_and_tablet) {
+    config::enable_evict_file_cache_in_advance = false;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.query_id.hi = 11;
+    context.query_id.lo = 12;
+    context.tablet_id = 0;
+    auto key = io::BlockFileCache::hash("sync_cached_block_meta_key");
+
+    constexpr size_t kOriginalSize = 100000;
+    auto holder = cache.get_or_set(key, 0, kOriginalSize, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 1);
+    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+    download(blocks[0], kOriginalSize);
+    blocks.clear();
+
+    auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+    ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
+
+    constexpr size_t kNewSize = 2 * kOriginalSize;
+    constexpr int64_t kTabletId = 4242;
+    bool handled = false;
+    {
+        SCOPED_CACHE_LOCK(cache._mutex, (&cache));
+        handled = fs_storage->handle_already_loaded_block(&cache, key, 0, kNewSize, kTabletId,
+                                                          cache_lock);
+    }
+
+    ASSERT_TRUE(handled);
+    auto& cell = cache._files[key][0];
+    EXPECT_EQ(cell.file_block->tablet_id(), kTabletId);
+    EXPECT_EQ(cache._cur_cache_size, kNewSize);
+    EXPECT_EQ(cache._normal_queue.get_capacity_unsafe(), kNewSize);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+TEST_F(BlockFileCacheTest, estimate_file_count_skips_removed_directory) {
+    std::string test_dir = cache_base_path + "/estimate_file_count_removed_dir";
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+    auto keep_dir = fs::path(test_dir) / "keep";
+    auto remove_dir = fs::path(test_dir) / "remove";
+    fs::create_directories(keep_dir);
+    fs::create_directories(remove_dir);
+
+    auto keep_file = keep_dir / "data.bin";
+    std::string one_mb(1024 * 1024, 'd');
+    {
+        std::ofstream ofs(keep_file, std::ios::binary);
+        ASSERT_TRUE(ofs.good());
+        for (int i = 0; i < 3; ++i) {
+            ofs.write(one_mb.data(), one_mb.size());
+            ASSERT_TRUE(ofs.good());
+        }
+    }
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = test_dir;
+
+    const std::string sync_point_name =
+            "FSFileCacheStorage::estimate_file_count_from_statfs::OnDirectory";
+    auto* sync_point = doris::SyncPoint::get_instance();
+    doris::SyncPoint::CallbackGuard guard(sync_point_name);
+    sync_point->set_call_back(
+            sync_point_name,
+            [remove_dir](std::vector<std::any>&& args) {
+                auto* path = doris::try_any_cast<std::filesystem::path*>(args[0]);
+                if (*path == remove_dir) {
+                    fs::remove_all(remove_dir);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    size_t estimated_files = storage.estimate_file_count_from_statfs();
+
+    sync_point->disable_processing();
+
+    ASSERT_EQ(3, estimated_files);
+    ASSERT_FALSE(fs::exists(remove_dir));
+
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+}
+
+TEST_F(BlockFileCacheTest, estimate_file_count_handles_stat_failure) {
+    std::string test_dir = cache_base_path + "/estimate_file_count_stat_failure";
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+    fs::create_directories(test_dir);
+
+    auto data_file = fs::path(test_dir) / "data.bin";
+    std::string one_mb(1024 * 1024, 'x');
+    {
+        std::ofstream ofs(data_file, std::ios::binary);
+        ASSERT_TRUE(ofs.good());
+        ofs.write(one_mb.data(), one_mb.size());
+        ASSERT_TRUE(ofs.good());
+    }
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = test_dir;
+
+    const std::string sync_point_name =
+            "FSFileCacheStorage::estimate_file_count_from_statfs::AfterEntryStatus";
+    auto* sync_point = doris::SyncPoint::get_instance();
+    doris::SyncPoint::CallbackGuard guard(sync_point_name);
+    sync_point->set_call_back(
+            sync_point_name,
+            [](std::vector<std::any>&& args) {
+                auto* ec = doris::try_any_cast<std::error_code*>(args[0]);
+                if (ec != nullptr) {
+                    *ec = std::make_error_code(std::errc::io_error);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    size_t estimated_files = storage.estimate_file_count_from_statfs();
+
+    sync_point->disable_processing();
+
+    ASSERT_EQ(0, estimated_files);
+
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+}
+
+TEST_F(BlockFileCacheTest, estimate_file_count_handles_file_size_failure) {
+    std::string test_dir = cache_base_path + "/estimate_file_count_file_size_failure";
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
+    }
+    fs::create_directories(test_dir);
+
+    auto data_file = fs::path(test_dir) / "data.bin";
+    std::string one_mb(1024 * 1024, 'x');
+    {
+        std::ofstream ofs(data_file, std::ios::binary);
+        ASSERT_TRUE(ofs.good());
+        ofs.write(one_mb.data(), one_mb.size());
+        ASSERT_TRUE(ofs.good());
+    }
+
+    FSFileCacheStorage storage;
+    storage._cache_base_path = test_dir;
+
+    const std::string sync_point_name =
+            "FSFileCacheStorage::estimate_file_count_from_statfs::AfterFileSize";
+    auto* sync_point = doris::SyncPoint::get_instance();
+    doris::SyncPoint::CallbackGuard guard(sync_point_name);
+    sync_point->set_call_back(
+            sync_point_name,
+            [](std::vector<std::any>&& args) {
+                auto* ec = doris::try_any_cast<std::error_code*>(args[0]);
+                if (ec != nullptr) {
+                    *ec = std::make_error_code(std::errc::io_error);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    size_t estimated_files = storage.estimate_file_count_from_statfs();
+
+    sync_point->disable_processing();
+
+    ASSERT_EQ(0, estimated_files);
+
+    if (fs::exists(test_dir)) {
+        fs::remove_all(test_dir);
     }
 }
 

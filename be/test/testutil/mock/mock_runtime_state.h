@@ -45,7 +45,8 @@ public:
         _mock_desc_tbl = std::make_unique<MockDescriptorTbl1>();
         set_desc_tbl(_mock_desc_tbl.get());
     }
-    MockRuntimeState(const TQueryGlobals& query_globals) : RuntimeState(query_globals) {
+    MockRuntimeState(const TQueryGlobals& query_globals)
+            : RuntimeState(TQueryOptions(), query_globals) {
         _mock_desc_tbl = std::make_unique<MockDescriptorTbl1>();
         set_desc_tbl(_mock_desc_tbl.get());
     }
@@ -70,6 +71,8 @@ public:
 
     bool enable_local_exchange() const override { return true; }
     WorkloadGroupPtr workload_group() override { return _workload_group; }
+
+    bool enable_use_hybrid_sort() const override { return false; }
 
     // default batch size
     int batsh_size = 4096;

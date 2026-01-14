@@ -45,15 +45,6 @@ suite ("testProjectionMV2") {
 
     sql "analyze table emps with sync;"
     sql """alter table emps modify column time_col set stats ('row_count'='6');"""
-    sql """set enable_stats=false;"""
-
-    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
-
-    mv_rewrite_success_without_check_chosen("select empid + 1 from emps where deptno = 1 order by empid;", "emps_mv")
-
-    mv_rewrite_fail("select name from emps where deptno -1 = 0 order by empid;", "emps_mv")
-
-    sql """set enable_stats=true;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"

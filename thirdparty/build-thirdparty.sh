@@ -626,6 +626,21 @@ build_lz4() {
     make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}" BUILD_SHARED=no INCLUDEDIR="${TP_INCLUDE_DIR}/lz4"
 }
 
+# crc32c
+build_crc32c() {
+    check_if_source_exist "${CRC32C_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CRC32C_SOURCE}"
+    
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCRC32C_BUILD_TESTS=0 -DCRC32C_BUILD_BENCHMARKS=0 -DCRC32C_USE_GLOG=OFF \
+        -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}" all install
+}
+
 # zstd
 build_zstd() {
     check_if_source_exist "${ZSTD_SOURCE}"
@@ -1297,6 +1312,14 @@ build_pdqsort() {
     cp "${PDQSORT_FILE}" "${TP_INSTALL_DIR}/include/"
 }
 
+# timsort
+build_timsort() {
+    check_if_archive_exist "${TIMSORT_FILE}"
+    cd "${TP_SOURCE_DIR}"
+    mkdir -p "${TP_INSTALL_DIR}/include/gfx"
+    cp "${TIMSORT_FILE}" "${TP_INSTALL_DIR}/include/gfx/"
+}
+
 # libdivide
 build_libdivide() {
     check_if_source_exist "${LIBDIVIDE_SOURCE}"
@@ -1347,6 +1370,8 @@ build_cctz() {
     # -Wno-elaborated-enum-base to make C++20 on MacOS happy
     "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS -Wno-elaborated-enum-base" \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_TOOLS=OFF \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
@@ -1959,6 +1984,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         openssl
         libevent
         zlib
+        crc32c
         lz4
         bzip
         lzo2
@@ -1994,6 +2020,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         fmt
         parallel_hashmap
         pdqsort
+        timsort
         libdivide
         cctz
         tsan_header
