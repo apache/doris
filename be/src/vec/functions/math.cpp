@@ -216,7 +216,9 @@ struct AbsImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
     using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        if constexpr (IsDecimalNumber<A>) {
+        if constexpr (IsDecimal128V2<A>) {
+            return DecimalV2Value(a < A(0) ? A(-a) : a);
+        } else if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
         } else if constexpr (IsIntegralV<A>) {
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
@@ -264,6 +266,11 @@ struct ResultOfPosAndNegTive<Decimal128V2> {
 };
 
 template <>
+struct ResultOfPosAndNegTive<DecimalV2Value> {
+    static constexpr PrimitiveType ResultType = TYPE_DECIMALV2;
+};
+
+template <>
 struct ResultOfPosAndNegTive<Decimal128V3> {
     static constexpr PrimitiveType ResultType = TYPE_DECIMAL128I;
 };
@@ -271,74 +278,6 @@ struct ResultOfPosAndNegTive<Decimal128V3> {
 template <>
 struct ResultOfPosAndNegTive<Decimal256> {
     static constexpr PrimitiveType ResultType = TYPE_DECIMAL256;
-};
-
-template <typename A>
-struct ResultOfUnaryFunc;
-
-template <>
-struct ResultOfUnaryFunc<UInt8> {
-    static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
-};
-
-template <>
-struct ResultOfUnaryFunc<Int8> {
-    static constexpr PrimitiveType ResultType = TYPE_TINYINT;
-};
-
-template <>
-struct ResultOfUnaryFunc<Int16> {
-    static constexpr PrimitiveType ResultType = TYPE_SMALLINT;
-};
-
-template <>
-struct ResultOfUnaryFunc<Int32> {
-    static constexpr PrimitiveType ResultType = TYPE_INT;
-};
-
-template <>
-struct ResultOfUnaryFunc<Int64> {
-    static constexpr PrimitiveType ResultType = TYPE_BIGINT;
-};
-
-template <>
-struct ResultOfUnaryFunc<Int128> {
-    static constexpr PrimitiveType ResultType = TYPE_LARGEINT;
-};
-
-template <>
-struct ResultOfUnaryFunc<Decimal32> {
-    static constexpr PrimitiveType ResultType = TYPE_DECIMAL32;
-};
-
-template <>
-struct ResultOfUnaryFunc<Decimal64> {
-    static constexpr PrimitiveType ResultType = TYPE_DECIMAL64;
-};
-
-template <>
-struct ResultOfUnaryFunc<Decimal128V3> {
-    static constexpr PrimitiveType ResultType = TYPE_DECIMAL128I;
-};
-
-template <>
-struct ResultOfUnaryFunc<Decimal128V2> {
-    static constexpr PrimitiveType ResultType = TYPE_DECIMALV2;
-};
-
-template <>
-struct ResultOfUnaryFunc<Decimal256> {
-    static constexpr PrimitiveType ResultType = TYPE_DECIMAL256;
-};
-
-template <>
-struct ResultOfUnaryFunc<float> {
-    static constexpr PrimitiveType ResultType = TYPE_FLOAT;
-};
-
-template <>
-struct ResultOfUnaryFunc<double> {
-    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
 };
 
 using FunctionAbsUInt8 = FunctionUnaryArithmetic<AbsImpl<UInt8>, NameAbs, TYPE_BOOLEAN>;
@@ -352,7 +291,7 @@ using FunctionAbsDecimal64 = FunctionUnaryArithmetic<AbsImpl<Decimal64>, NameAbs
 using FunctionAbsDecimalV3 =
         FunctionUnaryArithmetic<AbsImpl<Decimal128V3>, NameAbs, TYPE_DECIMAL128I>;
 using FunctionAbsDecimalV2 =
-        FunctionUnaryArithmetic<AbsImpl<Decimal128V2>, NameAbs, TYPE_DECIMALV2>;
+        FunctionUnaryArithmetic<AbsImpl<DecimalV2Value>, NameAbs, TYPE_DECIMALV2>;
 using FunctionAbsDecimal256 =
         FunctionUnaryArithmetic<AbsImpl<Decimal256>, NameAbs, TYPE_DECIMAL256>;
 using FunctionAbsFloat = FunctionUnaryArithmetic<AbsImpl<float>, NameAbs, TYPE_FLOAT>;
@@ -377,7 +316,7 @@ using FunctionNegativeDouble =
 using FunctionNegativeBigInt =
         FunctionUnaryArithmetic<NegativeImpl<Int64>, NameNegative, TYPE_BIGINT>;
 using FunctionNegativeDecimalV2 =
-        FunctionUnaryArithmetic<NegativeImpl<Decimal128V2>, NameNegative, TYPE_DECIMALV2>;
+        FunctionUnaryArithmetic<NegativeImpl<DecimalV2Value>, NameNegative, TYPE_DECIMALV2>;
 using FunctionNegativeDecimal256 =
         FunctionUnaryArithmetic<NegativeImpl<Decimal256>, NameNegative, TYPE_DECIMAL256>;
 using FunctionNegativeDecimalV3 =
@@ -405,7 +344,7 @@ using FunctionPositiveDouble =
 using FunctionPositiveBigInt =
         FunctionUnaryArithmetic<PositiveImpl<Int64>, NamePositive, TYPE_BIGINT>;
 using FunctionPositiveDecimalV2 =
-        FunctionUnaryArithmetic<PositiveImpl<Decimal128V2>, NamePositive, TYPE_DECIMALV2>;
+        FunctionUnaryArithmetic<PositiveImpl<DecimalV2Value>, NamePositive, TYPE_DECIMALV2>;
 using FunctionPositiveDecimal256 =
         FunctionUnaryArithmetic<PositiveImpl<Decimal256>, NamePositive, TYPE_DECIMAL256>;
 using FunctionPositiveDecimalV3 =

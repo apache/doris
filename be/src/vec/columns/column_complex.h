@@ -128,7 +128,7 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        const value_type& s = doris::vectorized::get<const value_type&>(x);
+        const value_type& s = x.get<T>();
         data.push_back(s);
     }
 

@@ -275,7 +275,7 @@ template <>
 struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
     using CppType = bool;
     using StorageFieldType = CppType;
-    using CppNativeType = bool;
+    using CppNativeType = CppType;
     using ColumnItemType = vectorized::UInt8;
     using DataType = vectorized::DataTypeBool;
     using ColumnType = vectorized::ColumnUInt8;
@@ -424,7 +424,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     /// Different with compute layer, the DecimalV1 was stored as decimal12_t(12 bytes).
     using StorageFieldType = decimal12_t;
     using CppNativeType = vectorized::Int128;
-    using ColumnItemType = vectorized::Decimal128V2;
+    using ColumnItemType = CppType;
     using DataType = vectorized::DataTypeDecimalV2;
     using ColumnType = vectorized::ColumnDecimal128V2;
 };

@@ -54,96 +54,96 @@ template <typename F> /// Field template parameter may be const or non-const Fie
 void dispatch(F&& f, const Field& field) {
     switch (field.get_type()) {
     case PrimitiveType::TYPE_NULL:
-        f(field.template get<Null>());
+        f(field.template get<TYPE_NULL>());
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>());
+        f(field.template get<TYPE_DATETIMEV2>());
         return;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType>());
+        f(field.template get<TYPE_TIMESTAMPTZ>());
         return;
     case PrimitiveType::TYPE_DATETIME:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>());
+        f(field.template get<TYPE_DATETIME>());
         return;
     case PrimitiveType::TYPE_DATE:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>());
+        f(field.template get<TYPE_DATE>());
         return;
     case PrimitiveType::TYPE_BOOLEAN:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>());
+        f(field.template get<TYPE_BOOLEAN>());
         return;
     case PrimitiveType::TYPE_TINYINT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>());
+        f(field.template get<TYPE_TINYINT>());
         return;
     case PrimitiveType::TYPE_SMALLINT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>());
+        f(field.template get<TYPE_SMALLINT>());
         return;
     case PrimitiveType::TYPE_INT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>());
+        f(field.template get<TYPE_INT>());
         return;
     case PrimitiveType::TYPE_BIGINT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>());
+        f(field.template get<TYPE_BIGINT>());
         return;
     case PrimitiveType::TYPE_LARGEINT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>());
+        f(field.template get<TYPE_LARGEINT>());
         return;
     case PrimitiveType::TYPE_IPV6:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>());
+        f(field.template get<TYPE_IPV6>());
         return;
     case PrimitiveType::TYPE_TIMEV2:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>());
+        f(field.template get<TYPE_TIMEV2>());
         return;
     case PrimitiveType::TYPE_FLOAT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>());
+        f(field.template get<TYPE_FLOAT>());
         return;
     case PrimitiveType::TYPE_DOUBLE:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>());
+        f(field.template get<TYPE_DOUBLE>());
         return;
     case PrimitiveType::TYPE_STRING:
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
-        f(field.template get<String>());
+        f(field.template get<TYPE_STRING>());
         return;
     case PrimitiveType::TYPE_VARBINARY:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>());
+        f(field.template get<TYPE_VARBINARY>());
         return;
     case PrimitiveType::TYPE_JSONB:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::CppType>());
+        f(field.template get<TYPE_JSONB>());
         return;
     case PrimitiveType::TYPE_ARRAY:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType>());
+        f(field.template get<TYPE_ARRAY>());
         return;
     case PrimitiveType::TYPE_STRUCT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType>());
+        f(field.template get<TYPE_STRUCT>());
         return;
     case PrimitiveType::TYPE_MAP:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::CppType>());
+        f(field.template get<TYPE_MAP>());
         return;
     case PrimitiveType::TYPE_DECIMAL32:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>());
+        f(field.template get<TYPE_DECIMAL32>());
         return;
     case PrimitiveType::TYPE_DECIMAL64:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>());
+        f(field.template get<TYPE_DECIMAL64>());
         return;
     case PrimitiveType::TYPE_DECIMALV2:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>());
+        f(field.template get<TYPE_DECIMALV2>());
         return;
     case PrimitiveType::TYPE_DECIMAL128I:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>());
+        f(field.template get<TYPE_DECIMAL128I>());
         return;
     case PrimitiveType::TYPE_DECIMAL256:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>());
+        f(field.template get<TYPE_DECIMAL256>());
         return;
     case PrimitiveType::TYPE_VARIANT:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::CppType>());
+        f(field.template get<TYPE_VARIANT>());
         return;
     case PrimitiveType::TYPE_BITMAP:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::CppType>());
+        f(field.template get<TYPE_BITMAP>());
         return;
     case PrimitiveType::TYPE_HLL:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::CppType>());
+        f(field.template get<TYPE_HLL>());
         return;
     case PrimitiveType::TYPE_QUANTILE_STATE:
-        f(field.template get<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType>());
+        f(field.template get<TYPE_QUANTILE_STATE>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -291,7 +291,7 @@ bool ConvertNumeric::cast<Float64, UInt8>(const Float64& from, UInt8& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, UInt8>(const UInt8& from, UInt8& to) {
+bool ConvertNumeric::cast<bool, UInt8>(const bool& from, UInt8& to) {
     to = from;
     return true;
 }
@@ -346,7 +346,7 @@ bool ConvertNumeric::cast<Float32, Int8>(const Float32& from, Int8& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, Int8>(const UInt8& from, Int8& to) {
+bool ConvertNumeric::cast<bool, Int8>(const bool& from, Int8& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -395,7 +395,7 @@ bool ConvertNumeric::cast<Float32, Int16>(const Float32& from, Int16& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, Int16>(const UInt8& from, Int16& to) {
+bool ConvertNumeric::cast<bool, Int16>(const bool& from, Int16& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -444,7 +444,7 @@ bool ConvertNumeric::cast<Float32, Int32>(const Float32& from, Int32& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, Int32>(const UInt8& from, Int32& to) {
+bool ConvertNumeric::cast<bool, Int32>(const bool& from, Int32& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -493,7 +493,7 @@ bool ConvertNumeric::cast<Float32, Int64>(const Float32& from, Int64& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, Int64>(const UInt8& from, Int64& to) {
+bool ConvertNumeric::cast<bool, Int64>(const bool& from, Int64& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -542,7 +542,7 @@ bool ConvertNumeric::cast<Float32, Int128>(const Float32& from, Int128& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, Int128>(const UInt8& from, Int128& to) {
+bool ConvertNumeric::cast<bool, Int128>(const bool& from, Int128& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -591,7 +591,7 @@ bool ConvertNumeric::cast<Float32, Float32>(const Float32& from, Float32& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, Float32>(const UInt8& from, Float32& to) {
+bool ConvertNumeric::cast<bool, Float32>(const bool& from, Float32& to) {
     auto params = create_cast_params();
     return CastToFloat::from_bool(from, to, params);
 }
@@ -640,7 +640,7 @@ bool ConvertNumeric::cast<Float32, Float64>(const Float32& from, Float64& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<UInt8, Float64>(const UInt8& from, Float64& to) {
+bool ConvertNumeric::cast<bool, Float64>(const bool& from, Float64& to) {
     auto params = create_cast_params();
     return CastToFloat::from_bool(from, to, params);
 }
@@ -664,7 +664,7 @@ bool ConvertNumeric::cast<Int32, Float64>(const Int32& from, Float64& to) {
 }
 
 namespace {
-template <typename From, PrimitiveType T>
+template <PrimitiveType From, PrimitiveType T>
 Field convert_numeric_type_impl(const Field& from) {
     typename PrimitiveTypeTraits<T>::ColumnItemType result;
     if (!ConvertNumeric::cast(from.get<From>(), result)) {
@@ -676,21 +676,21 @@ Field convert_numeric_type_impl(const Field& from) {
 template <PrimitiveType T>
 void convert_numric_type(const Field& from, const IDataType& type, Field* to) {
     if (from.get_type() == PrimitiveType::TYPE_BIGINT) {
-        *to = convert_numeric_type_impl<Int64, T>(from);
+        *to = convert_numeric_type_impl<TYPE_BIGINT, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_DOUBLE) {
-        *to = convert_numeric_type_impl<Float64, T>(from);
+        *to = convert_numeric_type_impl<TYPE_DOUBLE, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_LARGEINT) {
-        *to = convert_numeric_type_impl<Int128, T>(from);
+        *to = convert_numeric_type_impl<TYPE_LARGEINT, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_TINYINT) {
-        *to = convert_numeric_type_impl<Int8, T>(from);
+        *to = convert_numeric_type_impl<TYPE_TINYINT, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_SMALLINT) {
-        *to = convert_numeric_type_impl<Int16, T>(from);
+        *to = convert_numeric_type_impl<TYPE_SMALLINT, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_INT) {
-        *to = convert_numeric_type_impl<Int32, T>(from);
+        *to = convert_numeric_type_impl<TYPE_INT, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_FLOAT) {
-        *to = convert_numeric_type_impl<Float32, T>(from);
+        *to = convert_numeric_type_impl<TYPE_FLOAT, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_BOOLEAN) {
-        *to = convert_numeric_type_impl<UInt8, T>(from);
+        *to = convert_numeric_type_impl<TYPE_BOOLEAN, T>(from);
     } else {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
@@ -736,7 +736,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         return;
     } else if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         if (src.get_type() == PrimitiveType::TYPE_ARRAY) {
-            const auto& src_arr = src.get<Array>();
+            const auto& src_arr = src.get<TYPE_ARRAY>();
             size_t src_arr_size = src_arr.size();
             const auto& element_type = *(type_array->get_nested_type());
             Array res(src_arr_size);

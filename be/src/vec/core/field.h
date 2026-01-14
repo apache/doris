@@ -320,17 +320,27 @@ public:
     // The template parameter T needs to be consistent with `which`.
     // If not, use NearestFieldType<> externally.
     // Maybe modify this in the future, reference: https://github.com/ClickHouse/ClickHouse/pull/22003
-    template <typename T>
-    T& get() {
-        using TWithoutRef = std::remove_reference_t<T>;
-        auto* MAY_ALIAS ptr = reinterpret_cast<TWithoutRef*>(&storage);
+    template <PrimitiveType T>
+    typename PrimitiveTypeTraits<T>::CppType& get() {
+        DCHECK(T == type ||
+               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
+               type == TYPE_NULL)
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
         return *ptr;
     }
 
-    template <typename T>
-    const T& get() const {
-        using TWithoutRef = std::remove_reference_t<T>;
-        const auto* MAY_ALIAS ptr = reinterpret_cast<const TWithoutRef*>(&storage);
+    template <PrimitiveType T>
+    const typename PrimitiveTypeTraits<T>::CppType& get() const {
+        // TODO(gabriel): Is it safe for null type?
+        DCHECK(T == type ||
+               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
+               type == TYPE_NULL)
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        const auto* MAY_ALIAS ptr =
+                reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
         return *ptr;
     }
 
@@ -338,80 +348,7 @@ public:
         return operator<=>(rhs) == std::strong_ordering::equal;
     }
 
-    std::strong_ordering operator<=>(const Field& rhs) const {
-        if (type == PrimitiveType::TYPE_NULL || rhs == PrimitiveType::TYPE_NULL) {
-            return type <=> rhs.type;
-        }
-        if (type != rhs.type) {
-            throw Exception(Status::FatalError("lhs type not equal with rhs, lhs={}, rhs={}",
-                                               get_type_name(), rhs.get_type_name()));
-        }
-
-        switch (type) {
-        case PrimitiveType::TYPE_BITMAP:
-        case PrimitiveType::TYPE_HLL:
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-        case PrimitiveType::INVALID_TYPE:
-        case PrimitiveType::TYPE_JSONB:
-        case PrimitiveType::TYPE_NULL:
-        case PrimitiveType::TYPE_ARRAY:
-        case PrimitiveType::TYPE_MAP:
-        case PrimitiveType::TYPE_STRUCT:
-        case PrimitiveType::TYPE_VARIANT:
-            return std::strong_ordering::equal; //TODO: throw Exception?
-        case PrimitiveType::TYPE_DATETIMEV2:
-            return get<UInt64>() <=> rhs.get<UInt64>();
-        case PrimitiveType::TYPE_DATEV2:
-            return get<UInt32>() <=> rhs.get<UInt32>();
-        case PrimitiveType::TYPE_TIMESTAMPTZ:
-            return get<UInt64>() <=> rhs.get<UInt64>();
-        case PrimitiveType::TYPE_DATE:
-        case PrimitiveType::TYPE_DATETIME:
-        case PrimitiveType::TYPE_BIGINT:
-            return get<Int64>() <=> rhs.get<Int64>();
-        case PrimitiveType::TYPE_BOOLEAN:
-            return get<bool>() <=> rhs.get<bool>();
-        case PrimitiveType::TYPE_TINYINT:
-            return get<Int8>() <=> rhs.get<Int8>();
-        case PrimitiveType::TYPE_SMALLINT:
-            return get<Int16>() <=> rhs.get<Int16>();
-        case PrimitiveType::TYPE_INT:
-            return get<Int32>() <=> rhs.get<Int32>();
-        case PrimitiveType::TYPE_LARGEINT:
-            return get<Int128>() <=> rhs.get<Int128>();
-        case PrimitiveType::TYPE_IPV6:
-            return get<IPv6>() <=> rhs.get<IPv6>();
-        case PrimitiveType::TYPE_IPV4:
-            return get<IPv4>() <=> rhs.get<IPv4>();
-        case PrimitiveType::TYPE_FLOAT:
-            return get<Float32>() < rhs.get<Float32>()    ? std::strong_ordering::less
-                   : get<Float32>() == rhs.get<Float32>() ? std::strong_ordering::equal
-                                                          : std::strong_ordering::greater;
-        case PrimitiveType::TYPE_TIMEV2:
-        case PrimitiveType::TYPE_DOUBLE:
-            return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
-                   : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
-                                                          : std::strong_ordering::greater;
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            return get<String>() <=> rhs.get<String>();
-        case PrimitiveType::TYPE_VARBINARY:
-            return get<StringViewField>() <=> rhs.get<StringViewField>();
-        case PrimitiveType::TYPE_DECIMAL32:
-            return get<Decimal32>() <=> rhs.get<Decimal32>();
-        case PrimitiveType::TYPE_DECIMAL64:
-            return get<Decimal64>() <=> rhs.get<Decimal64>();
-        case PrimitiveType::TYPE_DECIMALV2:
-            return get<Decimal128V2>() <=> rhs.get<Decimal128V2>();
-        case PrimitiveType::TYPE_DECIMAL128I:
-            return get<Decimal128V3>() <=> rhs.get<Decimal128V3>();
-        case PrimitiveType::TYPE_DECIMAL256:
-            return get<Decimal256>() <=> rhs.get<Decimal256>();
-        default:
-            throw Exception(Status::FatalError("Unsupported type: {}", get_type_name()));
-        }
-    }
+    std::strong_ordering operator<=>(const Field& rhs) const;
 
     std::string_view as_string_view() const;
 
@@ -443,10 +380,14 @@ private:
 
     void destroy();
 
-    template <typename T>
+    template <PrimitiveType T>
     void destroy() {
-        T* MAY_ALIAS ptr = reinterpret_cast<T*>(&storage);
-        ptr->~T();
+        using TargetType = typename PrimitiveTypeTraits<T>::CppType;
+        DCHECK(T == type || ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                             (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)))
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
+        ptr->~TargetType();
     }
 };
 
@@ -458,16 +399,6 @@ struct FieldWithDataType {
     int precision = -1;
     int scale = -1;
 };
-
-template <typename T>
-T get(const Field& field) {
-    return field.template get<T>();
-}
-
-template <typename T>
-T get(Field& field) {
-    return field.template get<T>();
-}
 
 } // namespace doris::vectorized
 
