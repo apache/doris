@@ -58,7 +58,7 @@ public class TabletsProcDir implements ProcDirInterface {
                 .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
                 .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
                 .add("LstConsistencyCheckTime").add("CheckVersion")
-                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("AccessCount1H")
+                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("WindowAccessCount")
                 .add("LastAccessTime").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus")
                 .add("CooldownReplicaId").add("CooldownMetaId");
@@ -131,7 +131,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // visible version count
                     tabletInfo.add(-1); // total version count
                     tabletInfo.add(0L); // query hits
-                    tabletInfo.add(0L); // query AccessCount1H
+                    tabletInfo.add(0L); // query WindowAccessCount
                     tabletInfo.add(0L); // query LastAccessTime
                     tabletInfo.add(-1); // path hash
                     tabletInfo.add(FeConstants.null_string); // path
@@ -147,10 +147,10 @@ public class TabletsProcDir implements ProcDirInterface {
                 } else {
                     SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStatsFactory
                             .getTabletAccessStats().getAccessInfo(tabletId);
-                    long accessCount1H = 0;
+                    long accessCount = 0;
                     long lastAccessTime = 0;
                     if (asr != null) {
-                        accessCount1H = asr.accessCount;
+                        accessCount = asr.accessCount;
                         lastAccessTime = asr.lastAccessTime;
                     }
                     for (Replica replica : tablet.getReplicas()) {
@@ -180,7 +180,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getVisibleVersionCount());
                         tabletInfo.add(replica.getTotalVersionCount());
                         tabletInfo.add(replicaIdToQueryHits.getOrDefault(replica.getId(), 0L));
-                        tabletInfo.add(String.valueOf(accessCount1H));
+                        tabletInfo.add(String.valueOf(accessCount));
                         tabletInfo.add(String.valueOf(lastAccessTime));
                         tabletInfo.add(replica.getPathHash());
                         tabletInfo.add(pathHashToRoot.getOrDefault(replica.getPathHash(), ""));

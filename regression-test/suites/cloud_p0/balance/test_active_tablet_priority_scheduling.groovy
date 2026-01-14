@@ -127,10 +127,10 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
         def coldTableId = getTableIdByName(coldTbl)
         logger.info("hotTableId={}, coldTableId={}", hotTableId, coldTableId)
 
-        // Verify SHOW TABLETS FROM <table> exposes AccessCount1H/LastAccessTime and values are updated after access
+        // Verify SHOW TABLETS FROM <table> exposes WindowAccessCount/LastAccessTime and values are updated after access
         def hotTablets = sql_return_maparray """SHOW TABLETS FROM ${hotTbl}"""
         assert hotTablets.size() > 0
-        assert hotTablets[0].containsKey("AccessCount1H")
+        assert hotTablets[0].containsKey("WindowAccessCount")
         assert hotTablets[0].containsKey("LastAccessTime")
 
         def accessedTabletRow = null
@@ -138,7 +138,7 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
             hotTablets = sql_return_maparray """SHOW TABLETS FROM ${hotTbl}"""
             accessedTabletRow = hotTablets.find { row ->
                 try {
-                    long c = row.AccessCount1H.toString().toLong()
+                    long c = row.WindowAccessCount.toString().toLong()
                     long t = row.LastAccessTime.toString().toLong()
                     return c > 0 && t > 0
                 } catch (Throwable ignored) {
@@ -151,19 +151,19 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
         def accessedTabletId = accessedTabletRow.TabletId.toString().toLong()
         logger.info("picked accessedTabletId={} from SHOW TABLETS, row={}", accessedTabletId, accessedTabletRow)
 
-        // Verify SHOW TABLET <tabletId> exposes AccessCount1H/LastAccessTime and values are updated
+        // Verify SHOW TABLET <tabletId> exposes WindowAccessCount/LastAccessTime and values are updated
         def showTablet = sql_return_maparray """SHOW TABLET ${accessedTabletId}"""
         assert showTablet.size() > 0
-        assert showTablet[0].containsKey("AccessCount1H")
+        assert showTablet[0].containsKey("WindowAccessCount")
         assert showTablet[0].containsKey("LastAccessTime")
-        assert showTablet[0].AccessCount1H.toString().toLong() > 0
+        assert showTablet[0].WindowAccessCount.toString().toLong() > 0
         assert showTablet[0].LastAccessTime.toString().toLong() > 0
 
         def fe = cluster.getFeByIndex(1)
         def feLogPath = fe.getLogFilePath()
         logger.info("fe log path={}", feLogPath)
 
-        // Capture "active" tablets for hot table before rebalance (AccessCount1H > 0)
+        // Capture "active" tablets for hot table before rebalance (WindowAccessCount > 0)
         def hotBefore = sql_return_maparray """SHOW TABLETS FROM ${hotTbl}"""
         def hotBeforeByTabletId = [:]
         hotBefore.each { row ->
@@ -171,7 +171,7 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
         }
         def activeHotTabletIds = hotBefore.findAll { row ->
             try {
-                row.AccessCount1H.toString().toLong() > 0
+                row.WindowAccessCount.toString().toLong() > 0
             } catch (Throwable ignored) {
                 false
             }
@@ -201,14 +201,14 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
         }
 
         // Cold-first verification (SQL-based):
-        // At the moment the first move happens, all moved tablets should come from cold subset (AccessCount1H == 0 before move).
+        // At the moment the first move happens, all moved tablets should come from cold subset (WindowAccessCount == 0 before move).
         def hotAfterFirstMove = sql_return_maparray """SHOW TABLETS FROM ${hotTbl}"""
         def movedNow = hotAfterFirstMove.findAll { it.BackendId.toString().toLong() == newBeId }
         assert movedNow.size() > 0
         movedNow.each { row ->
             def beforeRow = hotBeforeByTabletId[row.TabletId.toString()]
             assert beforeRow != null
-            long beforeCnt = beforeRow.AccessCount1H.toString().toLong()
+            long beforeCnt = beforeRow.WindowAccessCount.toString().toLong()
         }
 
         // Optional: show that cold table is processed no earlier than hot table (best-effort timing check)

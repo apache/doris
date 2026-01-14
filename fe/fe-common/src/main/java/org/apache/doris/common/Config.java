@@ -3451,6 +3451,15 @@ public class Config extends ConfigBase {
             "Time window size in seconds for sliding window access statistics, default 3600 seconds (1 hour)"})
     public static long sliding_window_time_window_second = 3600L;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时：partition 级调度将优先处理 TopN 的活跃 partition，"
+                    + "再处理其余活跃 partition、非活跃 partition，最后处理 internal db。默认 10000，<=0 表示不做 TopN 分段。",
+            "When active tablet priority scheduling is enabled: partition-level scheduling processes TopN active "
+                    + "partitions first, then other active partitions,"
+                    + "then inactive partitions, and internal db at last. "
+                    + "Default 10000. <=0 disables TopN segmentation."})
+    public static int cloud_active_partition_scheduling_topn = 10000;
+
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 

@@ -83,7 +83,7 @@ public class ShowTabletIdCommand extends ShowCommand {
         builder.addColumn(new Column("IsSync", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("Order", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("QueryHits", ScalarType.createVarchar(30)));
-        builder.addColumn(new Column("AccessCount1H", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("WindowAccessCount", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("LastAccessTime", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));
         return builder.build();
@@ -125,10 +125,10 @@ public class ShowTabletIdCommand extends ShowCommand {
         // check real meta
         SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStatsFactory.getTabletAccessStats()
                 .getAccessInfo(tabletId);
-        long accessCount1H = 0;
+        long accessCount = 0;
         long lastAccessTime = 0;
         if (asr != null) {
-            accessCount1H = asr.accessCount;
+            accessCount = asr.accessCount;
             lastAccessTime = asr.lastAccessTime;
         }
         do {
@@ -204,7 +204,7 @@ public class ShowTabletIdCommand extends ShowCommand {
                 dbId.toString(), tableId.toString(),
                 partitionId.toString(), indexId.toString(),
                 isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits),
-                String.valueOf(accessCount1H), String.valueOf(lastAccessTime),
+                String.valueOf(accessCount), String.valueOf(lastAccessTime),
                 detailCmd));
         return new ShowResultSet(getMetaData(), rows);
     }

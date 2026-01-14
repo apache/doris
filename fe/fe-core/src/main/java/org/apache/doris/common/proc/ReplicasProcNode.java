@@ -53,7 +53,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                 .add("IsUserDrop")
                 .add("VisibleVersionCount").add("VersionCount").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
-                .add("CooldownMetaId").add("QueryHits").add("AccessCount1H").add("LastAccessTime");
+                .add("CooldownMetaId").add("QueryHits").add("WindowAccessCount").add("LastAccessTime");
 
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");
@@ -95,10 +95,10 @@ public class ReplicasProcNode implements ProcNodeInterface {
         for (Replica replica : replicas) {
             SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStatsFactory.getTabletAccessStats()
                     .getAccessInfo(tabletId);
-            long accessCount1H = 0;
+            long accessCount = 0;
             long lastAccessTime = 0;
             if (asr != null) {
-                accessCount1H = asr.accessCount;
+                accessCount = asr.accessCount;
                 lastAccessTime = asr.lastAccessTime;
             }
             long beId = replica.getBackendIdWithoutException();
@@ -149,7 +149,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                     String.valueOf(tablet.getCooldownReplicaId()),
                     cooldownMetaId,
                     String.valueOf(queryHits),
-                    String.valueOf(accessCount1H),
+                    String.valueOf(accessCount),
                     String.valueOf(lastAccessTime)
                 );
             if (Config.isCloudMode()) {
