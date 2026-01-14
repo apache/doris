@@ -51,6 +51,87 @@ class Block;
 
 namespace doris::vectorized {
 
+// FastPath types for LIKE pattern matching optimization
+// This allows per-row pattern analysis to avoid regex when possible
+enum class LikeFastPath {
+    ALLPASS,     // Pattern is just '%' or '%%...' - matches everything
+    EQUALS,      // No wildcards - exact string match
+    STARTS_WITH, // Pattern ends with '%' only - prefix match
+    ENDS_WITH,   // Pattern starts with '%' only - suffix match
+    SUBSTRING,   // Pattern is '%xxx%' - substring search
+    REGEX        // Contains '_' or multiple '%' - needs regex
+};
+
+// Lightweight pattern analysis without RE2
+// Returns the fast path type and extracts the search string (without wildcards)
+inline LikeFastPath extract_like_fast_path(const char* pattern, size_t len,
+                                           std::string& search_string) {
+    search_string.clear();
+    if (len == 0) {
+        return LikeFastPath::EQUALS;
+    }
+
+    // Check for '_' wildcard anywhere - must use regex
+    // Also check for '%' positions
+    bool starts_with_percent = (pattern[0] == '%');
+    bool ends_with_percent = (pattern[len - 1] == '%');
+
+    // Quick check: if starts or ends with '_', need regex
+    if (pattern[0] == '_' || pattern[len - 1] == '_') {
+        return LikeFastPath::REGEX;
+    }
+
+    // Scan the middle part (excluding first and last char if they are '%')
+    size_t start = starts_with_percent ? 1 : 0;
+    size_t end = ends_with_percent ? len - 1 : len;
+
+    // Skip leading '%' characters
+    while (start < end && pattern[start] == '%') {
+        start++;
+    }
+    // Skip trailing '%' characters
+    while (end > start && pattern[end - 1] == '%') {
+        end--;
+    }
+
+    // Check if all '%' (allpass pattern)
+    if (start >= end && starts_with_percent) {
+        return LikeFastPath::ALLPASS;
+    }
+
+    // Now scan the middle part for wildcards
+    search_string.reserve(end - start);
+    for (size_t i = start; i < end;) {
+        char c = pattern[i];
+        if (c == '\\' && i + 1 < end) {
+            char next = pattern[i + 1];
+            if (next == '%' || next == '_' || next == '\\') {
+                // Escaped character - add the literal
+                search_string.push_back(next);
+                i += 2;
+                continue;
+            }
+        }
+        if (c == '%' || c == '_') {
+            // Unescaped wildcard in the middle - need regex
+            return LikeFastPath::REGEX;
+        }
+        search_string.push_back(c);
+        i++;
+    }
+
+    // Determine the pattern type based on '%' positions
+    if (starts_with_percent && ends_with_percent) {
+        return LikeFastPath::SUBSTRING;
+    } else if (starts_with_percent) {
+        return LikeFastPath::ENDS_WITH;
+    } else if (ends_with_percent) {
+        return LikeFastPath::STARTS_WITH;
+    } else {
+        return LikeFastPath::EQUALS;
+    }
+}
+
 inline std::string replace_pattern_by_escape(const StringRef& pattern, char escape_char) {
     std::string result;
     result.reserve(pattern.size);
