@@ -277,6 +277,38 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             + e.getMessage(), e);
                 }
 
+                // Move to next row first, before reading data
+                // This ensures we're positioned on a valid row before attempting to read
+                boolean hasNext;
+                try {
+                    hasNext = resultSet.next();
+                } catch (SQLException e) {
+                    // Check connection status when next() fails
+                    if (conn != null) {
+                        try {
+                            if (conn.isClosed() || !conn.isValid(1)) {
+                                throw new SQLException(
+                                        String.format(
+                                                "Connection is closed or invalid while calling resultSet.next() "
+                                                        + "(read %d rows so far)", curBlockRows), e);
+                            }
+                        } catch (SQLException connCheckEx) {
+                            throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(),
+                                    e);
+                        }
+                    }
+                    // Re-throw with context about how many rows were successfully read
+                    throw new SQLException(
+                            String.format("Error calling resultSet.next() after reading %d rows: %s",
+                                    curBlockRows, e.getMessage()), e);
+                }
+
+                // If no more rows, break before reading
+                if (!hasNext) {
+                    break;
+                }
+
+                // Now read the current row data
                 for (int i = 0; i < outputColumnCount; ++i) {
                     String outputColumnName = outputTable.getFields()[i];
                     int columnIndex = getRealColumnIndex(outputColumnName, i);
@@ -309,35 +341,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     }
                 }
                 curBlockRows++;
-
-                // Check if there are more rows, with explicit exception handling
-                boolean hasNext;
-                try {
-                    hasNext = resultSet.next();
-                } catch (SQLException e) {
-                    // Check connection status when next() fails
-                    if (conn != null) {
-                        try {
-                            if (conn.isClosed() || !conn.isValid(1)) {
-                                throw new SQLException(
-                                        String.format(
-                                                "Connection is closed or invalid while calling resultSet.next() "
-                                                        + "(read %d rows so far)", curBlockRows), e);
-                            }
-                        } catch (SQLException connCheckEx) {
-                            throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(),
-                                    e);
-                        }
-                    }
-                    // Re-throw with context about how many rows were successfully read
-                    throw new SQLException(
-                            String.format("Error calling resultSet.next() after reading %d rows: %s",
-                                    curBlockRows, e.getMessage()), e);
-                }
-
-                if (!hasNext) {
-                    break;
-                }
             } while (curBlockRows < batchSize);
 
             for (int i = 0; i < outputColumnCount; ++i) {
