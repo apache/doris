@@ -28,6 +28,19 @@ suite("test_show_processlist") {
     assertTrue(result[0].size() == 14)
     sql """set show_all_fe_connection = false;"""
 
+
+    Boolean enableTLS = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+    if (enableTLS) {
+        Http.configure(enableTLS, 
+            context.config.otherConfigs.get("tlsVerifyMode"),
+            context.config.otherConfigs.get("trustStorePath"),
+            context.config.otherConfigs.get("trustStorePassword"),
+            context.config.otherConfigs.get("trustStoreType"),
+            context.config.otherConfigs.get("keyStorePath"),
+            context.config.otherConfigs.get("keyStorePassword"),
+            context.config.otherConfigs.get("keyStoreType")
+        )
+    }
     def url1 = "http://${context.config.feHttpAddress}/rest/v1/session"
     result =  Http.GET(url1, true)
     logger.info("result:${result}")

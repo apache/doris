@@ -45,7 +45,7 @@ suite("test_materialized_with_drop_cluster") {
     logger.info("beUniqueIdList:{}", beUniqueIdList);
 
     for (unique_id : beUniqueIdList) {
-        resp = get_cluster.call(unique_id);
+        def resp = get_cluster.call(unique_id);
         for (cluster : resp) {
             if (cluster.type == "COMPUTE") {
                 drop_cluster.call(cluster.cluster_name, cluster.cluster_id);

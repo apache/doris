@@ -70,35 +70,50 @@ class Http {
     }
 
     private static void initSSLContext() {
-        SSLContext sslContext = SSLContext.getInstance("TLS")
-        def trustManagers = null
-        def keyManagers = null
-        if (tlsVerifyMode == "none") {
-            // 跳过证书校验
-            trustManagers = [ [ checkClientTrusted: { c, a -> },
-                                checkServerTrusted: { c, a -> },
-                                getAcceptedIssuers: { [] as X509Certificate[] } ] as X509TrustManager ] as TrustManager[]
-        } else {
-            def trustStore = KeyStore.getInstance(trustStoreType)
-            trustStore.load(new FileInputStream(trustStorePath), trustStorePassword.toCharArray())
-            def tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-            tmf.init(trustStore)
-            trustManagers = tmf.trustManagers
-
-            if(tlsVerifyMode == "strict" && keyStorePath) {
-                def keyStore = KeyStore.getInstance(keyStoreType)
-                keyStore.load(new FileInputStream(keyStorePath), keyStorePassword.toCharArray())
-                def kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-                kmf.init(keyStore, keyStorePassword.toCharArray())
-                keyManagers = kmf.keyManagers
-            }
+        if (!enableTls) {
+            return
         }
-        sslContext.init(keyManagers, trustManagers, new SecureRandom())
-        HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.socketFactory)
+        
+        try {
+            SSLContext sslContext = SSLContext.getInstance("TLS")
+            def trustManagers = null
+            def keyManagers = null
+            
+            if (tlsVerifyMode == "none") {
+                // Skip certificate verification
+                trustManagers = [ [ checkClientTrusted: { c, a -> },
+                                    checkServerTrusted: { c, a -> },
+                                    getAcceptedIssuers: { [] as X509Certificate[] } ] as X509TrustManager ] as TrustManager[]
+            } else {
+                if (trustStorePath != null && trustStorePassword != null && trustStoreType != null) {
+                    def trustStore = KeyStore.getInstance(trustStoreType)
+                    trustStore.load(new FileInputStream(trustStorePath), trustStorePassword.toCharArray())
+                    def tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                    tmf.init(trustStore)
+                    trustManagers = tmf.trustManagers
+                }
 
-        if (tlsVerifyMode == 'none') {
-            // 关闭 Hostname 验证
-            HttpsURLConnection.setDefaultHostnameVerifier({ hostname, session -> true })
+                if (tlsVerifyMode == "strict" && keyStorePath != null && keyStorePassword != null && keyStoreType != null) {
+                    def keyStore = KeyStore.getInstance(keyStoreType)
+                    keyStore.load(new FileInputStream(keyStorePath), keyStorePassword.toCharArray())
+                    def kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+                    kmf.init(keyStore, keyStorePassword.toCharArray())
+                    keyManagers = kmf.keyManagers
+                }
+            }
+            
+            sslContext.init(keyManagers, trustManagers, new SecureRandom())
+            HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.socketFactory)
+
+            if (tlsVerifyMode == 'none') {
+                // Disable Hostname verification
+                HttpsURLConnection.setDefaultHostnameVerifier({ hostname, session -> true })
+            }
+            
+            logger.info("SSL context initialized successfully with tlsVerifyMode=${tlsVerifyMode}")
+        } catch (Exception e) {
+            logger.error("Failed to initialize SSL context", e)
+            throw e
         }
     }
 

@@ -44,7 +44,7 @@ suite("async_load") {
 
     sleep(1000)
     for (unique_id : beUniqueIdList) {
-        resp = get_cluster.call(unique_id);
+        def resp = get_cluster.call(unique_id);
         for (cluster : resp) {
             if (cluster.type == "COMPUTE") {
                 drop_cluster.call(cluster.cluster_name, cluster.cluster_id);
