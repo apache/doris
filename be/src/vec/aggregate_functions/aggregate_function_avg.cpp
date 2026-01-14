@@ -29,7 +29,7 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 constexpr PrimitiveType result_type(PrimitiveType T) {
-    if (T == TYPE_LARGEINT) {
+    if (T == TYPE_LARGEINT || T == TYPE_BIGINT) {
         return TYPE_LARGEINT;
     } else if (is_int_or_bool(T)) {
         return TYPE_BIGINT;
