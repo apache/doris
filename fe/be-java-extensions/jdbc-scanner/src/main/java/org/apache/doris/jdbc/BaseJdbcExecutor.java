@@ -253,7 +253,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 }
             }
 
-            do {
+            // Contract with caller:
+            // - Caller has already called hasNext(), and only calls getBlockAddress() if hasNext() returned true.
+            // - So when entering this method, the ResultSet cursor is already positioned on a valid current row.
+            while (curBlockRows < batchSize) {
                 // Check connection and resultSet validity before processing each row
                 if (conn != null) {
                     try {
@@ -275,37 +278,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     // ResultSet.isClosed() may throw SQLException if connection is invalid
                     throw new SQLException("Failed to check ResultSet status (connection may be invalid): "
                             + e.getMessage(), e);
-                }
-
-                // Move to next row first, before reading data
-                // This ensures we're positioned on a valid row before attempting to read
-                boolean hasNext;
-                try {
-                    hasNext = resultSet.next();
-                } catch (SQLException e) {
-                    // Check connection status when next() fails
-                    if (conn != null) {
-                        try {
-                            if (conn.isClosed() || !conn.isValid(1)) {
-                                throw new SQLException(
-                                        String.format(
-                                                "Connection is closed or invalid while calling resultSet.next() "
-                                                        + "(read %d rows so far)", curBlockRows), e);
-                            }
-                        } catch (SQLException connCheckEx) {
-                            throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(),
-                                    e);
-                        }
-                    }
-                    // Re-throw with context about how many rows were successfully read
-                    throw new SQLException(
-                            String.format("Error calling resultSet.next() after reading %d rows: %s",
-                                    curBlockRows, e.getMessage()), e);
-                }
-
-                // If no more rows, break before reading
-                if (!hasNext) {
-                    break;
                 }
 
                 // Now read the current row data
@@ -341,7 +313,36 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     }
                 }
                 curBlockRows++;
-            } while (curBlockRows < batchSize);
+
+                // Advance to next row for the next iteration / next block.
+                boolean hasNext;
+                try {
+                    hasNext = resultSet.next();
+                } catch (SQLException e) {
+                    // Check connection status when next() fails
+                    if (conn != null) {
+                        try {
+                            if (conn.isClosed() || !conn.isValid(1)) {
+                                throw new SQLException(
+                                        String.format(
+                                                "Connection is closed or invalid while calling resultSet.next() "
+                                                        + "(read %d rows so far)", curBlockRows), e);
+                            }
+                        } catch (SQLException connCheckEx) {
+                            throw new SQLException("Failed to check connection validity: " + connCheckEx.getMessage(),
+                                    e);
+                        }
+                    }
+                    // Re-throw with context about how many rows were successfully read
+                    throw new SQLException(
+                            String.format("Error calling resultSet.next() after reading %d rows: %s",
+                                    curBlockRows, e.getMessage()), e);
+                }
+
+                if (!hasNext) {
+                    break;
+                }
+            }
 
             for (int i = 0; i < outputColumnCount; ++i) {
                 String outputColumnName = outputTable.getFields()[i];
@@ -462,6 +463,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             if (resultSet == null) {
                 return false;
             }
+            // Move the cursor forward and report whether there is a row to read.
+            // Caller should only call getBlockAddress() when this returns true,
+            // so getBlockAddress() can safely start reading from the current row.
             return resultSet.next();
         } catch (SQLException e) {
             throw new JdbcExecutorException("resultSet to get next error: ", e);
