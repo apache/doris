@@ -2556,9 +2556,9 @@ public class Coordinator implements CoordInterface {
 
     public boolean isDone() {
         if (fragmentsDoneLatch != null) {
-            return fragmentsDoneLatch.getCount() == 0;
+            return fragmentsDoneLatch.getMarkCount() == 0;
         } else {
-            return instancesDoneLatch.getCount() == 0;
+            return instancesDoneLatch.getMarkCount() == 0;
         }
     }
 

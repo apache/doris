@@ -54,7 +54,7 @@ public class CalcDeleteBitmapTask extends AgentTask  {
             if (latch.markedCountDown(backendId, transactionId)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("CalcDeleteBitmapTask current latch count: {}, backend: {}, transactionId:{}",
-                            latch.getCount(), backendId, transactionId);
+                            latch.getMarkCount(), backendId, transactionId);
                 }
             }
         }

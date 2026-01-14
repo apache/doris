@@ -233,7 +233,7 @@ public class CreateReplicaTask extends AgentTask {
             if (latch.markedCountDown(backendId, tabletId)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
-                              latch.getCount(), backendId, tabletId);
+                              latch.getMarkCount(), backendId, tabletId);
                 }
             }
         }

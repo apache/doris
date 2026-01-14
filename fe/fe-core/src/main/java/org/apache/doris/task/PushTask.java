@@ -205,8 +205,8 @@ public class PushTask extends AgentTask {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}", latch.getCount(), backendId,
-                            tabletId);
+                    LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}", latch.getMarkCount(),
+                            backendId, tabletId);
                 }
             }
         }
@@ -219,7 +219,7 @@ public class PushTask extends AgentTask {
         if (latch.markedCountDownWithStatus(backendId, tabletId, st)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("pushTask current latch count with status: {}. backend: {}, tablet:{}, st::{}",
-                        latch.getCount(), backendId, tabletId, st);
+                        latch.getMarkCount(), backendId, tabletId, st);
             }
         }
     }

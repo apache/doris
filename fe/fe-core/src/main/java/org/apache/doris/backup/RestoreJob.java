@@ -1069,7 +1069,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         try {
             if (!createReplicaTasksLatch.await(0, TimeUnit.SECONDS)) {
                 LOG.info("waiting {} create replica tasks for restore to finish. {}",
-                        createReplicaTasksLatch.getCount(), this);
+                        createReplicaTasksLatch.getMarkCount(), this);
                 long createReplicasTimeOut = DbUtil.getCreateReplicasTimeoutMs(createReplicaTasksLatch.getMarkCount());
                 long tryCreateTime = System.currentTimeMillis() - createReplicasTimeStamp;
                 if (tryCreateTime > createReplicasTimeOut) {

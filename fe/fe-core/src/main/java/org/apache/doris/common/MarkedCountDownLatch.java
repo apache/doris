@@ -45,44 +45,18 @@ public class MarkedCountDownLatch<K, V>  {
     }
 
     public int getMarkCount() {
-        return markCount;
-    }
-
-    public long getCount() {
         synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
+            return markCount;
         }
-        return downLatch.getCount();
-    }
-
-    public void countDown() {
-        synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
-        }
-        downLatch.countDown();
     }
 
     public void addMark(K key, V value) {
         synchronized (lock) {
+            if (downLatch != null) {
+                throw new IllegalStateException("downLatch must initialize after mark.");
+            }
             marks.put(key, value);
             markCount++;
-        }
-    }
-
-    public boolean markedCountDown(K key, V value) {
-        synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
-            if (marks.remove(key, value)) {
-                downLatch.countDown();
-                return true;
-            }
-            return false;
         }
     }
 
@@ -104,6 +78,20 @@ public class MarkedCountDownLatch<K, V>  {
         downLatch.await();
     }
 
+    public boolean markedCountDown(K key, V value) {
+        synchronized (lock) {
+            if (downLatch == null) {
+                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
+            }
+            if (marks.remove(key, value)) {
+                markCount--;
+                downLatch.countDown();
+                return true;
+            }
+            return false;
+        }
+    }
+
     public boolean markedCountDownWithStatus(K key, V value, Status status) {
         // update status first before countDown.
         // so that the waiting thread will get the correct status.
@@ -123,10 +111,32 @@ public class MarkedCountDownLatch<K, V>  {
             // Search `getLeftMarks` for details.
             if (!failedMarks.containsEntry(key, value)) {
                 failedMarks.put(key, value);
+                marks.remove(key, value);
+                markCount--;
                 downLatch.countDown();
                 return true;
             }
             return false;
+        }
+    }
+
+    public void countDownToZero(Status status) {
+        synchronized (lock) {
+            if (downLatch == null) {
+                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
+            }
+            // update status first before countDown.
+            // so that the waiting thread will get the correct status.
+            if (st.ok()) {
+                st = status;
+            }
+            while (downLatch.getCount() > 0) {
+                markCount--;
+                downLatch.countDown();
+            }
+
+            //clear up the marks list
+            marks.clear();
         }
     }
 
@@ -142,19 +152,5 @@ public class MarkedCountDownLatch<K, V>  {
         }
     }
 
-    public void countDownToZero(Status status) {
-        synchronized (lock) {
-            if (downLatch == null) {
-                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
-            }
-            // update status first before countDown.
-            // so that the waiting thread will get the correct status.
-            if (st.ok()) {
-                st = status;
-            }
-            while (downLatch.getCount() > 0) {
-                downLatch.countDown();
-            }
-        }
-    }
+
 }
