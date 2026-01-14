@@ -43,7 +43,7 @@ suite("test_catalog_instance_profile_with_role") {
         assertTrue(countValue == expectCounts.toInteger())
         sql """drop catalog if exists ${catalogName}"""
     }
-    def assertCatalogAndQueryException = { catalogProps, catalogName, errMsg ->
+    def assertCatalogAndQueryException = { catalogProps, catalogName, queryTableName errMsg ->
         sql """drop catalog if exists ${catalogName}"""
         sql """
             ${catalogProps}
@@ -55,6 +55,9 @@ suite("test_catalog_instance_profile_with_role") {
             sql """
                 show databases;
                """
+            sql """
+             select count(1) from ${catalogName}.${queryTableName};
+            """
             throw new Exception("Expected exception was not thrown")
         }catch (Exception e){
             assertTrue(e.getMessage().contains(errMsg))
@@ -88,7 +91,7 @@ suite("test_catalog_instance_profile_with_role") {
             "glue.endpoint" = "https://glue.${region}.amazonaws.com"
         );
     """
-    assertCatalogAndQueryException(hiveGlueCatalogProps,"hive_glue_catalog_instance_profile", "The environment variable AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+    assertCatalogAndQueryException(hiveGlueCatalogProps,"hive_glue_catalog_instance_profile", hiveGlueQueryTableName, "The environment variable AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
     String icebergFsCatalogProps = """
         create catalog iceberg_fs_catalog_instance_profile properties(
             "type"="iceberg",
@@ -120,6 +123,6 @@ suite("test_catalog_instance_profile_with_role") {
             "s3.endpoint" = "https://s3.${region}.amazonaws.com"
         );
     """
-    assertCatalogAndQueryException(icebergFsCatalogProps,"iceberg_fs_catalog_instance_profile", "No AWS Credentials provided by ContainerCredentialsProvider")
+    assertCatalogAndQueryException(icebergFsCatalogProps,"iceberg_fs_catalog_instance_profile",icebergFsQueryTableName "No AWS Credentials provided by ContainerCredentialsProvider")
     
 }
