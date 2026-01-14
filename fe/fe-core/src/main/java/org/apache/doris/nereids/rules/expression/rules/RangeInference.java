@@ -360,23 +360,12 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             resultValues.add(new EmptyValue(context, reference));
         }
         if (collector.hasIsNullValue) {
-            boolean hasRangeAll = mergeRangeValue != null
-                    && !mergeRangeValue.hasLowerBound()
-                    && !mergeRangeValue.hasUpperBound();
-            if (collector.hasIsNotNullValue() || (hasRangeAll && !reference.nullable())) {
+            if (collector.hasIsNotNullValue()) {
                 return new UnknownValue(context, BooleanLiteral.FALSE);
             }
             // nullable's EmptyValue have contains IsNull, no need to add
             if (!collector.hasEmptyValue) {
-                if (hasRangeAll) {
-                    // RangeAll(TA) and TA is null
-                    // = (TA is not null or null) and TA is null
-                    // = TA is null and null
-                    // = EmptyValue(TA)
-                    resultValues.add(new EmptyValue(context, reference));
-                } else {
-                    resultValues.add(new IsNullValue(context, reference));
-                }
+                resultValues.add(new IsNullValue(context, reference));
             }
         }
         if (collector.hasIsNotNullValue()) {
