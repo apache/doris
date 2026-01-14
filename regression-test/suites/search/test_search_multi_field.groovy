@@ -81,26 +81,25 @@ suite("test_search_multi_field") {
         ORDER BY id
     """
 
-    // ============ Test 2: Multiple terms with AND ============
-    // "machine" AND "learning" across title,content
+    // ============ Test 2: Multiple terms with AND (cross_fields) ============
+    // "machine" AND "learning" across title,content with cross_fields semantics
+    // cross_fields: terms can be across different fields
+    // id=1: title has both terms
+    // id=9: title has "machine", content has "learning" (cross_fields match)
     qt_multi_field_multi_term_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and"}')
+        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","type":"cross_fields"}')
         ORDER BY id
     """
 
-    // ============ Test 2b: Multiple terms with AND in Lucene mode ============
+    // ============ Test 2b: Multiple terms with AND in Lucene mode (cross_fields) ============
     // Same as Test 2 but with mode:lucene - should have same result
-    // This tests that default_operator:and works correctly with Lucene mode
-    // ES behavior comparison:
-    // - ES best_fields (default): only id=1 (both terms must be in same field)
-    // - ES cross_fields: id=1 and id=9 (terms can be across different fields)
-    // - Doris uses cross_fields semantics
+    // Uses cross_fields semantics explicitly
     qt_multi_field_multi_term_and_lucene """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","mode":"lucene"}')
+        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","mode":"lucene","type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -112,19 +111,20 @@ suite("test_search_multi_field") {
         ORDER BY id
     """
 
-    // ============ Test 4: Explicit AND operator in DSL ============
+    // ============ Test 4: Explicit AND operator in DSL (cross_fields) ============
+    // Uses explicit type:cross_fields for backward compatibility
     qt_multi_field_explicit_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND learning', '{"fields":["title","content"]}')
+        WHERE search('machine AND learning', '{"fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
-    // ============ Test 5: Mixed - some terms with explicit field ============
+    // ============ Test 5: Mixed - some terms with explicit field (cross_fields) ============
     qt_multi_field_mixed """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category
         FROM ${tableName}
-        WHERE search('machine AND category:tech', '{"fields":["title","content"]}')
+        WHERE search('machine AND category:tech', '{"fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -144,19 +144,19 @@ suite("test_search_multi_field") {
         ORDER BY id
     """
 
-    // ============ Test 8: NOT operator ============
+    // ============ Test 8: NOT operator (cross_fields) ============
     qt_multi_field_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND NOT cooking', '{"fields":["title","content"]}')
+        WHERE search('machine AND NOT cooking', '{"fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
-    // ============ Test 9: Complex boolean ============
+    // ============ Test 9: Complex boolean (cross_fields) ============
     qt_multi_field_complex """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('(machine OR ai) AND NOT cooking', '{"fields":["title","content"]}')
+        WHERE search('(machine OR ai) AND NOT cooking', '{"fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -168,27 +168,24 @@ suite("test_search_multi_field") {
         ORDER BY id
     """
 
-    // ============ Test 11: Multi-field with Lucene mode - simple AND ============
+    // ============ Test 11: Multi-field with Lucene mode - simple AND (cross_fields) ============
     // This is equivalent to Test 2 but uses Lucene mode with explicit AND operator
-    // Expected: Same result as Test 2 - cross_fields semantics
-    // - ES best_fields would return: id=1 only (both terms in same field)
-    // - Doris cross_fields returns: id=1, id=9 (terms can be in different fields)
-    // id=9: title='machine guide', content='learning tips' - matches cross_fields but not best_fields
+    // Uses cross_fields semantics explicitly
     qt_multi_field_lucene_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND learning', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":0}')
+        WHERE search('machine AND learning', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":0,"type":"cross_fields"}')
         ORDER BY id
     """
 
     // ============ Test 11b: Verify cross_fields behavior explicitly ============
-    // This test verifies that our implementation uses cross_fields semantics (like ES type:cross_fields)
+    // This test verifies cross_fields semantics (like ES type:cross_fields)
     // Query: "machine AND learning" across title and content
     // id=9 has 'machine' in title and 'learning' in content - should match with cross_fields
     qt_multi_field_cross_fields_verify """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content
         FROM ${tableName}
-        WHERE search('machine AND learning', '{"fields":["title","content"]}')
+        WHERE search('machine AND learning', '{"fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -200,28 +197,28 @@ suite("test_search_multi_field") {
         ORDER BY id
     """
 
-    // ============ Test 13: Multi-field with Lucene mode - AND OR mixed ============
+    // ============ Test 13: Multi-field with Lucene mode - AND OR mixed (cross_fields) ============
     // With minimum_should_match=0, SHOULD clauses are discarded when MUST exists
     qt_multi_field_lucene_and_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND learning OR cooking', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":0}')
+        WHERE search('machine AND learning OR cooking', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":0,"type":"cross_fields"}')
         ORDER BY id
     """
 
-    // ============ Test 14: Multi-field with Lucene mode - minimum_should_match=1 ============
+    // ============ Test 14: Multi-field with Lucene mode - minimum_should_match=1 (cross_fields) ============
     qt_multi_field_lucene_min_should_1 """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND learning OR cooking', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":1}')
+        WHERE search('machine AND learning OR cooking', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":1,"type":"cross_fields"}')
         ORDER BY id
     """
 
-    // ============ Test 15: Multi-field with Lucene mode - AND NOT ============
+    // ============ Test 15: Multi-field with Lucene mode - AND NOT (cross_fields) ============
     qt_multi_field_lucene_and_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND NOT maintenance', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":0}')
+        WHERE search('machine AND NOT maintenance', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":0,"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -255,6 +252,43 @@ suite("test_search_multi_field") {
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('ANY(machine cooking)', '{"fields":["title","content"]}')
+        ORDER BY id
+    """
+
+    // ============ Test 19: best_fields mode (default) ============
+    // With best_fields, all terms must be in the SAME field
+    // Only id=1 matches: title has both "machine" and "learning"
+    // id=9 does NOT match: "machine" in title, "learning" in content (different fields)
+    qt_multi_field_best_fields_default """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${tableName}
+        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and"}')
+        ORDER BY id
+    """
+
+    // ============ Test 20: cross_fields mode (explicit) ============
+    // With cross_fields, terms can be in DIFFERENT fields
+    // Both id=1 and id=9 match
+    qt_multi_field_cross_fields """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${tableName}
+        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","type":"cross_fields"}')
+        ORDER BY id
+    """
+
+    // ============ Test 21: best_fields with Lucene mode ============
+    qt_multi_field_best_fields_lucene """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${tableName}
+        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","mode":"lucene","type":"best_fields"}')
+        ORDER BY id
+    """
+
+    // ============ Test 22: cross_fields with Lucene mode ============
+    qt_multi_field_cross_fields_lucene """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${tableName}
+        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","mode":"lucene","type":"cross_fields"}')
         ORDER BY id
     """
 

@@ -947,10 +947,10 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldMultiTermAnd() {
-        // Test: "hello world" + fields=["title","content"] + default_operator="and"
+        // Test: "hello world" + fields=["title","content"] + default_operator="and" + type="cross_fields"
         // → "(title:hello OR content:hello) AND (title:world OR content:world)"
         String dsl = "hello world";
-        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\"}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -978,9 +978,10 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldExplicitAndOperator() {
-        // Test: "hello AND world" + fields=["title","content"]
+        // Test: "hello AND world" + fields=["title","content"] + cross_fields
+        // → "(title:hello OR content:hello) AND (title:world OR content:world)"
         String dsl = "hello AND world";
-        String options = "{\"fields\":[\"title\",\"content\"]}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -989,10 +990,10 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldMixedWithExplicitField() {
-        // Test: "hello AND category:tech" + fields=["title","content"]
+        // Test: "hello AND category:tech" + fields=["title","content"] + cross_fields
         // → "(title:hello OR content:hello) AND category:tech"
         String dsl = "hello AND category:tech";
-        String options = "{\"fields\":[\"title\",\"content\"]}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1093,11 +1094,11 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldLuceneModeSimpleAnd() {
-        // Test: "a AND b" + fields=["title","content"] + lucene mode
+        // Test: "a AND b" + fields=["title","content"] + lucene mode + cross_fields
         // Expanded: "(title:a OR content:a) AND (title:b OR content:b)"
         // With Lucene semantics: both groups are MUST
         String dsl = "a AND b";
-        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":0,\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1137,11 +1138,11 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldLuceneModeAndOrMixed() {
-        // Test: "a AND b OR c" + fields=["title","content"] + lucene mode + minimum_should_match=0
+        // Test: "a AND b OR c" + fields=["title","content"] + lucene mode + minimum_should_match=0 + cross_fields
         // With Lucene semantics and minimum_should_match=0: SHOULD groups are discarded
         // Only "a" (MUST) remains - wrapped in OCCUR_BOOLEAN
         String dsl = "a AND b OR c";
-        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":0,\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1152,10 +1153,10 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldLuceneModeWithNot() {
-        // Test: "a AND NOT b" + fields=["title","content"] + lucene mode
+        // Test: "a AND NOT b" + fields=["title","content"] + lucene mode + cross_fields
         // Expanded: "(title:a OR content:a) AND NOT (title:b OR content:b)"
         String dsl = "a AND NOT b";
-        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":0,\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1187,9 +1188,9 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldLuceneModeComplexQuery() {
-        // Test: "(a OR b) AND NOT c" + fields=["f1","f2"] + lucene mode
+        // Test: "(a OR b) AND NOT c" + fields=["f1","f2"] + lucene mode + cross_fields
         String dsl = "(a OR b) AND NOT c";
-        String options = "{\"fields\":[\"f1\",\"f2\"],\"mode\":\"lucene\",\"minimum_should_match\":0}";
+        String options = "{\"fields\":[\"f1\",\"f2\"],\"mode\":\"lucene\",\"minimum_should_match\":0,\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1199,9 +1200,9 @@ public class SearchDslParserTest {
 
     @Test
     public void testMultiFieldLuceneModeMinimumShouldMatchOne() {
-        // Test: "a AND b OR c" with minimum_should_match=1 keeps all clauses
+        // Test: "a AND b OR c" with minimum_should_match=1 keeps all clauses + cross_fields
         String dsl = "a AND b OR c";
-        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":1}";
+        String options = "{\"fields\":[\"title\",\"content\"],\"mode\":\"lucene\",\"minimum_should_match\":1,\"type\":\"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1209,5 +1210,112 @@ public class SearchDslParserTest {
         // All 3 groups should be present
         Assertions.assertEquals(3, plan.root.children.size());
         Assertions.assertEquals(Integer.valueOf(1), plan.root.minimumShouldMatch);
+    }
+
+    // ============ Tests for type parameter (best_fields vs cross_fields) ============
+
+    @Test
+    public void testMultiFieldBestFieldsDefault() {
+        // Test: best_fields is the default when type is not specified
+        // "hello world" with fields ["title", "content"] and default_operator "and"
+        // Expands to: (title:hello AND title:world) OR (content:hello AND content:world)
+        String dsl = "hello world";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        // Root should be OR (joining fields)
+        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size()); // 2 fields
+
+        // Each child should be an AND of terms for that field
+        for (QsNode fieldGroup : plan.root.children) {
+            Assertions.assertEquals(QsClauseType.AND, fieldGroup.type);
+            Assertions.assertEquals(2, fieldGroup.children.size()); // 2 terms
+        }
+    }
+
+    @Test
+    public void testMultiFieldBestFieldsExplicit() {
+        // Test: explicitly specify type=best_fields
+        String dsl = "hello world";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"type\":\"best_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+    }
+
+    @Test
+    public void testMultiFieldCrossFields() {
+        // Test: cross_fields mode
+        // "hello world" with fields ["title", "content"] and default_operator "and"
+        // Expands to: (title:hello OR content:hello) AND (title:world OR content:world)
+        String dsl = "hello world";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        // Root should be AND (joining term groups)
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size()); // 2 term groups
+
+        // Each child should be an OR of the same term across fields
+        for (QsNode termGroup : plan.root.children) {
+            Assertions.assertEquals(QsClauseType.OR, termGroup.type);
+            Assertions.assertEquals(2, termGroup.children.size()); // 2 fields
+        }
+    }
+
+    @Test
+    public void testMultiFieldBestFieldsLuceneMode() {
+        // Test: best_fields with Lucene mode
+        String dsl = "hello world";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"best_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+    }
+
+    @Test
+    public void testMultiFieldCrossFieldsLuceneMode() {
+        // Test: cross_fields with Lucene mode
+        String dsl = "hello world";
+        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"mode\":\"lucene\",\"type\":\"cross_fields\"}";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, options);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+    }
+
+    @Test
+    public void testMultiFieldInvalidType() {
+        // Test: invalid type value should throw exception
+        String dsl = "hello";
+        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"invalid_type\"}";
+
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            SearchDslParser.parseDsl(dsl, options);
+        });
+    }
+
+    @Test
+    public void testMultiFieldSingleTermSameResultForBothTypes() {
+        // Test: single term should have same structure for both types
+        // since there's only one term, no difference between best_fields and cross_fields
+        String dsl = "hello";
+        String optionsBestFields = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\"}";
+        String optionsCrossFields = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+
+        QsPlan planBest = SearchDslParser.parseDsl(dsl, optionsBestFields);
+        QsPlan planCross = SearchDslParser.parseDsl(dsl, optionsCrossFields);
+
+        Assertions.assertNotNull(planBest);
+        Assertions.assertNotNull(planCross);
+        // Both should have same structure: (title:hello OR content:hello)
+        Assertions.assertEquals(planBest.root.type, planCross.root.type);
+        Assertions.assertEquals(planBest.root.children.size(), planCross.root.children.size());
     }
 }

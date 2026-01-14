@@ -77,8 +77,10 @@ public class SearchDslParser {
      *                    - mode: "standard" or "lucene"
      *                    - minimum_should_match: integer for Lucene mode
      *                    - fields: array of field names for multi-field search
+     *                    - type: "best_fields" (default) or "cross_fields" for multi-field semantics
      *                    Example: '{"default_field":"title","mode":"lucene","minimum_should_match":0}'
      *                    Example: '{"fields":["title","content"],"default_operator":"and"}'
+     *                    Example: '{"fields":["title","content"],"type":"cross_fields"}'
      * @return Parsed QsPlan
      */
     public static QsPlan parseDsl(String dsl, String optionsJson) {
@@ -101,7 +103,7 @@ public class SearchDslParser {
 
         // Multi-field mode parsing (standard mode)
         if (searchOptions.isMultiFieldMode()) {
-            return parseDslMultiFieldMode(dsl, searchOptions.getFields(), defaultOperator);
+            return parseDslMultiFieldMode(dsl, searchOptions.getFields(), defaultOperator, searchOptions);
         }
 
         // Standard mode parsing
@@ -583,31 +585,48 @@ public class SearchDslParser {
 
     /**
      * Parse DSL in multi-field mode.
-     * Each term without field prefix is expanded to OR across all specified fields.
+     * Expansion behavior depends on the type option:
+     * - best_fields (default): all terms must match within the same field
+     * - cross_fields: terms can match across different fields
      *
      * @param dsl DSL query string
      * @param fields List of field names to search
      * @param defaultOperator "and" or "or" for joining term groups
+     * @param options Search options containing type setting
      * @return Parsed QsPlan
      */
-    private static QsPlan parseDslMultiFieldMode(String dsl, List<String> fields, String defaultOperator) {
+    private static QsPlan parseDslMultiFieldMode(String dsl, List<String> fields, String defaultOperator,
+            SearchOptions options) {
         if (!isValidDsl(dsl)) {
             return createEmptyDslErrorPlan();
         }
         validateFieldsList(fields);
 
-        String expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizeDefaultOperator(defaultOperator));
+        String normalizedOperator = normalizeDefaultOperator(defaultOperator);
+        String expandedDsl;
+        if (options.isCrossFieldsMode()) {
+            // cross_fields: terms can be across different fields
+            expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizedOperator);
+        } else if (options.isBestFieldsMode()) {
+            // best_fields: all terms must be in the same field
+            expandedDsl = expandMultiFieldDslBestFields(dsl.trim(), fields, normalizedOperator);
+        } else {
+            // Should never happen due to setType() validation, but provide fallback
+            throw new IllegalStateException(
+                    "Invalid type value: '" + options.getType() + "'. Expected 'best_fields' or 'cross_fields'");
+        }
         return parseWithVisitor(expandedDsl, parser -> new QsAstBuilder(), dsl, "multi-field mode");
     }
 
     /**
      * Parse DSL in multi-field mode with Lucene boolean semantics.
      * First expands DSL across fields, then applies Lucene-style MUST/SHOULD/MUST_NOT logic.
+     * Expansion behavior depends on the type option (best_fields or cross_fields).
      *
      * @param dsl DSL query string
      * @param fields List of field names to search
      * @param defaultOperator "and" or "or" for joining term groups
-     * @param options Search options containing Lucene mode settings
+     * @param options Search options containing Lucene mode settings and type
      * @return Parsed QsPlan with Lucene boolean semantics
      */
     private static QsPlan parseDslMultiFieldLuceneMode(String dsl, List<String> fields,
@@ -617,7 +636,19 @@ public class SearchDslParser {
         }
         validateFieldsList(fields);
 
-        String expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizeDefaultOperator(defaultOperator));
+        String normalizedOperator = normalizeDefaultOperator(defaultOperator);
+        String expandedDsl;
+        if (options.isCrossFieldsMode()) {
+            // cross_fields: terms can be across different fields
+            expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizedOperator);
+        } else if (options.isBestFieldsMode()) {
+            // best_fields: all terms must be in the same field
+            expandedDsl = expandMultiFieldDslBestFields(dsl.trim(), fields, normalizedOperator);
+        } else {
+            // Should never happen due to setType() validation, but provide fallback
+            throw new IllegalStateException(
+                    "Invalid type value: '" + options.getType() + "'. Expected 'best_fields' or 'cross_fields'");
+        }
         return parseWithVisitor(expandedDsl, parser -> new QsLuceneModeAstBuilder(options),
                 dsl, "multi-field Lucene mode");
     }
@@ -676,6 +707,107 @@ public class SearchDslParser {
                 result.append(joinOperator);
             }
             result.append(expandTermAcrossFields(terms.get(i), fields));
+        }
+        return result.toString();
+    }
+
+    /**
+     * Expand multi-field DSL using best_fields semantics.
+     * Each field is wrapped with all terms joined by the default operator, then fields are ORed.
+     *
+     * Example: "machine learning" with fields ["title", "content"] and default_operator "and"
+     * Result: (title:machine AND title:learning) OR (content:machine AND content:learning)
+     *
+     * @param dsl Simple DSL string
+     * @param fields List of field names to search
+     * @param defaultOperator "and" or "or" for joining terms within each field
+     * @return Expanded full DSL with best_fields semantics
+     */
+    private static String expandMultiFieldDslBestFields(String dsl, List<String> fields,
+            String defaultOperator) {
+        if (fields == null || fields.isEmpty()) {
+            throw new IllegalArgumentException("fields list cannot be null or empty");
+        }
+
+        if (fields.size() == 1) {
+            // Single field - delegate to existing method
+            return expandSimplifiedDsl(dsl, fields.get(0), defaultOperator);
+        }
+
+        // 1. Check for leading NOT - must use cross_fields semantics for correct negation
+        // "NOT hello" should expand to "NOT (title:hello OR content:hello)"
+        // rather than "(NOT title:hello) OR (NOT content:hello)" which has wrong semantics
+        String trimmedDsl = dsl.trim();
+        if (trimmedDsl.toUpperCase().startsWith("NOT ")
+                || trimmedDsl.toUpperCase().startsWith("NOT\t")) {
+            // Use cross_fields expansion for leading NOT
+            return expandOperatorExpressionAcrossFields(dsl, fields);
+        }
+
+        // 2. If DSL contains field references or explicit operators, apply best_fields
+        // by expanding the entire expression per field and ORing the results
+        if (containsFieldReference(dsl) || containsExplicitOperators(dsl)) {
+            return expandOperatorExpressionAcrossFieldsBestFields(dsl, fields, defaultOperator);
+        }
+
+        // 3. Check if DSL starts with a function keyword (EXACT, ANY, ALL, IN)
+        if (startsWithFunction(dsl)) {
+            // For functions, use cross_fields approach (function applied to each field)
+            return expandFunctionAcrossFields(dsl, fields);
+        }
+
+        // 4. Tokenize and analyze terms
+        List<String> terms = tokenizeDsl(dsl);
+        if (terms.isEmpty()) {
+            // Single term case - expand across fields with OR
+            return expandTermAcrossFields(dsl, fields);
+        }
+
+        // 5. Single term - expand across fields with OR
+        if (terms.size() == 1) {
+            return expandTermAcrossFields(terms.get(0), fields);
+        }
+
+        // 6. Multiple terms - best_fields: each field with all terms, then OR across fields
+        String termOperator = "and".equals(defaultOperator) ? " AND " : " OR ";
+
+        StringBuilder result = new StringBuilder();
+        for (int fieldIdx = 0; fieldIdx < fields.size(); fieldIdx++) {
+            if (fieldIdx > 0) {
+                result.append(" OR ");
+            }
+
+            String field = fields.get(fieldIdx);
+            // Build: (field:term1 AND field:term2 AND ...)
+            result.append("(");
+            for (int termIdx = 0; termIdx < terms.size(); termIdx++) {
+                if (termIdx > 0) {
+                    result.append(termOperator);
+                }
+                result.append(field).append(":").append(terms.get(termIdx));
+            }
+            result.append(")");
+        }
+        return result.toString();
+    }
+
+    /**
+     * Handle DSL with explicit operators using best_fields semantics.
+     * For complex expressions, we group by field and OR across fields.
+     */
+    private static String expandOperatorExpressionAcrossFieldsBestFields(String dsl,
+            List<String> fields, String defaultOperator) {
+        // For expressions with explicit operators, we apply the entire expression to each field
+        // and OR the results: (title:expr) OR (content:expr)
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < fields.size(); i++) {
+            if (i > 0) {
+                result.append(" OR ");
+            }
+            String field = fields.get(i);
+            // Expand the DSL for this single field
+            String fieldDsl = expandSimplifiedDsl(dsl, field, defaultOperator);
+            result.append("(").append(fieldDsl).append(")");
         }
         return result.toString();
     }
@@ -1370,6 +1502,7 @@ public class SearchDslParser {
         private String mode = "standard";
         private Integer minimumShouldMatch = null;
         private List<String> fields = null;
+        private String type = "best_fields";  // "best_fields" (default) or "cross_fields"
 
         public String getDefaultField() {
             return defaultField;
@@ -1422,6 +1555,47 @@ public class SearchDslParser {
         public boolean isMultiFieldMode() {
             return fields != null && !fields.isEmpty();
         }
+
+        /**
+         * Get the multi-field search type ("best_fields" or "cross_fields").
+         */
+        public String getType() {
+            return type;
+        }
+
+        /**
+         * Set the multi-field search type.
+         * @param type Either "best_fields" or "cross_fields" (case-insensitive)
+         * @throws IllegalArgumentException if type is invalid
+         */
+        public void setType(String type) {
+            if (type == null) {
+                this.type = "best_fields";
+                return;
+            }
+            String normalized = type.trim().toLowerCase();
+            if (!"cross_fields".equals(normalized) && !"best_fields".equals(normalized)) {
+                throw new IllegalArgumentException(
+                        "'type' must be 'cross_fields' or 'best_fields', got: " + type);
+            }
+            this.type = normalized;
+        }
+
+        /**
+         * Check if best_fields mode is enabled (default).
+         * In best_fields mode, all terms must match within the same field.
+         */
+        public boolean isBestFieldsMode() {
+            return "best_fields".equals(type);
+        }
+
+        /**
+         * Check if cross_fields mode is enabled.
+         * In cross_fields mode, terms can match across different fields.
+         */
+        public boolean isCrossFieldsMode() {
+            return "cross_fields".equals(type);
+        }
     }
 
     /**
@@ -1432,6 +1606,7 @@ public class SearchDslParser {
      * - mode: "standard" or "lucene"
      * - minimum_should_match: integer for Lucene mode
      * - fields: array of field names for multi-field search
+     * - type: "best_fields" (default) or "cross_fields" for multi-field search semantics
      */
     private static SearchOptions parseOptions(String optionsJson) {
         SearchOptions options = new SearchOptions();
@@ -1470,6 +1645,10 @@ public class SearchDslParser {
                         options.setFields(fieldsList);
                     }
                 }
+            }
+            // Parse type for multi-field search semantics
+            if (jsonNode.has("type")) {
+                options.setType(jsonNode.get("type").asText());
             }
 
             // Validation: fields and default_field are mutually exclusive
