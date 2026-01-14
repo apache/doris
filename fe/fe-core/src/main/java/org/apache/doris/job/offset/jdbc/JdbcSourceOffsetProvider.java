@@ -41,7 +41,6 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,7 +51,6 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -332,19 +330,19 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
         String offsetProviderPersist = job.getOffsetProviderPersist();
-        if (job.getOffsetProviderPersist() == null) {
-            return;
-        }
-        JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
-                JdbcSourceOffsetProvider.class);
-        this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
-        this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
-
-        if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
-            currentOffset = new JdbcOffset();
-            currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
-        } else {
-            try {
+        if (offsetProviderPersist != null) {
+            JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
+                    JdbcSourceOffsetProvider.class);
+            this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
+            this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
+            log.info("Replaying offset provider for job {}, binlogOffset size {}, chunkHighWatermark size {}",
+                    getJobId(),
+                    binlogOffsetPersist == null ? 0 : binlogOffsetPersist.size(),
+                    chunkHighWatermarkMap == null ? 0 : chunkHighWatermarkMap.size());
+            if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
+                currentOffset = new JdbcOffset();
+                currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
+            } else {
                 Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
                     SnapshotSplit lastSnapshotSplit = recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
@@ -353,10 +351,20 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         currentOffset.setSplit(lastSnapshotSplit);
                     }
                 }
-            } catch (Exception ex) {
-                log.warn("Replay snapshot splits error with job {} ", job.getJobId(), ex);
-                throw new JobException(ex);
             }
+        } else if (checkNeedSplitChunks(sourceProperties)
+                    && CollectionUtils.isEmpty(remainingSplits)
+                    && CollectionUtils.isEmpty(finishedSplits)
+                    && MapUtils.isEmpty(chunkHighWatermarkMap)
+                    && MapUtils.isEmpty(binlogOffsetPersist)) {
+            // After the Job is created for the first time, starting from the initial offset,
+            // the task for the first split is scheduled, When the task status is running or failed,
+            // If FE restarts, the split needs to be restore from the meta again.
+            log.info("Replaying offset provider for job {}, offsetProviderPersist is empty", getJobId());
+            Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
+            recalculateRemainingSplits(new HashMap<>(), snapshotSplits);
+        } else {
+            log.info("No need to replay offset provider for job {}", getJobId());
         }
     }
 
