@@ -98,9 +98,9 @@ struct YearFloor;
 template <typename Flag, PrimitiveType PType, int ArgNum, bool UseDelta = false>
 class FunctionDateTimeFloorCeil : public IFunction {
 public:
-    using DateType = PrimitiveTypeTraits<PType>::DataType;
-    using DateValueType = PrimitiveTypeTraits<PType>::CppType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
+    using DateType = typename PrimitiveTypeTraits<PType>::DataType;
+    using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
+    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
     using DeltaDataType = DataTypeInt32;
     // return date type = DateType
     static constexpr auto name = Flag::name;
@@ -186,7 +186,7 @@ public:
                 if (remove_nullable(block.get_by_position(arguments[1]).type)
                             ->get_primitive_type() == PrimitiveType::TYPE_INT) {
                     // time_round(datetime,const(period))
-                    Int32 period = (*argument_columns[1])[0].get<Int32>();
+                    Int32 period = (*argument_columns[1])[0].get<TYPE_INT>();
                     bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
                                           block.get_by_position(arguments[1]).column->is_null_at(0);
                     if (period < 1 && !period_is_null) [[unlikely]] {
@@ -197,7 +197,7 @@ public:
                 } else {
                     // time_round(datetime, const(origin))
                     vector_const_anchor(sources->get_data(),
-                                        (*argument_columns[1])[0].get<NativeType>(),
+                                        (*argument_columns[1])[0].get<PType>().to_date_int_val(),
                                         col_to->get_data(), result_null_map);
                 }
             } else {
@@ -217,8 +217,8 @@ public:
         } else { // 3 arg, time_round(datetime, period, origin)
             if (col_const[1] && col_const[2]) {
                 // time_round(datetime, const(period), const(origin))
-                Int32 period = (*argument_columns[1])[0].get<Int32>();
-                NativeType origin = (*argument_columns[2])[0].get<NativeType>();
+                Int32 period = (*argument_columns[1])[0].get<TYPE_INT>();
+                NativeType origin = (*argument_columns[2])[0].get<PType>().to_date_int_val();
                 bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
                                       block.get_by_position(arguments[1]).column->is_null_at(0);
                 if (period < 1 && !period_is_null) [[unlikely]] {
@@ -230,7 +230,7 @@ public:
                 const auto arg2_column =
                         check_and_get_column<ColumnVector<PType>>(*argument_columns[2]);
                 // time_round(datetime, const(period), origin)
-                Int32 period = (*argument_columns[1])[0].get<Int32>();
+                Int32 period = (*argument_columns[1])[0].get<TYPE_INT>();
                 bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
                                       block.get_by_position(arguments[1]).column->is_null_at(0);
                 if (period < 1 && !period_is_null) [[unlikely]] {
@@ -242,8 +242,8 @@ public:
                 const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
                 // time_round(datetime, period, const(origin))
                 vector_vector_const(sources->get_data(), arg1_column->get_data(),
-                                    (*argument_columns[2])[0].get<NativeType>(), col_to->get_data(),
-                                    result_null_map);
+                                    (*argument_columns[2])[0].get<PType>().to_date_int_val(),
+                                    col_to->get_data(), result_null_map);
             } else {
                 const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
                 const auto arg2_column =

@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
@@ -69,7 +70,7 @@ public class TabletReplicaTooSlowTest {
     private long id = 10086;
 
     private final SystemInfoService systemInfoService = new SystemInfoService();
-    private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
+    private final TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
     private Table<String, Tag, LoadStatisticForTag> statisticMap;
 
     @BeforeClass

@@ -116,12 +116,13 @@ TEST(function_array_index_test, array_contains) {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
                                     PrimitiveType::TYPE_DECIMALV2};
 
-        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                         ut_type::DECIMALV2(0.0)};
-        DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, UInt8(1)},
-                            {{vec, ut_type::DECIMALV2(0)}, UInt8(1)},
-                            {{Null(), ut_type::DECIMALV2(0)}, Null()},
-                            {{empty_arr, ut_type::DECIMALV2(0)}, UInt8(0)}};
+        TestArray vec = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(0.0)};
+        DataSet data_set = {{{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)}, UInt8(1)},
+                            {{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, UInt8(1)},
+                            {{Null(), ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
@@ -193,12 +194,13 @@ TEST(function_array_index_test, array_position) {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
                                     PrimitiveType::TYPE_DECIMALV2};
 
-        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                         ut_type::DECIMALV2(0)};
-        DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, Int64(2)},
-                            {{vec, ut_type::DECIMALV2(0)}, Int64(3)},
-                            {{Null(), ut_type::DECIMALV2(0)}, Null()},
-                            {{empty_arr, ut_type::DECIMALV2(0)}, Int64(0)}};
+        TestArray vec = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(0)};
+        DataSet data_set = {{{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)}, Int64(2)},
+                            {{vec, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Int64(3)},
+                            {{Null(), ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMALV2VALUEFROMDOUBLE(0)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }

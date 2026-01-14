@@ -316,7 +316,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -341,7 +341,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -372,7 +372,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -404,7 +404,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_EQ(jsonb_result.get_size(), original_jsonb.get_size());
         ASSERT_EQ(memcmp(jsonb_result.get_value(), original_jsonb.get_value(),
@@ -439,7 +439,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToNullableJsonb) {
         ASSERT_EQ(result.get_type(), TYPE_JSONB);
         ASSERT_FALSE(result.is_null());
 
-        const JsonbField& jsonb_result = result.get<JsonbField>();
+        const JsonbField& jsonb_result = result.get<TYPE_JSONB>();
         ASSERT_NE(jsonb_result.get_value(), nullptr);
         ASSERT_GT(jsonb_result.get_size(), 0);
 
@@ -474,7 +474,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ArrayToJsonb) {
     ASSERT_EQ(result.get_type(), TYPE_ARRAY);
     ASSERT_FALSE(result.is_null());
 
-    const Array& result_array = result.get<Array>();
+    const Array& result_array = result.get<TYPE_ARRAY>();
     ASSERT_EQ(result_array.size(), 3);
 
     // Verify each element is converted to JSONB
@@ -482,7 +482,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ArrayToJsonb) {
         ASSERT_EQ(result_array[i].get_type(), TYPE_JSONB);
         ASSERT_FALSE(result_array[i].is_null());
 
-        const auto& jsonb_element = result_array[i].get<JsonbField>();
+        const auto& jsonb_element = result_array[i].get<TYPE_JSONB>();
         ASSERT_NE(jsonb_element.get_value(), nullptr);
         ASSERT_GT(jsonb_element.get_size(), 0);
 

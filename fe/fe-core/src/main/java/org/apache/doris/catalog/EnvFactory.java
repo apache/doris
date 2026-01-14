@@ -86,6 +86,10 @@ public class EnvFactory {
         return new SystemInfoService();
     }
 
+    public TabletInvertedIndex createTabletInvertedIndex() {
+        return new LocalTabletInvertedIndex();
+    }
+
     public Type getPartitionClass() {
         return Partition.class;
     }

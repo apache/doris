@@ -188,7 +188,7 @@ public class MySqlSourceReader implements SourceReader {
                 Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
                 // reset binlog reader
-                closeBinlogReader();
+                // closeBinlogReader();
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
                 this.setCurrentSplitRecords(currentSplitRecords);
                 this.setCurrentSplit(split);
@@ -718,6 +718,9 @@ public class MySqlSourceReader implements SourceReader {
     @Override
     public void finishSplitRecords() {
         this.setCurrentSplitRecords(null);
+        // Close after each read, the binlog client will occupy the connection.
+        closeBinlogReader();
+        this.setCurrentReader(null);
     }
 
     @Override

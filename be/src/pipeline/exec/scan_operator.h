@@ -68,7 +68,6 @@ public:
 
     virtual int64_t limit_per_scanner() = 0;
 
-    virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
@@ -122,7 +121,6 @@ protected:
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
     RuntimeFilterConsumerHelper _helper;
-    std::mutex _conjunct_lock;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
 };
@@ -152,7 +150,6 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t limit_per_scanner() override;
 
-    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
@@ -310,7 +307,7 @@ protected:
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
@@ -374,8 +371,8 @@ public:
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
 
-        if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->clear_free_blocks();
+        if (auto ctx = local_state._scanner_ctx.load()) {
+            ctx->clear_free_blocks();
         }
     }
 

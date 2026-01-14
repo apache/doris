@@ -217,15 +217,16 @@ template <PrimitiveType P, typename T>
 StringParser::ParseResult read_decimal_text_impl(T& x, const StringRef& buf, UInt32 precision,
                                                  UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
-    if constexpr (!std::is_same_v<Decimal128V2, T>) {
+    if constexpr (!std::is_same_v<DecimalV2Value, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         x.value = StringParser::string_to_decimal<P>(buf.data, (int)buf.size, precision, scale,
                                                      &result);
         return result;
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(
-                buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE, &result);
+        x = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
+                &result));
         return result;
     }
 }

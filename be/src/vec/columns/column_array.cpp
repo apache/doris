@@ -166,7 +166,7 @@ void ColumnArray::get(size_t n, Field& res) const {
                                size, n, max_array_size_as_field);
 
     res = Field::create_field<TYPE_ARRAY>(Array(size));
-    Array& res_arr = doris::vectorized::get<Array&>(res);
+    Array& res_arr = res.get<TYPE_ARRAY>();
 
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
 }
@@ -478,7 +478,7 @@ void ColumnArray::insert(const Field& x) {
         get_data().insert(Field::create_field<TYPE_NULL>(Null()));
         get_offsets().push_back(get_offsets().back() + 1);
     } else {
-        const auto& array = doris::vectorized::get<const Array&>(x);
+        const auto& array = x.get<TYPE_ARRAY>();
         size_t size = array.size();
         for (size_t i = 0; i < size; ++i) {
             get_data().insert(array[i]);

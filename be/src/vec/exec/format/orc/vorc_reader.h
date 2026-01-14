@@ -182,7 +182,7 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
-    void set_position_delete_rowids(std::vector<int64_t>* delete_rows) {
+    void set_position_delete_rowids(const std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }
 
@@ -704,7 +704,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
 
     //support iceberg position delete .
-    std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+    const std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
