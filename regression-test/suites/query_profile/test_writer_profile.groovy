@@ -110,12 +110,12 @@ suite('test_writer_profile') {
                 }
             }
         }
-        logger.info("queryId: " + queryId)
 
         assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
         def profileString = getProfile(masterAddress, queryId)
-        assertFalse(profileString.contains("DeltaWriterV2"))
-        assertFalse(profileString.contains("MemTableWriter"))
+        logger.info(profileString)
+        assertFalse(profileString.contains("DeltaWriterV2"), "should not contain DeltaWriterV2")
+        assertFalse(profileString.contains("MemTableWriter"), "should not contain MemTableWriter")
     } finally {
         sql "set enable_profile=false;"   
     }
@@ -177,12 +177,11 @@ suite('test_writer_profile') {
                 }
             }
         }
-        logger.info("queryId: " + queryId)
-
         assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
         def profileString = getProfile(masterAddress, queryId)
-        assertTrue(profileString.contains("DeltaWriterV2"))
-        assertTrue(profileString.contains("MemTableWriter"))
+        logger.info(profileString)
+        assertTrue(profileString.contains("DeltaWriterV2"), "should contain DeltaWriterV2")
+        assertTrue(profileString.contains("MemTableWriter"), "should contain MemTableWriter")
     } finally {
         sql "set enable_profile=false;"
         sql "set profile_level=1;"
