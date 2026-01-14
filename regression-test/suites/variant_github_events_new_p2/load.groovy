@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_github_events_p0", "p0"){
+suite("regression_test_variant_github_events_p2", "p2"){
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
