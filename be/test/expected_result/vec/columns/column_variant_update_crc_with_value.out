@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 column: variant with hashes: 3573485114 with ptr: 1756
+=======
+column: variant with hashes: 401199387 with ptr: 1756
+>>>>>>> 501c20613d ([fix](variant) Fix variant type inference from JSON (#59861))

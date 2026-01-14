@@ -1,2 +1,7 @@
+<<<<<<< HEAD
 column: variant with byte_size: 11155317
 11155317
+=======
+column: variant with byte_size: 11281852
+11281852
+>>>>>>> 501c20613d ([fix](variant) Fix variant type inference from JSON (#59861))
