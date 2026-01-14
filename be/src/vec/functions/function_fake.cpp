@@ -120,15 +120,11 @@ struct FunctionPoseExplode {
         DataTypes fieldTypes(arguments.size() + 1);
         fieldTypes[0] = std::make_shared<DataTypeInt32>();
         for (int i = 0; i < arguments.size(); i++) {
-            DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
-                    << arguments[0]->get_name() << " not supported";
+            DCHECK_EQ(arguments[i]->get_primitive_type(), TYPE_ARRAY)
+                    << arguments[i]->get_name() << " not supported";
             auto nestedType =
                     check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
-            if (nestedType->is_nullable()) {
-                fieldTypes[i + 1] = nestedType;
-            } else {
-                fieldTypes[i + 1] = make_nullable(nestedType);
-            }
+            fieldTypes[i + 1] = make_nullable(nestedType);
         }
         auto struct_type = std::make_shared<vectorized::DataTypeStruct>(fieldTypes);
         if constexpr (AlwaysNullable) {
