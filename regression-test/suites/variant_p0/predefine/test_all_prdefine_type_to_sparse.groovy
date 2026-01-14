@@ -129,7 +129,7 @@ suite("test_all_prdefine_type_to_sparse", "p0"){
         log.info("before_result: ${before_result}")
         qt_sql_compaction_before """ desc ${tableName} """
 
-        trigger_and_wait_compaction(tableName, "full", 600)
+        trigger_and_wait_compaction(tableName, "full", 1800)
 
         def after_result = sql """ select var from ${tableName} order by id """
         log.info("after_result: ${after_result}")

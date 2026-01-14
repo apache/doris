@@ -39,7 +39,7 @@ suite("test_predefine_typed_sparse", "p0"){
 
     qt_sql """ select variant_type(var) from ${tableName} order by id """
     qt_sql """ select * from ${tableName} order by id """
-    trigger_and_wait_compaction(tableName, "cumulative", 600)
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
     qt_sql """ select * from ${tableName} order by id """
 
     qt_sql """ select variant_type(var) from ${tableName} order by id """

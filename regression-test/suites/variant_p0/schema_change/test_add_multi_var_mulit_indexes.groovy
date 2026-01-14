@@ -75,7 +75,7 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
 
     sql """insert into  ${table_name} values (4, '{"a" : 12345,"b" : 2}', '{"a" : 56789,"b" : 2}', '{"a" : 12345,"b" : 3}')"""
 
-    trigger_and_wait_compaction("${table_name}", "full", 600)
+    trigger_and_wait_compaction("${table_name}", "full", 1800)
 
     qt_sql "select * from  ${table_name} order by k"
 

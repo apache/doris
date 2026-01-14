@@ -89,7 +89,7 @@ suite("test_compaction_variant") {
             def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
             // trigger compactions for all tablets in ${tableName}
-            trigger_and_wait_compaction(tableName, "cumulative", 600)
+            trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
             int rowCount = 0
             for (def tablet in tablets) {

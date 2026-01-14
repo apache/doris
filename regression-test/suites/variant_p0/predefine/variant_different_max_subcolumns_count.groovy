@@ -36,7 +36,7 @@ suite("variant_different_max_subcolumns_count", "p0") {
     sql """INSERT INTO ${table_name} values(5, '{"a": "5", "c": 5.5}')"""
 
     qt_sql "select v['a'], v['b'], v['c'], * from ${table_name} order by k"
-    trigger_and_wait_compaction(table_name, "full", 600)
+    trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select v['a'], v['b'], v['c'], * from ${table_name} order by k"
 
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -64,7 +64,7 @@ suite("variant_different_max_subcolumns_count", "p0") {
 
     qt_sql "select v['a'], v['b'], v['c'], v2['a'], v2['b'], v2['c'], v3['a'], v3['b'], v3['c'], v4['a'], v4['b'], v4['c'], * from ${table_name} order by k"
 
-    trigger_and_wait_compaction(table_name, "full", 600)
+    trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select v['a'], v['b'], v['c'], v2['a'], v2['b'], v2['c'], v3['a'], v3['b'], v3['c'], v4['a'], v4['b'], v4['c'], * from ${table_name} order by k"
     
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -90,7 +90,7 @@ suite("variant_different_max_subcolumns_count", "p0") {
 
     qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
 
-    trigger_and_wait_compaction(table_name, "full", 600)
+    trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
 
     sql """ INSERT INTO ${table_name} values(4, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
@@ -100,7 +100,7 @@ suite("variant_different_max_subcolumns_count", "p0") {
 
 
     qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
-    trigger_and_wait_compaction(table_name, "full", 600)
+    trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
 
 }

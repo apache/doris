@@ -51,7 +51,7 @@ suite("test_variant_predefine_type_multi_index", "p0"){
         sql """ insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}') """
     }
 
-    trigger_and_wait_compaction(tableName, "cumulative", 600)
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
 
      qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """

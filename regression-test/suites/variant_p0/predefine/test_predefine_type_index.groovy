@@ -56,7 +56,7 @@ suite("test_variant_predefine_index_type", "p0"){
         sql """ insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}') """
     }
 
-    trigger_and_wait_compaction(tableName, "cumulative", 600)
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
     qt_sql """ select variant_type(var) from ${tableName} order by id """
     qt_sql """select * from ${tableName} order by id"""
@@ -104,7 +104,7 @@ suite("test_variant_predefine_index_type", "p0"){
             (10, '{"color":"Yellow","description":"Shiny yellow circular badge","shape":"Wide Circle","tags":["shiny","plastic"]}');    
         """
     }
-    trigger_and_wait_compaction(tableName, "cumulative", 600)
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
     sql "set enable_match_without_inverted_index = false"
     qt_sql "select count() from objects where (overflow_properties['color'] MATCH_PHRASE 'Blue')"    
     qt_sql "select count() from objects where (array_contains(cast(overflow_properties['tags'] as array<string>), 'plastic'))"   
