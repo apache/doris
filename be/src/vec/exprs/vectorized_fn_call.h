@@ -55,7 +55,8 @@ public:
     Status execute_column(VExprContext* context, const Block* block,
                           ColumnPtr& result_column) const override;
     Status execute_runtime_filter(VExprContext* context, const Block* block,
-                                  ColumnPtr& result_column, ColumnPtr* arg_column) const override;
+                                  const uint8_t* __restrict filter, ColumnPtr& result_column,
+                                  ColumnPtr* arg_column) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
