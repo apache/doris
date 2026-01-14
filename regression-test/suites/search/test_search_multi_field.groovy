@@ -54,6 +54,9 @@ suite("test_search_multi_field") {
     """
 
     // Insert test data
+    // Note: id=9 is specifically designed to test cross_fields vs best_fields behavior
+    // - cross_fields: matches (title has 'machine', content has 'learning')
+    // - best_fields: does NOT match (no single field has both terms)
     sql """INSERT INTO ${tableName} VALUES
         (1, 'machine learning basics', 'introduction to AI and ML', 'ml ai tutorial', 'tech'),
         (2, 'cooking recipes', 'how to make pasta', 'food cooking', 'lifestyle'),
@@ -62,7 +65,8 @@ suite("test_search_multi_field") {
         (5, 'learning guitar', 'music lessons for beginners', 'music learning', 'entertainment'),
         (6, 'deep learning neural networks', 'advanced AI concepts', 'ai ml deep', 'tech'),
         (7, 'car maintenance guide', 'vehicle repair tips', 'auto maintenance', 'automotive'),
-        (8, 'cooking machine reviews', 'kitchen appliance ratings', 'cooking appliances', 'lifestyle')
+        (8, 'cooking machine reviews', 'kitchen appliance ratings', 'cooking appliances', 'lifestyle'),
+        (9, 'machine guide', 'learning tips', 'howto', 'tech')
     """
 
     // Wait for index building
@@ -83,6 +87,20 @@ suite("test_search_multi_field") {
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and"}')
+        ORDER BY id
+    """
+
+    // ============ Test 2b: Multiple terms with AND in Lucene mode ============
+    // Same as Test 2 but with mode:lucene - should have same result
+    // This tests that default_operator:and works correctly with Lucene mode
+    // ES behavior comparison:
+    // - ES best_fields (default): only id=1 (both terms must be in same field)
+    // - ES cross_fields: id=1 and id=9 (terms can be across different fields)
+    // - Doris uses cross_fields semantics
+    qt_multi_field_multi_term_and_lucene """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
+        FROM ${tableName}
+        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","mode":"lucene"}')
         ORDER BY id
     """
 
@@ -151,10 +169,26 @@ suite("test_search_multi_field") {
     """
 
     // ============ Test 11: Multi-field with Lucene mode - simple AND ============
+    // This is equivalent to Test 2 but uses Lucene mode with explicit AND operator
+    // Expected: Same result as Test 2 - cross_fields semantics
+    // - ES best_fields would return: id=1 only (both terms in same field)
+    // - Doris cross_fields returns: id=1, id=9 (terms can be in different fields)
+    // id=9: title='machine guide', content='learning tips' - matches cross_fields but not best_fields
     qt_multi_field_lucene_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
         WHERE search('machine AND learning', '{"fields":["title","content"],"mode":"lucene","minimum_should_match":0}')
+        ORDER BY id
+    """
+
+    // ============ Test 11b: Verify cross_fields behavior explicitly ============
+    // This test verifies that our implementation uses cross_fields semantics (like ES type:cross_fields)
+    // Query: "machine AND learning" across title and content
+    // id=9 has 'machine' in title and 'learning' in content - should match with cross_fields
+    qt_multi_field_cross_fields_verify """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content
+        FROM ${tableName}
+        WHERE search('machine AND learning', '{"fields":["title","content"]}')
         ORDER BY id
     """
 
