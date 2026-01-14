@@ -71,6 +71,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -225,6 +226,7 @@ public abstract class RoutineLoadJob
 
     protected boolean isPartialUpdate = false;
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+    protected TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
     protected String sequenceCol;
 
@@ -387,11 +389,14 @@ public abstract class RoutineLoadJob
         jobProperties.put(info.STRICT_MODE, String.valueOf(info.isStrictMode()));
         jobProperties.put(info.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
         jobProperties.put(info.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
-        jobProperties.put(info.PARTIAL_COLUMNS, info.isPartialUpdate() ? "true" : "false");
-        if (info.isPartialUpdate()) {
-            this.isPartialUpdate = true;
+        // Set unique key update mode
+        this.uniqueKeyUpdateMode = info.getUniqueKeyUpdateMode();
+        this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, isPartialUpdate ? "true" : "false");
+        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
             this.partialUpdateNewKeyPolicy = info.getPartialUpdateNewKeyPolicy();
-            jobProperties.put(info.PARTIAL_UPDATE_NEW_KEY_POLICY,
+            jobProperties.put(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY,
                     this.partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR ? "ERROR" : "APPEND");
         }
         jobProperties.put(info.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
@@ -568,6 +573,10 @@ public abstract class RoutineLoadJob
     @Override
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return uniqueKeyUpdateMode;
     }
 
     @Override
@@ -1932,9 +1941,27 @@ public abstract class RoutineLoadJob
         if (tableId == 0) {
             isMultiTable = true;
         }
+        // Process UNIQUE_KEY_UPDATE_MODE first to ensure correct backward compatibility
+        // with PARTIAL_COLUMNS (HashMap iteration order is not guaranteed)
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            String modeValue = jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+            try {
+                uniqueKeyUpdateMode = TUniqueKeyUpdateMode.valueOf(modeValue.toUpperCase());
+                isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+            } catch (IllegalArgumentException e) {
+                uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+            }
+        }
+        // Process remaining properties
         jobProperties.forEach((k, v) -> {
             if (k.equals(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
-                isPartialUpdate = Boolean.parseBoolean(v);
+                // Backward compatibility: if unique_key_update_mode is not set, use partial_columns
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+                    isPartialUpdate = Boolean.parseBoolean(v);
+                    if (isPartialUpdate) {
+                        uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+                    }
+                }
             } else if (k.equals(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
                 if ("ERROR".equalsIgnoreCase(v)) {
                     partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
@@ -1979,7 +2006,7 @@ public abstract class RoutineLoadJob
     public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
-    protected void modifyCommonJobProperties(Map<String, String> jobProperties) {
+    protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -2009,6 +2036,105 @@ public abstract class RoutineLoadJob
         if (jobProperties.containsKey(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY)) {
             this.maxBatchSizeBytes = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE).toUpperCase();
+            TUniqueKeyUpdateMode newMode = TUniqueKeyUpdateMode.valueOf(modeStr);
+            // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
+            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                validateFlexiblePartialUpdateForAlter();
+            }
+            this.uniqueKeyUpdateMode = newMode;
+            this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+            this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+            this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+            this.isPartialUpdate = Boolean.parseBoolean(
+                    jobProperties.remove(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
+            if (this.isPartialUpdate && uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+                this.uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+            }
+            this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+            this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        }
+    }
+
+    /**
+     * Validate flexible partial update constraints when altering routine load job.
+     */
+    private void validateFlexiblePartialUpdateForAlter() throws UserException {
+        // Multi-table load does not support flexible partial update
+        if (isMultiTable) {
+            throw new DdlException("Flexible partial update is not supported in multi-table load");
+        }
+
+        // Get the table to check table-level constraints
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbId);
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            throw new DdlException("Table not found: " + tableId);
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Flexible partial update is only supported for OLAP tables");
+        }
+        OlapTable olapTable = (OlapTable) table;
+
+        // 1. Must be MoW unique key table
+        if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new DdlException("Flexible partial update is only supported in unique table MoW");
+        }
+        // 2. Must have skip_bitmap column
+        if (!olapTable.hasSkipBitmapColumn()) {
+            throw new DdlException("Flexible partial update requires table with skip bitmap hidden column. "
+                    + "Use `ALTER TABLE " + olapTable.getName()
+                    + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it.");
+        }
+        // 3. Must have light_schema_change enabled
+        if (!olapTable.getEnableLightSchemaChange()) {
+            throw new DdlException("Flexible partial update requires table with light_schema_change enabled. "
+                    + "But table " + olapTable.getName() + "'s property light_schema_change is false");
+        }
+        // 4. Cannot have variant columns
+        if (olapTable.hasVariantColumns()) {
+            throw new DdlException("Flexible partial update does not support tables with variant columns");
+        }
+
+        // 5. Must use JSON format
+        String format = this.jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        if (!"json".equalsIgnoreCase(format)) {
+            throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
+                    + format);
+        }
+        // 6. Cannot use fuzzy_parse
+        if (Boolean.parseBoolean(this.jobProperties.getOrDefault(
+                JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
+            throw new DdlException("Flexible partial update does not support fuzzy_parse");
+        }
+        // 7. Cannot specify jsonpaths
+        String jsonPaths = this.jobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
+        if (jsonPaths != null && !jsonPaths.isEmpty()) {
+            throw new DdlException("Flexible partial update does not support jsonpaths");
+        }
+
+        // 8. Cannot specify COLUMNS mapping (check routineLoadDesc)
+        if (routineLoadDesc != null && routineLoadDesc.getColumnsInfo() != null
+                && !routineLoadDesc.getColumnsInfo().getColumns().isEmpty()) {
+            throw new DdlException("Flexible partial update does not support COLUMNS specification");
+        }
+        // 9. Cannot have merge_type other than APPEND
+        if (routineLoadDesc != null && routineLoadDesc.getMergeType() != null
+                && routineLoadDesc.getMergeType() != LoadTask.MergeType.APPEND) {
+            throw new DdlException("Flexible partial update does not support MERGE or DELETE merge type");
+        }
+        // 10. Cannot have WHERE clause
+        if (routineLoadDesc != null && routineLoadDesc.getWherePredicate() != null) {
+            throw new DdlException("Flexible partial update does not support WHERE clause");
         }
     }
 }

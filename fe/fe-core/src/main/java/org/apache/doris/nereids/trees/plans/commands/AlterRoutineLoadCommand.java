@@ -70,6 +70,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY)
             .add(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY)
             .add(CreateRoutineLoadInfo.PARTIAL_COLUMNS)
+            .add(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)
             .add(CreateRoutineLoadInfo.STRICT_MODE)
             .add(CreateRoutineLoadInfo.TIMEZONE)
             .add(CreateRoutineLoadInfo.WORKLOAD_GROUP)
@@ -277,6 +278,17 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
             analyzedJobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS,
                     String.valueOf(isPartialUpdate));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            String modeStr = jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE).toUpperCase();
+            if (!"UPSERT".equals(modeStr) && !"UPDATE_FIXED_COLUMNS".equals(modeStr)
+                    && !"UPDATE_FLEXIBLE_COLUMNS".equals(modeStr)) {
+                throw new AnalysisException(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE
+                        + " should be one of {'UPSERT', 'UPDATE_FIXED_COLUMNS', 'UPDATE_FLEXIBLE_COLUMNS'}, but found "
+                        + modeStr);
+            }
+            analyzedJobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, modeStr);
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)) {
