@@ -1656,7 +1656,7 @@ DEFINE_Int32(num_forward_notify_be_request_to_fe_thread_pool_max_thread, "16");
 
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 
-DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
 
 // clang-format off
 #ifdef BE_TEST
