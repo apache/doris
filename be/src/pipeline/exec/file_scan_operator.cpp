@@ -55,50 +55,6 @@ PushDownType FileScanLocalState::_should_push_down_binary_predicate(
     }
 }
 
-bool FileScanLocalState::_should_push_down_or_predicate_recursively(
-        const vectorized::VExprSPtr& expr) const {
-    if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
-        expr->op() == TExprOpcode::COMPOUND_OR) {
-        return std::ranges::all_of(expr->children(), [this](const vectorized::VExprSPtr& it) {
-            return _should_push_down_or_predicate_recursively(it);
-        });
-    } else if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
-               expr->op() == TExprOpcode::COMPOUND_AND) {
-        return std::ranges::any_of(expr->children(), [this](const vectorized::VExprSPtr& it) {
-            return _should_push_down_or_predicate_recursively(it);
-        });
-    } else {
-        auto children = expr->children();
-        if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
-            // not a slot ref(column)
-            return false;
-        }
-        std::shared_ptr<vectorized::VSlotRef> slot_ref =
-                std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
-        auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());
-        if (_slot_id_to_predicates.end() == entry) {
-            return false;
-        }
-        if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
-            return false;
-        }
-        return true;
-    }
-}
-
-PushDownType FileScanLocalState::_should_push_down_or_predicate(
-        const vectorized::VExprContext* expr_ctx) const {
-    // TODO(gabriel): Do not push down OR predicate for the time being.
-    //    auto expr = expr_ctx->root()->get_impl() ? expr_ctx->root()->get_impl() : expr_ctx->root();
-    //    if (expr->node_type() == TExprNodeType::COMPOUND_PRED &&
-    //        expr->op() == TExprOpcode::COMPOUND_OR) {
-    //        if (_should_push_down_or_predicate_recursively(expr)) {
-    //            return PushDownType::PARTIAL_ACCEPTABLE;
-    //        }
-    //    }
-    return PushDownType::UNACCEPTABLE;
-}
-
 int FileScanLocalState::max_scanners_concurrency(RuntimeState* state) const {
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
@@ -178,9 +134,13 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto calc_max_scanners = [&](int parallel_instance_num) -> int {
         int max_scanners = vectorized::ScannerScheduler::default_remote_scan_thread_num() /
                            parallel_instance_num;
-        if (should_run_serial()) {
-            max_scanners = 1;
-        }
+        // For external tables, each scanner is not bound to specific splits.
+        // Instead, when a scanner is scheduled, it dynamically fetches the next scan range
+        // from a unified split source for scanning.
+        // Therefore, the number of scanners only needs to match "max_scanners_concurrency"
+        // to ensure full-speed execution.
+        // For 32 core node, the default "max_scanners_concurrency" should be 16
+        max_scanners = std::min(max_scanners, max_scanners_concurrency(state));
         return max_scanners;
     };
 

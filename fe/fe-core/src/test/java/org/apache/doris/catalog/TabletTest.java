@@ -53,7 +53,7 @@ public class TabletTest {
 
     @Before
     public void makeTablet() {
-        invertedIndex = new TabletInvertedIndex();
+        invertedIndex = new LocalTabletInvertedIndex();
         infoService = new SystemInfoService();
         for (long beId = 1L; beId <= 4L; beId++) {
             Backend be = new Backend(beId, "127.0.0." + beId, 8030);

@@ -1131,20 +1131,43 @@ public class StatisticsUtil {
             // 3. Check partition
             return needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta);
         } else {
-            if (!(table instanceof HMSExternalTable || (table instanceof IcebergExternalTable))) {
+            if (!StatisticsUtil.supportAutoAnalyze(table)) {
                 return false;
-            }
-            if (table instanceof HMSExternalTable) {
-                HMSExternalTable hmsTable = (HMSExternalTable) table;
-                if (!hmsTable.getDlaType().equals(DLAType.HIVE) && !hmsTable.getDlaType().equals(DLAType.ICEBERG)) {
-                    return false;
-                }
             }
             // External is hard to calculate change rate, use time interval to control
             // analyze frequency.
             return System.currentTimeMillis()
                     - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
+    }
+
+    /**
+     * Check if the table supports auto analyze feature.
+     * @param table The table to check
+     * @return true if the table supports auto analyze, false otherwise
+     */
+    public static boolean supportAutoAnalyze(TableIf table) {
+        if (table == null) {
+            return false;
+        }
+
+        // Support OLAP table
+        if (table instanceof OlapTable) {
+            return true;
+        }
+
+        // Support Iceberg table
+        if (table instanceof IcebergExternalTable) {
+            return true;
+        }
+
+        // Support HMS table (only HIVE and ICEBERG types)
+        if (table instanceof HMSExternalTable) {
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            DLAType dlaType = hmsTable.getDlaType();
+            return dlaType.equals(DLAType.HIVE) || dlaType.equals(DLAType.ICEBERG);
+        }
+        return false;
     }
 
     public static boolean needAnalyzePartition(OlapTable table, TableStatsMeta tableStatsStatus,
