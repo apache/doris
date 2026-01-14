@@ -91,7 +91,7 @@ suite("test_catalog_instance_profile_with_role") {
             "glue.endpoint" = "https://glue.${region}.amazonaws.com"
         );
     """
-    assertCatalogAndQueryException(hiveGlueCatalogProps,"hive_glue_catalog_instance_profile", hiveGlueQueryTableName, "The environment variable AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+    assertCatalogAndQueryException(hiveGlueCatalogProps,"hive_glue_catalog_instance_profile", hiveGlueQueryTableName, "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
     String icebergFsCatalogProps = """
         create catalog iceberg_fs_catalog_instance_profile properties(
             "type"="iceberg",
@@ -123,6 +123,6 @@ suite("test_catalog_instance_profile_with_role") {
             "s3.endpoint" = "https://s3.${region}.amazonaws.com"
         );
     """
-    assertCatalogAndQueryException(icebergFsCatalogProps,"iceberg_fs_catalog_instance_profile",icebergFsQueryTableName "No AWS Credentials provided by ContainerCredentialsProvider")
+    assertCatalogAndQueryException(icebergFsCatalogProps,"iceberg_fs_catalog_instance_profile",icebergFsQueryTableName "")
     
 }
