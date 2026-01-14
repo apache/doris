@@ -52,7 +52,6 @@ public:
     void remove_expired_committed_rowsets();
 
     void mark_empty_rowset(int64_t txn_id, int64_t tablet_id, int64_t txn_expiration);
-    bool is_empty_rowset(int64_t txn_id, int64_t tablet_id);
 
 private:
     void _clean_thread_callback();
@@ -69,7 +68,7 @@ private:
 
     struct CommittedRowsetValue {
         RowsetMetaSharedPtr rowset_meta;
-        const int64_t expiration_time; // seconds since epoch
+        int64_t expiration_time; // seconds since epoch
 
         CommittedRowsetValue(RowsetMetaSharedPtr rowset_meta_, int64_t expiration_time_)
                 : rowset_meta(std::move(rowset_meta_)), expiration_time(expiration_time_) {}

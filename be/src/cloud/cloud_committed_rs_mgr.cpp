@@ -55,7 +55,7 @@ void CloudCommittedRSMgr::add_committed_rowset(int64_t txn_id, int64_t tablet_id
     expiration_time = std::max(txn_expiration_min, expiration_time);
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     TxnTabletKey key(txn_id, tablet_id);
-    _committed_rs_map.emplace(key, CommittedRowsetValue(rowset_meta, expiration_time));
+    _committed_rs_map.insert_or_assign(key, CommittedRowsetValue(rowset_meta, expiration_time));
     _expiration_map.emplace(expiration_time, key);
     LOG(INFO) << "add pending rowset, txn_id=" << txn_id << ", tablet_id=" << tablet_id
               << ", rowset_id=" << rowset_meta->rowset_id().to_string()
@@ -120,13 +120,8 @@ void CloudCommittedRSMgr::mark_empty_rowset(int64_t txn_id, int64_t tablet_id,
 
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     TxnTabletKey txn_key(txn_id, tablet_id);
-    _empty_rowset_markers.emplace(txn_key, txn_expiration);
+    _empty_rowset_markers.insert_or_assign(txn_key, txn_expiration);
     _expiration_map.emplace(txn_expiration, txn_key);
-}
-
-bool CloudCommittedRSMgr::is_empty_rowset(int64_t txn_id, int64_t tablet_id) {
-    std::shared_lock<std::shared_mutex> rlock(_rwlock);
-    return _empty_rowset_markers.contains({txn_id, tablet_id});
 }
 
 void CloudCommittedRSMgr::_clean_thread_callback() {
