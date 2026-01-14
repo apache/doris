@@ -148,6 +148,7 @@ private:
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
 
     // disable always_true logic if detected in filter
+    // to make left_semi_direct_return_opt work correctly
     bool _detected_in_filter = false;
 
     // Wrapper is the core structure of runtime filter. If filter is local, wrapper may be shared
