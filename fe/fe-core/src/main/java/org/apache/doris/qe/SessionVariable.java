@@ -1787,7 +1787,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     public boolean enableDPHypOptimizer = false;
 
-    @VariableMgr.VarAttr(name = SHORT_CIRCUIT_EVALUATION, description = { "是否启用短路求值",
+    @VariableMgr.VarAttr(name = SHORT_CIRCUIT_EVALUATION, fuzzy = true, description = { "是否启用短路求值",
             "Whether to enable short-circuit evaluation" })
     public boolean shortCircuitEvaluation = false;
 
@@ -3294,6 +3294,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        this.shortCircuitEvaluation = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
         int minBytes = 4 * 1024;

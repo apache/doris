@@ -1026,7 +1026,7 @@ Status VExpr::execute_filter(VExprContext* context, const Block* block,
                              uint8_t* __restrict result_filter_data, size_t rows, bool accept_null,
                              bool* can_filter_all) const {
     ColumnPtr filter_column;
-    RETURN_IF_ERROR(execute_column(context, block, rows, filter_column));
+    RETURN_IF_ERROR(execute_column(context, block, nullptr, rows, filter_column));
     if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         // const(nullable) or const(bool)
         const bool result = accept_null
