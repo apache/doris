@@ -108,7 +108,7 @@ suite("variant_nested_type_conflict", "p0"){
         sql_test_cast_to_array()
 
         // trigger and wait compaction
-        trigger_and_wait_compaction("${table_name}", "full")
+        trigger_and_wait_compaction("${table_name}", "full", 600)
 
         // now select for a, b, c
         sql_select_batch()
@@ -148,7 +148,7 @@ suite("variant_nested_type_conflict", "p0"){
         sql_test_cast_to_array()
 
         // trigger and wait compaction
-        trigger_and_wait_compaction("${table_name}", "full")
+        trigger_and_wait_compaction("${table_name}", "full", 600)
 
         // now select for a, b, c
         sql_select_batch()

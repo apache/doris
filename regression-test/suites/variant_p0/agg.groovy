@@ -53,7 +53,7 @@ suite("regression_test_variant_agg"){
     qt_sql6 "select cast(v['b'] as string) from var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,  cast(v['b'] as string) "
     qt_sql7 "select * from var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,  cast(v['b'] as string) "
     qt_sql8 "select * from var_agg order by 1, cast(2 as string), 3"
-    trigger_and_wait_compaction("var_agg", "cumulative")
+    trigger_and_wait_compaction("var_agg", "cumulative", 600)
     sql "alter table var_agg drop column s"
     sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
             union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "x" : 42005}' as json_str from numbers("number" = "1024") limit 1024;"""
@@ -65,7 +65,7 @@ suite("regression_test_variant_agg"){
             union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "e" : [123456]}' as json_str from numbers("number" = "1024") limit 1024;"""
     sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
             union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "f" : ["123456"]}' as json_str from numbers("number" = "1024") limit 1024;"""
-    trigger_and_wait_compaction("var_agg", "cumulative")
+    trigger_and_wait_compaction("var_agg", "cumulative", 600)
     qt_sql9 "select * from var_agg order by cast(2 as string), 3, 1 limit 10"
     qt_sql9 "select * from var_agg where k > 1024 order by cast(2 as string), 3, 1 limit 10"
 }

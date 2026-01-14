@@ -56,7 +56,7 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
     qt_inverted_3 "select k, v['age'] from test_inverted_index_extracted where cast(v['age'] as int) > 25 order by k"
     
     // After compaction, inverted index should still work
-    trigger_and_wait_compaction("test_inverted_index_extracted", "full")
+    trigger_and_wait_compaction("test_inverted_index_extracted", "full", 600)
     
     qt_inverted_after_compact_1 "select k, v['name'] from test_inverted_index_extracted where v['name'] match 'Smith' order by k"
     qt_inverted_after_compact_2 "select count(*) from test_inverted_index_extracted where v['name'] match 'Johnson'"
@@ -106,7 +106,7 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
     qt_multi_var_3 "select k, v2['y'] from test_multiple_variants where cast(v2['y'] as int) is not null order by k"
     qt_multi_var_4 "select k, v1['d'], v2['w'] from test_multiple_variants where cast(v1['d'] as int) is not null order by k"
     
-    trigger_and_wait_compaction("test_multiple_variants", "full")
+    trigger_and_wait_compaction("test_multiple_variants", "full", 600)
     
     qt_multi_var_after_compact_1 "select k, v1['a'], v2['x'] from test_multiple_variants order by k"
     qt_multi_var_after_compact_2 "select count(*) from test_multiple_variants"

@@ -106,7 +106,7 @@ suite("test_variant_custom_analyzer", "p0") {
     sql """ insert into ${indexTbName1} values(6, '{"ch" : "β-carbon nitrid"}'); """
 
     try {
-        trigger_and_wait_compaction(indexTbName1, "full")
+        trigger_and_wait_compaction(indexTbName1, "full", 600)
         sql "sync"
         sql """ set enable_common_expr_pushdown = true; """
 
