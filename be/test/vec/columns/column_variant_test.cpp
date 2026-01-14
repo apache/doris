@@ -217,34 +217,34 @@ TEST_F(ColumnVariantTest, test_pop_back_multiple_types) {
     subcolumn.insert(field_int8);
     EXPECT_EQ(subcolumn.size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(TINYINT)");
 
     Field field_int16 = Field::create_field<TYPE_SMALLINT>(12345);
     subcolumn.insert(field_int16);
     EXPECT_EQ(subcolumn.size(), 2);
-    EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types.size(), 2);
+    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(SMALLINT)");
 
     Field field_int32 = Field::create_field<TYPE_INT>(1234567);
     subcolumn.insert(field_int32);
     EXPECT_EQ(subcolumn.size(), 3);
-    EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types.size(), 3);
+    EXPECT_EQ(subcolumn.data_types[2]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 2);
-    EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types.size(), 2);
+    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(SMALLINT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(TINYINT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 0);
@@ -254,32 +254,32 @@ TEST_F(ColumnVariantTest, test_pop_back_multiple_types) {
     subcolumn.insert(field_int32);
     EXPECT_EQ(subcolumn.size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.insert(field_int16);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.insert(field_int8);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     Field field_string = Field::create_field<TYPE_STRING>("hello");
     subcolumn.insert(field_string);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(BIGINT)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
     EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(JSONB)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(JSONB)");
 
@@ -2577,7 +2577,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field = Field::create_field<TYPE_BIGINT>(Int64(42));
         FieldInfo info;
         schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 0);
@@ -2588,7 +2588,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field = Field::create_field<TYPE_BIGINT>(UInt64(42));
         FieldInfo info;
         schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 0);
@@ -2600,7 +2600,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field1 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::max()));
         FieldInfo info1;
         schema_util::get_field_info(field1, &info1);
-        EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info1.have_nulls);
         EXPECT_FALSE(info1.need_convert);
         EXPECT_EQ(info1.num_dimensions, 0);
@@ -2609,7 +2609,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field2 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::max()));
         FieldInfo info2;
         schema_util::get_field_info(field2, &info2);
-        EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
+        EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info2.have_nulls);
         EXPECT_FALSE(info2.need_convert);
         EXPECT_EQ(info2.num_dimensions, 0);
@@ -2618,7 +2618,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field3 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max()));
         FieldInfo info3;
         schema_util::get_field_info(field3, &info3);
-        EXPECT_EQ(info3.scalar_type_id, PrimitiveType::TYPE_INT);
+        EXPECT_EQ(info3.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info3.have_nulls);
         EXPECT_FALSE(info3.need_convert);
         EXPECT_EQ(info3.num_dimensions, 0);
@@ -2637,7 +2637,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field5 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::min()));
         FieldInfo info5;
         schema_util::get_field_info(field5, &info5);
-        EXPECT_EQ(info5.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        EXPECT_EQ(info5.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info5.have_nulls);
         EXPECT_FALSE(info5.need_convert);
         EXPECT_EQ(info5.num_dimensions, 0);
@@ -2646,7 +2646,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field6 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::min()));
         FieldInfo info6;
         schema_util::get_field_info(field6, &info6);
-        EXPECT_EQ(info6.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
+        EXPECT_EQ(info6.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info6.have_nulls);
         EXPECT_FALSE(info6.need_convert);
         EXPECT_EQ(info6.num_dimensions, 0);
@@ -2655,7 +2655,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field7 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::min()));
         FieldInfo info7;
         schema_util::get_field_info(field7, &info7);
-        EXPECT_EQ(info7.scalar_type_id, PrimitiveType::TYPE_INT);
+        EXPECT_EQ(info7.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info7.have_nulls);
         EXPECT_FALSE(info7.need_convert);
         EXPECT_EQ(info7.num_dimensions, 0);
@@ -2674,7 +2674,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field1 = Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt8>::max()));
         FieldInfo info1;
         schema_util::get_field_info(field1, &info1);
-        EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
+        EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info1.have_nulls);
         EXPECT_FALSE(info1.need_convert);
         EXPECT_EQ(info1.num_dimensions, 0);
@@ -2683,7 +2683,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field2 = Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt16>::max()));
         FieldInfo info2;
         schema_util::get_field_info(field2, &info2);
-        EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_INT);
+        EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info2.have_nulls);
         EXPECT_FALSE(info2.need_convert);
         EXPECT_EQ(info2.num_dimensions, 0);
@@ -2746,7 +2746,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
         FieldInfo info;
         schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 1);
@@ -2765,7 +2765,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
         FieldInfo info;
         schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 2);
@@ -2846,7 +2846,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
         FieldInfo info;
         schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT)
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT)
                 << "info.scalar_type_id: " << info.scalar_type_id;
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -2861,7 +2861,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
         FieldInfo info;
         schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_TRUE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 1);
@@ -2882,7 +2882,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
     FieldInfo info;
     schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
     EXPECT_EQ(info.num_dimensions, 2);
@@ -2903,7 +2903,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
     FieldInfo info;
     schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
+    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
     EXPECT_EQ(info.num_dimensions, 2);
@@ -2924,7 +2924,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
     FieldInfo info;
     schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_INT);
+    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
     EXPECT_EQ(info.num_dimensions, 2);
@@ -2965,7 +2965,7 @@ outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
 Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
 FieldInfo info;
 schema_util::get_field_info(field, &info);
-EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
+EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
 EXPECT_FALSE(info.have_nulls);
 EXPECT_FALSE(info.need_convert);
 EXPECT_EQ(info.num_dimensions, 2);
@@ -2986,7 +2986,7 @@ EXPECT_EQ(info.num_dimensions, 2);
     Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
     FieldInfo info;
     schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_INT);
+    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
     EXPECT_EQ(info.num_dimensions, 2);
@@ -3079,7 +3079,7 @@ EXPECT_EQ(info.num_dimensions, 2);
     Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
     FieldInfo info;
     schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
     EXPECT_TRUE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
     EXPECT_EQ(info.num_dimensions, 2);

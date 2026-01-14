@@ -117,31 +117,6 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type) {
     return last_array ? last_array->get_nested_type() : type;
 }
 
-size_t get_size_of_interger(PrimitiveType type) {
-    switch (type) {
-    case PrimitiveType::TYPE_TINYINT:
-        return sizeof(int8_t);
-    case PrimitiveType::TYPE_SMALLINT:
-        return sizeof(int16_t);
-    case PrimitiveType::TYPE_INT:
-        return sizeof(int32_t);
-    case PrimitiveType::TYPE_BIGINT:
-        return sizeof(int64_t);
-    case PrimitiveType::TYPE_LARGEINT:
-        return sizeof(int128_t);
-    case PrimitiveType::TYPE_BOOLEAN:
-        return sizeof(uint8_t);
-    default:
-        throw Exception(Status::FatalError("Unknown integer type: {}", type_to_string(type)));
-        return 0;
-    }
-}
-
-bool is_conversion_required_between_integers(const PrimitiveType& lhs, const PrimitiveType& rhs) {
-    bool is_native_int = is_int_or_bool(lhs) && is_int_or_bool(rhs);
-    return !is_native_int || get_size_of_interger(lhs) > get_size_of_interger(rhs);
-}
-
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
     ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
 

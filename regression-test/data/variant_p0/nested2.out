@@ -56,12 +56,12 @@ v.nested.b	array<json>	Yes	false	\N	NONE
 v.nested.c	array<double>	Yes	false	\N	NONE
 
 -- !sql_0 --
-1	{"nested":[{"a":1,"c":1.1},{"b":"1"}]}
+1	{"nested":[{"a":1,"c":1.1}, {"b":"1"}]}
 2	{"nested":[{"a":2.5,"b":123.1}]}
 
 -- !sql_1 --
-["1", null]
-["2.5"]
+[1, null]
+[2.5]
 
 -- !sql_2 --
 [null, "1"]
@@ -112,16 +112,12 @@ v.nested.c	array<double>	Yes	false	\N	NONE
 \N	\N
 
 -- !sql_0 --
-<<<<<<< HEAD
 1	{"nested":[{"a":1,"c":1.1}, {"b":"1"}]}
-=======
-1	{"nested":[{"a":1,"c":1.1},{"b":"1"}]}
->>>>>>> 0a428a30adc ([fix](variant) fix variant subcolumn's type from json)
 2	{"nested":[{"a":2.5,"b":123.1}]}
 
 -- !sql_1 --
-["1", null]
-["2.5"]
+[1, null]
+[2.5]
 
 -- !sql_2 --
 [null, "1"]

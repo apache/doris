@@ -53,7 +53,7 @@ TEST(JsonParserTest, ParseSimpleTypes) {
     ASSERT_TRUE(result.has_value());
 
     auto parse_result_bool = result.value();
-    EXPECT_EQ(parse_result_bool.values[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(parse_result_bool.values[0].get_type(), doris::PrimitiveType::TYPE_BOOLEAN);
 
     // null
     result = parser.parse("null", 4, config);
@@ -111,7 +111,7 @@ TEST(JsonParserTest, ParseObjectAndArray) {
     EXPECT_EQ(array_field[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(array_field[1].get_type(), doris::PrimitiveType::TYPE_STRING);
     EXPECT_EQ(array_field[2].get_type(), doris::PrimitiveType::TYPE_NULL);
-    EXPECT_EQ(array_field[3].get_type(), doris::PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(array_field[3].get_type(), doris::PrimitiveType::TYPE_BOOLEAN);
     EXPECT_EQ(array_field[4].get_type(), doris::PrimitiveType::TYPE_DOUBLE);
     EXPECT_EQ(array_field[5].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
 }

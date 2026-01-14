@@ -2,13 +2,13 @@
 -- !sql_1 --
 k	bigint	Yes	true	\N	
 v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2")>	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.xxxx	text	Yes	false	\N	NONE
 
 -- !sql_2 --
 k	bigint	Yes	true	\N	
 v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2")>	Yes	false	\N	NONE
-v.a	smallint	Yes	false	\N	NONE
+v.a	bigint	Yes	false	\N	NONE
 v.ddd.mxmxm	array<json>	Yes	false	\N	NONE
 
 -- !sql_3 --

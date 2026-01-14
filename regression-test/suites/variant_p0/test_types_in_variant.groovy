@@ -23,7 +23,7 @@ suite("regression_test_variant_types", "var_view") {
     sql """
         create table ${table_name} (
             id int,
-            var variant
+            var variant<properties("variant_max_subcolumns_count" = "0")>
         ) engine = olap
         duplicate key (id)
         distributed by hash(id) buckets 1
@@ -67,16 +67,20 @@ suite("regression_test_variant_types", "var_view") {
     qt_sql_json "desc ${table_name}"
 
      sql "drop table if exists ${table_name}"
+
+     sql """ set enable_variant_flatten_nested = true """
     
     sql """
         create table ${table_name} (
             id int,
-            var variant
+            var variant<properties("variant_max_subcolumns_count" = "0")>
         ) engine = olap
         duplicate key (id)
         distributed by hash(id) buckets 1
         properties ("replication_num" = "1", "variant_enable_flatten_nested" = "true")
     """
+
+    sql """ set enable_variant_flatten_nested = false """
 
     sql """ insert into ${table_name} (id, var) values (1, '{"a": [{"b" : 18446744073709551615}]}'); """
 

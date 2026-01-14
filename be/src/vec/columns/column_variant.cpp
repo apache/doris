@@ -232,9 +232,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
                 type_changed = true;
             }
         } else {
-            if (least_common_type_id != from_type_id &&
-                schema_util::is_conversion_required_between_integers(from_type_id,
-                                                                     least_common_type_id)) {
+            if (least_common_type_id != from_type_id) {
                 type_changed = true;
                 DataTypePtr new_least_common_base_type;
                 get_least_supertype_jsonb(PrimitiveTypeSet {from_type_id, least_common_type_id},
