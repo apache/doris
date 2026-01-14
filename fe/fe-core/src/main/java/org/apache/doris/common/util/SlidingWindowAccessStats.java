@@ -206,8 +206,8 @@ public class SlidingWindowAccessStats {
             shards[i] = new AccessStatsShard();
         }
 
-        // Start cleanup daemon
-        if (Config.enable_cloud_active_tablet_priority_scheduling) {
+        // Start cleanup daemon and async executor if enabled
+        if (Config.enable_sliding_window_access_stats) {
             this.cleanupDaemon = new AccessStatsCleanupDaemon();
             this.cleanupDaemon.start();
             // Initialize async executor for recordAccess
@@ -298,7 +298,7 @@ public class SlidingWindowAccessStats {
      * Get access count for an ID within the time window
      */
     public AccessStatsResult getAccessInfo(long id) {
-        if (!Config.enable_cloud_active_tablet_priority_scheduling) {
+        if (!Config.enable_sliding_window_access_stats) {
             return null;
         }
 
@@ -346,7 +346,7 @@ public class SlidingWindowAccessStats {
      * Uses a min-heap (PriorityQueue) to maintain TopN efficiently without sorting all results.
      */
     public List<AccessStatsResult> getTopNActive(int topN) {
-        if (!Config.enable_cloud_active_tablet_priority_scheduling) {
+        if (!Config.enable_sliding_window_access_stats) {
             return Collections.emptyList();
         }
 
@@ -403,7 +403,7 @@ public class SlidingWindowAccessStats {
      * Clean up expired access records
      */
     private void cleanupExpiredRecords() {
-        if (!Config.enable_cloud_active_tablet_priority_scheduling) {
+        if (!Config.enable_sliding_window_access_stats) {
             return;
         }
 
@@ -433,7 +433,7 @@ public class SlidingWindowAccessStats {
      * Get statistics summary
      */
     public String getStatsSummary() {
-        if (!Config.enable_cloud_active_tablet_priority_scheduling) {
+        if (!Config.enable_sliding_window_access_stats) {
             return String.format("SlidingWindowAccessStats (type: %s) is disabled", idType);
         }
 
