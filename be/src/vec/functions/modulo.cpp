@@ -585,7 +585,7 @@ struct ModDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr constant_constant(
             ArgA a, ArgB b,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -609,7 +609,31 @@ struct ModDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr constant_constant(
+            ArgA a, ArgB b,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
+
+        auto null_map = ColumnUInt8::create(1, 0);
+        if (check_overflow_for_decimal) {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                            apply<true, ResultType>(a.value(), b.value(), null_map->get_element(0),
+                                                    max_result_number));
+        } else {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                            apply<false, ResultType>(a.value(), b.value(), null_map->get_element(0),
+                                                     max_result_number));
+        }
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr vector_constant(
             ColumnPtr column_left, ArgB b,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -640,7 +664,38 @@ struct ModDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr vector_constant(
+            ColumnPtr column_left, ArgB b,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_left_ptr = assert_cast<const ColumnTypeA*>(column_left.get());
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_left->size(), res_data_type.get_scale());
+        DCHECK(column_left_ptr != nullptr);
+
+        auto null_map = ColumnUInt8::create(column_left->size(), 0);
+        const auto& a = column_left_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_left->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a[i].value(), b.value(), n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a[i].value(), b.value(), n[i], max_result_number));
+            }
+        }
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr constant_vector(
             ArgA a, ColumnPtr column_right,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -672,7 +727,39 @@ struct ModDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr constant_vector(
+            ArgA a, ColumnPtr column_right,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_right_ptr = assert_cast<const ColumnTypeB*>(column_right.get());
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_right->size(), res_data_type.get_scale());
+        DCHECK(column_right_ptr != nullptr);
+
+        auto null_map = ColumnUInt8::create(column_right->size(), 0);
+        const auto& b = column_right_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_right->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a.value(), b[i].value(), n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a.value(), b[i].value(), n[i], max_result_number));
+            }
+        }
+
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr vector_vector(
             ColumnPtr column_left, ColumnPtr column_right,
             const typename PrimitiveTypeTraits<ResultType>::CppType max_result_number,
@@ -692,30 +779,50 @@ struct ModDecimalImpl {
         const auto& c = column_result->get_data().data();
         auto& n = null_map->get_data();
         auto sz = column_right->size();
-        if constexpr (DataTypeA::PType == TYPE_DECIMALV2) {
-            if (check_overflow_for_decimal) {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = Decimal128V2(apply<true, TYPE_DECIMALV2>(a[i].value, b[i].value, n[i],
-                                                                    max_result_number));
-                }
-            } else {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = Decimal128V2(apply<false, TYPE_DECIMALV2>(a[i].value, b[i].value, n[i],
-                                                                     max_result_number));
-                }
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a[i].value, b[i].value, n[i], max_result_number));
             }
-
         } else {
-            if (check_overflow_for_decimal) {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<true, ResultType>(
-                            a[i].value, b[i].value, n[i], max_result_number));
-                }
-            } else {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<false, ResultType>(
-                            a[i].value, b[i].value, n[i], max_result_number));
-                }
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a[i].value, b[i].value, n[i], max_result_number));
+            }
+        }
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr vector_vector(
+            ColumnPtr column_left, ColumnPtr column_right,
+            const typename PrimitiveTypeTraits<ResultType>::CppType max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_left_ptr = assert_cast<const ColumnTypeA*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const ColumnTypeB*>(column_right.get());
+
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_left->size(), res_data_type.get_scale());
+        DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
+
+        // function divide, modulo and pmod
+        auto null_map = ColumnUInt8::create(column_result->size(), 0);
+        const auto& a = column_left_ptr->get_data().data();
+        const auto& b = column_right_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_right->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = DecimalV2Value(apply<true, TYPE_DECIMALV2>(a[i].value(), b[i].value(), n[i],
+                                                                  max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = DecimalV2Value(apply<false, TYPE_DECIMALV2>(a[i].value(), b[i].value(), n[i],
+                                                                   max_result_number));
             }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));

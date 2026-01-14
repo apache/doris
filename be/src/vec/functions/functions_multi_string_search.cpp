@@ -237,7 +237,8 @@ struct FunctionMultiMatchAnyImpl {
         std::vector<StringRef> needles;
         needles.reserve(needles_arr.size());
         for (const auto& needle : needles_arr) {
-            needles.emplace_back(needle.get<StringRef>());
+            const auto& tmp = needle.get<TYPE_STRING>();
+            needles.emplace_back(StringRef {tmp.data(), tmp.size()});
         }
 
         res.resize(haystack_offsets.size());

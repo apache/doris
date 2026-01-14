@@ -375,10 +375,10 @@ public:
         size_t start_idx = to_float_column->size();
         to_float_column->resize(start_idx + num_values);
         auto& to_float_column_data = to_float_column->get_data();
-        const uint8_t* ptr = src_data->get_data().data();
+        const auto* ptr = src_data->get_data().data();
         for (int i = 0; i < num_values; ++i) {
             size_t offset = i * _type_length;
-            const uint8_t* data_ptr = ptr + offset;
+            const auto* data_ptr = ptr + offset;
             uint16_t raw;
             memcpy(&raw, data_ptr, sizeof(uint16_t));
             float value = half_to_float(raw);

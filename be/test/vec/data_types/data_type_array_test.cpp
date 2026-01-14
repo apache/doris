@@ -538,7 +538,7 @@ TEST_F(DataTypeArrayTest, GetFieldWithDataTypeTest) {
 
         auto fdt = array_type->get_field_with_data_type(*column, 0);
         EXPECT_EQ(fdt.field.get_type(), TYPE_ARRAY);
-        EXPECT_EQ(fdt.field.get<Array>(), arr);
+        EXPECT_EQ(fdt.field.get<TYPE_ARRAY>(), arr);
         EXPECT_EQ(fdt.base_scalar_type_id, TYPE_INT);
         EXPECT_EQ(fdt.num_dimensions, 1);
         EXPECT_EQ(fdt.precision, -1);
@@ -595,11 +595,11 @@ TEST_F(DataTypeArrayTest, GetFieldWithDataTypeTest) {
         EXPECT_EQ(fdt.field.get_type(), TYPE_ARRAY);
         EXPECT_EQ(fdt.base_scalar_type_id, TYPE_JSONB);
         EXPECT_EQ(fdt.num_dimensions, 1);
-        const auto& result_arr = fdt.field.get<Array>();
+        const auto& result_arr = fdt.field.get<TYPE_ARRAY>();
         EXPECT_EQ(result_arr.size(), 1);
         EXPECT_EQ(result_arr[0].get_type(), TYPE_JSONB);
-        EXPECT_EQ(std::string(result_arr[0].get<JsonbField>().get_value(),
-                              result_arr[0].get<JsonbField>().get_size()),
+        EXPECT_EQ(std::string(result_arr[0].get<TYPE_JSONB>().get_value(),
+                              result_arr[0].get<TYPE_JSONB>().get_size()),
                   json_str);
     }
 
