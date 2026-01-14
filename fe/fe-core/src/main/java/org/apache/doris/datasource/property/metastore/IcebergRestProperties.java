@@ -229,13 +229,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
 
         // Check for glue rest catalog specific properties
+        // Note: access-key-id and secret-access-key are optional - if not provided,
+        // Iceberg will use AWS default credentials chain (env vars, instance profile, IRSA, etc.)
         rules.requireIf(icebergRestSigningName, "glue",
                 new String[] {icebergRestSigningRegion,
-                        icebergRestAccessKeyId,
-                        icebergRestSecretAccessKey,
                         icebergRestSigV4Enabled},
-                "Rest Catalog requires signing-region, access-key-id, secret-access-key "
-                        + "and sigv4-enabled set to true when signing-name is glue");
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue");
         return rules;
     }
 
@@ -308,9 +307,15 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestSigningName)) {
             icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName.toLowerCase());
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
-            icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
-            icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
+            // Only set explicit credentials if provided; otherwise Iceberg will use
+            // AWS default credentials chain (env vars, instance profile, IRSA, etc.)
+            if (Strings.isNotBlank(icebergRestAccessKeyId)) {
+                icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
+            }
+            if (Strings.isNotBlank(icebergRestSecretAccessKey)) {
+                icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
+            }
         }
     }
 
