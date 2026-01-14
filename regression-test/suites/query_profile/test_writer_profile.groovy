@@ -39,6 +39,11 @@ def getProfile = { masterHTTPAddr, id ->
 }
 
 suite('test_writer_profile') {
+    //cloud-mode
+    if (isCloudMode()) {
+        return
+    }
+    
     sql "set enable_profile=true;"   
 
     def s3Endpoint = getS3Endpoint()
