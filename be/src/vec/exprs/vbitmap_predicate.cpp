@@ -75,9 +75,10 @@ doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
     return Status::OK();
 }
 
-Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block,
-                                        ColumnPtr& result_column) const {
-    DCHECK(_open_finished || _getting_const_col);
+Status VBitmapPredicate::_do_execute(VExprContext* context, const Block* block,
+                                     const uint8_t* __restrict filter,
+                                     ColumnPtr& result_column) const {
+    DCHECK(_open_finished || block == nullptr);
     DCHECK_EQ(_children.size(), 1);
 
     ColumnPtr argument_column;
@@ -95,13 +96,25 @@ Status VBitmapPredicate::execute_column(VExprContext* context, const Block* bloc
         auto column_nullmap = assert_cast<const ColumnNullable*>(argument_column.get())
                                       ->get_null_map_column_ptr();
         _filter->find_batch(column_nested->get_raw_data().data,
-                            (uint8_t*)column_nullmap->get_raw_data().data, sz, ptr);
+                            (uint8_t*)column_nullmap->get_raw_data().data, sz, ptr, filter);
     } else {
-        _filter->find_batch(argument_column->get_raw_data().data, nullptr, sz, ptr);
+        _filter->find_batch(argument_column->get_raw_data().data, nullptr, sz, ptr, filter);
     }
 
     result_column = std::move(res_data_column);
     return Status::OK();
+}
+
+Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block,
+                                        ColumnPtr& result_column) const {
+    return _do_execute(context, block, nullptr, result_column);
+}
+
+Status VBitmapPredicate::execute_runtime_filter(VExprContext* context, const Block* block,
+                                                const uint8_t* __restrict filter,
+                                                ColumnPtr& result_column,
+                                                ColumnPtr* arg_column) const {
+    return _do_execute(context, block, filter, result_column);
 }
 
 void vectorized::VBitmapPredicate::close(vectorized::VExprContext* context,
