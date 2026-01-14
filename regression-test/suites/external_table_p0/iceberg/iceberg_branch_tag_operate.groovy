@@ -142,11 +142,14 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
     sql """ alter table ${table_name} create branch b7 """
     qt_q16 """ select * from ${table_name}@branch(b7) order by id """ // 5 records
 
-    sql """ insert into ${table_name}@branch(b7) values (6), (7) """
+     sql """ insert into ${table_name}@branch(b7) values (6), (7) """
     qt_q17 """ select * from ${table_name}@branch(b7) order by id """ // 7 records
 
-//    sql """alert table ${table_name} create or replace branch if not exists b7"""
-//    qt_q18 """ select * from ${table_name}@branch(b7) order by id """ // still 7 records
+    // Test CREATE OR REPLACE BRANCH IF NOT EXISTS - this should fail
+    test {
+        sql """ alter table ${table_name} create or replace branch if not exists b7 """
+        exception "mismatched input"
+    }
 
     sql """ alter table ${table_name} create or replace branch b7 """
     qt_q19 """ select * from ${table_name}@branch(b7) order by id """ // back to 5 records
