@@ -34,7 +34,7 @@ public:
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
                                                 uint16_t* offsets, int number) = 0;
     virtual void find_batch(const char* data, const uint8_t* nullmap, size_t number,
-                            uint8_t* results, const uint8_t* __restrict filter) const = 0;
+                            uint8_t* results, const uint8_t* __restrict filter = nullptr) const = 0;
     virtual size_t size() const = 0;
     bool is_not_in() const { return _not_in; }
     void set_not_in(bool not_in) { _not_in = not_in; }
@@ -60,7 +60,7 @@ public:
                                         int number) override;
 
     void find_batch(const char* data, const uint8_t* nullmap, size_t number, uint8_t* results,
-                    const uint8_t* __restrict filter) const override;
+                    const uint8_t* __restrict filter = nullptr) const override;
 
     size_t size() const override { return _bitmap_value->cardinality(); }
 
