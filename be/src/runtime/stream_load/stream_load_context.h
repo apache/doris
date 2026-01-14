@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <event2/event.h>
 #include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -27,6 +28,7 @@
 #include <future>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,6 +48,10 @@ namespace doris {
 namespace io {
 class StreamLoadPipe;
 } // namespace io
+
+// Forward declarations
+class HttpRequest;
+class StreamLoadAction;
 
 // kafka related info
 class KafkaLoadInfo {
@@ -255,6 +261,19 @@ public:
     // use for cloud cluster mode
     std::string qualified_user;
     std::string cloud_cluster;
+
+    // Fields for async processing (Scheme B: libevent deferred callback)
+    // These fields are set in _on_header() before execute_plan_fragment is called
+    // to avoid race conditions
+    struct event_base* event_base = nullptr;        // libevent event loop
+    HttpRequest* http_request = nullptr;            // HTTP request reference
+    StreamLoadAction* stream_load_action = nullptr; // StreamLoadAction instance pointer
+    bool handle_called {
+            false}; // Flag to indicate if handle() has been called (data received completely)
+    std::optional<std::string>
+            pending_response; // Pending response string to send when handle() is called
+    mutable std::mutex
+            response_mutex; // Mutex to protect pending_response and handle_called check/set
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

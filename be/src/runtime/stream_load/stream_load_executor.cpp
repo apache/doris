@@ -19,24 +19,27 @@
 
 #include <bvar/bvar.h>
 #include <bvar/latency_recorder.h>
+#include <event2/event.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stdint.h>
+#include <sys/time.h>
 
+#include <cstdint>
+#include <functional>
 #include <future>
 #include <map>
 #include <ostream>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "common/utils.h"
+#include "http/action/stream_load.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -53,6 +56,40 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+#ifndef BE_TEST
+// Callback data structure for async stream load processing
+struct StreamLoadAsyncCallbackData {
+    std::shared_ptr<StreamLoadContext> ctx;
+    Status fragment_status;
+    bool need_rollback;
+    bool need_commit_self;
+    bool body_sink_cancelled;
+};
+
+// C-style callback function for event_base_once (must be static function, not lambda)
+struct StreamLoadAsyncCallbackWrapper {
+    static void invoke(evutil_socket_t, short, void* arg) {
+        // Use unique_ptr with custom deleter to ensure memory is always cleaned up
+        // This handles the case where event_base is destroyed before callback executes
+        auto* data_ptr = static_cast<StreamLoadAsyncCallbackData*>(arg);
+        std::unique_ptr<StreamLoadAsyncCallbackData> data(data_ptr);
+
+        // This callback executes in libevent thread
+        // Check validity again (request may have been closed during wait)
+        if (data->ctx->stream_load_action == nullptr || data->ctx->http_request == nullptr) {
+            LOG(WARNING) << "stream_load_action or http_request is null in callback, "
+                         << "request may be closed, ctx=" << data->ctx->id.to_string();
+            return;
+        }
+
+        // Continue with subsequent logic
+        data->ctx->stream_load_action->continue_handle_after_future(
+                data->ctx, data->fragment_status, data->need_rollback, data->need_commit_self,
+                data->body_sink_cancelled);
+    }
+};
+#endif
 
 #ifdef BE_TEST
 TLoadTxnBeginResult k_stream_load_begin_result;
@@ -123,9 +160,71 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             }
         }
         ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
-        ctx->promise.set_value(*status);
 
-        if (!status->ok() && ctx->body_sink != nullptr) {
+        // If event_base is set, use async callback; otherwise use sync mode
+        if (ctx->event_base != nullptr && ctx->http_request != nullptr &&
+            ctx->stream_load_action != nullptr) {
+            // Async mode: use event_base_once to trigger callback in libevent thread
+            // Note: exec_fragment callback should only be called once (after fragment execution)
+            // If it's called multiple times, there's a bug that should be fixed
+
+            // Save state for callback (value copy to ensure thread safety)
+            Status fragment_status = *status;
+
+            // Save other state needed in callback
+            bool need_rollback = ctx->need_rollback;
+            bool need_commit_self = ctx->need_commit_self;
+            bool body_sink_cancelled = (ctx->body_sink != nullptr && ctx->body_sink->cancelled());
+
+            // Use unique_ptr to manage callback data memory safely
+            // If event_base_once fails, unique_ptr will automatically clean up
+            // If event_base_once succeeds, we release ownership to the callback
+            auto callback_data = std::make_unique<StreamLoadAsyncCallbackData>(
+                    StreamLoadAsyncCallbackData {.ctx = ctx,
+                                                 .fragment_status = fragment_status,
+                                                 .need_rollback = need_rollback,
+                                                 .need_commit_self = need_commit_self,
+                                                 .body_sink_cancelled = body_sink_cancelled});
+
+            // Use event_base_once to trigger callback in libevent thread
+            // This is a one-shot event, no timer needed
+            struct timeval tv {};
+            tv.tv_sec = 0;
+            tv.tv_usec = 0; // Trigger immediately
+            // Pass raw pointer to event_base_once, but keep unique_ptr alive
+            // If event_base_once fails, unique_ptr will automatically clean up
+            // If event_base_once succeeds, release ownership to callback
+            int ret = event_base_once(ctx->event_base, -1, EV_TIMEOUT,
+                                      StreamLoadAsyncCallbackWrapper::invoke, callback_data.get(),
+                                      &tv);
+            if (ret != 0) {
+                // event_base_once failed, unique_ptr will automatically clean up
+                LOG(WARNING) << "event_base_once failed, cannot send async callback, ctx="
+                             << ctx->id.to_string() << ", errno=" << errno;
+            } else {
+                // event_base_once succeeded, release ownership to callback
+                callback_data.release();
+            }
+
+        } else {
+            // event_base not set, not triggered via HTTP request (e.g., routine load)
+            // Use sync mode: set promise
+            ctx->promise.set_value(*status);
+        }
+
+        // Handle need_commit_self case (this logic will be handled in callback for async mode)
+        // Note: In async mode, this logic is moved to callback to avoid executing commit in fragment_mgr thread
+        if (ctx->event_base == nullptr && ctx->need_commit_self && ctx->body_sink != nullptr) {
+            if (ctx->body_sink->cancelled() || !status->ok()) {
+                ctx->status = *status;
+                this->rollback_txn(ctx.get());
+            } else {
+                static_cast<void>(this->commit_txn(ctx.get()));
+            }
+        }
+
+        // Handle body_sink cancel (this will also be handled in callback for async mode)
+        if (ctx->event_base == nullptr && !status->ok() && ctx->body_sink != nullptr) {
             // In some cases, the load execution is exited early.
             // For example, when max_filter_ratio is 0 and illegal data is encountered
             // during stream loading, the entire load process is terminated early.
@@ -133,15 +232,6 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             // and waiting for it to be consumed.
             // Therefore, we need to actively cancel to end the pipe.
             ctx->body_sink->cancel(status->to_string());
-        }
-
-        if (ctx->need_commit_self && ctx->body_sink != nullptr) {
-            if (ctx->body_sink->cancelled() || !status->ok()) {
-                ctx->status = *status;
-                this->rollback_txn(ctx.get());
-            } else {
-                static_cast<void>(this->commit_txn(ctx.get()));
-            }
         }
     };
     st = _exec_env->fragment_mgr()->exec_plan_fragment(
