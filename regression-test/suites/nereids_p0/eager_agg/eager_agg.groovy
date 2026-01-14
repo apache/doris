@@ -19,6 +19,9 @@ suite("eager_agg") {
     sql """
         set eager_aggregation_mode=1;
         set eager_aggregation_on_join=true;
+        set runtime_filter_mode=0;
+        set broadcast_row_count_limit=-1;
+        set disable_nereids_rules="SALT_JOIN";
     """
 
     // push to ss-join-ws
@@ -179,7 +182,7 @@ suite("eager_agg") {
 
     qt_sum_if_push """
         explain shape plan
-        select d_week_seq,
+        select /*+leading({web_sales item} date_dim)*/ d_week_seq,
                 sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
                 sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,
                 sum(case when (d_day_name='Wednesday') then ws_sales_price else null end) wed_sales,
@@ -191,8 +194,8 @@ suite("eager_agg") {
         group by d_week_seq, ws_item_sk;
         """
 
-    qt_sum_if_push """
-        select d_week_seq,
+    qt_sum_if_push_exe """
+        select /*+leading({web_sales item} date_dim)*/ d_week_seq,
                 sum(case when (d_day_name='Monday') then ws_sales_price else null end) mon_sales,
                 sum(case when (d_day_name='Tuesday') then ws_sales_price else  null end) tue_sales,
                 sum(case when (d_day_name='Wednesday') then ws_sales_price else null end) wed_sales,
