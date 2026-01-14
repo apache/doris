@@ -86,6 +86,8 @@ public:
 
     bool contain_null() const;
 
+    bool is_detected_in_filter() const { return _detected_in_filter; }
+
     std::string debug_string() const;
 
     // set_state may called in SyncSizeClosure's rpc thread
