@@ -30,6 +30,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -313,6 +314,13 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
 
         return do_mark_join_conjuncts(output_block, ignore_null_map ? nullptr : null_map);
     } else if (_have_other_join_conjunct) {
+        // ASOF JOIN: use other_join_conjunct to find closest match
+        if constexpr (JoinOpType == TJoinOp::ASOF_LEFT_INNER_JOIN ||
+                      JoinOpType == TJoinOp::ASOF_RIGHT_INNER_JOIN ||
+                      JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN ||
+                      JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN) {
+            return do_asof_join_conjuncts(output_block);
+        }
         return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited());
     }
 
@@ -580,6 +588,140 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
                 {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
         return finalize_block_with_filter(output_block, result_column_id, result_column_id);
     }
+}
+
+template <int JoinOpType>
+Status ProcessHashTableProbe<JoinOpType>::do_asof_join_conjuncts(vectorized::Block* output_block) {
+    // ASOF JOIN: For each probe row group (rows with same probe_index),
+    // find the CLOSEST matching build row based on the inequality condition.
+    // The other_join_conjunct contains the inequality (e.g., probe.ts >= build.ts)
+    //
+    // For >= inequality (probe >= build): find build row with LARGEST value satisfying condition
+    // For <= inequality (probe <= build): find build row with SMALLEST value satisfying condition
+    auto row_count = output_block->rows();
+    if (!row_count) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_parent->_non_equal_join_conjuncts_timer);
+    size_t orig_columns = output_block->columns();
+
+    // Execute the inequality condition to find which rows satisfy it
+    vectorized::IColumn::Filter other_conjunct_filter(row_count, 1);
+    {
+        bool can_be_filter_all = false;
+        RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
+                _parent->_other_join_conjuncts, nullptr, output_block, &other_conjunct_filter,
+                &can_be_filter_all));
+    }
+
+    // For ASOF JOIN, we need to find the CLOSEST match for each probe row
+    // Build a filter that keeps only the best match for each probe row group
+    auto filter_column = vectorized::ColumnUInt8::create(row_count, 0);
+    auto* __restrict filter_map = filter_column->get_data().data();
+    const auto* __restrict conjunct_filter = other_conjunct_filter.data();
+
+    constexpr bool is_outer_join = JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN ||
+                                   JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN;
+
+    // Get inequality direction from shared state
+    bool inequality_is_greater = _parent->_shared_state->asof_inequality_is_greater;
+
+    // Get the build match column for comparison
+    // For ASOF JOIN, the match column is the build side column in the inequality expression
+    // The expression is like: probe.ts >= build.ts, where build.ts is what we need to compare
+    // We extract this from the expression's right child (the build column)
+    const vectorized::IColumn* build_match_col = nullptr;
+    if (!_parent->_other_join_conjuncts.empty()) {
+        auto& conjunct = _parent->_other_join_conjuncts[0];
+        if (conjunct && conjunct->root() && conjunct->root()->get_num_children() >= 2) {
+            // The right child of the comparison is the build column
+            auto right_child = conjunct->root()->get_child(1);
+            if (right_child && right_child->is_slot_ref()) {
+                // Get the column_id which is the index in the block
+                auto* slot_ref = static_cast<vectorized::VSlotRef*>(right_child.get());
+                int col_idx = slot_ref->column_id();
+                if (col_idx >= 0 && col_idx < (int)output_block->columns()) {
+                    build_match_col = output_block->get_by_position(col_idx).column.get();
+                }
+            }
+        }
+    }
+    // Fallback to first build column if we couldn't find the match column
+    if (!build_match_col && _right_col_idx < output_block->columns()) {
+        build_match_col = output_block->get_by_position(_right_col_idx).column.get();
+    }
+
+    // Process rows group by group (grouped by probe_index)
+    // For each group, find the closest match among all satisfying rows
+    size_t group_start = 0;
+    while (group_start < row_count) {
+        int32_t current_probe_idx = _probe_indexs.get_element(group_start);
+
+        // Find the end of this group
+        size_t group_end = group_start + 1;
+        while (group_end < row_count &&
+               _probe_indexs.get_element(group_end) == (uint32_t)current_probe_idx) {
+            ++group_end;
+        }
+
+        // Find the best match in this group
+        ssize_t best_match_idx = -1;
+        ssize_t null_placeholder_idx = -1;
+
+        for (size_t i = group_start; i < group_end; ++i) {
+            uint32_t build_idx = _build_indexs.get_element(i);
+
+            // Track null placeholder for outer join
+            if (build_idx == 0) {
+                null_placeholder_idx = i;
+                continue;
+            }
+
+            // Check if this row satisfies the inequality
+            if (!conjunct_filter[i]) {
+                continue;
+            }
+
+            // Compare with current best to find closest match
+            if (best_match_idx < 0) {
+                best_match_idx = i;
+            } else if (build_match_col) {
+                // Compare build column values to find closest match
+                // For >= (inequality_is_greater=true): want LARGEST build value
+                // For <= (inequality_is_greater=false): want SMALLEST build value
+                int cmp = build_match_col->compare_at(i, best_match_idx, *build_match_col, 1);
+                if (inequality_is_greater) {
+                    // For >=: pick the one with larger build value
+                    if (cmp > 0) {
+                        best_match_idx = i;
+                    }
+                } else {
+                    // For <=: pick the one with smaller build value
+                    if (cmp < 0) {
+                        best_match_idx = i;
+                    }
+                }
+            }
+        }
+
+        // Mark the best match or null placeholder for outer join
+        if (best_match_idx >= 0) {
+            filter_map[best_match_idx] = 1;
+        } else if constexpr (is_outer_join) {
+            if (null_placeholder_idx >= 0) {
+                filter_map[null_placeholder_idx] = 1;
+            }
+        }
+
+        group_start = group_end;
+    }
+
+    auto result_column_id = output_block->columns();
+    output_block->insert(
+            {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
+
+    return finalize_block_with_filter(output_block, result_column_id, orig_columns);
 }
 
 template <int JoinOpType>

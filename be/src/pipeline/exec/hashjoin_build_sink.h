@@ -60,6 +60,8 @@ protected:
                                 vectorized::ColumnUInt8::MutablePtr& null_map,
                                 vectorized::ColumnRawPtrs& raw_ptrs,
                                 const std::vector<int>& res_col_ids);
+    // ASOF JOIN: sort rows within each bucket by match column
+    Status _sort_rows_for_asof_join();
     friend class HashJoinBuildSinkOperatorX;
     friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext>

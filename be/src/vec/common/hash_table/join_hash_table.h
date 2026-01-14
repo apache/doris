@@ -78,6 +78,12 @@ public:
 
     DorisVector<uint8_t>& get_visited() { return visited; }
 
+    const DorisVector<uint32_t>& get_first() const { return first; }
+
+    const DorisVector<uint32_t>& get_next() const { return next; }
+
+    const Key* get_build_keys() const { return build_keys; }
+
     bool empty_build_side() const { return _empty_build_side; }
 
     void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
@@ -137,6 +143,16 @@ public:
             return _find_batch_inner_outer_join<JoinOpType>(keys, build_idx_map, probe_idx,
                                                             build_idx, probe_rows, probe_idxs,
                                                             probe_visited, build_idxs);
+        }
+        // ASOF JOIN: for each probe row, find one matching build row (the closest match)
+        // The actual closest match logic is handled in ProcessHashTableProbe
+        if (JoinOpType == TJoinOp::ASOF_LEFT_INNER_JOIN ||
+            JoinOpType == TJoinOp::ASOF_RIGHT_INNER_JOIN ||
+            JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN ||
+            JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN) {
+            // Use conjunct path to get all matching rows, then filter in ProcessHashTableProbe
+            return _find_batch_conjunct<JoinOpType, false>(
+                    keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
         if (JoinOpType == TJoinOp::LEFT_ANTI_JOIN || JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
             JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -332,7 +348,9 @@ private:
                           JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
                           JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                           JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                          JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) {
+                          JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
+                          JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN ||
+                          JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN) {
                 // may over batch_size when emplace 0 into build_idxs
                 if (!build_idx) {
                     probe_idxs[matched_cnt] = probe_idx;

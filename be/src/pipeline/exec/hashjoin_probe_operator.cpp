@@ -17,6 +17,7 @@
 
 #include "hashjoin_probe_operator.h"
 
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <string>
@@ -75,6 +76,19 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+
+    // For ASOF JOIN, detect the inequality direction from the other_join_conjuncts expression
+    if (is_asof_join(p._join_op) && !_other_join_conjuncts.empty()) {
+        auto& conjunct = _other_join_conjuncts[0];
+        if (conjunct && conjunct->root()) {
+            TExprOpcode::type opcode = conjunct->root()->op();
+            // For >=, >: inequality_is_greater = true (find LARGEST build value)
+            // For <=, <: inequality_is_greater = false (find SMALLEST build value)
+            _shared_state->asof_inequality_is_greater =
+                    (opcode == TExprOpcode::GE || opcode == TExprOpcode::GT);
+        }
+    }
+
     Status res;
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
@@ -422,7 +436,8 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
         std::vector<int> res_col_ids(local_state._probe_expr_ctxs.size());
         RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
                                      *local_state._probe_expr_call_timer, res_col_ids));
-        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
+        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
+            _join_op == TJoinOp::ASOF_RIGHT_OUTER_JOIN) {
             local_state._probe_column_convert_to_null =
                     local_state._convert_block_to_null(*input_block);
         }

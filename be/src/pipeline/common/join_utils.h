@@ -35,7 +35,24 @@ using JoinOpVariants =
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::ASOF_LEFT_INNER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::ASOF_RIGHT_INNER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::ASOF_LEFT_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::ASOF_RIGHT_OUTER_JOIN>>;
+
+inline bool is_asof_join(TJoinOp::type join_op) {
+    return join_op == TJoinOp::ASOF_LEFT_INNER_JOIN || join_op == TJoinOp::ASOF_RIGHT_INNER_JOIN ||
+           join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN || join_op == TJoinOp::ASOF_RIGHT_OUTER_JOIN;
+}
+
+inline bool is_asof_left_join(TJoinOp::type join_op) {
+    return join_op == TJoinOp::ASOF_LEFT_INNER_JOIN || join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN;
+}
+
+inline bool is_asof_outer_join(TJoinOp::type join_op) {
+    return join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN || join_op == TJoinOp::ASOF_RIGHT_OUTER_JOIN;
+}
 
 template <class T>
 using PrimaryTypeHashTableContext =
