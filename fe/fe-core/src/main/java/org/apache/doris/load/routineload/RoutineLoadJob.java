@@ -1945,10 +1945,11 @@ public abstract class RoutineLoadJob
         // with PARTIAL_COLUMNS (HashMap iteration order is not guaranteed)
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
             String modeValue = jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
-            try {
-                uniqueKeyUpdateMode = TUniqueKeyUpdateMode.valueOf(modeValue.toUpperCase());
+            TUniqueKeyUpdateMode mode = CreateRoutineLoadInfo.parseUniqueKeyUpdateMode(modeValue);
+            if (mode != null) {
+                uniqueKeyUpdateMode = mode;
                 isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
-            } catch (IllegalArgumentException e) {
+            } else {
                 uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
             }
         }
@@ -2039,8 +2040,8 @@ public abstract class RoutineLoadJob
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
-            String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE).toUpperCase();
-            TUniqueKeyUpdateMode newMode = TUniqueKeyUpdateMode.valueOf(modeStr);
+            String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+            TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
             // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
             if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                 validateFlexiblePartialUpdateForAlter();
@@ -2085,56 +2086,25 @@ public abstract class RoutineLoadJob
         }
         OlapTable olapTable = (OlapTable) table;
 
-        // 1. Must be MoW unique key table
-        if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new DdlException("Flexible partial update is only supported in unique table MoW");
-        }
-        // 2. Must have skip_bitmap column
-        if (!olapTable.hasSkipBitmapColumn()) {
-            throw new DdlException("Flexible partial update requires table with skip bitmap hidden column. "
-                    + "Use `ALTER TABLE " + olapTable.getName()
-                    + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it.");
-        }
-        // 3. Must have light_schema_change enabled
-        if (!olapTable.getEnableLightSchemaChange()) {
-            throw new DdlException("Flexible partial update requires table with light_schema_change enabled. "
-                    + "But table " + olapTable.getName() + "'s property light_schema_change is false");
-        }
-        // 4. Cannot have variant columns
-        if (olapTable.hasVariantColumns()) {
-            throw new DdlException("Flexible partial update does not support tables with variant columns");
-        }
+        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
+        olapTable.validateForFlexiblePartialUpdate();
 
-        // 5. Must use JSON format
+        // Routine load specific validations
+        // Must use JSON format
         String format = this.jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         if (!"json".equalsIgnoreCase(format)) {
             throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
                     + format);
         }
-        // 6. Cannot use fuzzy_parse
+        // Cannot use fuzzy_parse
         if (Boolean.parseBoolean(this.jobProperties.getOrDefault(
                 JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
             throw new DdlException("Flexible partial update does not support fuzzy_parse");
         }
-        // 7. Cannot specify jsonpaths
-        String jsonPaths = this.jobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
-        if (jsonPaths != null && !jsonPaths.isEmpty()) {
-            throw new DdlException("Flexible partial update does not support jsonpaths");
-        }
-
-        // 8. Cannot specify COLUMNS mapping (check routineLoadDesc)
+        // Cannot specify COLUMNS mapping (check routineLoadDesc)
         if (routineLoadDesc != null && routineLoadDesc.getColumnsInfo() != null
                 && !routineLoadDesc.getColumnsInfo().getColumns().isEmpty()) {
             throw new DdlException("Flexible partial update does not support COLUMNS specification");
-        }
-        // 9. Cannot have merge_type other than APPEND
-        if (routineLoadDesc != null && routineLoadDesc.getMergeType() != null
-                && routineLoadDesc.getMergeType() != LoadTask.MergeType.APPEND) {
-            throw new DdlException("Flexible partial update does not support MERGE or DELETE merge type");
-        }
-        // 10. Cannot have WHERE clause
-        if (routineLoadDesc != null && routineLoadDesc.getWherePredicate() != null) {
-            throw new DdlException("Flexible partial update does not support WHERE clause");
         }
     }
 }

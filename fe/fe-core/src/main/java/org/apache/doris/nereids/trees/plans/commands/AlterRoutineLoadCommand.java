@@ -281,14 +281,10 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
-            String modeStr = jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE).toUpperCase();
-            if (!"UPSERT".equals(modeStr) && !"UPDATE_FIXED_COLUMNS".equals(modeStr)
-                    && !"UPDATE_FLEXIBLE_COLUMNS".equals(modeStr)) {
-                throw new AnalysisException(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE
-                        + " should be one of {'UPSERT', 'UPDATE_FIXED_COLUMNS', 'UPDATE_FLEXIBLE_COLUMNS'}, but found "
-                        + modeStr);
-            }
-            analyzedJobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, modeStr);
+            String modeStr = jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+            // Validate the mode string
+            CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
+            analyzedJobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, modeStr.toUpperCase());
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)) {
