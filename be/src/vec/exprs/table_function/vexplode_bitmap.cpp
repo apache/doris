@@ -45,7 +45,7 @@ Status VExplodeBitmapTableFunction::process_init(Block* block, RuntimeState* sta
             << "VExplodeNumbersTableFunction must be have 1 children but have "
             << _expr_context->root()->children().size();
 
-    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_checked(
             _expr_context.get(), block, block->rows(), _value_column));
 
     return Status::OK();

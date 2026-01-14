@@ -177,7 +177,7 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
     Block temp_block;
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr arg_column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, arg_column));
+        RETURN_IF_ERROR(_children[i]->execute_checked(context, block, count, arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
         arguments[i] = i;

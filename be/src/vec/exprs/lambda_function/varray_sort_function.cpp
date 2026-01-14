@@ -76,7 +76,7 @@ public:
 
         // 1. get data, we need to obtain this actual data and type.
         ColumnPtr column_ptr;
-        RETURN_IF_ERROR(children[1]->execute_column(context, block, count, column_ptr));
+        RETURN_IF_ERROR(children[1]->execute_checked(context, block, count, column_ptr));
         DataTypePtr type_ptr = children[1]->execute_type(block);
 
         auto column = column_ptr->convert_to_full_column_if_const();

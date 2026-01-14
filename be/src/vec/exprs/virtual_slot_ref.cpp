@@ -130,7 +130,7 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
             // because the vector might be resized during execution, causing previous references to become invalid.
             ColumnPtr tmp_column;
             RETURN_IF_ERROR(
-                    _virtual_column_expr->execute_column(context, block, count, tmp_column));
+                    _virtual_column_expr->execute_checked(context, block, count, tmp_column));
             result_column = std::move(tmp_column);
 
             VLOG_DEBUG << fmt::format(
