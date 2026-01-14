@@ -801,7 +801,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
 
         // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
         for (size_t i = 0; i < num_sources; i++) {
-            for (size_t j = 0; j <= num_blocks * num_sources; j++) {
+            for (size_t j = 0; j < num_blocks * num_sources; j++) {
                 bool eos = false;
                 vectorized::Block block;
                 EXPECT_EQ(
@@ -812,7 +812,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == num_blocks * num_sources ? 0 : 10);
                 EXPECT_FALSE(eos);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_blocks * num_sources);
+                EXPECT_EQ(_local_states[i]->_dependency->ready(),
+                          j == num_blocks * num_sources - 1);
             }
         }
         EXPECT_EQ(shared_state->mem_usage, 0);
