@@ -27,7 +27,7 @@ suite("test_tvf_anonymous") {
     def uri = context.config.otherConfigs.get("anymousS3Uri")
     def expectDataCount = context.config.otherConfigs.get("anymousS3ExpectDataCount");
     //aws_credentials_provider_version
-    sql """ ADMIN SET FRONTEND CONFIG ("aws_credentials_provider_version"="v1"); """
+   // sql """ ADMIN SET FRONTEND CONFIG ("aws_credentials_provider_version"="v1"); """
 
     def result = sql """
         SELECT count(1) FROM S3 (                  
