@@ -75,12 +75,14 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     std::unique_lock lock(_conjuncts_lock);
     return _helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                           arrived_rf_num, _conjuncts);
 }
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     std::unique_lock lock(_conjuncts_lock);
     scanner_conjuncts.resize(_conjuncts.size());
     for (size_t i = 0; i != _conjuncts.size(); ++i) {
