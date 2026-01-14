@@ -2421,8 +2421,10 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
         int64_t visible_version = version_iter->second;
         DBUG_EXECUTE_IF("make_cloud_committed_rs_visible_callback.block", {
             auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            auto target_table_id = dp->param<int64_t>("table_id", -1);
             auto version = dp->param<int64_t>("version", -1);
-            if (target_tablet_id == tablet_id && version == visible_version) {
+            if ((target_tablet_id == tablet_id || target_table_id == cloud_tablet->table_id()) &&
+                version == visible_version) {
                 DBUG_BLOCK
             }
         });

@@ -1786,9 +1786,6 @@ void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_
 
         apply_visible_pending_rowsets();
         committed_rs_mgr.remove_committed_rowset(txn_id, tablet_id());
-        LOG(INFO) << "added visible pending rowset, txn_id=" << txn_id
-                  << ", tablet_id=" << tablet_id() << ", version=" << visible_version
-                  << ", rowset_id=" << rowset_meta->rowset_id().to_string();
     }
 }
 
@@ -1899,9 +1896,15 @@ void CloudTablet::apply_visible_pending_rowsets() {
         }
         if (!to_add.empty()) {
             add_rowsets(to_add, false, meta_wlock, true);
-            LOG(INFO) << "applied " << to_add.size()
-                      << " visible pending rowsets to tablet_id=" << tablet_id()
-                      << ", new max_version=" << _max_version;
+            LOG_INFO(
+                    "applied_visible_pending_rowsets, tablet_id={}, new_max_version={}, count={}, "
+                    "new_rowsets={}",
+                    tablet_id(), _max_version, to_add.size(),
+                    fmt::join(to_add | std::views::transform([](const RowsetSharedPtr& rs) {
+                                  return fmt::format("{}{}", rs->rowset_id().to_string(),
+                                                     rs->version().to_string());
+                              }),
+                              ","));
         }
     }
 }
