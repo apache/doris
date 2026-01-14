@@ -1756,7 +1756,7 @@ Status FileScanner::_init_expr_ctxes() {
 }
 
 Status FileScanner::close(RuntimeState* state) {
-    if (!_try_close()) {
+    if (_is_closed) {
         return Status::OK();
     }
 
