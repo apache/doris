@@ -61,16 +61,16 @@ suite("test_catalog_instance_profile_with_role") {
         }
     }
     String hiveGlueCatalogProps = """
-        create catalog hive_glue_catalog properties(
+        create catalog hive_glue_catalog_instance_profile properties(
             "type"="hms",
             "hive.metastore.type"="glue",
             "glue.region"="${region}",
             "glue.endpoint" = "https://glue.${region}.amazonaws.com"
         );
     """
-    createCatalogAndQuery(hiveGlueCatalogProps, "hive_glue_catalog", hiveGlueQueryTableName, hiveGlueExpectCounts)
+    createCatalogAndQuery(hiveGlueCatalogProps, "hive_glue_catalog_instance_profile", hiveGlueQueryTableName, hiveGlueExpectCounts)
     hiveGlueCatalogProps = """
-        create catalog hive_glue_catalog properties(
+        create catalog hive_glue_catalog_instance_profile properties(
             "type"="hms",
             "hive.metastore.type"="glue",
             "glue.credentials_provider_type"="INSTANCE_PROFILE",
@@ -78,9 +78,9 @@ suite("test_catalog_instance_profile_with_role") {
             "glue.endpoint" = "https://glue.${region}.amazonaws.com"
         );
     """
-    createCatalogAndQuery(hiveGlueCatalogProps, "hive_glue_catalog", hiveGlueQueryTableName, hiveGlueExpectCounts)
+    createCatalogAndQuery(hiveGlueCatalogProps, "hive_glue_catalog_instance_profile", hiveGlueQueryTableName, hiveGlueExpectCounts)
     hiveGlueCatalogProps = """
-        create catalog hive_glue_catalog properties(
+        create catalog hive_glue_catalog_instance_profile properties(
             "type"="hms",
             "hive.metastore.type"="glue",
             "glue.credentials_provider_type"="CONTAINER",
@@ -88,9 +88,9 @@ suite("test_catalog_instance_profile_with_role") {
             "glue.endpoint" = "https://glue.${region}.amazonaws.com"
         );
     """
-    assertCatalogAndQueryException(hiveGlueCatalogProps,"hive_glue_catalog", "The environment variable AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+    assertCatalogAndQueryException(hiveGlueCatalogProps,"hive_glue_catalog_instance_profile", "The environment variable AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
     String icebergFsCatalogProps = """
-        create catalog iceberg_fs_catalog properties(
+        create catalog iceberg_fs_catalog_instance_profile properties(
             "type"="iceberg",
             "warehouse"="${icebergFsWarehouse}",
             "iceberg.catalog.type"="hadoop",
@@ -98,9 +98,9 @@ suite("test_catalog_instance_profile_with_role") {
             "s3.endpoint" = "https://s3.${region}.amazonaws.com"
         );
     """
-    createCatalogAndQuery(icebergFsCatalogProps, "iceberg_fs_catalog", icebergFsQueryTableName, icebergFsExpectCounts)
+    createCatalogAndQuery(icebergFsCatalogProps, "iceberg_fs_catalog_instance_profile", icebergFsQueryTableName, icebergFsExpectCounts)
     icebergFsCatalogProps = """
-        create catalog iceberg_fs_catalog properties(
+        create catalog iceberg_fs_catalog_instance_profile properties(
             "type"="iceberg",
             "warehouse"="${icebergFsWarehouse}",
             "iceberg.catalog.type"="hadoop",
@@ -109,9 +109,9 @@ suite("test_catalog_instance_profile_with_role") {
             "s3.endpoint" = "https://s3.${region}.amazonaws.com"
         );
     """
-    createCatalogAndQuery(icebergFsCatalogProps, "iceberg_fs_catalog", icebergFsQueryTableName, icebergFsExpectCounts)
+    createCatalogAndQuery(icebergFsCatalogProps, "iceberg_fs_catalog_instance_profile", icebergFsQueryTableName, icebergFsExpectCounts)
     icebergFsCatalogProps = """
-        create catalog iceberg_fs_catalog properties(
+        create catalog iceberg_fs_catalog_instance_profile properties(
             "type"="iceberg",
             "warehouse"="${icebergFsWarehouse}",
             "iceberg.catalog.type"="hadoop",
@@ -120,6 +120,6 @@ suite("test_catalog_instance_profile_with_role") {
             "s3.endpoint" = "https://s3.${region}.amazonaws.com"
         );
     """
-    assertCatalogAndQueryException(icebergFsCatalogProps,"iceberg_fs_catalog", "No AWS Credentials provided by ContainerCredentialsProvider")
+    assertCatalogAndQueryException(icebergFsCatalogProps,"iceberg_fs_catalog_instance_profile", "No AWS Credentials provided by ContainerCredentialsProvider")
     
 }
