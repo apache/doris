@@ -572,7 +572,8 @@ TEST_F(HiveReaderTest, read_hive_parquet_file) {
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = hive_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts,
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = hive_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts, tmp,
                                   tuple_descriptor, row_descriptor, colname_to_slot_id,
                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;

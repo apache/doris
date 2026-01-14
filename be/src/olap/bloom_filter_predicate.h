@@ -30,16 +30,31 @@
 namespace doris {
 
 template <PrimitiveType T>
-class BloomFilterColumnPredicate : public ColumnPredicate {
+class BloomFilterColumnPredicate final : public ColumnPredicate {
 public:
+    ENABLE_FACTORY_CREATOR(BloomFilterColumnPredicate);
     using SpecificFilter = BloomFilterFunc<T>;
 
-    BloomFilterColumnPredicate(uint32_t column_id,
+    BloomFilterColumnPredicate(uint32_t column_id, std::string col_name,
                                const std::shared_ptr<BloomFilterFuncBase>& filter)
-            : ColumnPredicate(column_id),
+            : ColumnPredicate(column_id, col_name, T),
               _filter(filter),
               _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BloomFilterColumnPredicate() override = default;
+    BloomFilterColumnPredicate(const BloomFilterColumnPredicate& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id),
+              _filter(other._filter),
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
+    BloomFilterColumnPredicate(const BloomFilterColumnPredicate& other) = delete;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        return BloomFilterColumnPredicate<T>::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "BloomFilterColumnPredicate({})",
+                       ColumnPredicate::debug_string());
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override { return PredicateType::BF; }
 
@@ -75,8 +90,6 @@ private:
         }
         return new_size;
     }
-
-    std::string _debug_string() const override { return "BloomFilter(" + type_to_string(T) + ")"; }
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter

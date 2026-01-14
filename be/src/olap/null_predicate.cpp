@@ -31,8 +31,9 @@ using namespace doris::vectorized;
 
 namespace doris {
 
-NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
-        : ColumnPredicate(column_id), _is_null(opposite != is_null) {}
+NullPredicate::NullPredicate(uint32_t column_id, std::string col_name, bool is_null,
+                             PrimitiveType type, bool opposite)
+        : ColumnPredicate(column_id, col_name, type), _is_null(opposite != is_null) {}
 
 PredicateType NullPredicate::type() const {
     return _is_null ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL;
