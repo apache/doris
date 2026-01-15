@@ -420,10 +420,17 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return context;
     }
 
-    // provide a minimum guaranteed capacity 256MB (or _capacity / 2 if smaller)
+    if (_capacity < config::file_cache_query_limit_min_size) {
+        LOG(WARNING) << "Query limit disabled: cache capacity (" << _capacity
+                     << " bytes) is below minimum required "
+                     << config::file_cache_query_limit_min_size << " bytes.";
+        return nullptr;
+    }
+
+    // Provide a minimum guaranteed size config::file_cache_query_limit_min_size
     auto query_context = std::make_shared<QueryFileCacheContext>(
             std::max(_capacity * file_cache_query_limit_percent / 100,
-                     std::min(_capacity / 2, (size_t)268435456)));
+                     (size_t)config::file_cache_query_limit_min_size));
     auto query_iter = _query_map.emplace(query_id, query_context).first;
     return query_iter->second;
 }

@@ -1242,6 +1242,7 @@ TEST_F(BlockFileCacheTest, query_limit_heap_use_after_free) {
     query_id.hi = 1;
     query_id.lo = 1;
     context.query_id = query_id;
+    config::file_cache_query_limit_min_size = 15;
     auto query_context_holder = cache.get_query_context_holder(query_id, 100);
     {
         auto holder = cache.get_or_set(key, 9, 1, context); /// Add range [9, 9]
@@ -1329,6 +1330,7 @@ TEST_F(BlockFileCacheTest, query_limit_dcheck) {
     query_id.hi = 1;
     query_id.lo = 1;
     context.query_id = query_id;
+    config::file_cache_query_limit_min_size = 15;
     auto query_context_holder = cache.get_query_context_holder(query_id, 100);
     {
         auto holder = cache.get_or_set(key, 9, 1, context); /// Add range [9, 9]
@@ -2986,6 +2988,7 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         ASSERT_LT(i, 1000);
+        config::file_cache_query_limit_min_size = 15;
         auto query_context_holder =
                 FileCacheFactory::instance()->get_query_context_holders(query_id, 50);
         for (int64_t offset = 0; offset < 60; offset += 5) {
@@ -3176,6 +3179,7 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
     id.hi = id.lo = 0;
     EXPECT_EQ(cache.get_query_context_holder(id, 50)->context, nullptr);
     id.hi = id.lo = 1;
+    config::file_cache_query_limit_min_size = 15;
     auto query_ctx_1 = cache.get_query_context_holder(id, 50);
     ASSERT_NE(query_ctx_1, nullptr);
     for (int64_t offset = 0; offset < 60; offset += 5) {
@@ -3232,6 +3236,7 @@ TEST_F(BlockFileCacheTest, query_file_cache_reserve) {
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+    config::file_cache_query_limit_min_size = 15;
     auto query_ctx_1 = cache.get_query_context_holder(id, 50);
     ASSERT_NE(query_ctx_1, nullptr);
     {

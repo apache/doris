@@ -3776,7 +3776,7 @@ public class Config extends ConfigBase {
         "The soft upper limit of FILE_CACHE percent that a single query of a user can use, (range: 1 to 100).",
         "100 indicate that the full FILE_CACHE capacity can be used. "
     })
-    public static int file_cache_query_limit_percent_soft = 100;
+    public static int file_cache_query_limit_max_percent = 100;
     @ConfField(description = {
             "AWS SDK 用于调度异步重试、超时任务以及其他后台操作的线程池大小，全局共享",
             "The thread pool size used by the AWS SDK to schedule asynchronous retries, timeout tasks, "

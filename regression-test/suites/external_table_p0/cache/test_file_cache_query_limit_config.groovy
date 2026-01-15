@@ -31,10 +31,16 @@ suite("test_file_cache_query_limit_config", "external_docker,hive,external_docke
     assertFalse(fileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(fileCacheQueryLimitPercentResult[0][1]) != 1.0,
             SET_SESSION_VARIABLE_FAILED_MSG)
 
-    sql """set file_cache_query_limit_percent = 50"""
+    sql """set file_cache_query_limit_percent = 20"""
     fileCacheQueryLimitPercentResult = sql """show variables like 'file_cache_query_limit_percent';"""
     logger.info("file_cache_query_limit_percent configuration: " + fileCacheQueryLimitPercentResult)
-    assertFalse(fileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(fileCacheQueryLimitPercentResult[0][1]) != 50.0,
+    assertFalse(fileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(fileCacheQueryLimitPercentResult[0][1]) != 20.0,
+            SET_SESSION_VARIABLE_FAILED_MSG)
+
+    sql """set file_cache_query_limit_percent = 51"""
+    fileCacheQueryLimitPercentResult = sql """show variables like 'file_cache_query_limit_percent';"""
+    logger.info("file_cache_query_limit_percent configuration: " + fileCacheQueryLimitPercentResult)
+    assertFalse(fileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(fileCacheQueryLimitPercentResult[0][1]) != 51.0,
             SET_SESSION_VARIABLE_FAILED_MSG)
 
 
@@ -72,52 +78,45 @@ suite("test_file_cache_query_limit_config", "external_docker,hive,external_docke
         logger.info("SQL failed as expected: ${e.message}")
     }
 
-    sql """set policy_file_cache_query_limit_percent = 1"""
-    def policyFileCacheQueryLimitPercentResult = sql """show variables like 'policy_file_cache_query_limit_percent';"""
-    logger.info("policy_file_cache_query_limit_percent configuration: " + policyFileCacheQueryLimitPercentResult)
-    assertFalse(policyFileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(policyFileCacheQueryLimitPercentResult[0][1]) != 1.0,
-            SET_SESSION_VARIABLE_FAILED_MSG)
+    // Set frontend configuration parameters for file_cache_query_limit_max_percent
+    setFeConfigTemporary([
+            "file_cache_query_limit_max_percent": "50"
+    ]) {
+        // Execute test logic with modified configuration for file_cache_query_limit_max_percent
+        logger.info("Backend configuration set - file_cache_query_limit_max_percent: 50")
 
+        sql """set file_cache_query_limit_percent = 1"""
+        fileCacheQueryLimitPercentResult = sql """show variables like 'file_cache_query_limit_percent';"""
+        logger.info("file_cache_query_limit_percent configuration: " + fileCacheQueryLimitPercentResult)
+        assertFalse(fileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(fileCacheQueryLimitPercentResult[0][1]) != 1.0,
+                SET_SESSION_VARIABLE_FAILED_MSG)
 
-    sql """set policy_file_cache_query_limit_percent = 50"""
-    policyFileCacheQueryLimitPercentResult = sql """show variables like 'policy_file_cache_query_limit_percent';"""
-    logger.info("policy_file_cache_query_limit_percent configuration: " + policyFileCacheQueryLimitPercentResult)
-    assertFalse(policyFileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(policyFileCacheQueryLimitPercentResult[0][1]) != 50.0,
-            SET_SESSION_VARIABLE_FAILED_MSG)
+        sql """set file_cache_query_limit_percent = 20"""
+        fileCacheQueryLimitPercentResult = sql """show variables like 'file_cache_query_limit_percent';"""
+        logger.info("file_cache_query_limit_percent configuration: " + fileCacheQueryLimitPercentResult)
+        assertFalse(fileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(fileCacheQueryLimitPercentResult[0][1]) != 20.0,
+                SET_SESSION_VARIABLE_FAILED_MSG)
 
+        try {
+            sql """set file_cache_query_limit_percent = -1"""
+            assertTrue(false, ERROR_SQL_SUCCEED_MSG)
+        } catch (Exception e) {
+            logger.info("SQL failed as expected: ${e.message}")
+        }
 
-    sql """set policy_file_cache_query_limit_percent = 100"""
-    policyFileCacheQueryLimitPercentResult = sql """show variables like 'policy_file_cache_query_limit_percent';"""
-    logger.info("policy_file_cache_query_limit_percent configuration: " + policyFileCacheQueryLimitPercentResult)
-    assertFalse(policyFileCacheQueryLimitPercentResult.size() == 0 || Double.valueOf(policyFileCacheQueryLimitPercentResult[0][1]) != 100.0,
-            SET_SESSION_VARIABLE_FAILED_MSG)
+        try {
+            sql """set file_cache_query_limit_percent = 0"""
+            assertTrue(false, ERROR_SQL_SUCCEED_MSG)
+        } catch (Exception e) {
+            logger.info("SQL failed as expected: ${e.message}")
+        }
 
-    try {
-        sql """set policy_file_cache_query_limit_percent = -1"""
-        assertTrue(false, ERROR_SQL_SUCCEED_MSG)
-    } catch (Exception e) {
-        logger.info("SQL failed as expected: ${e.message}")
-    }
-
-    try {
-        sql """set file_cache_query_limit_percent = 0"""
-        assertTrue(false, ERROR_SQL_SUCCEED_MSG)
-    } catch (Exception e) {
-        logger.info("SQL failed as expected: ${e.message}")
-    }
-
-    try {
-        sql """set policy_file_cache_query_limit_percent = 101"""
-        assertTrue(false, ERROR_SQL_SUCCEED_MSG)
-    } catch (Exception e) {
-        logger.info("SQL failed as expected: ${e.message}")
-    }
-
-    try {
-        sql """set policy_file_cache_query_limit_percent = 1000000"""
-        assertTrue(false, ERROR_SQL_SUCCEED_MSG)
-    } catch (Exception e) {
-        logger.info("SQL failed as expected: ${e.message}")
+        try {
+            sql """set file_cache_query_limit_percent = 51"""
+            assertTrue(false, ERROR_SQL_SUCCEED_MSG)
+        } catch (Exception e) {
+            logger.info("SQL failed as expected: ${e.message}")
+        }
     }
 
     return true;
