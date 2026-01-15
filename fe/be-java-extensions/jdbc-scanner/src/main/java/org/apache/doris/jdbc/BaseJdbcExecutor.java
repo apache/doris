@@ -335,10 +335,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             // Enhanced error handling for SQL exceptions
             // Only check connection status when exception occurs (not in hot loop)
             String errorMsg = "JDBC get block address failed" + buildConnectionStatusInfo();
-            LOG.error(errorMsg + ": " + e.getMessage(), e);
+            LOG.warn(errorMsg + ": " + e.getMessage(), e);
             throw new JdbcExecutorException(errorMsg + ": " + e.getMessage(), e);
         } catch (Exception e) {
-            LOG.error("jdbc get block address exception: ", e);
+            LOG.warn("jdbc get block address exception: ", e);
             throw new JdbcExecutorException("jdbc get block address: ", e);
         } finally {
             if (block != null) {
