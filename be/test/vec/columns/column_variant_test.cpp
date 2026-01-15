@@ -3280,7 +3280,7 @@ static auto create_mixed_type_variant_column() {
             {"data.array_int_field",
              [] {
                  auto array_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
-                 auto& array = array_field.get<Array>();
+                 auto& array = array_field.get<TYPE_ARRAY>();
                  array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(1));
                  array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(2));
                  array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(3));
@@ -3289,7 +3289,7 @@ static auto create_mixed_type_variant_column() {
             // array of strings
             {"data.array_string_field", [] {
                  auto array_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
-                 auto& array = array_field.get<Array>();
+                 auto& array = array_field.get<TYPE_ARRAY>();
                  array.emplace_back(
                          doris::vectorized::Field::create_field<TYPE_STRING>(String("apple")));
                  array.emplace_back(
@@ -3398,7 +3398,7 @@ TEST_F(ColumnVariantTest, compatibility_deserialize_and_verify) {
         variant_column->get(row, result_field);
         EXPECT_EQ(result_field.get_type(), TYPE_VARIANT);
 
-        const auto& variant_map = result_field.get<VariantMap>();
+        const auto& variant_map = result_field.get<TYPE_VARIANT>();
 
         if (row < 5) {
             // First 5 rows should have the structured data
@@ -3412,34 +3412,34 @@ TEST_F(ColumnVariantTest, compatibility_deserialize_and_verify) {
             // Verify specific values
             auto int_iter = variant_map.find(PathInData("data.int_field"));
             if (int_iter != variant_map.end()) {
-                EXPECT_EQ(int_iter->second.field.get<Int32>(), 42);
+                EXPECT_EQ(int_iter->second.field.get<TYPE_TINYINT>(), 42);
             }
 
             auto double_iter = variant_map.find(PathInData("data.double_field"));
             if (double_iter != variant_map.end()) {
-                EXPECT_DOUBLE_EQ(double_iter->second.field.get<Float64>(), 3.14159);
+                EXPECT_DOUBLE_EQ(double_iter->second.field.get<TYPE_DOUBLE>(), 3.14159);
             }
 
             auto string_iter = variant_map.find(PathInData("data.string_field"));
             if (string_iter != variant_map.end()) {
-                EXPECT_EQ(string_iter->second.field.get<String>(), "hello_world");
+                EXPECT_EQ(string_iter->second.field.get<TYPE_STRING>(), "hello_world");
             }
 
             auto array_int_iter = variant_map.find(PathInData("data.array_int_field"));
             if (array_int_iter != variant_map.end()) {
-                const auto& array = array_int_iter->second.field.get<Array>();
+                const auto& array = array_int_iter->second.field.get<TYPE_ARRAY>();
                 EXPECT_EQ(array.size(), 3);
-                EXPECT_EQ(array[0].get<Int32>(), 1);
-                EXPECT_EQ(array[1].get<Int32>(), 2);
-                EXPECT_EQ(array[2].get<Int32>(), 3);
+                EXPECT_EQ(array[0].get<TYPE_TINYINT>(), 1);
+                EXPECT_EQ(array[1].get<TYPE_TINYINT>(), 2);
+                EXPECT_EQ(array[2].get<TYPE_TINYINT>(), 3);
             }
 
             auto array_string_iter = variant_map.find(PathInData("data.array_string_field"));
             if (array_string_iter != variant_map.end()) {
-                const auto& array = array_string_iter->second.field.get<Array>();
+                const auto& array = array_string_iter->second.field.get<TYPE_ARRAY>();
                 EXPECT_EQ(array.size(), 2);
-                EXPECT_EQ(array[0].get<String>(), "apple");
-                EXPECT_EQ(array[1].get<String>(), "banana");
+                EXPECT_EQ(array[0].get<TYPE_STRING>(), "apple");
+                EXPECT_EQ(array[1].get<TYPE_STRING>(), "banana");
             }
         } else {
             // Last 3 rows should have sparse data
@@ -3453,22 +3453,22 @@ TEST_F(ColumnVariantTest, compatibility_deserialize_and_verify) {
             // Verify sparse data values
             auto int_iter = variant_map.find(PathInData("data.int_field"));
             if (int_iter != variant_map.end()) {
-                EXPECT_EQ(int_iter->second.field.get<Int32>(), 100);
+                EXPECT_EQ(int_iter->second.field.get<TYPE_TINYINT>(), 100);
             }
 
             auto double_iter = variant_map.find(PathInData("data.double_field"));
             if (double_iter != variant_map.end()) {
-                EXPECT_DOUBLE_EQ(double_iter->second.field.get<Float64>(), 2.71828);
+                EXPECT_DOUBLE_EQ(double_iter->second.field.get<TYPE_DOUBLE>(), 2.71828);
             }
 
             auto sparse_string_iter = variant_map.find(PathInData("data.nested.sparse_string"));
             if (sparse_string_iter != variant_map.end()) {
-                EXPECT_EQ(sparse_string_iter->second.field.get<String>(), "sparse_data");
+                EXPECT_EQ(sparse_string_iter->second.field.get<TYPE_STRING>(), "sparse_data");
             }
 
             auto sparse_int_iter = variant_map.find(PathInData("data.nested.sparse_int"));
             if (sparse_int_iter != variant_map.end()) {
-                EXPECT_EQ(sparse_int_iter->second.field.get<Int32>(), 999);
+                EXPECT_EQ(sparse_int_iter->second.field.get<TYPE_SMALLINT>(), 999);
             }
         }
     }

@@ -83,8 +83,7 @@ struct AggregateFunctionAvgData {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-            Decimal128V2 ret(cal_ret.value());
-            return ret;
+            return cal_ret;
         } else {
             if constexpr (T == TYPE_DECIMAL256) {
                 return static_cast<ResultT>(sum /

@@ -796,60 +796,6 @@ std::string_view Field::as_string_view() const {
 
 #undef MATCH_PRIMITIVE_TYPE
 
-#define MATCH_NUMBER_TYPE(primite_type)                                             \
-    if (type == primite_type) {                                                     \
-        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::CppType>(); \
-        return CastToString::from_number(v);                                        \
-    }
-
-#define MATCH_DECIMAL_TYPE(primite_type)                                            \
-    if (type == primite_type) {                                                     \
-        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::CppType>(); \
-        return CastToString::from_decimal(v.get_value(), v.get_scale());            \
-    }
-
-std::string Field::to_string() const {
-    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::TYPE_VARCHAR ||
-        type == PrimitiveType::TYPE_CHAR) {
-        const auto& s = get<String>();
-        return {s.data(), s.size()};
-    }
-    MATCH_DECIMAL_TYPE(TYPE_DECIMAL32);
-    MATCH_DECIMAL_TYPE(TYPE_DECIMAL64);
-    MATCH_DECIMAL_TYPE(TYPE_DECIMALV2);
-    MATCH_DECIMAL_TYPE(TYPE_DECIMAL128I);
-    MATCH_DECIMAL_TYPE(TYPE_DECIMAL256);
-
-    if (type == TYPE_DATE || type == TYPE_DATETIME) {
-        const auto& v = binary_cast<int64_t, doris::VecDateTimeValue>(
-                get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>());
-        return CastToString::from_date_or_datetime(v);
-    }
-    if (type == TYPE_DATEV2) {
-        const auto& v = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(
-                (uint32_t)get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>());
-        return CastToString::from_datev2(v);
-    }
-    if (type == TYPE_DATETIMEV2) {
-        const auto& v = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
-                (uint64_t)get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>());
-        return CastToString::from_datetimev2(v);
-    }
-    MATCH_NUMBER_TYPE(TYPE_BOOLEAN);
-    MATCH_NUMBER_TYPE(TYPE_TINYINT);
-    MATCH_NUMBER_TYPE(TYPE_SMALLINT);
-    MATCH_NUMBER_TYPE(TYPE_INT);
-    MATCH_NUMBER_TYPE(TYPE_BIGINT);
-    MATCH_NUMBER_TYPE(TYPE_LARGEINT);
-    MATCH_NUMBER_TYPE(TYPE_FLOAT);
-    MATCH_NUMBER_TYPE(TYPE_DOUBLE);
-    throw Exception(
-            Status::FatalError("type not supported for to_string, type={}", get_type_name()));
-}
-
-#undef MATCH_NUMBER_TYPE
-#undef MATCH_DECIMAL_TYPE
-
 #define DECLARE_FUNCTION(FUNC_NAME)                                                               \
     template void Field::FUNC_NAME<TYPE_NULL>(typename PrimitiveTypeTraits<TYPE_NULL>::CppType && \
                                               rhs);                                               \
@@ -897,6 +843,10 @@ std::string Field::to_string() const {
             typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::CppType && rhs);                   \
     template void Field::FUNC_NAME<TYPE_ARRAY>(                                                   \
             typename PrimitiveTypeTraits<TYPE_ARRAY>::CppType && rhs);                            \
+    template void Field::FUNC_NAME<TYPE_TIME>(typename PrimitiveTypeTraits<TYPE_TIME>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_TIME>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_TIME>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_NULL>(                                                    \
             const typename PrimitiveTypeTraits<TYPE_NULL>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_TINYINT>(                                                 \
