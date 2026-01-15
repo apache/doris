@@ -17,6 +17,7 @@
 
 #include "short_circuit_evaluation_expr.h"
 
+#include <optional>
 #include <sstream>
 
 #include "common/exception.h"
@@ -65,6 +66,55 @@ std::string ShortCircuitExpr::debug_string() const {
     result += ")";
     return result;
 }
+
+///TODO: 我们很多util是缺失的，这里先把他们放到.cpp里面，可能更好的做法是放到util文件夹下
+
+// 用来存储一个column和它的nullmap
+// 如果输入的column不是nullable，那么null_map就是nullptr
+struct ColumnNullView {
+    const IColumn& column;
+    const NullMap* null_map;
+
+    static ColumnNullView create(const ColumnPtr& column_ptr) {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(column_ptr.get())) {
+            return ColumnNullView {.column = nullable_column->get_nested_column(),
+                                   .null_map = &nullable_column->get_null_map_data()};
+        } else {
+            return ColumnNullView {.column = *column_ptr, .null_map = nullptr};
+        }
+    }
+};
+
+// 用来存储一个mutable column和它的nullmap
+// 如果输入的column不是nullable，那么null_map就是nullptr
+struct MutableColumnNullView {
+    IColumn& column;
+    NullMap* null_map;
+    static MutableColumnNullView create(const MutableColumnPtr& column_ptr) {
+        if (auto* nullable_column = check_and_get_column<ColumnNullable>(column_ptr.get())) {
+            return MutableColumnNullView {.column = nullable_column->get_nested_column(),
+                                          .null_map = &nullable_column->get_null_map_data()};
+        } else {
+            return MutableColumnNullView {.column = *column_ptr, .null_map = nullptr};
+        }
+    }
+
+    void insert_from(const ColumnNullView& from, size_t index) {
+        column.insert_from(from.column, index);
+        if (null_map != nullptr && from.null_map != nullptr) {
+            null_map->push_back((*from.null_map)[index]);
+        } else if (null_map != nullptr) {
+            // from is not nullable, so insert 0
+            null_map->push_back(0);
+        }
+    }
+    void insert_null() {
+        DCHECK(null_map != nullptr)
+                << "Cannot insert null value into non-nullable column in ShortCircuitCoalesceExpr.";
+        column.insert_default();
+        null_map->push_back(1);
+    }
+};
 
 template <PrimitiveType PType>
 struct ScalarFillWithSelector {
@@ -173,43 +223,18 @@ struct NonScalarFillWithSelector {
         auto result_column = result_type->create_column();
         true_column = true_column->convert_to_full_column_if_const();
         false_column = false_column->convert_to_full_column_if_const();
-        auto insert_nullable = [&](const ColumnPtr& source_column, size_t source_index) {
-            if (auto* result_nullable_column =
-                        check_and_get_column<ColumnNullable>(result_column.get())) {
-                if (const auto* source_nullable_column =
-                            check_and_get_column<ColumnNullable>(source_column.get())) {
-                    // result nullable column, source nullable column
-                    result_nullable_column->get_nested_column().insert_from(
-                            source_nullable_column->get_nested_column(), source_index);
-                    result_nullable_column->get_null_map_data().push_back(
-                            source_nullable_column->get_null_map_data()[source_index]);
 
-                } else {
-                    // result nullable column, source non-nullable column
-                    result_nullable_column->get_nested_column().insert_from(*source_column,
-                                                                            source_index);
-                    result_nullable_column->get_null_map_data().push_back(0);
-                }
-            } else {
-                if (const auto* source_nullable_column =
-                            check_and_get_column<ColumnNullable>(source_column.get())) {
-                    // result non-nullable column, source nullable column
-                    result_column->insert_from(source_nullable_column->get_nested_column(),
-                                               source_index);
-                } else {
-                    // result non-nullable column, source non-nullable column
-                    result_column->insert_from(*source_column, source_index);
-                }
-            }
-        };
+        MutableColumnNullView result_column_view = MutableColumnNullView::create(result_column);
+        ColumnNullView true_column_view = ColumnNullView::create(true_column);
+        ColumnNullView false_column_view = ColumnNullView::create(false_column);
 
         size_t true_index = 0;
         size_t false_index = 0;
         for (size_t i = 0; i < count; ++i) {
             if (true_index < true_selector.size() && i == true_selector[true_index]) {
-                insert_nullable(true_column, true_index++);
+                result_column_view.insert_from(true_column_view, true_index++);
             } else {
-                insert_nullable(false_column, false_index++);
+                result_column_view.insert_from(false_column_view, false_index++);
             }
         }
 
@@ -402,50 +427,22 @@ void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* con
     }
 }
 
+struct FillColumnWithPos {
+    std::optional<ColumnNullView> source_column;
+    size_t pos_in_source; // column中的位置
+
+    void insert_to_column(MutableColumnNullView& result_column) const {
+        if (!source_column) {
+            result_column.insert_null();
+        } else {
+            result_column.insert_from(*source_column, pos_in_source);
+        }
+    }
+};
+
 struct ColumnAndSelector {
     ColumnPtr column = nullptr;
     Selector selector; // positions in result column
-};
-
-struct FillColumnWithPos {
-    const IColumn* source_column; // 如果为nullptr，需要填充null
-    uint32_t pos_in_source;       // column中的位置
-
-    void insert_to_column(MutableColumnPtr& result_column) const {
-        if (source_column == nullptr) {
-            DCHECK(result_column->is_nullable()) << "Cannot insert null value into non-nullable "
-                                                    "column in ShortCircuitCoalesceExpr.";
-            result_column->insert_default(); // insert null
-        } else {
-            if (auto* result_nullable_column =
-                        check_and_get_column<ColumnNullable>(result_column.get())) {
-                if (const auto* source_nullable_column =
-                            check_and_get_column<ColumnNullable>(source_column)) {
-                    // result nullable column, source nullable column
-                    result_nullable_column->get_nested_column().insert_from(
-                            source_nullable_column->get_nested_column(), pos_in_source);
-                    result_nullable_column->get_null_map_data().push_back(
-                            source_nullable_column->get_null_map_data()[pos_in_source]);
-
-                } else {
-                    // result nullable column, source non-nullable column
-                    result_nullable_column->get_nested_column().insert_from(*source_column,
-                                                                            pos_in_source);
-                    result_nullable_column->get_null_map_data().push_back(0);
-                }
-            } else {
-                if (const auto* source_nullable_column =
-                            check_and_get_column<ColumnNullable>(source_column)) {
-                    // result non-nullable column, source nullable column
-                    result_column->insert_from(source_nullable_column->get_nested_column(),
-                                               pos_in_source);
-                } else {
-                    // result non-nullable column, source non-nullable column
-                    result_column->insert_from(*source_column, pos_in_source);
-                }
-            }
-        }
-    }
 };
 
 Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Block* block,
@@ -501,20 +498,30 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
     // 开始填充结果列
     auto mutable_result_column = _data_type->create_column();
 
+    MutableColumnNullView mutable_result_column_view =
+            MutableColumnNullView::create(mutable_result_column);
+
     std::vector<FillColumnWithPos> fill_positions(count);
 
     for (ColumnAndSelector& column_with_selector : columns_and_selectors) {
         for (uint32_t i = 0; i < column_with_selector.selector.size(); ++i) {
             size_t result_index = column_with_selector.selector[i];
-            DCHECK(fill_positions[result_index].source_column == nullptr)
+            DCHECK(fill_positions[result_index].source_column.has_value() == false)
                     << "Position " << result_index << " has been filled already.";
-            fill_positions[result_index].source_column = column_with_selector.column.get();
-            fill_positions[result_index].pos_in_source = i;
+            if (column_with_selector.column) {
+                ColumnNullView column_view = ColumnNullView::create(column_with_selector.column);
+                fill_positions[result_index].source_column.emplace(column_view);
+                fill_positions[result_index].pos_in_source = i;
+            } else {
+                // source column is null
+                fill_positions[result_index].source_column = std::nullopt;
+                // 不需要设置pos_in_source
+            }
         }
     }
 
     for (const FillColumnWithPos& fill_pos : fill_positions) {
-        fill_pos.insert_to_column(mutable_result_column);
+        fill_pos.insert_to_column(mutable_result_column_view);
     }
 
     result_column = std::move(mutable_result_column);
