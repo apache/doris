@@ -3533,36 +3533,36 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         private String tableName;
 
         @Getter
-        private Long dataSize; // single replica data size
+        private long dataSize; // single replica data size
         @Getter
-        private Long totalReplicaDataSize;
+        private long totalReplicaDataSize;
 
         @Getter
-        private Long remoteDataSize; // single replica remote data size
+        private long remoteDataSize; // single replica remote data size
 
         @Getter
-        private Long replicaCount;
+        private long replicaCount;
 
         @Getter
-        private Long rowCount;
+        private long rowCount;
 
         @Getter
-        private Long rowsetCount;
+        private long rowsetCount;
 
         @Getter
-        private Long segmentCount;
+        private long segmentCount;
 
         @Getter
-        private Long localInvertedIndexSize;   // multi replicas
+        private long localInvertedIndexSize;   // multi replicas
 
         @Getter
-        private Long localSegmentSize;         // multi replicas
+        private long localSegmentSize;         // multi replicas
 
         @Getter
-        private Long remoteInvertedIndexSize;  // single replica
+        private long remoteInvertedIndexSize;  // single replica
 
         @Getter
-        private Long remoteSegmentSize;        // single replica
+        private long remoteSegmentSize;        // single replica
 
         public Statistics() {
             this.dbName = null;
@@ -3585,11 +3585,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         public Statistics(String dbName, String tableName,
-                Long dataSize, Long totalReplicaDataSize,
-                Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount,
-                Long localInvertedIndexSize, Long localSegmentSize,
-                Long remoteInvertedIndexSize, Long remoteSegmentSize) {
+                long dataSize, long totalReplicaDataSize,
+                long remoteDataSize, long replicaCount, long rowCount,
+                long rowsetCount, long segmentCount,
+                long localInvertedIndexSize, long localSegmentSize,
+                long remoteInvertedIndexSize, long remoteSegmentSize) {
 
             this.dbName = dbName;
             this.tableName = tableName;
