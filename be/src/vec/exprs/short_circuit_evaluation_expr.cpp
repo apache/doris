@@ -31,55 +31,36 @@
 
 namespace doris::vectorized {
 
-Status ShortCircuitIfExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
-                                   VExprContext* context) {
+Status ShortCircuitExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
+                                 VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     _prepare_finished = true;
     return Status::OK();
 }
 
-Status ShortCircuitIfExpr::open(RuntimeState* state, VExprContext* context,
-                                FunctionContext::FunctionStateScope scope) {
+Status ShortCircuitExpr::open(RuntimeState* state, VExprContext* context,
+                              FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     _open_finished = true;
     return Status::OK();
 }
 
-void ShortCircuitIfExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
+void ShortCircuitExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     VExpr::close(context, scope);
 }
 
-void execute_true_and_false_selector(const ColumnPtr& cond_column, size_t count,
-                                     Selector& true_selector, Selector& false_selector) {
-    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(cond_column.get())) {
-        const auto& null_map = column_nullable->get_null_map_data();
-        const auto& nested_column = column_nullable->get_nested_column_ptr();
-        const auto* column_uint8 = assert_cast<const ColumnBool*>(nested_column.get());
-        const auto& data = column_uint8->get_data();
-        for (size_t i = 0; i < count; ++i) {
-            if (null_map[i]) {
-                false_selector.push_back(i);
-            } else {
-                if (data[i]) {
-                    true_selector.push_back(i);
-                } else {
-                    false_selector.push_back(i);
-                }
-            }
+std::string ShortCircuitExpr::debug_string() const {
+    std::string result = expr_name() + "(";
+    for (size_t i = 0; i < _children.size(); ++i) {
+        if (i != 0) {
+            result += ", ";
         }
-    } else {
-        const auto* column_uint8 = assert_cast<const ColumnBool*>(cond_column.get());
-        const auto& data = column_uint8->get_data();
-        for (size_t i = 0; i < count; ++i) {
-            if (data[i]) {
-                true_selector.push_back(i);
-            } else {
-                false_selector.push_back(i);
-            }
-        }
+        result += _children[i]->debug_string();
     }
+    result += ")";
+    return result;
 }
 
 template <PrimitiveType PType>
@@ -97,10 +78,14 @@ public:
         DCHECK_EQ(PType, result_type->get_primitive_type());
         auto result_column = result_type->create_column();
         init_result_column(result_column, count);
-        dispatch_const(result_column, true_column, true_selector);
-        dispatch_const(result_column, false_column, false_selector);
+        fill(result_column, true_column, true_selector);
+        fill(result_column, false_column, false_selector);
         DCHECK_EQ(result_column->size(), count);
         return result_column;
+    }
+    static void fill(MutableColumnPtr& result_column, const ColumnPtr& from_column,
+                     const Selector& selector) {
+        dispatch_const(result_column, from_column, selector);
     }
 
 private:
@@ -162,13 +147,6 @@ private:
         insert_with_selector<is_const>(result_data, from_data, selector);
         if (result_null_map_data != nullptr && from_null_map_data != nullptr) {
             insert_with_selector<is_const>(*result_null_map_data, *from_null_map_data, selector);
-        } else if (result_null_map_data != nullptr && from_null_map_data == nullptr) {
-            // do nothing , because result_null_map_data default value is false
-        } else if (result_null_map_data == nullptr && from_null_map_data != nullptr) {
-            throw doris::Exception(doris::Status::InternalError(
-                    "Internal error: null map data mismatch in ShortCircuitIfExpr"));
-        } else {
-            // do nothing
         }
     }
 
@@ -193,10 +171,37 @@ struct NonScalarFillWithSelector {
         true_column = true_column->convert_to_full_column_if_const();
         false_column = false_column->convert_to_full_column_if_const();
         auto insert_nullable = [&](const ColumnPtr& source_column, size_t source_index) {
-            if (is_column_nullable(*result_column) && !is_column_nullable(*source_column)) {
-                result_column->insert_from(*make_nullable(source_column), source_index);
+            if (auto* result_nullable_column =
+                        check_and_get_column<ColumnNullable>(result_column.get())) {
+                if (const auto* source_nullable_column =
+                            check_and_get_column<ColumnNullable>(source_column.get())) {
+                    // result nullable column, source nullable column
+                    result_nullable_column->get_nested_column().insert_from(
+                            source_nullable_column->get_nested_column(), source_index);
+                    result_nullable_column->get_null_map_data().push_back(
+                            source_nullable_column->get_null_map_data()[source_index]);
+
+                } else {
+                    // result nullable column, source non-nullable column
+                    result_nullable_column->get_nested_column().insert_from(*source_column,
+                                                                            source_index);
+                    result_nullable_column->get_null_map_data().push_back(0);
+                }
             } else {
-                result_column->insert_from(*source_column, source_index);
+                if (const auto* source_nullable_column =
+                            check_and_get_column<ColumnNullable>(source_column.get())) {
+                    // result non-nullable column, source nullable column
+                    if (source_nullable_column->get_null_map_data()[source_index]) {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                               "Cannot insert null value into non-nullable "
+                                               "column in ShortCircuitIfExpr.");
+                    }
+                    result_column->insert_from(source_nullable_column->get_nested_column(),
+                                               source_index);
+                } else {
+                    // result non-nullable column, source non-nullable column
+                    result_column->insert_from(*source_column, source_index);
+                }
             }
         };
 
@@ -215,6 +220,37 @@ struct NonScalarFillWithSelector {
     }
 };
 
+void execute_if_selector(const ColumnPtr& cond_column, size_t count, Selector& true_selector,
+                         Selector& false_selector) {
+    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(cond_column.get())) {
+        const auto& null_map = column_nullable->get_null_map_data();
+        const auto& nested_column = column_nullable->get_nested_column_ptr();
+        const auto* column_uint8 = assert_cast<const ColumnBool*>(nested_column.get());
+        const auto& data = column_uint8->get_data();
+        for (size_t i = 0; i < count; ++i) {
+            if (null_map[i]) {
+                false_selector.push_back(i);
+            } else {
+                if (data[i]) {
+                    true_selector.push_back(i);
+                } else {
+                    false_selector.push_back(i);
+                }
+            }
+        }
+    } else {
+        const auto* column_uint8 = assert_cast<const ColumnBool*>(cond_column.get());
+        const auto& data = column_uint8->get_data();
+        for (size_t i = 0; i < count; ++i) {
+            if (data[i]) {
+                true_selector.push_back(i);
+            } else {
+                false_selector.push_back(i);
+            }
+        }
+    }
+}
+
 Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* block,
                                           Selector* selector, size_t count,
                                           ColumnPtr& result_column) const {
@@ -229,7 +265,7 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
     Selector false_selector;
     true_selector.reserve(count);
     false_selector.reserve(count);
-    execute_true_and_false_selector(cond_column, count, true_selector, false_selector);
+    execute_if_selector(cond_column, count, true_selector, false_selector);
 
     ColumnPtr true_column;
     RETURN_IF_ERROR(_children[1]->execute_column(context, block, &true_selector,
@@ -239,30 +275,72 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
     RETURN_IF_ERROR(_children[2]->execute_column(context, block, &false_selector,
                                                  false_selector.size(), false_column));
 
-    auto call = [&](const auto& type) -> bool {
+    auto vec_exec = [&](const auto& type) -> bool {
+        using DataType = std::decay_t<decltype(type)>;
         using DataType = std::decay_t<decltype(type)>;
         result_column = ScalarFillWithSelector<DataType::PType>::fill_if(
                 _data_type, true_column, true_selector, false_column, false_selector, count);
         return true;
     };
 
-    auto can_use_vec_exec = dispatch_switch_scalar(_data_type->get_primitive_type(), call);
-    if (!can_use_vec_exec) {
+    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), vec_exec)) {
         result_column = NonScalarFillWithSelector::fill_if(_data_type, true_column, true_selector,
                                                            false_column, false_selector, count);
     }
     return Status::OK();
 }
 
-std::string ShortCircuitIfExpr::debug_string() const {
-    std::string result = expr_name() + "(";
-    for (size_t i = 0; i < _children.size(); ++i) {
-        if (i != 0) {
-            result += ", ";
+Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block* block,
+                                              Selector* selector, size_t count,
+                                              ColumnPtr& result_column) const {
+    DCHECK(_open_finished || block == nullptr) << debug_string();
+    DCHECK(selector == nullptr || selector->size() == count);
+    ColumnPtr expr1_column;
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, expr1_column));
+    DCHECK_EQ(expr1_column->size(), count);
+    expr1_column = expr1_column->convert_to_full_column_if_const();
+
+    Selector not_null_selector;
+    Selector null_selector;
+    not_null_selector.reserve(count);
+    null_selector.reserve(count);
+
+    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(expr1_column.get())) {
+        const auto& null_map = column_nullable->get_null_map_data();
+        for (size_t i = 0; i < count; ++i) {
+            if (null_map[i]) {
+                null_selector.push_back(i);
+            } else {
+                not_null_selector.push_back(i);
+            }
         }
-        result += _children[i]->debug_string();
+    } else {
+        /// TODO: This optimization has already been implemented in the FE,
+        // so we probably don't need to handle it here. Should we just raise an error?
+        result_column = expr1_column;
+        return Status::OK();
     }
-    result += ")";
-    return result;
+
+    // filter not null part
+    expr1_column =
+            filter_column_with_selector(expr1_column, &not_null_selector, not_null_selector.size());
+
+    ColumnPtr expr2_column;
+    RETURN_IF_ERROR(_children[1]->execute_column(context, block, &null_selector,
+                                                 null_selector.size(), expr2_column));
+
+    auto vec_exec = [&](const auto& type) -> bool {
+        using DataType = std::decay_t<decltype(type)>;
+        result_column = ScalarFillWithSelector<DataType::PType>::fill_if(
+                _data_type, expr1_column, not_null_selector, expr2_column, null_selector, count);
+        return true;
+    };
+
+    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), vec_exec)) {
+        result_column = NonScalarFillWithSelector::fill_if(
+                _data_type, expr1_column, not_null_selector, expr2_column, null_selector, count);
+    }
+    return Status::OK();
 }
+
 } // namespace doris::vectorized

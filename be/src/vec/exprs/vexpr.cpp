@@ -489,7 +489,12 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                 break;
             } else if (expr_node.fn.name.function_name == "ifnull" ||
                        expr_node.fn.name.function_name == "nvl") {
-                expr = VectorizedIfNullExpr::create_shared(expr_node);
+                if (expr_node.__isset.short_circuit_evaluation &&
+                    expr_node.short_circuit_evaluation) {
+                    expr = ShortCircuitIfNullExpr::create_shared(expr_node);
+                } else {
+                    expr = VectorizedIfNullExpr::create_shared(expr_node);
+                }
                 break;
             } else if (expr_node.fn.name.function_name == "coalesce") {
                 expr = VectorizedCoalesceExpr::create_shared(expr_node);

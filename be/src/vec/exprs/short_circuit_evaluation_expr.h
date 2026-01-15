@@ -29,18 +29,23 @@ namespace doris::vectorized {
 class Block;
 class VExprContext;
 
-class ShortCircuitIfExpr final : public VExpr {
+class ShortCircuitExpr : public VExpr {
 public:
-    ENABLE_FACTORY_CREATOR(ShortCircuitIfExpr);
-    ShortCircuitIfExpr(const TExprNode& node) : VExpr(node) {}
-    ~ShortCircuitIfExpr() override = default;
-
+    ShortCircuitExpr(const TExprNode& node) : VExpr(node) {}
+    ~ShortCircuitExpr() override = default;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) final;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) final;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) final;
 
-    std::string debug_string() const override;
+    std::string debug_string() const final;
+};
+
+class ShortCircuitIfExpr final : public ShortCircuitExpr {
+public:
+    ENABLE_FACTORY_CREATOR(ShortCircuitIfExpr);
+    ShortCircuitIfExpr(const TExprNode& node) : ShortCircuitExpr(node) {}
+    ~ShortCircuitIfExpr() override = default;
 
     const std::string& expr_name() const override { return IF_NAME; }
 
@@ -48,9 +53,20 @@ public:
                           size_t count, ColumnPtr& result_column) const override;
 
 private:
-    static size_t count_true_with_notnull(const ColumnPtr& col);
-
     inline static const std::string IF_NAME = "if";
 };
 
+class ShortCircuitIfNullExpr final : public ShortCircuitExpr {
+public:
+    ENABLE_FACTORY_CREATOR(ShortCircuitIfNullExpr);
+    ShortCircuitIfNullExpr(const TExprNode& node) : ShortCircuitExpr(node) {}
+    ~ShortCircuitIfNullExpr() override = default;
+
+    const std::string& expr_name() const override { return IFNULL_NAME; }
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
+
+private:
+    inline static const std::string IFNULL_NAME = "ifnull";
+};
 } // namespace doris::vectorized
