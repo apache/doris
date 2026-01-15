@@ -227,4 +227,13 @@ suite("eager_agg") {
     group by ss_sales_price
     )t;
     """
+
+    qt_check_no_push_value_slots_contains_if_slots """
+    explain shape plan
+    select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = false)*/ 
+        sum(case when ss_item_sk =1 then ss_item_sk else 0 end) a 
+    from store_sales 
+      join  date_dim on d_date_sk = ss_sold_date_sk
+    group by d_year;
+    """
 }
