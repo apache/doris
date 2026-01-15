@@ -197,6 +197,8 @@ supportedCreateStatement
         name=identifier properties=propertyClause?                                  #createIndexTokenFilter
     | CREATE INVERTED INDEX CHAR_FILTER (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                                  #createIndexCharFilter
+    | CREATE INVERTED INDEX NORMALIZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexNormalizer
     ;
 
 supportedAlterStatement
@@ -217,6 +219,7 @@ supportedDropStatement
     | DROP INVERTED INDEX TOKENIZER (IF EXISTS)? name=identifier                #dropIndexTokenizer
     | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
     | DROP INVERTED INDEX CHAR_FILTER (IF EXISTS)? name=identifier              #dropIndexCharFilter
+    | DROP INVERTED INDEX NORMALIZER (IF EXISTS)? name=identifier               #dropIndexNormalizer
     ;
 
 supportedShowStatement
@@ -227,6 +230,7 @@ supportedShowStatement
     | SHOW INVERTED INDEX TOKENIZER                                                 #showIndexTokenizer
     | SHOW INVERTED INDEX TOKEN_FILTER                                              #showIndexTokenFilter
     | SHOW INVERTED INDEX CHAR_FILTER                                               #showIndexCharFilter
+    | SHOW INVERTED INDEX NORMALIZER                                                #showIndexNormalizer
     ;
 
 supportedKillStatement
@@ -2035,6 +2039,7 @@ nonReserved
     | NGRAM_BF
     | NO
     | NON_NULLABLE
+    | NORMALIZER
     | NULLS
     | OF
     | OFFSET

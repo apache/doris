@@ -449,6 +449,11 @@ under the License.
             <artifactId>huaweicloud-sdk-iam</artifactId>
             <version>3.1.20</version>
         </dependency>
+        <!-- ICU4J for unicode normalization -->
+        <dependency>
+            <groupId>com.ibm.icu</groupId>
+            <artifactId>icu4j</artifactId>
+        </dependency>
         <!-- Fix it-->
         <dependency>
             <groupId>org.awaitility</groupId>

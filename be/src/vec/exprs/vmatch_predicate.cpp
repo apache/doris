@@ -54,7 +54,7 @@ using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    _inverted_index_ctx->custom_analyzer = node.match_predicate.custom_analyzer;
+    _inverted_index_ctx->analyzer_name = node.match_predicate.analyzer_name;
     _inverted_index_ctx->parser_type =
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
@@ -65,7 +65,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
         _inverted_index_ctx->lower_case = INVERTED_INDEX_PARSER_FALSE;
     }
     _inverted_index_ctx->stop_words = node.match_predicate.parser_stopwords;
-    _inverted_index_ctx->custom_analyzer = node.match_predicate.custom_analyzer;
+    _inverted_index_ctx->analyzer_name = node.match_predicate.analyzer_name;
     _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(_inverted_index_ctx.get());
     _inverted_index_ctx->analyzer = _analyzer.get();
 }

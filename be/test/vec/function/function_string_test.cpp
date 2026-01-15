@@ -3447,4 +3447,30 @@ TEST(function_string_test, function_xpath_string_test) {
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_unicode_normalize_nfc_basic) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_VARCHAR},
+    };
+
+    std::string cafe_decomposed = std::string("Cafe\xCC\x81");
+    std::string cafe_composed = std::string("Caf\xC3\xA9");
+
+    {
+        DataSet data_set = {
+                {{cafe_decomposed, std::string("NFC")}, cafe_composed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{cafe_composed, std::string("NFC")}, cafe_composed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
 } // namespace doris::vectorized
