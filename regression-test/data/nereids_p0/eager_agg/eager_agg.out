@@ -199,3 +199,16 @@ PhysicalResultSink
 -- !check_nullable_exe --
 11.00
 
+-- !check_no_push_value_slots_contains_if_slots --
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=()
+--------------PhysicalProject
+----------------PhysicalOlapScan[store_sales]
+--------------PhysicalProject
+----------------PhysicalOlapScan[date_dim]
+
