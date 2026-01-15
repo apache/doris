@@ -180,11 +180,11 @@ suite("iceberg_branch_tag_edge_cases", "p0,external,doris,external_docker,extern
 
     test {
         sql """ alter table ${table_name} create branch b3_invalid_num as of version ${snapshot_id} retain 0 MINUTES """
-        exception "Max snapshot age must be greater than 0 ms"
+        exception "RETAIN time value must be greater than 0"
     }
     test {
         sql """ alter table ${table_name} create branch b4_invalid_num as of version ${snapshot_id} retain -1 MINUTES """
-        exception "expecting INTEGER_VALUE"
+        exception "extraneous input '-' expecting INTEGER_VALUE"
     }
     test {
         sql """ alter table ${table_name} create branch b5_invalid_num as of version ${snapshot_id} retain xxx MINUTES """
@@ -192,28 +192,28 @@ suite("iceberg_branch_tag_edge_cases", "p0,external,doris,external_docker,extern
     }
     test {
         sql """ alter table ${table_name} create branch b6_invalid_num as of version ${snapshot_id} with snapshot retention 0 SNAPSHOTS 1 MINUTES """
-        exception "Min snapshots to keep must be greater than 0"
+        exception "Snapshot count (SNAPSHOTS) value must be greater than 0"
     }
     test {
         sql """ alter table ${table_name} create branch b7_invalid_num as of version ${snapshot_id} with snapshot retention -1 SNAPSHOTS 1 MINUTES """
         exception "no viable alternative at input 'with snapshot retention -'"
     }
-//    test {
-//        sql """ alter table ${table_name} create branch b8_invalid_num as of version ${snapshot_id} with snapshot retention xxx SNAPSHOTS 1 MINUTES """
-//        exception "Snapshot count must be positive integer"
-//    }
+   test {
+       sql """ alter table ${table_name} create branch b8_invalid_num as of version ${snapshot_id} with snapshot retention xxx SNAPSHOTS 1 MINUTES """
+       exception "no viable alternative at input 'with snapshot retention xxx'"
+   }
     test {
         sql """ alter table ${table_name} create branch b9_invalid_num as of version ${snapshot_id} with snapshot retention 3 SNAPSHOTS 0 MINUTES """
-        exception "Max reference age must be greater than 0"
+        exception "Retention time value must be greater than 0"
     }
-//    test {
-//        sql """ alter table ${table_name} create branch b10_invalid_num as of version ${snapshot_id} with snapshot retention 3 SNAPSHOTS -1 MINUTES """
-//        exception "Retention value must be positive integer"
-//    }
-//    test {
-//        sql """ alter table ${table_name} create branch b11_invalid_num as of version ${snapshot_id} with snapshot retention 3 SNAPSHOTS xxx MINUTES """
-//        exception "Retention value must be positive integer"
-//    }
+   test {
+       sql """ alter table ${table_name} create branch b10_invalid_num as of version ${snapshot_id} with snapshot retention 3 SNAPSHOTS -1 MINUTES """
+       exception "mismatched input '-' expecting"
+   }
+   test {
+       sql """ alter table ${table_name} create branch b11_invalid_num as of version ${snapshot_id} with snapshot retention 3 SNAPSHOTS xxx MINUTES """
+       exception "mismatched input 'xxx' expecting"
+   }
 
     test {
         sql """ alter table ${table_name} create tag t1_invalid_unit as of version ${snapshot_id} retain 1 SECONDS """
@@ -221,7 +221,7 @@ suite("iceberg_branch_tag_edge_cases", "p0,external,doris,external_docker,extern
     }
     test {
         sql """ alter table ${table_name} create tag t3_invalid_num as of version ${snapshot_id} retain 0 MINUTES """
-        exception "Max reference age must be greater than 0"
+        exception "RETAIN time value must be greater than 0"
     }
     test {
         sql """ alter table ${table_name} create tag t4_invalid_num as of version ${snapshot_id} retain -1 MINUTES """
