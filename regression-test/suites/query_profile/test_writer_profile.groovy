@@ -38,13 +38,13 @@ def getProfile = { masterHTTPAddr, id ->
     return conn.getInputStream().getText()
 }
 
-suite('test_writer_profile') {
+suite('test_writer_profile', "nonConcurrent") {
     //cloud-mode
     if (isCloudMode()) {
         return
     }
     
-    sql "set enable_profile=true;"   
+    sql "set enable_profile=true;"
 
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
