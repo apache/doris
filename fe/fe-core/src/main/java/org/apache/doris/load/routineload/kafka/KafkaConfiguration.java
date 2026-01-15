@@ -46,6 +46,14 @@ public enum KafkaConfiguration {
 
     KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER("kafka_text_table_name_field_delimiter", ",",
             value -> value.replace(" ", ""));
+
+    // Common Kafka property names used for security and authentication
+    // These are passed through property.* prefix and validated for correctness
+    public static final String SECURITY_PROTOCOL = "security.protocol";
+    public static final String SASL_MECHANISM = "sasl.mechanism";
+    public static final String SASL_JAAS_CONFIG = "sasl.jaas.config";
+    public static final String AWS_MSK_IAM_ROLE_ARN = "aws.msk.iam.role.arn";
+    public static final String AWS_PROFILE_NAME = "aws.profile.name";
     private final String name;
 
     public String getName() {

@@ -244,6 +244,62 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             }
             // can be extended in the future which other prefix
         }
+        
+        // Validate AWS MSK IAM authentication configuration if present
+        validateAwsMskIamConfig();
+    }
+
+    /**
+     * Validate AWS MSK IAM authentication configuration.
+     * When using AWS MSK with IAM authentication, the following properties should be configured:
+     * - security.protocol = SASL_SSL
+     * - sasl.mechanism = AWS_MSK_IAM (or OAUTHBEARER for some configurations)
+     * 
+     * This method provides helpful error messages for common misconfigurations.
+     */
+    private void validateAwsMskIamConfig() throws AnalysisException {
+        String securityProtocol = customKafkaProperties.get(KafkaConfiguration.SECURITY_PROTOCOL);
+        String saslMechanism = customKafkaProperties.get(KafkaConfiguration.SASL_MECHANISM);
+        
+        // If either AWS-related property is set, validate the complete configuration
+        if (customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN)
+                || customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME)
+                || "AWS_MSK_IAM".equalsIgnoreCase(saslMechanism)) {
+            
+            // security.protocol should be SASL_SSL for AWS MSK IAM
+            if (securityProtocol == null) {
+                throw new AnalysisException("When using AWS MSK IAM authentication, "
+                        + "'property.security.protocol' must be set to 'SASL_SSL'");
+            }
+            
+            if (!"SASL_SSL".equalsIgnoreCase(securityProtocol)) {
+                throw new AnalysisException("For AWS MSK IAM authentication, "
+                        + "'property.security.protocol' should be 'SASL_SSL', but got: " + securityProtocol);
+            }
+            
+            // sasl.mechanism should be AWS_MSK_IAM or OAUTHBEARER
+            if (saslMechanism == null) {
+                throw new AnalysisException("When using AWS MSK IAM authentication, "
+                        + "'property.sasl.mechanism' must be set. Use 'AWS_MSK_IAM' if supported by your "
+                        + "librdkafka version, or 'OAUTHBEARER' with appropriate callback configuration");
+            }
+            
+            if (!"AWS_MSK_IAM".equalsIgnoreCase(saslMechanism) 
+                    && !"OAUTHBEARER".equalsIgnoreCase(saslMechanism)) {
+                throw new AnalysisException("For AWS MSK IAM authentication, "
+                        + "'property.sasl.mechanism' should be 'AWS_MSK_IAM' or 'OAUTHBEARER', but got: " 
+                        + saslMechanism);
+            }
+        }
+        
+        // Validate SASL_SSL configuration
+        if ("SASL_SSL".equalsIgnoreCase(securityProtocol)) {
+            if (saslMechanism == null) {
+                throw new AnalysisException("When 'property.security.protocol' is set to 'SASL_SSL', "
+                        + "'property.sasl.mechanism' must also be specified. "
+                        + "Valid values include: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, AWS_MSK_IAM, OAUTHBEARER");
+            }
+        }
     }
 
     // Fill the partition's offset with given kafkaOffsetsString,
