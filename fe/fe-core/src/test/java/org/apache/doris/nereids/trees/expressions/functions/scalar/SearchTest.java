@@ -58,9 +58,9 @@ public class SearchTest {
 
         SearchDslParser.QsPlan plan = searchFunc.getQsPlan();
         Assertions.assertNotNull(plan);
-        Assertions.assertNotNull(plan.root);
-        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.fieldBindings.size());
+        Assertions.assertNotNull(plan.getRoot());
+        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getFieldBindings().size());
     }
 
     @Test
@@ -151,11 +151,11 @@ public class SearchTest {
 
         SearchDslParser.QsPlan plan = searchFunc.getQsPlan();
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(SearchDslParser.QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Should detect 3 unique fields: title, content, category
-        Assertions.assertEquals(3, plan.fieldBindings.size());
+        Assertions.assertEquals(3, plan.getFieldBindings().size());
     }
 
     @Test

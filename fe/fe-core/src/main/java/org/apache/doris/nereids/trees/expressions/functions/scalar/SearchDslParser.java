@@ -32,7 +32,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -179,7 +180,7 @@ public class SearchDslParser {
 
             return new QsPlan(root, bindings);
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOG.error("Failed to parse search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
             throw new RuntimeException("Invalid search DSL syntax: " + dsl + ". Error: " + e.getMessage(), e);
         }
@@ -555,7 +556,7 @@ public class SearchDslParser {
 
             return new QsPlan(root, bindings);
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOG.error("Failed to parse search DSL in {}: '{}' (expanded: '{}')",
                     modeDescription, originalDsl, expandedDsl, e);
             throw new RuntimeException("Invalid search DSL syntax: " + originalDsl
@@ -1005,12 +1006,12 @@ public class SearchDslParser {
      * ANTLR visitor to build QsNode AST from parse tree
      */
     private static class QsAstBuilder extends SearchParserBaseVisitor<QsNode> implements FieldTrackingVisitor {
-        private final Set<String> fieldNames = new HashSet<>();
+        private final Set<String> fieldNames = new LinkedHashSet<>();
         // Context stack to track current field name during parsing
         private String currentFieldName = null;
 
         public Set<String> getFieldNames() {
-            return fieldNames;
+            return Collections.unmodifiableSet(fieldNames);
         }
 
         @Override
@@ -1300,20 +1301,29 @@ public class SearchDslParser {
     }
 
     /**
-     * Intermediate Representation for search DSL parsing result
+     * Intermediate Representation for search DSL parsing result.
+     * This class is immutable after construction.
      */
     public static class QsPlan {
         @JsonProperty("root")
-        public QsNode root;
+        private final QsNode root;
 
         @JsonProperty("fieldBindings")
-        public List<QsFieldBinding> fieldBindings;
+        private final List<QsFieldBinding> fieldBindings;
 
         @JsonCreator
         public QsPlan(@JsonProperty("root") QsNode root,
                 @JsonProperty("fieldBindings") List<QsFieldBinding> fieldBindings) {
-            this.root = root;
-            this.fieldBindings = fieldBindings != null ? fieldBindings : new ArrayList<>();
+            this.root = Objects.requireNonNull(root, "root cannot be null");
+            this.fieldBindings = fieldBindings != null ? new ArrayList<>(fieldBindings) : new ArrayList<>();
+        }
+
+        public QsNode getRoot() {
+            return root;
+        }
+
+        public List<QsFieldBinding> getFieldBindings() {
+            return Collections.unmodifiableList(fieldBindings);
         }
 
         /**
@@ -1353,32 +1363,38 @@ public class SearchDslParser {
                 return false;
             }
             QsPlan qsPlan = (QsPlan) o;
-            return Objects.equals(root, qsPlan.root)
-                    && Objects.equals(fieldBindings, qsPlan.fieldBindings);
+            return Objects.equals(root, qsPlan.getRoot())
+                    && Objects.equals(fieldBindings, qsPlan.getFieldBindings());
         }
     }
 
     /**
-     * Search AST node representing a clause in the DSL
+     * Search AST node representing a clause in the DSL.
+     *
+     * <p><b>Warning:</b> This class is mutable. The {@code occur}, {@code children},
+     * and other fields can be modified after construction. Although this class implements
+     * {@code equals()} and {@code hashCode()}, it should NOT be used as a key in
+     * {@code HashMap} or element in {@code HashSet} if any field may be modified after
+     * insertion, as this will break the hash-based collection contract.
      */
     public static class QsNode {
         @JsonProperty("type")
-        public QsClauseType type;
+        private final QsClauseType type;
 
         @JsonProperty("field")
-        public String field;
+        private String field;
 
         @JsonProperty("value")
-        public String value;
+        private final String value;
 
         @JsonProperty("children")
-        public List<QsNode> children;
+        private final List<QsNode> children;
 
         @JsonProperty("occur")
-        public QsOccur occur;
+        private QsOccur occur;
 
         @JsonProperty("minimumShouldMatch")
-        public Integer minimumShouldMatch;
+        private final Integer minimumShouldMatch;
 
         /**
          * Constructor for JSON deserialization
@@ -1400,30 +1416,96 @@ public class SearchDslParser {
             this.type = type;
             this.field = field;
             this.value = value;
-            this.children = children != null ? children : new ArrayList<>();
+            this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
             this.occur = occur;
             this.minimumShouldMatch = minimumShouldMatch;
         }
 
+        /**
+         * Constructor for leaf nodes (TERM, PHRASE, PREFIX, etc.)
+         *
+         * @param type the clause type
+         * @param field the field name
+         * @param value the field value
+         */
         public QsNode(QsClauseType type, String field, String value) {
             this.type = type;
             this.field = field;
             this.value = value;
             this.children = new ArrayList<>();
+            this.occur = null;
+            this.minimumShouldMatch = null;
         }
 
+        /**
+         * Constructor for compound nodes (AND, OR, NOT)
+         *
+         * @param type the clause type
+         * @param children the child nodes
+         */
         public QsNode(QsClauseType type, List<QsNode> children) {
             this.type = type;
-            this.children = children != null ? children : new ArrayList<>();
+            this.field = null;
+            this.value = null;
+            this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
+            this.occur = null;
+            this.minimumShouldMatch = null;
         }
 
+        /**
+         * Constructor for OCCUR_BOOLEAN nodes with minimum_should_match
+         *
+         * @param type the clause type
+         * @param children the child nodes
+         * @param minimumShouldMatch the minimum number of SHOULD clauses that must match
+         */
         public QsNode(QsClauseType type, List<QsNode> children, Integer minimumShouldMatch) {
             this.type = type;
-            this.children = children != null ? children : new ArrayList<>();
+            this.field = null;
+            this.value = null;
+            this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
+            this.occur = null;
             this.minimumShouldMatch = minimumShouldMatch;
         }
 
-        public QsNode withOccur(QsOccur occur) {
+        public QsClauseType getType() {
+            return type;
+        }
+
+        public String getField() {
+            return field;
+        }
+
+        /**
+         * Sets the field name for this node (used for field name normalization).
+         * @param field the normalized field name
+         */
+        public void setField(String field) {
+            this.field = field;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public List<QsNode> getChildren() {
+            return Collections.unmodifiableList(children);
+        }
+
+        public QsOccur getOccur() {
+            return occur;
+        }
+
+        public Integer getMinimumShouldMatch() {
+            return minimumShouldMatch;
+        }
+
+        /**
+         * Sets the occur type for this node.
+         * @param occur the occur type (MUST, SHOULD, MUST_NOT)
+         * @return this node for method chaining
+         */
+        public QsNode setOccur(QsOccur occur) {
             this.occur = occur;
             return this;
         }
@@ -1442,30 +1524,47 @@ public class SearchDslParser {
                 return false;
             }
             QsNode qsNode = (QsNode) o;
-            return type == qsNode.type
-                    && Objects.equals(field, qsNode.field)
-                    && Objects.equals(value, qsNode.value)
-                    && Objects.equals(children, qsNode.children)
-                    && occur == qsNode.occur
-                    && Objects.equals(minimumShouldMatch, qsNode.minimumShouldMatch);
+            return type == qsNode.getType()
+                    && Objects.equals(field, qsNode.getField())
+                    && Objects.equals(value, qsNode.getValue())
+                    && Objects.equals(children, qsNode.getChildren())
+                    && occur == qsNode.getOccur()
+                    && Objects.equals(minimumShouldMatch, qsNode.getMinimumShouldMatch());
         }
     }
 
     /**
-     * Field binding information extracted from DSL
+     * Field binding information extracted from DSL.
+     * The fieldName may be modified for normalization purposes.
      */
     public static class QsFieldBinding {
         @JsonProperty("fieldName")
-        public String fieldName;
+        private String fieldName;
 
         @JsonProperty("slotIndex")
-        public int slotIndex;
+        private final int slotIndex;
 
         @JsonCreator
         public QsFieldBinding(@JsonProperty("fieldName") String fieldName,
                 @JsonProperty("slotIndex") int slotIndex) {
             this.fieldName = fieldName;
             this.slotIndex = slotIndex;
+        }
+
+        public String getFieldName() {
+            return fieldName;
+        }
+
+        /**
+         * Sets the field name (used for field name normalization).
+         * @param fieldName the normalized field name
+         */
+        public void setFieldName(String fieldName) {
+            this.fieldName = fieldName;
+        }
+
+        public int getSlotIndex() {
+            return slotIndex;
         }
 
         @Override
@@ -1541,11 +1640,11 @@ public class SearchDslParser {
         }
 
         public List<String> getFields() {
-            return fields;
+            return fields == null ? null : Collections.unmodifiableList(fields);
         }
 
         public void setFields(List<String> fields) {
-            this.fields = fields;
+            this.fields = fields == null ? null : new ArrayList<>(fields);
         }
 
         /**
@@ -1659,7 +1758,7 @@ public class SearchDslParser {
             }
         } catch (IllegalArgumentException e) {
             throw e;
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             throw new IllegalArgumentException(
                     "Invalid search options JSON: '" + optionsJson + "'. Error: " + e.getMessage(), e);
         }
@@ -1734,7 +1833,7 @@ public class SearchDslParser {
 
             return new QsPlan(root, bindings);
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOG.error("Failed to parse search DSL in Lucene mode: '{}' (expanded: '{}')", dsl, expandedDsl, e);
             throw new RuntimeException("Invalid search DSL syntax: " + dsl + ". Error: " + e.getMessage(), e);
         }
@@ -1746,7 +1845,7 @@ public class SearchDslParser {
      */
     private static class QsLuceneModeAstBuilder extends SearchParserBaseVisitor<QsNode>
             implements FieldTrackingVisitor {
-        private final Set<String> fieldNames = new HashSet<>();
+        private final Set<String> fieldNames = new LinkedHashSet<>();
         private final SearchOptions options;
         private String currentFieldName = null;
 
@@ -1755,7 +1854,7 @@ public class SearchDslParser {
         }
 
         public Set<String> getFieldNames() {
-            return fieldNames;
+            return Collections.unmodifiableSet(fieldNames);
         }
 
         @Override
@@ -1791,7 +1890,7 @@ public class SearchDslParser {
                 TermWithOccur singleTerm = terms.get(0);
                 if (singleTerm.isNegated) {
                     // Single negated term - must wrap in OCCUR_BOOLEAN for BE to handle MUST_NOT
-                    singleTerm.node.occur = QsOccur.MUST_NOT;
+                    singleTerm.node.setOccur(QsOccur.MUST_NOT);
                     List<QsNode> children = new ArrayList<>();
                     children.add(singleTerm.node);
                     return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 0);
@@ -1831,7 +1930,7 @@ public class SearchDslParser {
                 TermWithOccur remainingTerm = terms.get(0);
                 if (remainingTerm.occur == QsOccur.MUST_NOT) {
                     // Single MUST_NOT term - must wrap in OCCUR_BOOLEAN for BE to handle
-                    remainingTerm.node.occur = QsOccur.MUST_NOT;
+                    remainingTerm.node.setOccur(QsOccur.MUST_NOT);
                     List<QsNode> children = new ArrayList<>();
                     children.add(remainingTerm.node);
                     return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 0);
@@ -1842,7 +1941,7 @@ public class SearchDslParser {
             // Build OCCUR_BOOLEAN node
             List<QsNode> children = new ArrayList<>();
             for (TermWithOccur term : terms) {
-                term.node.occur = term.occur;
+                term.node.setOccur(term.occur);
                 children.add(term.node);
             }
 

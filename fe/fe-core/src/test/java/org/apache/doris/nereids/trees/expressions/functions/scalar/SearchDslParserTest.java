@@ -37,14 +37,14 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertNotNull(plan.root);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("title", plan.root.field);
-        Assertions.assertEquals("hello", plan.root.value);
+        Assertions.assertNotNull(plan.getRoot());
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("hello", plan.getRoot().getValue());
 
-        Assertions.assertEquals(1, plan.fieldBindings.size());
-        QsFieldBinding binding = plan.fieldBindings.get(0);
-        Assertions.assertEquals("title", binding.fieldName);
+        Assertions.assertEquals(1, plan.getFieldBindings().size());
+        QsFieldBinding binding = plan.getFieldBindings().get(0);
+        Assertions.assertEquals("title", binding.getFieldName());
     }
 
     @Test
@@ -53,9 +53,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.PHRASE, plan.root.type);
-        Assertions.assertEquals("content", plan.root.field);
-        Assertions.assertEquals("hello world", plan.root.value);
+        Assertions.assertEquals(QsClauseType.PHRASE, plan.getRoot().getType());
+        Assertions.assertEquals("content", plan.getRoot().getField());
+        Assertions.assertEquals("hello world", plan.getRoot().getValue());
     }
 
     @Test
@@ -64,9 +64,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.PREFIX, plan.root.type);
-        Assertions.assertEquals("title", plan.root.field);
-        Assertions.assertEquals("hello*", plan.root.value);
+        Assertions.assertEquals(QsClauseType.PREFIX, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("hello*", plan.getRoot().getValue());
     }
 
     @Test
@@ -75,9 +75,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.WILDCARD, plan.root.type);
-        Assertions.assertEquals("title", plan.root.field);
-        Assertions.assertEquals("h*llo", plan.root.value);
+        Assertions.assertEquals(QsClauseType.WILDCARD, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("h*llo", plan.getRoot().getValue());
     }
 
     @Test
@@ -86,9 +86,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.REGEXP, plan.root.type);
-        Assertions.assertEquals("title", plan.root.field);
-        Assertions.assertEquals("[a-z]+", plan.root.value); // slashes removed
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("[a-z]+", plan.getRoot().getValue()); // slashes removed
     }
 
     @Test
@@ -97,9 +97,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.RANGE, plan.root.type);
-        Assertions.assertEquals("age", plan.root.field);
-        Assertions.assertEquals("[18 TO 65]", plan.root.value);
+        Assertions.assertEquals(QsClauseType.RANGE, plan.getRoot().getType());
+        Assertions.assertEquals("age", plan.getRoot().getField());
+        Assertions.assertEquals("[18 TO 65]", plan.getRoot().getValue());
     }
 
     @Test
@@ -108,9 +108,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.LIST, plan.root.type);
-        Assertions.assertEquals("category", plan.root.field);
-        Assertions.assertEquals("IN(tech news)", plan.root.value);
+        Assertions.assertEquals(QsClauseType.LIST, plan.getRoot().getType());
+        Assertions.assertEquals("category", plan.getRoot().getField());
+        Assertions.assertEquals("IN(tech news)", plan.getRoot().getValue());
     }
 
     @Test
@@ -119,9 +119,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("java python", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("java python", plan.getRoot().getValue());
     }
 
     @Test
@@ -130,9 +130,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("programming language", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ALL, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("programming language", plan.getRoot().getValue());
     }
 
     @Test
@@ -141,9 +141,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
-        Assertions.assertEquals("redirect", plan.root.field);
-        Assertions.assertEquals("Rainbowman", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ALL, plan.getRoot().getType());
+        Assertions.assertEquals("redirect", plan.getRoot().getField());
+        Assertions.assertEquals("Rainbowman", plan.getRoot().getValue());
     }
 
     @Test
@@ -152,9 +152,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("Mandy Patinkin", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("Mandy Patinkin", plan.getRoot().getValue());
     }
 
     @Test
@@ -163,23 +163,23 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
-        QsNode leftChild = plan.root.children.get(0);
-        Assertions.assertEquals(QsClauseType.TERM, leftChild.type);
-        Assertions.assertEquals("title", leftChild.field);
-        Assertions.assertEquals("hello", leftChild.value);
+        QsNode leftChild = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, leftChild.getType());
+        Assertions.assertEquals("title", leftChild.getField());
+        Assertions.assertEquals("hello", leftChild.getValue());
 
-        QsNode rightChild = plan.root.children.get(1);
-        Assertions.assertEquals(QsClauseType.TERM, rightChild.type);
-        Assertions.assertEquals("content", rightChild.field);
-        Assertions.assertEquals("world", rightChild.value);
+        QsNode rightChild = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.TERM, rightChild.getType());
+        Assertions.assertEquals("content", rightChild.getField());
+        Assertions.assertEquals("world", rightChild.getValue());
 
         // Should have 2 field bindings
-        Assertions.assertEquals(2, plan.fieldBindings.size());
-        Assertions.assertTrue(plan.fieldBindings.stream().anyMatch(b -> "title".equals(b.fieldName)));
-        Assertions.assertTrue(plan.fieldBindings.stream().anyMatch(b -> "content".equals(b.fieldName)));
+        Assertions.assertEquals(2, plan.getFieldBindings().size());
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "title".equals(b.getFieldName())));
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "content".equals(b.getFieldName())));
     }
 
     @Test
@@ -188,8 +188,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -198,13 +198,13 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
-        Assertions.assertEquals(1, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
+        Assertions.assertEquals(1, plan.getRoot().getChildren().size());
 
-        QsNode child = plan.root.children.get(0);
-        Assertions.assertEquals(QsClauseType.TERM, child.type);
-        Assertions.assertEquals("title", child.field);
-        Assertions.assertEquals("spam", child.value);
+        QsNode child = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, child.getType());
+        Assertions.assertEquals("title", child.getField());
+        Assertions.assertEquals("spam", child.getValue());
     }
 
     @Test
@@ -213,14 +213,14 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Should have 3 field bindings
-        Assertions.assertEquals(3, plan.fieldBindings.size());
-        Assertions.assertTrue(plan.fieldBindings.stream().anyMatch(b -> "title".equals(b.fieldName)));
-        Assertions.assertTrue(plan.fieldBindings.stream().anyMatch(b -> "content".equals(b.fieldName)));
-        Assertions.assertTrue(plan.fieldBindings.stream().anyMatch(b -> "category".equals(b.fieldName)));
+        Assertions.assertEquals(3, plan.getFieldBindings().size());
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "title".equals(b.getFieldName())));
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "content".equals(b.getFieldName())));
+        Assertions.assertTrue(plan.getFieldBindings().stream().anyMatch(b -> "category".equals(b.getFieldName())));
     }
 
     @Test
@@ -229,9 +229,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("error", plan.root.field);
-        Assertions.assertEquals("empty_dsl", plan.root.value);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("error", plan.getRoot().getField());
+        Assertions.assertEquals("empty_dsl", plan.getRoot().getValue());
     }
 
     @Test
@@ -258,9 +258,9 @@ public class SearchDslParserTest {
 
         QsPlan deserialized = QsPlan.fromJson(json);
         Assertions.assertNotNull(deserialized);
-        Assertions.assertEquals(plan.root.type, deserialized.root.type);
-        Assertions.assertEquals(plan.root.field, deserialized.root.field);
-        Assertions.assertEquals(plan.root.value, deserialized.root.value);
+        Assertions.assertEquals(plan.getRoot().getType(), deserialized.getRoot().getType());
+        Assertions.assertEquals(plan.getRoot().getField(), deserialized.getRoot().getField());
+        Assertions.assertEquals(plan.getRoot().getValue(), deserialized.getRoot().getValue());
     }
 
     @Test
@@ -269,9 +269,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals("field name", plan.root.field);
-        Assertions.assertEquals(1, plan.fieldBindings.size());
-        Assertions.assertEquals("field name", plan.fieldBindings.get(0).fieldName);
+        Assertions.assertEquals("field name", plan.getRoot().getField());
+        Assertions.assertEquals(1, plan.getFieldBindings().size());
+        Assertions.assertEquals("field name", plan.getFieldBindings().get(0).getFieldName());
     }
 
     // ============ Tests for Default Field and Operator Support ============
@@ -283,11 +283,11 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo", plan.root.value);
-        Assertions.assertEquals(1, plan.fieldBindings.size());
-        Assertions.assertEquals("tags", plan.fieldBindings.get(0).fieldName);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo", plan.getRoot().getValue());
+        Assertions.assertEquals(1, plan.getFieldBindings().size());
+        Assertions.assertEquals("tags", plan.getFieldBindings().get(0).getFieldName());
     }
 
     @Test
@@ -297,9 +297,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo bar", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ALL, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
     }
 
     @Test
@@ -309,9 +309,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "or");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo bar", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
     }
 
     @Test
@@ -321,9 +321,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo bar", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
     }
 
     @Test
@@ -333,9 +333,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.PREFIX, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo*", plan.root.value);
+        Assertions.assertEquals(QsClauseType.PREFIX, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo*", plan.getRoot().getValue());
     }
 
     @Test
@@ -345,18 +345,18 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
-        QsNode firstChild = plan.root.children.get(0);
-        Assertions.assertEquals(QsClauseType.PREFIX, firstChild.type);
-        Assertions.assertEquals("tags", firstChild.field);
-        Assertions.assertEquals("foo*", firstChild.value);
+        QsNode firstChild = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.PREFIX, firstChild.getType());
+        Assertions.assertEquals("tags", firstChild.getField());
+        Assertions.assertEquals("foo*", firstChild.getValue());
 
-        QsNode secondChild = plan.root.children.get(1);
-        Assertions.assertEquals(QsClauseType.PREFIX, secondChild.type);
-        Assertions.assertEquals("tags", secondChild.field);
-        Assertions.assertEquals("bar*", secondChild.value);
+        QsNode secondChild = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals(QsClauseType.PREFIX, secondChild.getType());
+        Assertions.assertEquals("tags", secondChild.getField());
+        Assertions.assertEquals("bar*", secondChild.getValue());
     }
 
     @Test
@@ -366,8 +366,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "or");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -377,16 +377,16 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
-        QsNode firstChild = plan.root.children.get(0);
-        Assertions.assertEquals("tags", firstChild.field);
-        Assertions.assertEquals("foo", firstChild.value);
+        QsNode firstChild = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals("tags", firstChild.getField());
+        Assertions.assertEquals("foo", firstChild.getValue());
 
-        QsNode secondChild = plan.root.children.get(1);
-        Assertions.assertEquals("tags", secondChild.field);
-        Assertions.assertEquals("bar", secondChild.value);
+        QsNode secondChild = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals("tags", secondChild.getField());
+        Assertions.assertEquals("bar", secondChild.getValue());
     }
 
     @Test
@@ -396,8 +396,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "or");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -407,9 +407,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.EXACT, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo bar", plan.root.value);
+        Assertions.assertEquals(QsClauseType.EXACT, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
     }
 
     @Test
@@ -419,9 +419,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo bar", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
     }
 
     @Test
@@ -431,9 +431,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("foo bar", plan.root.value);
+        Assertions.assertEquals(QsClauseType.ALL, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("foo bar", plan.getRoot().getValue());
     }
 
     @Test
@@ -443,9 +443,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("title", plan.root.field); // Should be "title", not "tags"
-        Assertions.assertEquals("hello", plan.root.value);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField()); // Should be "title", not "tags"
+        Assertions.assertEquals("hello", plan.getRoot().getValue());
     }
 
     @Test
@@ -468,15 +468,15 @@ public class SearchDslParserTest {
 
         // Test "AND"
         QsPlan plan1 = SearchDslParser.parseDsl(dsl, "tags", "AND");
-        Assertions.assertEquals(QsClauseType.ALL, plan1.root.type);
+        Assertions.assertEquals(QsClauseType.ALL, plan1.getRoot().getType());
 
         // Test "Or"
         QsPlan plan2 = SearchDslParser.parseDsl(dsl, "tags", "Or");
-        Assertions.assertEquals(QsClauseType.ANY, plan2.root.type);
+        Assertions.assertEquals(QsClauseType.ANY, plan2.getRoot().getType());
 
         // Test "aNd"
         QsPlan plan3 = SearchDslParser.parseDsl(dsl, "tags", "aNd");
-        Assertions.assertEquals(QsClauseType.ALL, plan3.root.type);
+        Assertions.assertEquals(QsClauseType.ALL, plan3.getRoot().getType());
     }
 
     @Test
@@ -486,9 +486,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.WILDCARD, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("*foo*", plan.root.value);
+        Assertions.assertEquals(QsClauseType.WILDCARD, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("*foo*", plan.getRoot().getValue());
     }
 
     @Test
@@ -499,8 +499,8 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Should create AND query because it contains wildcards
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(3, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -510,9 +510,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.PHRASE, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("hello world", plan.root.value);
+        Assertions.assertEquals(QsClauseType.PHRASE, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("hello world", plan.getRoot().getValue());
     }
 
     @Test
@@ -522,13 +522,13 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
-        Assertions.assertEquals(1, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
+        Assertions.assertEquals(1, plan.getRoot().getChildren().size());
 
-        QsNode child = plan.root.children.get(0);
-        Assertions.assertEquals(QsClauseType.TERM, child.type);
-        Assertions.assertEquals("tags", child.field);
-        Assertions.assertEquals("foo", child.value);
+        QsNode child = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals(QsClauseType.TERM, child.getType());
+        Assertions.assertEquals("tags", child.getField());
+        Assertions.assertEquals("foo", child.getValue());
     }
 
     @Test
@@ -552,7 +552,7 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.ANY, plan.root.type); // Defaults to OR/ANY
+        Assertions.assertEquals(QsClauseType.ANY, plan.getRoot().getType()); // Defaults to OR/ANY
     }
 
     @Test
@@ -562,9 +562,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.WILDCARD, plan.root.type);
-        Assertions.assertEquals("tags", plan.root.field);
-        Assertions.assertEquals("f?o", plan.root.value);
+        Assertions.assertEquals(QsClauseType.WILDCARD, plan.getRoot().getType());
+        Assertions.assertEquals("tags", plan.getRoot().getField());
+        Assertions.assertEquals("f?o", plan.getRoot().getValue());
     }
 
     @Test
@@ -574,9 +574,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(1, plan.fieldBindings.size());
-        Assertions.assertEquals("tags", plan.fieldBindings.get(0).fieldName);
-        Assertions.assertEquals(0, plan.fieldBindings.get(0).slotIndex);
+        Assertions.assertEquals(1, plan.getFieldBindings().size());
+        Assertions.assertEquals("tags", plan.getFieldBindings().get(0).getFieldName());
+        Assertions.assertEquals(0, plan.getFieldBindings().get(0).getSlotIndex());
     }
 
     // ============ Tests for Lucene Mode Parsing ============
@@ -589,13 +589,13 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
-        Assertions.assertEquals(Integer.valueOf(0), plan.root.minimumShouldMatch);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(Integer.valueOf(0), plan.getRoot().getMinimumShouldMatch());
 
         // Both children should have MUST occur
-        for (QsNode child : plan.root.children) {
-            Assertions.assertEquals(SearchDslParser.QsOccur.MUST, child.occur);
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(SearchDslParser.QsOccur.MUST, child.getOccur());
         }
     }
 
@@ -607,16 +607,16 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
-        Assertions.assertEquals(3, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
 
         // All children should have SHOULD occur
-        for (QsNode child : plan.root.children) {
-            Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, child.occur);
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(SearchDslParser.QsOccur.SHOULD, child.getOccur());
         }
 
         // minimum_should_match should be 1 (at least one must match)
-        Assertions.assertEquals(Integer.valueOf(1), plan.root.minimumShouldMatch);
+        Assertions.assertEquals(Integer.valueOf(1), plan.getRoot().getMinimumShouldMatch());
     }
 
     @Test
@@ -630,9 +630,9 @@ public class SearchDslParserTest {
         Assertions.assertNotNull(plan);
         // With minimum_should_match=0 and MUST clauses present, SHOULD is discarded
         // Only "a" remains with MUST
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("field", plan.root.field);
-        Assertions.assertEquals("a", plan.root.value);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("field", plan.getRoot().getField());
+        Assertions.assertEquals("a", plan.getRoot().getValue());
     }
 
     @Test
@@ -650,23 +650,23 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
 
         // Should have 3 children: a(MUST), c(MUST_NOT), d(MUST)
         // b is filtered out because it becomes SHOULD
-        Assertions.assertEquals(3, plan.root.children.size());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
 
-        QsNode nodeA = plan.root.children.get(0);
-        Assertions.assertEquals("a", nodeA.value);
-        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeA.occur);
+        QsNode nodeA = plan.getRoot().getChildren().get(0);
+        Assertions.assertEquals("a", nodeA.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeA.getOccur());
 
-        QsNode nodeC = plan.root.children.get(1);
-        Assertions.assertEquals("c", nodeC.value);
-        Assertions.assertEquals(SearchDslParser.QsOccur.MUST_NOT, nodeC.occur);
+        QsNode nodeC = plan.getRoot().getChildren().get(1);
+        Assertions.assertEquals("c", nodeC.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST_NOT, nodeC.getOccur());
 
-        QsNode nodeD = plan.root.children.get(2);
-        Assertions.assertEquals("d", nodeD.value);
-        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeD.occur);
+        QsNode nodeD = plan.getRoot().getChildren().get(2);
+        Assertions.assertEquals("d", nodeD.getValue());
+        Assertions.assertEquals(SearchDslParser.QsOccur.MUST, nodeD.getOccur());
     }
 
     @Test
@@ -680,9 +680,9 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // With minimum_should_match=0, only aterm (MUST) remains
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("firstname", plan.root.field);
-        Assertions.assertEquals("aterm", plan.root.value);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("firstname", plan.getRoot().getField());
+        Assertions.assertEquals("aterm", plan.getRoot().getValue());
     }
 
     @Test
@@ -695,10 +695,10 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
-        Assertions.assertEquals(1, plan.root.children.size());
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.children.get(0).type);
-        Assertions.assertEquals(QsOccur.MUST_NOT, plan.root.children.get(0).occur);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
+        Assertions.assertEquals(1, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getChildren().get(0).getType());
+        Assertions.assertEquals(QsOccur.MUST_NOT, plan.getRoot().getChildren().get(0).getOccur());
     }
 
     @Test
@@ -709,10 +709,10 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
         // All 3 terms should be present
-        Assertions.assertEquals(3, plan.root.children.size());
-        Assertions.assertEquals(Integer.valueOf(1), plan.root.minimumShouldMatch);
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(Integer.valueOf(1), plan.getRoot().getMinimumShouldMatch());
     }
 
     @Test
@@ -723,9 +723,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("field", plan.root.field);
-        Assertions.assertEquals("hello", plan.root.value);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("field", plan.getRoot().getField());
+        Assertions.assertEquals("hello", plan.getRoot().getValue());
     }
 
     @Test
@@ -736,7 +736,7 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Standard mode uses traditional boolean algebra: OR at top level
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
     }
 
     @Test
@@ -756,7 +756,7 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, "");
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
     }
 
     // ============ Tests for Escape Handling ============
@@ -769,10 +769,10 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("field", plan.root.field);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("field", plan.getRoot().getField());
         // After unescape: "First\ Value" -> "First Value"
-        Assertions.assertEquals("First Value", plan.root.value);
+        Assertions.assertEquals("First Value", plan.getRoot().getValue());
     }
 
     @Test
@@ -783,10 +783,10 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("field", plan.root.field);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("field", plan.getRoot().getField());
         // After unescape: "hello\(world\)" -> "hello(world)"
-        Assertions.assertEquals("hello(world)", plan.root.value);
+        Assertions.assertEquals("hello(world)", plan.getRoot().getValue());
     }
 
     @Test
@@ -797,10 +797,10 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("field", plan.root.field);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("field", plan.getRoot().getField());
         // After unescape: "value\:with\:colons" -> "value:with:colons"
-        Assertions.assertEquals("value:with:colons", plan.root.value);
+        Assertions.assertEquals("value:with:colons", plan.getRoot().getValue());
     }
 
     @Test
@@ -811,10 +811,10 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("field", plan.root.field);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("field", plan.getRoot().getField());
         // After unescape: "path\\to\\file" -> "path\to\file"
-        Assertions.assertEquals("path\\to\\file", plan.root.value);
+        Assertions.assertEquals("path\\to\\file", plan.getRoot().getValue());
     }
 
     @Test
@@ -824,8 +824,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -838,7 +838,7 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Current behavior: lowercase 'and' IS an operator
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
         // TODO: If PDF requires only uppercase, this should fail and return OR or different structure
     }
 
@@ -849,8 +849,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -862,7 +862,7 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Current behavior: lowercase 'or' IS an operator
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
         // TODO: If PDF requires only uppercase, this should fail
     }
 
@@ -873,7 +873,7 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
     }
 
     @Test
@@ -885,7 +885,7 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Current behavior: lowercase 'not' IS an operator
-        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
         // TODO: If PDF requires only uppercase, this should fail
     }
 
@@ -897,7 +897,7 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Current behavior: ! IS a NOT operator
-        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
     }
 
     @Test
@@ -909,8 +909,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.PHRASE, plan.root.type);
-        Assertions.assertEquals("hello\\\"world", plan.root.value);
+        Assertions.assertEquals(QsClauseType.PHRASE, plan.getRoot().getType());
+        Assertions.assertEquals("hello\\\"world", plan.getRoot().getValue());
     }
 
     @Test
@@ -920,8 +920,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("normalterm", plan.root.value);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("normalterm", plan.getRoot().getValue());
     }
 
     // ============ Tests for Multi-Field Search ============
@@ -934,15 +934,15 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Verify both fields are in bindings
-        Assertions.assertEquals(2, plan.fieldBindings.size());
-        Assertions.assertTrue(plan.fieldBindings.stream()
-                .anyMatch(b -> "title".equals(b.fieldName)));
-        Assertions.assertTrue(plan.fieldBindings.stream()
-                .anyMatch(b -> "content".equals(b.fieldName)));
+        Assertions.assertEquals(2, plan.getFieldBindings().size());
+        Assertions.assertTrue(plan.getFieldBindings().stream()
+                .anyMatch(b -> "title".equals(b.getFieldName())));
+        Assertions.assertTrue(plan.getFieldBindings().stream()
+                .anyMatch(b -> "content".equals(b.getFieldName())));
     }
 
     @Test
@@ -954,13 +954,13 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Each child should be an OR of two fields
-        for (QsNode child : plan.root.children) {
-            Assertions.assertEquals(QsClauseType.OR, child.type);
-            Assertions.assertEquals(2, child.children.size());
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.OR, child.getType());
+            Assertions.assertEquals(2, child.getChildren().size());
         }
     }
 
@@ -973,7 +973,7 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
     }
 
     @Test
@@ -985,7 +985,7 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
     }
 
     @Test
@@ -997,12 +997,12 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Verify "category" is preserved
-        Assertions.assertTrue(plan.fieldBindings.stream()
-                .anyMatch(b -> "category".equals(b.fieldName)));
+        Assertions.assertTrue(plan.getFieldBindings().stream()
+                .anyMatch(b -> "category".equals(b.getFieldName())));
     }
 
     @Test
@@ -1013,12 +1013,12 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Both should be PREFIX type
-        for (QsNode child : plan.root.children) {
-            Assertions.assertEquals(QsClauseType.PREFIX, child.type);
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.PREFIX, child.getType());
         }
     }
 
@@ -1030,12 +1030,12 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Both should be EXACT type
-        for (QsNode child : plan.root.children) {
-            Assertions.assertEquals(QsClauseType.EXACT, child.type);
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.EXACT, child.getType());
         }
     }
 
@@ -1047,9 +1047,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(3, plan.root.children.size());
-        Assertions.assertEquals(3, plan.fieldBindings.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(3, plan.getFieldBindings().size());
     }
 
     @Test
@@ -1072,9 +1072,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
-        Assertions.assertEquals("title", plan.root.field);
-        Assertions.assertEquals(1, plan.fieldBindings.size());
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals(1, plan.getFieldBindings().size());
     }
 
     @Test
@@ -1085,9 +1085,9 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
-        Assertions.assertEquals(1, plan.root.children.size());
-        Assertions.assertEquals(QsClauseType.OR, plan.root.children.get(0).type);
+        Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
+        Assertions.assertEquals(1, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getChildren().get(0).getType());
     }
 
     // ============ Tests for Multi-Field + Lucene Mode ============
@@ -1102,15 +1102,15 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
 
         // Should have 2 children (two OR groups), both with MUST
         // Note: In Lucene mode, OR groups are also wrapped as OCCUR_BOOLEAN
-        Assertions.assertEquals(2, plan.root.children.size());
-        for (QsNode child : plan.root.children) {
-            Assertions.assertEquals(QsOccur.MUST, child.occur);
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsOccur.MUST, child.getOccur());
             // The child is OCCUR_BOOLEAN wrapping the OR group
-            Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, child.type);
+            Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, child.getType());
         }
     }
 
@@ -1124,16 +1124,16 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
 
         // Should have 2 children, both with SHOULD
-        Assertions.assertEquals(2, plan.root.children.size());
-        for (QsNode child : plan.root.children) {
-            Assertions.assertEquals(QsOccur.SHOULD, child.occur);
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
+        for (QsNode child : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsOccur.SHOULD, child.getOccur());
         }
 
         // minimum_should_match should be 1
-        Assertions.assertEquals(Integer.valueOf(1), plan.root.minimumShouldMatch);
+        Assertions.assertEquals(Integer.valueOf(1), plan.getRoot().getMinimumShouldMatch());
     }
 
     @Test
@@ -1148,7 +1148,7 @@ public class SearchDslParserTest {
         Assertions.assertNotNull(plan);
         // With minimum_should_match=0, only (title:a OR content:a) remains
         // In Lucene mode, this is wrapped as OCCUR_BOOLEAN
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
     }
 
     @Test
@@ -1160,14 +1160,14 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
 
         // Should have 2 children: a (MUST), b (MUST_NOT)
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
 
         // Find MUST and MUST_NOT children
-        boolean hasMust = plan.root.children.stream().anyMatch(c -> c.occur == QsOccur.MUST);
-        boolean hasMustNot = plan.root.children.stream().anyMatch(c -> c.occur == QsOccur.MUST_NOT);
+        boolean hasMust = plan.getRoot().getChildren().stream().anyMatch(c -> c.getOccur() == QsOccur.MUST);
+        boolean hasMustNot = plan.getRoot().getChildren().stream().anyMatch(c -> c.getOccur() == QsOccur.MUST_NOT);
         Assertions.assertTrue(hasMust);
         Assertions.assertTrue(hasMustNot);
     }
@@ -1181,9 +1181,9 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // In Lucene mode, even single term OR groups are wrapped as OCCUR_BOOLEAN
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
         // The OCCUR_BOOLEAN contains the OR group's children with SHOULD occur
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -1195,7 +1195,7 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Should have proper structure with MUST and MUST_NOT
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
     }
 
     @Test
@@ -1206,10 +1206,10 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
         // All 3 groups should be present
-        Assertions.assertEquals(3, plan.root.children.size());
-        Assertions.assertEquals(Integer.valueOf(1), plan.root.minimumShouldMatch);
+        Assertions.assertEquals(3, plan.getRoot().getChildren().size());
+        Assertions.assertEquals(Integer.valueOf(1), plan.getRoot().getMinimumShouldMatch());
     }
 
     // ============ Tests for type parameter (best_fields vs cross_fields) ============
@@ -1225,13 +1225,13 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Root should be OR (joining fields)
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size()); // 2 fields
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size()); // 2 fields
 
         // Each child should be an AND of terms for that field
-        for (QsNode fieldGroup : plan.root.children) {
-            Assertions.assertEquals(QsClauseType.AND, fieldGroup.type);
-            Assertions.assertEquals(2, fieldGroup.children.size()); // 2 terms
+        for (QsNode fieldGroup : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.AND, fieldGroup.getType());
+            Assertions.assertEquals(2, fieldGroup.getChildren().size()); // 2 terms
         }
     }
 
@@ -1243,8 +1243,8 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size());
+        Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size());
     }
 
     @Test
@@ -1258,13 +1258,13 @@ public class SearchDslParserTest {
 
         Assertions.assertNotNull(plan);
         // Root should be AND (joining term groups)
-        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
-        Assertions.assertEquals(2, plan.root.children.size()); // 2 term groups
+        Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
+        Assertions.assertEquals(2, plan.getRoot().getChildren().size()); // 2 term groups
 
         // Each child should be an OR of the same term across fields
-        for (QsNode termGroup : plan.root.children) {
-            Assertions.assertEquals(QsClauseType.OR, termGroup.type);
-            Assertions.assertEquals(2, termGroup.children.size()); // 2 fields
+        for (QsNode termGroup : plan.getRoot().getChildren()) {
+            Assertions.assertEquals(QsClauseType.OR, termGroup.getType());
+            Assertions.assertEquals(2, termGroup.getChildren().size()); // 2 fields
         }
     }
 
@@ -1276,7 +1276,7 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
     }
 
     @Test
@@ -1287,7 +1287,7 @@ public class SearchDslParserTest {
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
-        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.root.type);
+        Assertions.assertEquals(QsClauseType.OCCUR_BOOLEAN, plan.getRoot().getType());
     }
 
     @Test
@@ -1315,7 +1315,7 @@ public class SearchDslParserTest {
         Assertions.assertNotNull(planBest);
         Assertions.assertNotNull(planCross);
         // Both should have same structure: (title:hello OR content:hello)
-        Assertions.assertEquals(planBest.root.type, planCross.root.type);
-        Assertions.assertEquals(planBest.root.children.size(), planCross.root.children.size());
+        Assertions.assertEquals(planBest.getRoot().getType(), planCross.getRoot().getType());
+        Assertions.assertEquals(planBest.getRoot().getChildren().size(), planCross.getRoot().getChildren().size());
     }
 }
