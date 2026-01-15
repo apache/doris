@@ -273,7 +273,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                 (
                     "max_batch_interval" = "10",
                     "format" = "json",
-                    "jsonpaths" = '["\\$.id", "\\$.name", "\\$.score"]',
+                    "jsonpaths" = '[\"\$.id\", \"\$.name\", \"\$.score\"]',
                     "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
                 )
                 FROM KAFKA
