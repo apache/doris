@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -166,9 +167,9 @@ private:
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(child_exprs[i]->execute(src_block, &result_column_id));
-            colunms.emplace_back(src_block->get_by_position(result_column_id));
+            vectorized::ColumnWithTypeAndName result_data;
+            RETURN_IF_ERROR(child_exprs[i]->execute(src_block, result_data));
+            colunms.emplace_back(result_data);
         }
         local_state._child_row_idx += src_block->rows();
         *res_block = {colunms};
