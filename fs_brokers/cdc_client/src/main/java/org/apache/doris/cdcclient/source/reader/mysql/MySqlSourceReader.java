@@ -433,7 +433,7 @@ public class MySqlSourceReader implements SourceReader {
         SourceRecords sourceRecords = null;
         String currentSplitId = null;
         DebeziumReader<SourceRecords, MySqlSplit> currentReader = null;
-        LOG.info("Get a split: {}", split.splitId());
+        LOG.info("Get a split: {}", split.toString());
         if (split instanceof MySqlSnapshotSplit) {
             currentReader = getSnapshotSplitReader(jobConfig);
         } else if (split instanceof MySqlBinlogSplit) {

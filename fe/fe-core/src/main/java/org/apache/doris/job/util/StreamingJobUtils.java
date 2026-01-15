@@ -120,7 +120,7 @@ public class StreamingJobUtils {
         }
     }
 
-    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws IOException {
+    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws JobException {
         List<ResultRow> resultRows;
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
         try (AutoCloseConnectContext context
@@ -130,12 +130,17 @@ public class StreamingJobUtils {
         }
 
         Map<String, List<SnapshotSplit>> tableSplits = new LinkedHashMap<>();
-        for (ResultRow row : resultRows) {
-            String tableName = row.get(0);
-            String chunkListStr = row.get(1);
-            List<SnapshotSplit> splits =
-                    new ArrayList<>(Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class)));
-            tableSplits.put(tableName, splits);
+        try {
+            for (ResultRow row : resultRows) {
+                String tableName = row.get(0);
+                String chunkListStr = row.get(1);
+                List<SnapshotSplit> splits =
+                        new ArrayList<>(Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class)));
+                tableSplits.put(tableName, splits);
+            }
+        } catch (IOException ex) {
+            log.warn("Failed to deserialize snapshot splits from job {} meta table: {}", jobId, ex.getMessage());
+            throw new JobException(ex);
         }
         return tableSplits;
     }
