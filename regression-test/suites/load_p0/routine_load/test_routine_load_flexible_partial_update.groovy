@@ -508,7 +508,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
-            exception "Flexible partial update requires table with skip bitmap hidden column"
+            exception "Flexible partial update can only support table with skip bitmap hidden column"
         }
 
         // Test 9: Error case - table with variant column
@@ -810,7 +810,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                         "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
                     );
                 """
-                exception "Flexible partial update requires table with skip bitmap hidden column"
+                exception "Flexible partial update can only support table with skip bitmap hidden column"
             }
         } catch (Exception e) {
             logger.error("Error during test: " + e.getMessage())
