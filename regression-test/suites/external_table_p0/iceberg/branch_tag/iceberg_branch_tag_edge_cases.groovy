@@ -107,15 +107,6 @@ suite("iceberg_branch_tag_edge_cases", "p0,external,doris,external_docker,extern
         exception "Cannot set t3_invalid to unknown snapshot: 999999"
     }
 
-    // Test branch/tag name with quotes
-    /*
-    sql """ alter table ${table_name} create branch "quoted-branch" """
-    sql """ alter table ${table_name} create tag "quoted-tag" """
-
-    qt_quoted_branch """ select count(*) from ${table_name}@branch("quoted-branch") """
-    qt_quoted_tag """ select count(*) from ${table_name}@tag("quoted-tag") """
-     */
-
     // Test case sensitivity
     sql """ alter table ${table_name} create branch `CaseSensitive` """
     sql """ alter table ${table_name} create tag `CaseSensitiveTag` """
@@ -153,12 +144,15 @@ suite("iceberg_branch_tag_edge_cases", "p0,external,doris,external_docker,extern
     }
 
     // Test empty branch/tag name
-    /*
     test {
         sql """ alter table ${table_name} create branch `` """
-        exception
+        exception "Branch name cannot be empty"
     }
-    */
+
+    test {
+        sql """ alter table ${table_name} create tag `` """
+        exception "Tag name cannot be empty"
+    }
 
     // Test branch/tag with numbers
     sql """ alter table ${table_name} create branch `branch123` """
