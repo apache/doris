@@ -518,7 +518,7 @@ Status ScalarColumnWriter::init() {
                 // of BE-supported BF types. Keep it to avoid errors if FE adds new types before BE.
                 if (get_field()->is_extracted_column() && st.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
                     const auto field_type = get_field()->type();
-                    const auto* field_path = get_field()->path();
+                    const auto& field_path = get_field()->path();
                     const std::string field_path_str = field_path ? field_path->get_path() : "";
                     const std::string field_type_name = TabletColumn::get_string_by_field_type(field_type);
                     LOG(INFO) << "Skip bloom filter for extracted column due to BE unsupported "
