@@ -137,6 +137,9 @@ message RowsetMetaPB {
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
 
+    // rows count for each segment
+    repeated int64 num_segment_rows = 56;
+
     // For cloud
     // for data recycling
     optional int64 txn_expiration = 1000;
@@ -237,6 +240,9 @@ message RowsetMetaCloudPB {
     optional string source_rowset_id = 54;
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
+
+    // rows count for each segment
+    repeated int64 num_segment_rows = 56;
 
     // cloud
     // the field is a vector, rename it
