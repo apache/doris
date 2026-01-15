@@ -84,8 +84,8 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcIncrementalSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private IncrementalSourceScanFetcher snapshotReader;
-    private IncrementalSourceStreamFetcher binlogReader;
+    // private IncrementalSourceScanFetcher snapshotReader;
+    // private IncrementalSourceStreamFetcher binlogReader;
     private Fetcher<SourceRecords, SourceSplitBase> currentReader;
     private Map<TableId, TableChanges.TableChange> tableSchemas;
     private SplitRecords currentSplitRecords;
@@ -164,7 +164,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
         if (currentSplitRecords == null) {
             Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-            if (currentReader == null || baseReq.isReload()) {
+            if (baseReq.isReload() || currentReader == null) {
                 LOG.info(
                         "No current reader or reload {}, create new split reader for job {}",
                         baseReq.isReload(),
@@ -476,7 +476,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         sourceRecords =
                 pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
         if (currentReader instanceof IncrementalSourceScanFetcher) {
-            closeSnapshotReader();
+            closeCurrentReader();
         }
         return new SplitRecords(currentSplitId, sourceRecords.iterator());
     }
@@ -540,30 +540,12 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         return new SourceRecords(new ArrayList<>());
     }
 
-    private void closeSnapshotReader() {
-        IncrementalSourceScanFetcher reusedSnapshotReader = this.getSnapshotReader();
-        if (reusedSnapshotReader != null) {
-            LOG.info(
-                    "Close snapshot reader {}", reusedSnapshotReader.getClass().getCanonicalName());
-            reusedSnapshotReader.close();
-            Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-            if (reusedSnapshotReader == currentReader) {
-                this.setCurrentReader(null);
-            }
-            this.setSnapshotReader(null);
-        }
-    }
-
-    private void closeBinlogReader() {
-        IncrementalSourceStreamFetcher reusedBinlogReader = this.getBinlogReader();
-        if (reusedBinlogReader != null) {
-            LOG.info("Close binlog reader {}", reusedBinlogReader.getClass().getCanonicalName());
-            reusedBinlogReader.close();
-            Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-            if (reusedBinlogReader == currentReader) {
-                this.setCurrentReader(null);
-            }
-            this.setBinlogReader(null);
+    private void closeCurrentReader() {
+        Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
+        if (currentReader != null) {
+            LOG.info("Close current reader {}", currentReader.getClass().getCanonicalName());
+            currentReader.close();
+            this.setCurrentReader(null);
         }
     }
 
@@ -617,8 +599,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     public void finishSplitRecords() {
         this.setCurrentSplitRecords(null);
         // Close after each read, the binlog client will occupy the connection.
-        closeBinlogReader();
-        this.setCurrentReader(null);
+        closeCurrentReader();
     }
 
     private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
@@ -636,8 +617,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
-        closeSnapshotReader();
-        closeBinlogReader();
+        closeCurrentReader();
         currentReader = null;
         currentSplitRecords = null;
         currentSplit = null;

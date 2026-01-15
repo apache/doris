@@ -219,28 +219,22 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     protected IncrementalSourceScanFetcher getSnapshotSplitReader(JobBaseConfig config) {
         PostgresSourceConfig sourceConfig = getSourceConfig(config);
-        IncrementalSourceScanFetcher snapshotReader = this.getSnapshotReader();
-        if (snapshotReader == null) {
-            PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            PostgresSourceFetchTaskContext taskContext =
-                    new PostgresSourceFetchTaskContext(sourceConfig, dialect);
-            snapshotReader = new IncrementalSourceScanFetcher(taskContext, 0);
-            this.setSnapshotReader(snapshotReader);
-        }
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        PostgresSourceFetchTaskContext taskContext =
+                new PostgresSourceFetchTaskContext(sourceConfig, dialect);
+        IncrementalSourceScanFetcher snapshotReader =
+                new IncrementalSourceScanFetcher(taskContext, 0);
         return snapshotReader;
     }
 
     @Override
     protected IncrementalSourceStreamFetcher getBinlogSplitReader(JobBaseConfig config) {
         PostgresSourceConfig sourceConfig = getSourceConfig(config);
-        IncrementalSourceStreamFetcher binlogReader = this.getBinlogReader();
-        if (binlogReader == null) {
-            PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            PostgresSourceFetchTaskContext taskContext =
-                    new PostgresSourceFetchTaskContext(sourceConfig, dialect);
-            binlogReader = new IncrementalSourceStreamFetcher(taskContext, 0);
-            this.setBinlogReader(binlogReader);
-        }
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        PostgresSourceFetchTaskContext taskContext =
+                new PostgresSourceFetchTaskContext(sourceConfig, dialect);
+        IncrementalSourceStreamFetcher binlogReader =
+                new IncrementalSourceStreamFetcher(taskContext, 0);
         return binlogReader;
     }
 
