@@ -781,31 +781,19 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Load snapshot information of mvcc for a specific table or all tables.
+     * Load snapshot information of mvcc for a specific table.
      *
-     * @param specificTable specific table to load snapshot for. If null, load for all tables.
+     * @param specificTable specific table to load snapshot for.
      * @param tableSnapshot table snapshot info
      * @param scanParams table scan params (e.g., branch/tag for Iceberg tables)
      */
     public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        if (specificTable != null) {
-            if (specificTable instanceof MvccTable) {
-                MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
-                if (!snapshots.containsKey(mvccTableInfo)) {
-                    snapshots.put(mvccTableInfo,
-                            ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
-                }
-            }
-        } else {
-            for (TableIf tableIf : tables.values()) {
-                if (tableIf instanceof MvccTable) {
-                    MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
-                    if (!snapshots.containsKey(mvccTableInfo)) {
-                        snapshots.put(mvccTableInfo,
-                                ((MvccTable) tableIf).loadSnapshot(tableSnapshot, scanParams));
-                    }
-                }
+        if (specificTable instanceof MvccTable) {
+            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
+            if (!snapshots.containsKey(mvccTableInfo)) {
+                snapshots.put(mvccTableInfo,
+                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
             }
         }
     }
