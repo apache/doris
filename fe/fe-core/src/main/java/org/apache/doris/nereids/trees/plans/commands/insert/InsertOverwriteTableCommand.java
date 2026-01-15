@@ -41,6 +41,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.lineage.LineageEvent;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -272,6 +273,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
             isRunning.set(false);
         }
+        Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(new LineageEvent());
     }
 
     /**

@@ -44,6 +44,8 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.lineage.LineageEvent;
+import org.apache.doris.nereids.lineage.LineageEventProcessor;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -575,6 +577,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             insertExecutor.registerListener(insertExecutorListener);
         }
         insertExecutor.executeSingleInsert(executor);
+        Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(new LineageEvent());
     }
 
     public boolean isExternalTableSink() {

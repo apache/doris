@@ -27,6 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.lineage.LineageEvent;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -120,6 +121,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             handleFallbackFailedCtas(ctx);
             throw new AnalysisException("Failed to execute CTAS Reason: " + e.getMessage(), e);
         }
+        Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(new LineageEvent());
     }
 
     /**
