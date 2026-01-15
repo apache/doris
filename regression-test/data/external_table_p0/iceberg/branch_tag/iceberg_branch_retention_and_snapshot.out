@@ -12,8 +12,13 @@
 -- !retain_count_branch_data --
 6
 
--- !unref_tag_accessible --
-2	old2
+-- !unref_tag_before_expire --
 1	old
+2	old2
+3	new
+
+-- !unref_tag_accessible --
+1	old
+2	old2
 3	new
 

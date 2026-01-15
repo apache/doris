@@ -152,8 +152,12 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     def latest_snap_id = latest_snapshot[0][0]
     sql """ alter table ${table_name_unref} create tag t_latest AS OF VERSION ${latest_snap_id} """
 
+    // Verify tag has all data before expiration
+    qt_unref_tag_before_expire """ select * from ${table_name_unref}@tag(t_latest) order by id """ // Should have 1, old2, 3 rows
+
     // Count snapshots before expire
     def snapshot_count_unref_before = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") """
+    logger.info("Snapshot count before expire: ${snapshot_count_unref_before[0][0]}")
 
     // Call expire_snapshots - old unreferenced snapshots should be expired
     spark_iceberg """CALL demo.system.expire_snapshots(table => 'test_db_retention.${table_name_unref}', retain_last => 1)"""
@@ -161,8 +165,11 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     // Count snapshots after expire
     def snapshot_count_unref_after = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") """
 
+    // Refresh catalog to ensure we see the latest state after expire_snapshots
+    sql """refresh catalog ${catalog_name}"""
+
     // Verify that at least the latest snapshot (referenced by tag) still exists
-    qt_unref_tag_accessible """ select * from ${table_name_unref}@tag(t_latest) """ // Should have data
+    qt_unref_tag_accessible """ select * from ${table_name_unref}@tag(t_latest) order by id """ // Should have data
 
     // Verify old snapshot is no longer accessible if it was expired
     def old_snapshot_exists = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") where snapshot_id = '${old_snapshot_id}' """
