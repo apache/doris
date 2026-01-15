@@ -111,37 +111,38 @@ public class PipelineCoordinator {
                         lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
                         recordResponse.setMeta(lastMeta);
                     }
-                    if (count >= fetchRecord.getFetchSize()) {
-                        return recordResponse;
-                    }
                 }
             }
+
+            if (readResult.getSplitState() != null) {
+                // Set meta information for hw
+                if (sourceReader.isSnapshotSplit(split)) {
+                    Map<String, String> offsetRes =
+                            sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
+                    offsetRes.put(SPLIT_ID, split.splitId());
+                    recordResponse.setMeta(offsetRes);
+                }
+
+                // set meta for binlog event
+                if (sourceReader.isBinlogSplit(split)) {
+                    Map<String, String> offsetRes =
+                            sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+                    offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                    recordResponse.setMeta(offsetRes);
+                }
+            } else {
+                throw new RuntimeException("split state is null");
+            }
+
+            sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
+            return recordResponse;
         } finally {
-            sourceReader.finishSplitRecords();
-        }
-
-        if (readResult.getSplitState() != null) {
-            // Set meta information for hw
-            if (sourceReader.isSnapshotSplit(split)) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                offsetRes.put(SPLIT_ID, split.splitId());
-                recordResponse.setMeta(offsetRes);
+            // This must be called after commitSourceOffset; otherwise, PG's confirmed lsn will not
+            // proceed.
+            if (sourceReader != null) {
+                sourceReader.finishSplitRecords();
             }
-
-            // set meta for binlog event
-            if (sourceReader.isBinlogSplit(split)) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                recordResponse.setMeta(offsetRes);
-            }
-        } else {
-            throw new RuntimeException("split state is null");
         }
-
-        sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
-        return recordResponse;
     }
 
     public CompletableFuture<Void> writeRecordsAsync(WriteRecordRequest writeRecordRequest) {
@@ -221,41 +222,47 @@ public class PipelineCoordinator {
                     break;
                 }
             }
-        } finally {
-            sourceReader.finishSplitRecords();
-        }
 
-        try {
-            if (readResult.getSplitState() != null) {
-                // Set meta information for hw
-                if (sourceReader.isSnapshotSplit(readResult.getSplit())) {
-                    Map<String, String> offsetRes =
-                            sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                    offsetRes.put(SPLIT_ID, readResult.getSplit().splitId());
-                    metaResponse = offsetRes;
+            // get offset from split state
+            try {
+                if (readResult.getSplitState() != null) {
+                    // Set meta information for hw
+                    if (sourceReader.isSnapshotSplit(readResult.getSplit())) {
+                        Map<String, String> offsetRes =
+                                sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
+                        offsetRes.put(SPLIT_ID, readResult.getSplit().splitId());
+                        metaResponse = offsetRes;
+                    }
+
+                    // set meta for binlog event
+                    if (sourceReader.isBinlogSplit(readResult.getSplit())) {
+                        Map<String, String> offsetRes =
+                                sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+                        offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                        metaResponse = offsetRes;
+                    }
+                } else {
+                    throw new RuntimeException("split state is null");
                 }
 
-                // set meta for binlog event
-                if (sourceReader.isBinlogSplit(readResult.getSplit())) {
-                    Map<String, String> offsetRes =
-                            sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                    offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                    metaResponse = offsetRes;
-                }
-            } else {
-                throw new RuntimeException("split state is null");
+                // wait all stream load finish
+                batchStreamLoad.forceFlush();
+
+                // request fe api
+                batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
+
+                // commit source offset if need
+                sourceReader.commitSourceOffset(
+                        writeRecordRequest.getJobId(), readResult.getSplit());
+            } finally {
+                batchStreamLoad.resetTaskId();
             }
-
-            // wait all stream load finish
-            batchStreamLoad.forceFlush();
-
-            // request fe api
-            batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
-
-            // commit source offset if need
-            sourceReader.commitSourceOffset(writeRecordRequest.getJobId(), readResult.getSplit());
         } finally {
-            batchStreamLoad.resetTaskId();
+            // This must be called after commitSourceOffset; otherwise, PG's confirmed lsn will not
+            // proceed.
+            if (sourceReader != null) {
+                sourceReader.finishSplitRecords();
+            }
         }
     }
 
