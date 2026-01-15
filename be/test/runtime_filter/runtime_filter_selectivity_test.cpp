@@ -20,6 +20,8 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "common/config.h"
+
 namespace doris {
 
 class RuntimeFilterSelectivityTest : public testing::Test {

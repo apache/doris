@@ -126,6 +126,9 @@ public:
         if (get_real_type() != RuntimeFilterType::IN_FILTER) {
             return false;
         }
+        if (_state != State::READY) {
+            return false;
+        }
         _detected_in_filter = true;
         return true;
     }
