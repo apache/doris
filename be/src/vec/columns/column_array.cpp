@@ -166,7 +166,7 @@ void ColumnArray::get(size_t n, Field& res) const {
                                size, n, max_array_size_as_field);
 
     res = Field::create_field<TYPE_ARRAY>(Array(size));
-    Array& res_arr = doris::vectorized::get<Array&>(res);
+    Array& res_arr = res.get<TYPE_ARRAY>();
 
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
 }
@@ -241,7 +241,7 @@ struct ColumnArray::less {
 };
 
 void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                  IColumn::Permutation& res) const {
+                                  HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -249,9 +249,9 @@ void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), ColumnArray::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnArray::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), ColumnArray::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnArray::less<true>(*this, nan_direction_hint));
     }
 }
 
@@ -478,7 +478,7 @@ void ColumnArray::insert(const Field& x) {
         get_data().insert(Field::create_field<TYPE_NULL>(Null()));
         get_offsets().push_back(get_offsets().back() + 1);
     } else {
-        const auto& array = doris::vectorized::get<const Array&>(x);
+        const auto& array = x.get<TYPE_ARRAY>();
         size_t size = array.size();
         for (size_t i = 0; i < size; ++i) {
             get_data().insert(array[i]);

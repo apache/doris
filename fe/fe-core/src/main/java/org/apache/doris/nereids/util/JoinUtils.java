@@ -238,7 +238,8 @@ public class JoinUtils {
         return false;
     }
 
-    private static boolean isStorageBucketed(PhysicalProperties physicalProperties) {
+    /** isStorageBucketed */
+    public static boolean isStorageBucketed(PhysicalProperties physicalProperties) {
         DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
         if (!(distributionSpec instanceof DistributionSpecHash)) {
             return false;

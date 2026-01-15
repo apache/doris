@@ -1638,6 +1638,10 @@ public abstract class RoutineLoadJob
         this.cloudCluster = cloudCluster;
     }
 
+    public String getClusterInfo() {
+        return Strings.nullToEmpty(cloudCluster);
+    }
+
     // check the correctness of commit info
     protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
                                                TransactionState txnState,
@@ -1691,6 +1695,7 @@ public abstract class RoutineLoadJob
             row.add(otherMsg);
             row.add(userIdentity.getQualifiedUser());
             row.add(comment);
+            row.add(getClusterInfo());
             return row;
         } finally {
             readUnlock();

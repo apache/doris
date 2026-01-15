@@ -68,6 +68,18 @@ static void* run_bthread_work(void* arg) {
                                               int64_t partition_count, int64_t tablet_count,
                                               int64_t txn_id);
 
+[[maybe_unused]] void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request,
+                                 Transaction* txn, TxnInfoPB& return_txn_info,
+                                 std::stringstream& ss, MetaServiceCode& code, std::string& msg);
+
+[[maybe_unused]] void _finish_tablet_job(const FinishTabletJobRequest* request,
+                                         FinishTabletJobResponse* response,
+                                         std::string& instance_id,
+                                         std::unique_ptr<Transaction>& txn, TxnKv* txn_kv,
+                                         DeleteBitmapLockWhiteList* delete_bitmap_lock_white_list,
+                                         ResourceManager* resource_mgr, MetaServiceCode& code,
+                                         std::string& msg, std::stringstream& ss);
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
@@ -131,6 +143,11 @@ public:
                                     const AbortTxnWithCoordinatorRequest* request,
                                     AbortTxnWithCoordinatorResponse* response,
                                     ::google::protobuf::Closure* done) override;
+
+    void get_prepare_txn_by_coordinator(::google::protobuf::RpcController* controller,
+                                        const GetPrepareTxnByCoordinatorRequest* request,
+                                        GetPrepareTxnByCoordinatorResponse* response,
+                                        ::google::protobuf::Closure* done) override;
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
                          const CleanTxnLabelRequest* request, CleanTxnLabelResponse* response,
@@ -580,6 +597,14 @@ public:
                   done);
     }
 
+    void get_prepare_txn_by_coordinator(::google::protobuf::RpcController* controller,
+                                        const GetPrepareTxnByCoordinatorRequest* request,
+                                        GetPrepareTxnByCoordinatorResponse* response,
+                                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_prepare_txn_by_coordinator, controller, request,
+                  response, done);
+    }
+
     void clean_txn_label(::google::protobuf::RpcController* controller,
                          const CleanTxnLabelRequest* request, CleanTxnLabelResponse* response,
                          ::google::protobuf::Closure* done) override {
@@ -1017,6 +1042,7 @@ private:
             if (code != MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE &&
                 code != MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE &&
                 code != MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE &&
+                code != MetaServiceCode::KV_TXN_MAYBE_COMMITTED &&
                 code != MetaServiceCode::KV_TXN_TOO_OLD &&
                 (!config::enable_retry_txn_conflict || code != MetaServiceCode::KV_TXN_CONFLICT)) {
                 return;
@@ -1040,6 +1066,8 @@ private:
                         code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
+                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED
+                                ? MetaServiceCode::KV_TXN_MAYBE_COMMITTED
                         : code == MetaServiceCode::KV_TXN_CONFLICT
                                 ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
                                 : MetaServiceCode::KV_TXN_TOO_OLD);

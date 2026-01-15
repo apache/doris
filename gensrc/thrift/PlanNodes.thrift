@@ -60,7 +60,9 @@ enum TPlanNodeType {
   TEST_EXTERNAL_SCAN_NODE = 31,
   PARTITION_SORT_NODE = 32,
   GROUP_COMMIT_SCAN_NODE = 33,
-  MATERIALIZATION_NODE = 34
+  MATERIALIZATION_NODE = 34,
+  REC_CTE_NODE = 35,
+  REC_CTE_SCAN_NODE = 36
 }
 
 struct TKeyRange {
@@ -288,8 +290,12 @@ struct TIcebergDeleteFileDesc {
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
     4: optional list<i32> field_ids;
-    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete, 3: deletion vector. 
     5: optional i32 content;
+    // 6 & 7 : iceberg v3 deletion vector.
+    // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
+    6: optional i32 content_offset;
+    7: optional i32 content_size_in_bytes;
 }
 
 struct TIcebergFileDesc {
@@ -717,6 +723,29 @@ struct TBrokerScanNode {
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
     2: optional string table_name
+}
+
+struct TRecCTETarget {
+    1: optional Types.TNetworkAddress addr
+    2: optional Types.TUniqueId fragment_instance_id
+    3: optional i32 node_id
+}
+
+struct TRecCTEResetInfo {
+    1: optional Types.TNetworkAddress addr
+    2: optional i32 fragment_id
+}
+
+struct TRecCTENode {
+    1: optional bool is_union_all
+    2: optional list<TRecCTETarget> targets
+    3: optional list<TRecCTEResetInfo> fragments_to_reset
+    4: optional list<list<Exprs.TExpr>> result_expr_lists
+    5: optional list<i32> rec_side_runtime_filter_ids
+    6: optional bool is_used_by_other_rec_cte
+}
+
+struct TRecCTEScanNode {
 }
 
 struct TEsScanNode {
@@ -1448,6 +1477,7 @@ struct TPlanNode {
   36: optional list<TRuntimeFilterDesc> runtime_filters
   37: optional TGroupCommitScanNode group_commit_scan_node
   38: optional TMaterializationNode materialization_node
+  39: optional TRecCTENode rec_cte_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct
@@ -1470,6 +1500,8 @@ struct TPlanNode {
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
+  52: optional TRecCTEScanNode rec_cte_scan_node
+
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

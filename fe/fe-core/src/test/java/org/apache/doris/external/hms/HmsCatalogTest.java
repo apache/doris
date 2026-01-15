@@ -106,8 +106,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(db, "initialized", true);
 
         Deencapsulation.setField(tbl, "objectCreated", true);
-        Deencapsulation.setField(tbl, "schemaUpdateTime", NOW);
-        Deencapsulation.setField(tbl, "eventUpdateTime", 0);
+        Deencapsulation.setField(tbl, "updateTime", NOW);
         Deencapsulation.setField(tbl, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl, "dbName", "hms_db");
         Deencapsulation.setField(tbl, "name", "hms_tbl");
@@ -163,8 +162,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view1, "objectCreated", true);
-        Deencapsulation.setField(view1, "schemaUpdateTime", NOW);
-        Deencapsulation.setField(view1, "eventUpdateTime", 0);
+        Deencapsulation.setField(view1, "updateTime", NOW);
         Deencapsulation.setField(view1, "catalog", hmsCatalog);
         Deencapsulation.setField(view1, "dbName", "hms_db");
         Deencapsulation.setField(view1, "name", "hms_view1");
@@ -215,8 +213,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view2, "objectCreated", true);
-        Deencapsulation.setField(view2, "schemaUpdateTime", NOW);
-        Deencapsulation.setField(view2, "eventUpdateTime", 0);
+        Deencapsulation.setField(view2, "updateTime", NOW);
         Deencapsulation.setField(view2, "catalog", hmsCatalog);
         Deencapsulation.setField(view2, "dbName", "hms_db");
         Deencapsulation.setField(view2, "name", "hms_view2");
@@ -268,8 +265,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view3, "objectCreated", true);
-        Deencapsulation.setField(view3, "schemaUpdateTime", NOW);
-        Deencapsulation.setField(view3, "eventUpdateTime", 0);
+        Deencapsulation.setField(view3, "updateTime", NOW);
         Deencapsulation.setField(view3, "catalog", hmsCatalog);
         Deencapsulation.setField(view3, "dbName", "hms_db");
         Deencapsulation.setField(view3, "name", "hms_view3");
@@ -321,8 +317,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         };
 
         Deencapsulation.setField(view4, "objectCreated", true);
-        Deencapsulation.setField(view4, "schemaUpdateTime", NOW);
-        Deencapsulation.setField(view4, "eventUpdateTime", 0);
+        Deencapsulation.setField(view4, "updateTime", NOW);
         Deencapsulation.setField(view4, "catalog", hmsCatalog);
         Deencapsulation.setField(view4, "dbName", "hms_db");
         Deencapsulation.setField(view4, "name", "hms_view4");

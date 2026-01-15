@@ -66,6 +66,11 @@ public:
     std::vector<std::vector<int64_t>> block_order_results;
     // backend id => <rpc profile info string key, rpc profile info string value>.
     std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
+
+    // Store the maximum number of rows processed by a single backend in the current batch
+    uint32_t _max_rows_per_backend = 0;
+    // Store the number of rows processed by each backend
+    std::unordered_map<int64_t, uint32_t> _backend_rows_count; // backend_id => rows_count
 };
 
 class MaterializationLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -80,6 +85,8 @@ public:
         RETURN_IF_ERROR(Base::init(state, info));
         _max_rpc_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "MaxRpcTime", 2);
         _merge_response_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "MergeResponseTime", 2);
+        _max_rows_per_backend_counter =
+                ADD_COUNTER_WITH_LEVEL(custom_profile(), "MaxRowsPerBackend", TUnit::UNIT, 2);
         return Status::OK();
     }
 
@@ -93,6 +100,7 @@ private:
     MaterializationSharedState _materialization_state;
     RuntimeProfile::Counter* _max_rpc_timer = nullptr;
     RuntimeProfile::Counter* _merge_response_timer = nullptr;
+    RuntimeProfile::Counter* _max_rows_per_backend_counter = nullptr;
 };
 
 class MaterializationOperator final : public StatefulOperatorX<MaterializationLocalState> {

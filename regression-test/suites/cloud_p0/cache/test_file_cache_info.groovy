@@ -83,6 +83,11 @@ suite("test_file_cache_info") {
     def tablet_id = get_tablet_id("customer")
     println "Tablet ID: ${tablet_id}"
 
+    def desc_cache_info = sql "desc information_schema.file_cache_info"
+    assertTrue(desc_cache_info.size() > 0, "desc information_schema.file_cache_info should not be empty")
+    assertEquals(desc_cache_info[0][0].toString().toUpperCase(), "HASH")
+    assertEquals(desc_cache_info[1][0].toString().toUpperCase(), "OFFSET")
+
     def cache_info = sql "select * from information_schema.file_cache_info"
     
     assertTrue(cache_info.size() > 0, "file_cache_info should not be empty for tablet_id ${tablet_id}")

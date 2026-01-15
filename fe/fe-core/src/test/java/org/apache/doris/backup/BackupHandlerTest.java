@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -92,7 +93,7 @@ public class BackupHandlerTest {
 
     private String tmpPath = "./tmp" + System.currentTimeMillis();
 
-    private TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
+    private TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
 
     @Before
     public void setUp() throws Exception {
