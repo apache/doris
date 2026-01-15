@@ -280,6 +280,9 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
