@@ -32,16 +32,21 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
 
 public class CloudTablet extends Tablet implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CloudTablet.class);
 
+    // cloud only has one replica, use replica instead of replicas
+    @Deprecated
+    @SerializedName(value = "rs", alternate = {"replicas"})
+    private List<Replica> replicas;
     @SerializedName(value = "r")
     private Replica replica;
 
     public CloudTablet() {
-        super();
+        this(0);
     }
 
     public CloudTablet(long tabletId) {
@@ -50,10 +55,7 @@ public class CloudTablet extends Tablet implements GsonPostProcessable {
 
     @Override
     public Replica getReplicaByBackendId(long backendId) {
-        if (!replicas.isEmpty()) {
-            return replicas.get(0);
-        }
-        return null;
+        return replica;
     }
 
     private Multimap<Long, Long> backendPathMapReprocess(Multimap<Long, Long> pathMap) throws UserException {
@@ -79,45 +81,55 @@ public class CloudTablet extends Tablet implements GsonPostProcessable {
         return backendPathMapReprocess(pathMap);
     }
 
-    @Override
-    protected boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
-        boolean delete = false;
-        boolean hasBackend = false;
-        long version = newReplica.getVersion();
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            hasBackend = true;
-            Replica replica = iterator.next();
-            if (replica.getVersion() <= version) {
-                iterator.remove();
-                delete = true;
-            }
+    private boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
+        if (replica == null) {
+            return true;
         }
-
-        return delete || !hasBackend;
+        if (replica.getVersion() <= newReplica.getVersion()) {
+            replica = null;
+            return true;
+        }
+        return false;
     }
 
+    @Override
     public void addReplica(Replica replica, boolean isRestore) {
         if (isLatestReplicaAndDeleteOld(replica)) {
-            replicas.add(replica);
+            this.replica = replica;
             if (!isRestore) {
                 Env.getCurrentInvertedIndex().addReplica(id, replica);
             }
         }
     }
 
+    public List<Replica> getReplicas() {
+        if (replica == null) {
+            return Lists.newArrayList();
+        }
+        return Lists.newArrayList(replica);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof CloudTablet)) {
+            return false;
+        }
+        CloudTablet tablet = (CloudTablet) obj;
+        return id == tablet.id && Objects.equals(replica, tablet.replica);
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("convert replica to replicas for CloudTablet: {}, replica: {}, replicas: {}", this.id,
+            LOG.debug("convert replicas to replica for CloudTablet: {}, replica: {}, replicas: {}", this.id,
                     this.replica, this.replicas);
         }
-        if (replica != null) {
-            if (this.replicas == null) {
-                this.replicas = Lists.newArrayList();
-            }
-            this.replicas.add(replica);
-            this.replica = null;
+        if (replicas != null && !replicas.isEmpty()) {
+            this.replica = replicas.get(0);
+            this.replicas = null;
         }
     }
 }

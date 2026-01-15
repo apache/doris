@@ -122,10 +122,6 @@ public class TabletTest {
         // delete replica2
         Assert.assertTrue(tablet.deleteReplica(replica2));
         Assert.assertEquals(1, tablet.getReplicas().size());
-
-        // clear replicas
-        tablet.clearReplica();
-        Assert.assertEquals(0, tablet.getReplicas().size());
     }
 
     @Test
