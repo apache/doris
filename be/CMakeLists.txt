@@ -520,7 +520,6 @@ set(DORIS_LINK_LIBS
     Runtime
     RuntimeFilter
     Service
-    Udf
     Util
     DorisGen
     Webserver
