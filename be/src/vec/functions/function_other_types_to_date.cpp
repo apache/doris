@@ -735,9 +735,7 @@ struct UnixTimeStampDateImpl {
                 const auto& ts_value =
                         reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
                 int64_t timestamp {};
-                const auto valid =
-                        ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
-                DCHECK(valid);
+                ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                 col_result_data[i] = trim_timestamp(timestamp, NewVersion);
             }
             block.replace_by_position(result, std::move(col_result));
@@ -753,9 +751,7 @@ struct UnixTimeStampDateImpl {
                 const auto& ts_value =
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
                 std::pair<int64_t, int64_t> timestamp {};
-                const auto valid =
-                        ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
-                DCHECK(valid);
+                ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
 
                 auto [sec, ms] = trim_timestamp(timestamp, NewVersion);
                 col_result_data[i] =
@@ -768,11 +764,6 @@ struct UnixTimeStampDateImpl {
 
         return Status::OK();
     }
-};
-
-template <typename DateType, bool NewVersion = false>
-struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl<DateType, NewVersion> {
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
 // Handle nulls manually to prevent invalid default values from causing errors
