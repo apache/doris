@@ -64,7 +64,7 @@ suite("iceberg_branch_partition_operations", "p0,external,doris,external_docker,
     sql """ insert into ${table_name} values (9, 'a'), (10, 'a') """
     qt_main_before_overwrite """ select * from ${table_name} where par = 'a' order by id """
 
-    sql """ insert overwrite table ${table_name}@branch(b1_partition) partition(par='a') values (11, 'a'), (12, 'a') """
+    sql """ insert overwrite table ${table_name}@branch(b1_partition) partition(par='a') select 11 union all select 12 """
     qt_b1_overwrite_partition """ select * from ${table_name}@branch(b1_partition) where par = 'a' order by id """ // Should only have 11, 12
     qt_main_unchanged """ select * from ${table_name} where par = 'a' order by id """ // Main branch unchanged
 
