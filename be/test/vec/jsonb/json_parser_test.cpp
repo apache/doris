@@ -105,7 +105,7 @@ TEST(JsonParserTest, ParseObjectAndArray) {
     auto& parse_result_array_2 = result.value();
     EXPECT_EQ(parse_result_array_2.paths[0].get_path(), "");
     EXPECT_EQ(parse_result_array_2.values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
-    auto& array_field = parse_result_array_2.values[0].get<doris::vectorized::Array>();
+    auto& array_field = parse_result_array_2.values[0].get<doris::PrimitiveType::TYPE_ARRAY>();
 
     EXPECT_EQ(array_field.size(), 6);
     EXPECT_EQ(array_field[0].get_type(), doris::PrimitiveType::TYPE_BIGINT);
@@ -404,7 +404,8 @@ TEST(JsonParserTest, ParseUInt64) {
     EXPECT_EQ(result->paths.size(), 1);
     EXPECT_EQ(result->paths[0].get_path(), "a");
     EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
-    EXPECT_EQ(result->values[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
+    EXPECT_EQ(result->values[0].get<doris::PrimitiveType::TYPE_LARGEINT>(),
+              18446744073709551615ULL);
 
     std::string array_json = R"({"a": [18446744073709551615]})";
     result = parser.parse(array_json.c_str(), array_json.size(), config);
@@ -413,7 +414,7 @@ TEST(JsonParserTest, ParseUInt64) {
     EXPECT_EQ(result->paths.size(), 1);
     EXPECT_EQ(result->paths[0].get_path(), "a");
     EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
-    auto& array_field = result->values[0].get<doris::vectorized::Array>();
+    auto& array_field = result->values[0].get<doris::PrimitiveType::TYPE_ARRAY>();
     EXPECT_EQ(array_field.size(), 1);
     EXPECT_EQ(array_field[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
     EXPECT_EQ(array_field[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
@@ -425,7 +426,7 @@ TEST(JsonParserTest, ParseUInt64) {
     EXPECT_EQ(result->values.size(), 1);
     EXPECT_EQ(result->paths.size(), 1);
     EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_ARRAY);
-    auto& array_field_2 = result->values[0].get<doris::vectorized::Array>();
+    auto& array_field_2 = result->values[0].get<doris::PrimitiveType::TYPE_ARRAY>();
     EXPECT_EQ(array_field_2.size(), 1);
     EXPECT_EQ(array_field_2[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
     EXPECT_EQ(array_field_2[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
