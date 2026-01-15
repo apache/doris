@@ -862,8 +862,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 targetOutputs.add(targeSlot);
             }
         }
-        Preconditions.checkArgument(originOutputs.size() == targetOutputs.size(),
-                "constructReplaceMap, the size of originOutputs and targetOutputs should be same");
+        if (originOutputs.size() != targetOutputs.size()) {
+            LOG.error(String.format("LogicalOlapScan constructReplaceMap size not match,"
+                    + "mv name is %s, origin size %s, target size %s", mtmv.getName(), originOutputs, targetOutputs));
+            // not throw exception here to avoid query failed, compute mv fd should not influence query process
+            return replaceMap;
+        }
         for (int i = 0; i < targetOutputs.size(); i++) {
             replaceMap.put(originOutputs.get(i), targetOutputs.get(i));
         }
