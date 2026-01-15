@@ -545,9 +545,9 @@ private:
         auto& res = static_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = binary_cast<NativeType, DateValueType>(data[i]);
-            if (!dt.template datetime_trunc<Unit>()) {
-                throw_out_of_bound_one_date<DateValueType>(name, data[i]);
-            }
+            // datetime_trunc only raise only when dt invalid which is impossible. so we dont throw error better.
+            // then we can use default implementation for nulls with no worry of invalid nested value.
+            dt.template datetime_trunc<Unit>();
             res[i] = binary_cast<DateValueType, NativeType>(dt);
         }
     }
@@ -775,7 +775,7 @@ struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl<DateType, NewVer
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
-// This impl doesn't use default impl to deal null value.
+// Handle nulls manually to prevent invalid default values from causing errors
 template <bool NewVersion = false>
 struct UnixTimeStampStrImpl {
     static DataTypes get_variadic_argument_types() {
@@ -789,9 +789,15 @@ struct UnixTimeStampStrImpl {
         return std::make_shared<DataTypeDecimal64>(16, 6);
     }
 
+    static bool use_default_implementation_for_nulls() { return false; }
+
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
+        // Handle null map manually
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
+        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+
         ColumnPtr col_left = nullptr, col_right = nullptr;
         bool source_const = false, format_const = false;
         std::tie(col_left, source_const) =
@@ -799,12 +805,31 @@ struct UnixTimeStampStrImpl {
         std::tie(col_right, format_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
+        // Update result null map from input null maps
+        const NullMap* null_map_left =
+                VectorizedUtils::get_null_map(block.get_by_position(arguments[0]).column);
+        const NullMap* null_map_right =
+                VectorizedUtils::get_null_map(block.get_by_position(arguments[1]).column);
+        if (null_map_left) {
+            VectorizedUtils::update_null_map(result_null_map, *null_map_left, source_const);
+        }
+        if (null_map_right) {
+            VectorizedUtils::update_null_map(result_null_map, *null_map_right, format_const);
+        }
+
+        // Extract nested columns
+        col_left = remove_nullable(col_left);
+        col_right = remove_nullable(col_right);
+
         auto col_result = ColumnDecimal64::create(input_rows_count, 6);
         auto& col_result_data = col_result->get_data();
 
         const auto* col_source = assert_cast<const ColumnString*>(col_left.get());
         const auto* col_format = assert_cast<const ColumnString*>(col_right.get());
-        for (int i = 0; i < input_rows_count; i++) {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (result_null_map[i]) {
+                continue;
+            }
             StringRef source = col_source->get_data_at(index_check_const(i, source_const));
             StringRef fmt = col_format->get_data_at(index_check_const(i, format_const));
 
@@ -829,7 +854,13 @@ struct UnixTimeStampStrImpl {
             }
         }
 
-        block.replace_by_position(result, std::move(col_result));
+        if (null_map_left || null_map_right) {
+            block.replace_by_position(result,
+                                      ColumnNullable::create(std::move(col_result),
+                                                             std::move(result_null_map_column)));
+        } else {
+            block.replace_by_position(result, std::move(col_result));
+        }
 
         return Status::OK();
     }
@@ -853,6 +884,13 @@ public:
 
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
+    }
+
+    bool use_default_implementation_for_nulls() const override {
+        if constexpr (requires { Impl::use_default_implementation_for_nulls(); }) {
+            return Impl::use_default_implementation_for_nulls();
+        }
+        return true;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -879,6 +917,13 @@ public:
 
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
+    }
+
+    bool use_default_implementation_for_nulls() const override {
+        if constexpr (requires { Impl::use_default_implementation_for_nulls(); }) {
+            return Impl::use_default_implementation_for_nulls();
+        }
+        return true;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -966,11 +1011,27 @@ public:
         return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
     }
 
-    //ATTN: no need to replace null value now because last_day and to_monday both process boundary case well.
-    // may need to change if support more functions
+    // Handle nulls manually to prevent invalid default values from causing errors
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return Impl<PType>::execute_impl(context, block, arguments, result, input_rows_count);
+        // Handle null map manually - update result null map from input null maps upfront
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
+        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+        const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);
+        if (null_map) {
+            VectorizedUtils::update_null_map(result_null_map, *null_map);
+        }
+
+        // Extract nested column
+        argument_column = remove_nullable(argument_column);
+
+        return Impl<PType>::execute_impl(context, block, arguments, result, input_rows_count,
+                                         argument_column, result_null_map,
+                                         std::move(result_null_map_column));
     }
 };
 
@@ -988,26 +1049,22 @@ struct LastDayImpl {
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
+                               size_t input_rows_count, const ColumnPtr& argument_column,
+                               NullMap& result_null_map,
+                               ColumnUInt8::MutablePtr result_null_map_column) {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        ColumnPtr res_column;
-        ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column);
-        if (is_nullable) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
-            auto data_col = assert_cast<const ColumnType*>(argument_column.get());
-            res_column = ResultColumnType::create(input_rows_count);
-            execute_straight(
-                    input_rows_count, data_col->get_data(),
-                    static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
+        auto data_col = assert_cast<const ColumnType*>(argument_column.get());
+        auto res_column = ResultColumnType::create(input_rows_count);
+        execute_straight(
+                input_rows_count, data_col->get_data(),
+                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
+                result_null_map);
 
+        if (is_nullable) {
             block.replace_by_position(result,
-                                      ColumnNullable::create(res_column, std::move(null_map)));
+                                      ColumnNullable::create(std::move(res_column),
+                                                             std::move(result_null_map_column)));
         } else {
-            auto data_col = assert_cast<const ColumnType*>(argument_column.get());
-            res_column = ResultColumnType::create(input_rows_count);
-            execute_straight(
-                    input_rows_count, data_col->get_data(),
-                    static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
             block.replace_by_position(result, std::move(res_column));
         }
         return Status::OK();
@@ -1015,8 +1072,12 @@ struct LastDayImpl {
 
     static void execute_straight(size_t input_rows_count,
                                  const PaddedPODArray<NativeType>& data_col,
-                                 PaddedPODArray<ResultNativeType>& res_data) {
-        for (int i = 0; i < input_rows_count; i++) {
+                                 PaddedPODArray<ResultNativeType>& res_data,
+                                 const NullMap& null_map) {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (null_map[i]) {
+                continue;
+            }
             const auto& cur_data = data_col[i];
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             if (!ts_value.is_valid_date()) {
@@ -1065,36 +1126,35 @@ struct ToMondayImpl {
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
+                               size_t input_rows_count, const ColumnPtr& argument_column,
+                               NullMap& result_null_map,
+                               ColumnUInt8::MutablePtr result_null_map_column) {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column);
-        ColumnPtr res_column;
-        if (is_nullable) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
-            auto data_col = assert_cast<const ColumnType*>(argument_column.get());
-            res_column = ResultColumnType::create(input_rows_count);
-            execute_straight(
-                    input_rows_count, data_col->get_data(),
-                    static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
+        auto data_col = assert_cast<const ColumnType*>(argument_column.get());
+        auto res_column = ResultColumnType::create(input_rows_count);
+        execute_straight(
+                input_rows_count, data_col->get_data(),
+                static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data(),
+                result_null_map);
 
+        if (is_nullable) {
             block.replace_by_position(result,
-                                      ColumnNullable::create(res_column, std::move(null_map)));
+                                      ColumnNullable::create(std::move(res_column),
+                                                             std::move(result_null_map_column)));
         } else {
-            auto data_col = assert_cast<const ColumnType*>(argument_column.get());
-            res_column = ResultColumnType::create(input_rows_count);
-            execute_straight(
-                    input_rows_count, data_col->get_data(),
-                    static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
             block.replace_by_position(result, std::move(res_column));
         }
         return Status::OK();
     }
 
-    // v1, throws on invalid date
     static void execute_straight(size_t input_rows_count,
                                  const PaddedPODArray<NativeType>& data_col,
-                                 PaddedPODArray<ResultNativeType>& res_data) {
-        for (int i = 0; i < input_rows_count; i++) {
+                                 PaddedPODArray<ResultNativeType>& res_data,
+                                 const NullMap& null_map) {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (null_map[i]) {
+                continue;
+            }
             const auto& cur_data = data_col[i];
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             if (!ts_value.is_valid_date()) [[unlikely]] {
