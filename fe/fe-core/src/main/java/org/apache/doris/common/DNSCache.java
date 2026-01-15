@@ -83,12 +83,15 @@ public class DNSCache {
      */
     private void refresh() {
         for (String hostname : cache.keySet()) {
-            String resolvedHostname = resolveHostname(hostname);
-            String currentHostname = cache.get(hostname);
-            if (!resolvedHostname.equals(currentHostname)) {
-                cache.put(hostname, resolvedHostname);
-                LOG.info("IP for hostname {} has changed from {} to {}", hostname, currentHostname,
-                        resolvedHostname);
+            String resolvedIp = resolveHostname(hostname);
+            String currentIp = cache.get(hostname);
+            if (resolvedIp.isEmpty()) {
+                LOG.warn("Failed to resolve hostname {}, using cached IP: {}", hostname, currentIp);
+                continue;
+            }
+            if (!resolvedIp.equals(currentIp)) {
+                cache.put(hostname, resolvedIp);
+                LOG.info("IP for hostname {} has changed from {} to {}", hostname, currentIp, resolvedIp);
             }
         }
     }
