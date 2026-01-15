@@ -324,8 +324,8 @@ class StreamLoadAction implements SuiteAction {
             // the multiple frontends environment may not see the newest data, so we should sync after stream load
             try {
                 JdbcUtils.executeToList(context.getConn(), "sync")
-            } catch (Throwable t) {
-                log.warn("Execute sync failed", t)
+            } catch (Throwable t2) {
+                log.warn("Execute sync failed", t2)
             }
         }
     }
