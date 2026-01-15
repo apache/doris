@@ -314,6 +314,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 }
                 curBlockRows++;
 
+                // Check if we've filled the batch before advancing cursor
+                if (curBlockRows >= batchSize) {
+                    break;
+                }
+
                 // Advance to next row for the next iteration / next block.
                 boolean hasNext;
                 try {
