@@ -95,7 +95,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("field pattern: metrics.score is not supported for dict_compression")
+        exception("field pattern: metrics.score is not supported for dict compression")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
