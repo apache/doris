@@ -417,7 +417,7 @@ TEST(JsonParserTest, ParseUInt64) {
     auto& array_field = result->values[0].get<doris::PrimitiveType::TYPE_ARRAY>();
     EXPECT_EQ(array_field.size(), 1);
     EXPECT_EQ(array_field[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
-    EXPECT_EQ(array_field[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
+    EXPECT_EQ(array_field[0].get<doris::PrimitiveType::TYPE_LARGEINT>(), 18446744073709551615ULL);
 
     std::string nested_json = R"({"a": [{"b": 18446744073709551615}]})";
     config.enable_flatten_nested = true;
@@ -429,5 +429,5 @@ TEST(JsonParserTest, ParseUInt64) {
     auto& array_field_2 = result->values[0].get<doris::PrimitiveType::TYPE_ARRAY>();
     EXPECT_EQ(array_field_2.size(), 1);
     EXPECT_EQ(array_field_2[0].get_type(), doris::PrimitiveType::TYPE_LARGEINT);
-    EXPECT_EQ(array_field_2[0].get<doris::vectorized::Int128>(), 18446744073709551615ULL);
+    EXPECT_EQ(array_field_2[0].get<doris::PrimitiveType::TYPE_LARGEINT>(), 18446744073709551615ULL);
 }
