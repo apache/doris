@@ -84,8 +84,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcIncrementalSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    // private IncrementalSourceScanFetcher snapshotReader;
-    // private IncrementalSourceStreamFetcher binlogReader;
     private Fetcher<SourceRecords, SourceSplitBase> currentReader;
     private Map<TableId, TableChanges.TableChange> tableSchemas;
     private SplitRecords currentSplitRecords;
