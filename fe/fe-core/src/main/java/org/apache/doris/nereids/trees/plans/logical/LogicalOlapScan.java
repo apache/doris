@@ -883,7 +883,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias);
     }
 
-    private Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
+    @VisibleForTesting
+    Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
         Map<Slot, Slot> replaceMap = new HashMap<>();
         // Need remove invisible column, and then mapping them
         List<Slot> originOutputs = new ArrayList<>();
