@@ -154,12 +154,13 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
     sql """ alter table ${table_name} create or replace branch b7 """
     qt_q19 """ select * from ${table_name}@branch(b7) order by id """ // back to 5 records
 
-    def snapshot_id2_snapshots = sql """ select snapshot_id from ${table_name}\$snapshots order by committed_at desc limit 1 """
     sql """alter table ${table_name} create branch if not exists b8"""
     qt_q19_1 """ select * from ${table_name}@branch(b8) order by id """ // 5 records
 
     def snapshot_id2_refs_b8 = sql """ select snapshot_id from ${table_name}\$refs where name = 'b8' """
-    assertEquals(snapshot_id2_snapshots[0][0], snapshot_id2_refs_b8[0][0])
+    // Verify that b8's snapshot_id exists in snapshots table (avoid race condition)
+    def snapshot_id2_snapshots = sql """ select snapshot_id from ${table_name}\$snapshots where snapshot_id = ${snapshot_id2_refs_b8[0][0]} """
+    assertEquals(snapshot_id2_refs_b8[0][0], snapshot_id2_snapshots[0][0])
 
 
     test {
