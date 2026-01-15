@@ -21,18 +21,23 @@ import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.plugin.lineage.AbstractLineagePlugin;
 
+import com.google.common.collect.Queues;
+
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 
 public class LineageEventProcessor {
 
     private final PluginMgr pluginMgr;
     private List<Plugin> lineagePlugins;
+    private BlockingQueue<LineageEvent> eventQueue = Queues.newLinkedBlockingDeque();
 
     public LineageEventProcessor(PluginMgr pluginMgr) {
         this.pluginMgr = pluginMgr;
     }
 
     public void submitLineageEvent(LineageEvent lineageEvent) {
+        // add lineage event to queue
     }
 
     public void handleLineageEvent() {
