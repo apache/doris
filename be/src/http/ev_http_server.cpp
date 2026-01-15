@@ -311,7 +311,7 @@ void EvHttpServer::join() {}
 
 bool EvHttpServer::_reload_cert() {
     if (!config::enable_tls ||
-        CertificateManager::is_protocol_included(CertificateManager::Protocol::http) || !_started) {
+        CertificateManager::is_protocol_excluded(CertificateManager::Protocol::http) || !_started) {
         LOG(WARNING) << "SSL not enabled or server not started, cannot reload SSL context";
         return false;
     }
