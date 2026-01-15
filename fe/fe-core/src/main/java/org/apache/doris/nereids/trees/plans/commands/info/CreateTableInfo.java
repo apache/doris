@@ -1393,6 +1393,15 @@ public class CreateTableInfo {
         return !Strings.isNullOrEmpty(parser) && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equals(parser);
     }
 
+    private boolean hasDictCompressionEnabled(IndexDefinition indexDef) {
+        Map<String, String> properties = indexDef.getProperties();
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String dictCompression = properties.get(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY);
+        return "true".equalsIgnoreCase(dictCompression);
+    }
+
     // 1. if the column is variant type, check it's field pattern is valid
     // 2. if the column is not variant type, check it's index def is valid
     private void columnToIndexesCheck() {
@@ -1438,6 +1447,13 @@ public class CreateTableInfo {
                                     throw new AnalysisException("field pattern: " + fieldPattern
                                             + " is not supported for analyzed inverted index"
                                             + " of column: " + column.getName()
+                                            + " with type " + field.getDataType());
+                                }
+                                if (hasDictCompressionEnabled(indexDef)
+                                        && !field.getDataType().isStringLikeType()) {
+                                    throw new AnalysisException("field pattern: " + fieldPattern
+                                            + " is not supported for dict compression"
+                                            + " in inverted index of column: " + column.getName()
                                             + " with type " + field.getDataType());
                                 }
                                 fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
