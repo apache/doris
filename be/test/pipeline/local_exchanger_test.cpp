@@ -617,7 +617,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
                 EXPECT_EQ(block.rows(), i == 0 && j < num_blocks * num_sink ? 10 : 0);
                 EXPECT_EQ(eos, i != 0);
                 if (i == 0) {
-                    EXPECT_EQ(_local_states[i]->_dependency->ready(), j < num_blocks * num_sink - 1);
+                    EXPECT_EQ(_local_states[i]->_dependency->ready(),
+                              j < num_blocks * num_sink - 1);
                 }
             }
         }
@@ -812,8 +813,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == num_blocks * num_sources ? 0 : 10);
                 EXPECT_FALSE(eos);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(),
-                          j < num_blocks * num_sources - 1);
+                EXPECT_EQ(_local_states[i]->_dependency->ready(), j < num_blocks * num_sources - 1);
             }
         }
         EXPECT_EQ(shared_state->mem_usage, 0);
