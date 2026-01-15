@@ -24,12 +24,11 @@ import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.rewrite.ManifestRewriteExecutor;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteManifestExecutor;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Lists;
-import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
@@ -38,18 +37,13 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Predicate;
 
 /**
  * Action for rewriting Iceberg manifest files to optimize metadata layout
  */
 public class IcebergRewriteManifestsAction extends BaseIcebergAction {
     private static final Logger LOG = LogManager.getLogger(IcebergRewriteManifestsAction.class);
-    public static final String CLUSTER_BY_PARTITION = "cluster-by-partition";
-    public static final String REWRITE_ALL = "rewrite-all";
-    public static final String MIN_MANIFEST_SIZE_BYTES = "min-manifest-size-bytes";
-    public static final String MAX_MANIFEST_SIZE_BYTES = "max-manifest-size-bytes";
-    public static final String SCAN_THREAD_POOL_SIZE = "scan-thread-pool-size";
+    public static final String SPEC_ID = "spec_id";
 
     public IcebergRewriteManifestsAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -59,45 +53,16 @@ public class IcebergRewriteManifestsAction extends BaseIcebergAction {
 
     @Override
     protected void registerIcebergArguments() {
-        namedArguments.registerOptionalArgument(CLUSTER_BY_PARTITION,
-                "Cluster manifests by partition fields",
-                true,
-                ArgumentParsers.booleanValue(CLUSTER_BY_PARTITION));
-
-        namedArguments.registerOptionalArgument(REWRITE_ALL,
-                "Rewrite all manifests when true; otherwise use size thresholds",
-                true,
-                ArgumentParsers.booleanValue(REWRITE_ALL));
-
-        namedArguments.registerOptionalArgument(MIN_MANIFEST_SIZE_BYTES,
-                "Minimum manifest file size to be considered for rewrite",
-                0L,
-                ArgumentParsers.positiveLong(MIN_MANIFEST_SIZE_BYTES));
-
-        namedArguments.registerOptionalArgument(MAX_MANIFEST_SIZE_BYTES,
-                "Maximum manifest file size to be considered for rewrite",
-                0L,
-                ArgumentParsers.positiveLong(MAX_MANIFEST_SIZE_BYTES));
-
-        namedArguments.registerOptionalArgument(SCAN_THREAD_POOL_SIZE,
-                "Thread pool size for parallel manifest scanning",
-                0,
-                ArgumentParsers.intRange(SCAN_THREAD_POOL_SIZE, 0, 16));
+        namedArguments.registerOptionalArgument(SPEC_ID,
+                "Spec id of the manifests to rewrite (defaults to current spec id)",
+                null,
+                ArgumentParsers.intRange(SPEC_ID, 0, Integer.MAX_VALUE));
     }
 
     @Override
     protected void validateIcebergAction() throws UserException {
         validateNoPartitions();
         validateNoWhereCondition();
-
-        // Validate size parameter relationships
-        long minSize = namedArguments.getLong(MIN_MANIFEST_SIZE_BYTES);
-        long maxSize = namedArguments.getLong(MAX_MANIFEST_SIZE_BYTES);
-
-        if (maxSize > 0 && minSize > maxSize) {
-            throw new UserException("min-manifest-size-bytes (" + minSize
-                    + ") cannot be greater than max-manifest-size-bytes (" + maxSize + ")");
-        }
     }
 
     @Override
@@ -106,64 +71,34 @@ public class IcebergRewriteManifestsAction extends BaseIcebergAction {
             Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
             Snapshot current = icebergTable.currentSnapshot();
             if (current == null) {
-                LOG.info("Table {} has no current snapshot, no manifests to rewrite",
-                        table.getName());
+                // No current snapshot means the table is empty, no manifests to rewrite
                 return Lists.newArrayList("0", "0");
             }
 
-            // Build predicate for manifest selection
-            Predicate<ManifestFile> predicate = buildManifestPredicate();
+            // Get optional spec_id parameter
+            Integer specId = namedArguments.getInt(SPEC_ID);
 
             // Execute rewrite operation
-            boolean clusterByPartition = namedArguments.getBoolean(CLUSTER_BY_PARTITION);
-            int scanThreads = namedArguments.getInt(SCAN_THREAD_POOL_SIZE);
-
-            ManifestRewriteExecutor executor = new ManifestRewriteExecutor();
-            ManifestRewriteExecutor.Result result = executor.execute(
+            RewriteManifestExecutor executor = new RewriteManifestExecutor();
+            RewriteManifestExecutor.Result result = executor.execute(
                     icebergTable,
                     (ExternalTable) table,
-                    clusterByPartition,
-                    scanThreads,
-                    predicate);
+                    specId);
 
             return result.toStringList();
         } catch (Exception e) {
-            LOG.error("Failed to rewrite manifests for table: {}", table.getName(), e);
+            LOG.warn("Failed to rewrite manifests for table: {}", table.getName(), e);
             throw new UserException("Rewrite manifests failed: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Build predicate for selecting manifest files to rewrite
-     */
-    private Predicate<ManifestFile> buildManifestPredicate() {
-        boolean rewriteAll = namedArguments.getBoolean(REWRITE_ALL);
-        long minSize = namedArguments.getLong(MIN_MANIFEST_SIZE_BYTES);
-        long maxSize = namedArguments.getLong(MAX_MANIFEST_SIZE_BYTES);
-
-        if (rewriteAll) {
-            return mf -> true;
-        }
-
-        if (minSize == 0 && maxSize == 0) {
-            return mf -> true;
-        }
-
-        return mf -> {
-            long len = mf.length();
-            boolean tooSmall = minSize > 0 && len < minSize;
-            boolean tooLarge = maxSize > 0 && len > maxSize;
-            return tooSmall || tooLarge;
-        };
     }
 
     @Override
     protected List<Column> getResultSchema() {
         return Lists.newArrayList(
                 new Column("rewritten_manifests_count", Type.INT, false,
-                        "Number of data manifests rewritten by this command"),
-                new Column("total_data_manifests_count", Type.INT, false,
-                        "Total number of data manifests before rewrite")
+                        "Number of manifests which were re-written by this command"),
+                new Column("added_manifests_count", Type.INT, false,
+                        "Number of new manifest files which were written by this command")
         );
     }
 
