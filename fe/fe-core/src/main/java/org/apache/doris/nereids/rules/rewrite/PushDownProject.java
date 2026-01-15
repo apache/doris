@@ -36,10 +36,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
@@ -198,101 +200,105 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         if (!ctx.connectContext.getSessionVariable().enablePruneNestedColumns) {
             return ctx.root;
         }
-        LogicalProject<LogicalUnion> project = ctx.root;
-        LogicalUnion union = project.child();
-        PushdownProjectHelper pushdownProjectHelper
-                = new PushdownProjectHelper(ctx.statementContext, project);
-
-        Pair<Boolean, List<NamedExpression>> pushProjects
-                = pushdownProjectHelper.pushDownExpressions(project.getProjects());
-        if (pushProjects.first) {
-            List<NamedExpression> unionOutputs = union.getOutputs();
-            Map<Slot, Integer> slotToColumnIndex = new LinkedHashMap<>();
-            for (int i = 0; i < unionOutputs.size(); i++) {
-                NamedExpression output = unionOutputs.get(i);
-                slotToColumnIndex.put(output.toSlot(), i);
-            }
-
-            Collection<NamedExpression> pushDownProjections
-                    = pushdownProjectHelper.childToPushDownProjects.values();
-            List<Plan> newChildren = new ArrayList<>();
-            List<List<SlotReference>> newChildrenOutputs = new ArrayList<>();
-            for (Plan child : union.children()) {
-                List<NamedExpression> pushedOutput = replaceSlot(
-                        ctx.statementContext,
-                        pushDownProjections,
-                        slot -> {
-                            Integer sourceColumnIndex = slotToColumnIndex.get(slot);
-                            if (sourceColumnIndex != null) {
-                                return child.getOutput().get(sourceColumnIndex).toSlot();
-                            }
-                            return slot;
-                        }
-                );
-
-                LogicalProject<Plan> newChild = new LogicalProject<>(
-                        ImmutableList.<NamedExpression>builder()
-                                .addAll(child.getOutput())
-                                .addAll(pushedOutput)
-                                .build(),
-                        child
-                );
-
-                newChildrenOutputs.add((List) newChild.getOutput());
-                newChildren.add(newChild);
-            }
-
-            for (List<NamedExpression> originConstantExprs : union.getConstantExprsList()) {
-                List<NamedExpression> pushedOutput = replaceSlot(
-                        ctx.statementContext,
-                        pushDownProjections,
-                        slot -> {
-                            Integer sourceColumnIndex = slotToColumnIndex.get(slot);
-                            if (sourceColumnIndex != null) {
-                                return originConstantExprs.get(sourceColumnIndex).toSlot();
-                            }
-                            return slot;
-                        }
-                );
-
-                LogicalOneRowRelation originOneRowRelation = new LogicalOneRowRelation(
-                        ctx.statementContext.getNextRelationId(),
-                        originConstantExprs
-                );
-
-                LogicalProject<Plan> newChild = new LogicalProject<>(
-                        ImmutableList.<NamedExpression>builder()
-                                .addAll(originOneRowRelation.getOutput())
-                                .addAll(pushedOutput)
-                                .build(),
-                        originOneRowRelation
-                );
-
-                newChildrenOutputs.add((List) newChild.getOutput());
-                newChildren.add(newChild);
-            }
-
-            List<NamedExpression> newUnionOutputs = new ArrayList<>(union.getOutputs());
-            for (NamedExpression projection : pushDownProjections) {
-                newUnionOutputs.add(projection.toSlot());
-            }
-
-            return new LogicalProject<>(
-                    pushProjects.second,
-                    new LogicalUnion(
-                            union.getQualifier(),
-                            newUnionOutputs,
-                            newChildrenOutputs,
-                            ImmutableList.of(),
-                            union.hasPushedFilter(),
-                            newChildren
-                    )
-            );
-        }
-        return project;
+        return pushThroughUnion(ctx.root, ctx.statementContext);
     }
 
-    private List<NamedExpression> replaceSlot(
+    @VisibleForTesting
+    static Plan pushThroughUnion(LogicalProject<LogicalUnion> project, StatementContext statementContext) {
+        LogicalUnion union = project.child();
+        PushdownProjectHelper pushdownProjectHelper
+                = new PushdownProjectHelper(statementContext, project);
+        Pair<Boolean, List<NamedExpression>> pushProjects
+                = pushdownProjectHelper.pushDownExpressions(project.getProjects());
+        if (!pushProjects.first) {
+            return project;
+        }
+        List<NamedExpression> unionOutputs = union.getOutputs();
+        Map<Slot, Integer> slotToColumnIndex = new LinkedHashMap<>();
+        for (int i = 0; i < unionOutputs.size(); i++) {
+            NamedExpression output = unionOutputs.get(i);
+            slotToColumnIndex.put(output.toSlot(), i);
+        }
+
+        List<NamedExpression> pushDownProjections
+                = Lists.newArrayList(pushdownProjectHelper.childToPushDownProjects.values());
+        List<Plan> newChildren = new ArrayList<>();
+        List<List<SlotReference>> newChildrenOutputs = new ArrayList<>();
+        for (int i = 0; i < union.arity(); i++) {
+            List<SlotReference> regulatorOutput = union.getRegularChildOutput(i);
+            List<NamedExpression> pushedOutput = replaceSlot(
+                    statementContext,
+                    pushDownProjections,
+                    slot -> {
+                        Integer sourceColumnIndex = slotToColumnIndex.get(slot);
+                        if (sourceColumnIndex != null) {
+                            return regulatorOutput.get(sourceColumnIndex).toSlot();
+                        }
+                        return slot;
+                    }
+            );
+
+            LogicalProject<Plan> newChild = new LogicalProject<>(
+                    ImmutableList.<NamedExpression>builder()
+                            .addAll(regulatorOutput)
+                            .addAll(pushedOutput)
+                            .build(),
+                    union.child(i)
+            );
+
+            newChildrenOutputs.add((List) newChild.getOutput());
+            newChildren.add(newChild);
+        }
+
+        for (List<NamedExpression> originConstantExprs : union.getConstantExprsList()) {
+            List<NamedExpression> pushedOutput = replaceSlot(
+                    statementContext,
+                    pushDownProjections,
+                    slot -> {
+                        Integer sourceColumnIndex = slotToColumnIndex.get(slot);
+                        if (sourceColumnIndex != null) {
+                            return originConstantExprs.get(sourceColumnIndex).toSlot();
+                        }
+                        return slot;
+                    }
+            );
+
+            LogicalOneRowRelation originOneRowRelation = new LogicalOneRowRelation(
+                    statementContext.getNextRelationId(),
+                    originConstantExprs
+            );
+
+            LogicalProject<Plan> newChild = new LogicalProject<>(
+                    ImmutableList.<NamedExpression>builder()
+                            .addAll(originOneRowRelation.getOutput())
+                            .addAll(pushedOutput)
+                            .build(),
+                    originOneRowRelation
+            );
+
+            newChildrenOutputs.add((List) newChild.getOutput());
+            newChildren.add(newChild);
+        }
+
+        List<NamedExpression> newUnionOutputs = new ArrayList<>(union.getOutputs());
+        for (NamedExpression projection : pushDownProjections) {
+            newUnionOutputs.add(projection.toSlot());
+        }
+
+        return new LogicalProject<>(
+                pushProjects.second,
+                new LogicalUnion(
+                        union.getQualifier(),
+                        newUnionOutputs,
+                        newChildrenOutputs,
+                        ImmutableList.of(),
+                        union.hasPushedFilter(),
+                        newChildren
+                )
+        );
+    }
+
+    private static List<NamedExpression> replaceSlot(
             StatementContext statementContext,
             Collection<NamedExpression> pushDownProjections,
             Function<Slot, Slot> slotReplace) {
