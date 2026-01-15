@@ -132,7 +132,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     // Add create_user field
     @SerializedName(value = "createdBy")
-    protected String createdBy = "";
+    protected String createdBy;
 
     // gson deserialization will call this at first by derived classes' non-parametered constructor.
     public Table(TableType type) {
@@ -440,7 +440,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     }
 
     public long getUpdateTime() {
-        return createTime;
+        return -1L;
     }
 
     public String getCreatedBy() {

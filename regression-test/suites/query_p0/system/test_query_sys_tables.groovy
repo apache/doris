@@ -169,6 +169,17 @@ suite("test_query_sys_tables", "query,p0") {
         assertTrue(schemataRows[i][3] != null)
     }
 
+    // verify system databases have NULL CREATED_BY
+    List<List<Object>> sysSchemataRows = sql """
+        select SCHEMA_NAME, CREATED_BY, CREATION_TIME
+        from information_schema.schemata
+        where SCHEMA_NAME in ('information_schema','__internal_schema')
+        order by SCHEMA_NAME
+    """
+    for (int i = 0; i < sysSchemataRows.size(); i++) {
+        assertTrue(sysSchemataRows[i][1] == null)
+    }
+
     // test statistics
     // have no impl
 
