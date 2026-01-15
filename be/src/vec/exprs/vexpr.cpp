@@ -484,7 +484,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                     expr_node.short_circuit_evaluation) {
                     expr = ShortCircuitIfExpr::create_shared(expr_node);
                 } else {
-                    expr = VectorizedIfExpr::create_shared(expr_node);
+                    expr = ShortCircuitIfExpr::create_shared(expr_node);
                 }
                 break;
             } else if (expr_node.fn.name.function_name == "ifnull" ||
@@ -493,7 +493,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                     expr_node.short_circuit_evaluation) {
                     expr = ShortCircuitIfNullExpr::create_shared(expr_node);
                 } else {
-                    expr = VectorizedIfNullExpr::create_shared(expr_node);
+                    expr = ShortCircuitIfNullExpr::create_shared(expr_node);
                 }
                 break;
             } else if (expr_node.fn.name.function_name == "coalesce") {
@@ -501,7 +501,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                     expr_node.short_circuit_evaluation) {
                     expr = ShortCircuitCoalesceExpr::create_shared(expr_node);
                 } else {
-                    expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                    expr = ShortCircuitCoalesceExpr::create_shared(expr_node);
                 }
                 break;
             }
