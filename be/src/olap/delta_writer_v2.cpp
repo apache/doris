@@ -186,10 +186,14 @@ Status DeltaWriterV2::close_wait(int32_t& num_segments, RuntimeProfile* profile)
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
 
-    if (profile != nullptr) {
+    if (_state->profile_level() >= 2 && profile != nullptr) {
         _update_profile(profile);
     }
-    RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
+    if (_state->profile_level() >= 2) {
+        RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
+    } else {
+        RETURN_IF_ERROR(_memtable_writer->close_wait());
+    }
     num_segments = _rowset_writer->next_segment_id();
 
     _delta_written_success = true;
