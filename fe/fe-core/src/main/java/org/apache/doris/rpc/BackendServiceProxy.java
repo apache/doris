@@ -118,6 +118,15 @@ public class BackendServiceProxy {
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
         String realIp = Env.getCurrentEnv().getDnsCache().get(address.hostname);
+
+        // Check if DNS resolution failed (returns empty string)
+        if (realIp.isEmpty() && Config.enable_fqdn_mode) {
+            String errorMsg = String.format("Failed to resolve hostname: %s. DNS cache returned empty IP address.",
+                    address.hostname);
+            LOG.warn(errorMsg);
+            throw new UnknownHostException(errorMsg);
+        }
+
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
                 && serviceClientExtIp.client.isNormalState()) {
@@ -130,7 +139,7 @@ public class BackendServiceProxy {
         try {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
-                LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
+                LOG.warn("Cached ip changed, before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
                 serviceMap.remove(address);
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
@@ -144,7 +153,8 @@ public class BackendServiceProxy {
                 serviceClientExtIp = null;
             }
             if (serviceClientExtIp == null) {
-                BackendServiceClient client = new BackendServiceClient(address, grpcThreadPool);
+                // Pass resolved IP to BackendServiceClient to avoid DNS resolution at gRPC layer
+                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
             }
             return serviceMap.get(address).client;
