@@ -25,7 +25,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.antlr.v4.runtime.ANTLRInputStream;
+import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.apache.logging.log4j.LogManager;
@@ -39,6 +39,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Search DSL Parser using ANTLR-generated parser.
@@ -59,6 +60,22 @@ import java.util.stream.Collectors;
 public class SearchDslParser {
     private static final Logger LOG = LogManager.getLogger(SearchDslParser.class);
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+
+    /**
+     * Exception for search DSL syntax errors.
+     * This exception is thrown when the DSL string cannot be parsed due to syntax issues.
+     * It is distinct from programming errors (NullPointerException, etc.) to provide
+     * clearer error messages to users.
+     */
+    public static class SearchDslSyntaxException extends RuntimeException {
+        public SearchDslSyntaxException(String message) {
+            super(message);
+        }
+
+        public SearchDslSyntaxException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
 
     /**
      * Parse DSL string and return intermediate representation
@@ -84,7 +101,7 @@ public class SearchDslParser {
      *                    Example: '{"fields":["title","content"],"type":"cross_fields"}'
      * @return Parsed QsPlan
      */
-    public static QsPlan parseDsl(String dsl, String optionsJson) {
+    public static QsPlan parseDsl(String dsl, @Nullable String optionsJson) {
         // Parse options from JSON
         SearchOptions searchOptions = parseOptions(optionsJson);
 
@@ -120,7 +137,7 @@ public class SearchDslParser {
      * @param defaultOperator Default operator ("and" or "or") for multi-term queries (optional, defaults to "or")
      * @return Parsed QsPlan
      */
-    public static QsPlan parseDsl(String dsl, String defaultField, String defaultOperator) {
+    public static QsPlan parseDsl(String dsl, @Nullable String defaultField, @Nullable String defaultOperator) {
         return parseDslStandardMode(dsl, defaultField, defaultOperator);
     }
 
@@ -141,7 +158,7 @@ public class SearchDslParser {
 
         try {
             // Create ANTLR lexer and parser
-            SearchLexer lexer = new SearchLexer(new ANTLRInputStream(expandedDsl));
+            SearchLexer lexer = new SearchLexer(CharStreams.fromString(expandedDsl));
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             SearchParser parser = new SearchParser(tokens);
 
@@ -153,7 +170,7 @@ public class SearchDslParser {
                         Object offendingSymbol,
                         int line, int charPositionInLine,
                         String msg, org.antlr.v4.runtime.RecognitionException e) {
-                    throw new RuntimeException("Invalid search DSL syntax at line " + line
+                    throw new SearchDslSyntaxException("Syntax error at line " + line
                             + ":" + charPositionInLine + " " + msg);
                 }
             });
@@ -163,7 +180,7 @@ public class SearchDslParser {
 
             // Check if parsing was successful
             if (tree == null) {
-                throw new RuntimeException("Invalid search DSL syntax");
+                throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
             }
 
             // Build AST using visitor pattern
@@ -180,9 +197,28 @@ public class SearchDslParser {
 
             return new QsPlan(root, bindings);
 
-        } catch (RuntimeException e) {
+        } catch (SearchDslSyntaxException e) {
+            // Syntax error in DSL - user input issue
             LOG.error("Failed to parse search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
-            throw new RuntimeException("Invalid search DSL syntax: " + dsl + ". Error: " + e.getMessage(), e);
+            throw new SearchDslSyntaxException("Invalid search DSL: " + dsl + ". " + e.getMessage(), e);
+        } catch (IllegalArgumentException e) {
+            // Invalid argument - user input issue
+            LOG.error("Invalid argument in search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            throw new IllegalArgumentException("Invalid search DSL argument: " + dsl + ". " + e.getMessage(), e);
+        } catch (NullPointerException e) {
+            // Internal error - programming bug
+            LOG.error("Internal error (NPE) while parsing search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            throw new RuntimeException("Internal error while parsing search DSL: " + dsl
+                    + ". This may be a bug. Details: " + e.getMessage(), e);
+        } catch (IndexOutOfBoundsException e) {
+            // Internal error - programming bug
+            LOG.error("Internal error (IOOB) while parsing search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            throw new RuntimeException("Internal error while parsing search DSL: " + dsl
+                    + ". This may be a bug. Details: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            // Other runtime errors
+            LOG.error("Unexpected error while parsing search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            throw new RuntimeException("Unexpected error parsing search DSL: " + dsl + ". " + e.getMessage(), e);
         }
     }
 
@@ -501,7 +537,8 @@ public class SearchDslParser {
      */
     private static void validateFieldsList(List<String> fields) {
         if (fields == null || fields.isEmpty()) {
-            throw new IllegalArgumentException("fields list cannot be null or empty for multi-field mode");
+            throw new IllegalArgumentException(
+                    "fields list cannot be null or empty for multi-field mode, got: " + fields);
         }
     }
 
@@ -520,7 +557,7 @@ public class SearchDslParser {
             String originalDsl, String modeDescription) {
         try {
             // Create ANTLR lexer and parser
-            SearchLexer lexer = new SearchLexer(new ANTLRInputStream(expandedDsl));
+            SearchLexer lexer = new SearchLexer(CharStreams.fromString(expandedDsl));
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             SearchParser parser = new SearchParser(tokens);
 
@@ -532,14 +569,14 @@ public class SearchDslParser {
                         Object offendingSymbol,
                         int line, int charPositionInLine,
                         String msg, org.antlr.v4.runtime.RecognitionException e) {
-                    throw new RuntimeException("Invalid search DSL syntax at line " + line
+                    throw new SearchDslSyntaxException("Syntax error at line " + line
                             + ":" + charPositionInLine + " " + msg);
                 }
             });
 
             ParseTree tree = parser.search();
             if (tree == null) {
-                throw new RuntimeException("Invalid search DSL syntax");
+                throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
             }
 
             // Build AST using provided visitor
@@ -556,11 +593,35 @@ public class SearchDslParser {
 
             return new QsPlan(root, bindings);
 
-        } catch (RuntimeException e) {
+        } catch (SearchDslSyntaxException e) {
+            // Syntax error in DSL - user input issue
             LOG.error("Failed to parse search DSL in {}: '{}' (expanded: '{}')",
                     modeDescription, originalDsl, expandedDsl, e);
-            throw new RuntimeException("Invalid search DSL syntax: " + originalDsl
-                    + ". Error: " + e.getMessage(), e);
+            throw new SearchDslSyntaxException("Invalid search DSL: " + originalDsl + ". " + e.getMessage(), e);
+        } catch (IllegalArgumentException e) {
+            // Invalid argument - user input issue
+            LOG.error("Invalid argument in search DSL ({}): '{}' (expanded: '{}')",
+                    modeDescription, originalDsl, expandedDsl, e);
+            throw new IllegalArgumentException("Invalid search DSL argument: " + originalDsl
+                    + ". " + e.getMessage(), e);
+        } catch (NullPointerException e) {
+            // Internal error - programming bug
+            LOG.error("Internal error (NPE) while parsing search DSL in {}: '{}' (expanded: '{}')",
+                    modeDescription, originalDsl, expandedDsl, e);
+            throw new RuntimeException("Internal error while parsing search DSL: " + originalDsl
+                    + ". This may be a bug. Details: " + e.getMessage(), e);
+        } catch (IndexOutOfBoundsException e) {
+            // Internal error - programming bug
+            LOG.error("Internal error (IOOB) while parsing search DSL in {}: '{}' (expanded: '{}')",
+                    modeDescription, originalDsl, expandedDsl, e);
+            throw new RuntimeException("Internal error while parsing search DSL: " + originalDsl
+                    + ". This may be a bug. Details: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            // Other runtime errors
+            LOG.error("Unexpected error while parsing search DSL in {}: '{}' (expanded: '{}')",
+                    modeDescription, originalDsl, expandedDsl, e);
+            throw new RuntimeException("Unexpected error parsing search DSL: " + originalDsl
+                    + ". " + e.getMessage(), e);
         }
     }
 
@@ -664,10 +725,7 @@ public class SearchDslParser {
      * @return Expanded full DSL
      */
     private static String expandMultiFieldDsl(String dsl, List<String> fields, String defaultOperator) {
-        if (fields == null || fields.isEmpty()) {
-            throw new IllegalArgumentException("fields list cannot be null or empty");
-        }
-
+        // Note: fields validation is done by validateFieldsList() before calling this method
         if (fields.size() == 1) {
             // Single field - delegate to existing method
             return expandSimplifiedDsl(dsl, fields.get(0), defaultOperator);
@@ -726,10 +784,7 @@ public class SearchDslParser {
      */
     private static String expandMultiFieldDslBestFields(String dsl, List<String> fields,
             String defaultOperator) {
-        if (fields == null || fields.isEmpty()) {
-            throw new IllegalArgumentException("fields list cannot be null or empty");
-        }
-
+        // Note: fields validation is done by validateFieldsList() before calling this method
         if (fields.size() == 1) {
             // Single field - delegate to existing method
             return expandSimplifiedDsl(dsl, fields.get(0), defaultOperator);
@@ -1796,7 +1851,7 @@ public class SearchDslParser {
 
         try {
             // Create ANTLR lexer and parser
-            SearchLexer lexer = new SearchLexer(new ANTLRInputStream(expandedDsl));
+            SearchLexer lexer = new SearchLexer(CharStreams.fromString(expandedDsl));
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             SearchParser parser = new SearchParser(tokens);
 
@@ -1808,7 +1863,7 @@ public class SearchDslParser {
                         Object offendingSymbol,
                         int line, int charPositionInLine,
                         String msg, org.antlr.v4.runtime.RecognitionException e) {
-                    throw new RuntimeException("Invalid search DSL syntax at line " + line
+                    throw new SearchDslSyntaxException("Syntax error at line " + line
                             + ":" + charPositionInLine + " " + msg);
                 }
             });
@@ -1816,7 +1871,7 @@ public class SearchDslParser {
             // Parse using standard parser first
             ParseTree tree = parser.search();
             if (tree == null) {
-                throw new RuntimeException("Invalid search DSL syntax");
+                throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
             }
 
             // Build AST using Lucene-mode visitor
@@ -1833,9 +1888,31 @@ public class SearchDslParser {
 
             return new QsPlan(root, bindings);
 
-        } catch (RuntimeException e) {
+        } catch (SearchDslSyntaxException e) {
+            // Syntax error in DSL - user input issue
             LOG.error("Failed to parse search DSL in Lucene mode: '{}' (expanded: '{}')", dsl, expandedDsl, e);
-            throw new RuntimeException("Invalid search DSL syntax: " + dsl + ". Error: " + e.getMessage(), e);
+            throw new SearchDslSyntaxException("Invalid search DSL: " + dsl + ". " + e.getMessage(), e);
+        } catch (IllegalArgumentException e) {
+            // Invalid argument - user input issue
+            LOG.error("Invalid argument in search DSL (Lucene mode): '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            throw new IllegalArgumentException("Invalid search DSL argument: " + dsl + ". " + e.getMessage(), e);
+        } catch (NullPointerException e) {
+            // Internal error - programming bug
+            LOG.error("Internal error (NPE) while parsing search DSL in Lucene mode: '{}' (expanded: '{}')",
+                    dsl, expandedDsl, e);
+            throw new RuntimeException("Internal error while parsing search DSL: " + dsl
+                    + ". This may be a bug. Details: " + e.getMessage(), e);
+        } catch (IndexOutOfBoundsException e) {
+            // Internal error - programming bug
+            LOG.error("Internal error (IOOB) while parsing search DSL in Lucene mode: '{}' (expanded: '{}')",
+                    dsl, expandedDsl, e);
+            throw new RuntimeException("Internal error while parsing search DSL: " + dsl
+                    + ". This may be a bug. Details: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            // Other runtime errors
+            LOG.error("Unexpected error while parsing search DSL in Lucene mode: '{}' (expanded: '{}')",
+                    dsl, expandedDsl, e);
+            throw new RuntimeException("Unexpected error parsing search DSL: " + dsl + ". " + e.getMessage(), e);
         }
     }
 
@@ -1918,7 +1995,7 @@ public class SearchDslParser {
                 if (hasMust) {
                     terms = terms.stream()
                             .filter(t -> t.occur != QsOccur.SHOULD)
-                            .collect(java.util.stream.Collectors.toList());
+                            .collect(Collectors.toList());
                 }
             }
 

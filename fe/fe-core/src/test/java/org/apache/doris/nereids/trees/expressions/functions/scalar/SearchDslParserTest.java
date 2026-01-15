@@ -242,7 +242,7 @@ public class SearchDslParserTest {
             SearchDslParser.parseDsl(dsl);
         });
 
-        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL syntax"));
+        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL"));
     }
 
     @Test
@@ -542,7 +542,7 @@ public class SearchDslParserTest {
             SearchDslParser.parseDsl(dsl, "", "and");
         });
 
-        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL syntax"));
+        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL"));
     }
 
     @Test

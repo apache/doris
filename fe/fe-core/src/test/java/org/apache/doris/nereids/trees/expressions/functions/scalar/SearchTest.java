@@ -169,7 +169,7 @@ public class SearchTest {
             searchFunc.getQsPlan();
             Assertions.assertTrue(false, "Expected exception for invalid DSL");
         } catch (RuntimeException e) {
-            Assertions.assertTrue(e.getMessage().contains("Invalid search DSL syntax"));
+            Assertions.assertTrue(e.getMessage().contains("Invalid search DSL"));
         }
     }
 }
