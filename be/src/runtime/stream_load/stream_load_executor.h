@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <functional>
 #include <memory>
 
 #include "common/factory_creator.h"
@@ -53,6 +54,10 @@ public:
 
     Status execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx,
                                  const TPipelineFragmentParamsList& parent);
+
+    Status execute_plan_fragment(
+            std::shared_ptr<StreamLoadContext> ctx, const TPipelineFragmentParamsList& parent,
+            const std::function<void(std::shared_ptr<StreamLoadContext> ctx)>& cb);
 
 protected:
     // collect the load statistics from context and set them to stat

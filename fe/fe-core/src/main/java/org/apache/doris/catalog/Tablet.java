@@ -40,7 +40,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,7 +49,7 @@ import java.util.stream.LongStream;
 /**
  * This class represents the olap tablet related metadata.
  */
-public class Tablet {
+public abstract class Tablet {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
     // if current version count of replica is mor than
     // QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
@@ -105,23 +104,13 @@ public class Tablet {
 
     @SerializedName(value = "id")
     protected long id;
-    @SerializedName(value = "rs", alternate = {"replicas"})
-    protected List<Replica> replicas;
 
     public Tablet() {
-        this(0L, new ArrayList<>());
+        this(0L);
     }
 
     public Tablet(long tabletId) {
-        this(tabletId, new ArrayList<>());
-    }
-
-    private Tablet(long tabletId, List<Replica> replicas) {
         this.id = tabletId;
-        this.replicas = replicas;
-        if (this.replicas == null) {
-            this.replicas = new ArrayList<>();
-        }
     }
 
     public long getId() {
@@ -160,45 +149,17 @@ public class Tablet {
         return Pair.of(-1L, -1L);
     }
 
-    protected boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
-        boolean delete = false;
-        boolean hasBackend = false;
-        long version = newReplica.getVersion();
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            Replica replica = iterator.next();
-            if (replica.getBackendIdWithoutException() == newReplica.getBackendIdWithoutException()) {
-                hasBackend = true;
-                if (replica.getVersion() <= version) {
-                    iterator.remove();
-                    delete = true;
-                }
-            }
-        }
-
-        return delete || !hasBackend;
-    }
-
-    public void addReplica(Replica replica, boolean isRestore) {
-        if (isLatestReplicaAndDeleteOld(replica)) {
-            replicas.add(replica);
-            if (!isRestore) {
-                Env.getCurrentInvertedIndex().addReplica(id, replica);
-            }
-        }
-    }
+    public abstract void addReplica(Replica replica, boolean isRestore);
 
     public void addReplica(Replica replica) {
         addReplica(replica, false);
     }
 
-    public List<Replica> getReplicas() {
-        return this.replicas;
-    }
+    public abstract List<Replica> getReplicas();
 
     public Set<Long> getBackendIds() {
         Set<Long> beIds = Sets.newHashSet();
-        for (Replica replica : replicas) {
+        for (Replica replica : getReplicas()) {
             beIds.add(replica.getBackendIdWithoutException());
         }
         return beIds;
@@ -222,7 +183,7 @@ public class Tablet {
             throws UserException {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        for (Replica replica : replicas) {
+        for (Replica replica : getReplicas()) {
             long backendId = idGetter.get(replica, beEndpoint);
             if (!infoService.checkBackendAlive(backendId)) {
                 continue;
@@ -254,6 +215,7 @@ public class Tablet {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
             boolean allowMissingVersion) {
+        List<Replica> replicas = getReplicas();
         int replicaNum = replicas.size();
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicaNum);
@@ -333,7 +295,7 @@ public class Tablet {
         StringBuilder sb = new StringBuilder("Visible Replicas:");
         sb.append("Visible version: ").append(visibleVersion);
         sb.append(", Replicas: ");
-        sb.append(Joiner.on(", ").join(replicas.stream().map(replica -> replica.toStringSimple(true))
+        sb.append(Joiner.on(", ").join(getReplicas().stream().map(replica -> replica.toStringSimple(true))
                 .collect(Collectors.toList())));
         sb.append(".");
 
@@ -341,7 +303,7 @@ public class Tablet {
     }
 
     public Replica getReplicaById(long replicaId) {
-        for (Replica replica : replicas) {
+        for (Replica replica : getReplicas()) {
             if (replica.getId() == replicaId) {
                 return replica;
             }
@@ -349,55 +311,14 @@ public class Tablet {
         return null;
     }
 
-    public Replica getReplicaByBackendId(long backendId) {
-        for (Replica replica : replicas) {
-            if (replica.getBackendIdWithoutException() == backendId) {
-                return replica;
-            }
-        }
-        return null;
-    }
+    public abstract Replica getReplicaByBackendId(long backendId);
 
     public boolean deleteReplica(Replica replica) {
-        if (replicas.contains(replica)) {
-            replicas.remove(replica);
-            Env.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendIdWithoutException());
-            return true;
-        }
-        return false;
+        throw new UnsupportedOperationException("deleteReplica is not supported in Tablet");
     }
 
     public boolean deleteReplicaByBackendId(long backendId) {
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            Replica replica = iterator.next();
-            if (replica.getBackendIdWithoutException() == backendId) {
-                iterator.remove();
-                Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    @Deprecated
-    public Replica deleteReplicaById(long replicaId) {
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            Replica replica = iterator.next();
-            if (replica.getId() == replicaId) {
-                LOG.info("delete replica[" + replica.getId() + "]");
-                iterator.remove();
-                return replica;
-            }
-        }
-        return null;
-    }
-
-    // for test,
-    // and for some replay cases
-    public void clearReplica() {
-        this.replicas.clear();
+        throw new UnsupportedOperationException("deleteReplicaByBackendId is not supported in Tablet");
     }
 
     public void setTabletId(long tabletId) {
@@ -410,34 +331,12 @@ public class Tablet {
     }
 
     @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-        if (!(obj instanceof Tablet)) {
-            return false;
-        }
-
-        Tablet tablet = (Tablet) obj;
-
-        if (replicas != tablet.replicas) {
-            if (replicas.size() != tablet.replicas.size()) {
-                return false;
-            }
-            int size = replicas.size();
-            for (int i = 0; i < size; i++) {
-                if (!tablet.replicas.contains(replicas.get(i))) {
-                    return false;
-                }
-            }
-        }
-        return id == tablet.id;
-    }
+    public abstract boolean equals(Object obj);
 
     // ATTN: Replica::getDataSize may zero in cloud and non-cloud
     // due to dataSize not write to image
     public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
-        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
                 .filter(r -> !filterSizeZero || r.getDataSize() > 0)
                 .mapToLong(Replica::getDataSize);
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
@@ -448,7 +347,7 @@ public class Tablet {
     }
 
     public long getRowCount(boolean singleReplica) {
-        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
                 .mapToLong(Replica::getRowCount);
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
     }
@@ -458,7 +357,7 @@ public class Tablet {
     public long getMinReplicaRowCount(long version) {
         long minRowCount = Long.MAX_VALUE;
         long maxReplicaVersion = 0;
-        for (Replica r : replicas) {
+        for (Replica r : getReplicas()) {
             if (r.isAlive()
                     && r.checkVersionCatchUp(version, false)
                     && (r.getVersion() > maxReplicaVersion
@@ -494,6 +393,7 @@ public class Tablet {
         boolean hasAliveAndVersionIncomplete = false;
         Set<String> hosts = Sets.newHashSet();
         ArrayList<Long> versions = new ArrayList<>();
+        List<Replica> replicas = getReplicas();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendIdWithoutException());
             if (!isReplicaAndBackendAlive(replica, backend, hosts)) {
@@ -710,6 +610,7 @@ public class Tablet {
         boolean hasAliveAndVersionIncomplete = false;
         int aliveAndVersionComplete = 0;
         Set<String> hosts = Sets.newHashSet();
+        List<Replica> replicas = getReplicas();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendIdWithoutException());
             if (!isReplicaAndBackendAlive(replica, backend, hosts)) {
@@ -798,59 +699,8 @@ public class Tablet {
         return tabletHealth;
     }
 
-    /**
-     * check if this tablet is ready to be repaired, based on priority.
-     * VERY_HIGH: repair immediately
-     * HIGH:    delay Config.tablet_repair_delay_factor_second * 1;
-     * NORMAL:  delay Config.tablet_repair_delay_factor_second * 2;
-     * LOW:     delay Config.tablet_repair_delay_factor_second * 3;
-     */
     public boolean readyToBeRepaired(SystemInfoService infoService, TabletSchedCtx.Priority priority) {
-        if (FeConstants.runningUnitTest) {
-            return true;
-        }
-
-        if (priority == Priority.VERY_HIGH) {
-            return true;
-        }
-
-        boolean allBeAliveOrDecommissioned = true;
-        for (Replica replica : replicas) {
-            Backend backend = infoService.getBackend(replica.getBackendIdWithoutException());
-            if (backend == null || (!backend.isAlive() && !backend.isDecommissioned())) {
-                allBeAliveOrDecommissioned = false;
-                break;
-            }
-        }
-
-        if (allBeAliveOrDecommissioned) {
-            return true;
-        }
-
-        long currentTime = System.currentTimeMillis();
-
-        // first check, wait for next round
-        if (getLastStatusCheckTime() == -1) {
-            setLastStatusCheckTime(currentTime);
-            return false;
-        }
-
-        boolean ready = false;
-        switch (priority) {
-            case HIGH:
-                ready = currentTime - getLastStatusCheckTime() > Config.tablet_repair_delay_factor_second * 1000 * 1;
-                break;
-            case NORMAL:
-                ready = currentTime - getLastStatusCheckTime() > Config.tablet_repair_delay_factor_second * 1000 * 2;
-                break;
-            case LOW:
-                ready = currentTime - getLastStatusCheckTime() > Config.tablet_repair_delay_factor_second * 1000 * 3;
-                break;
-            default:
-                break;
-        }
-
-        return ready;
+        throw new UnsupportedOperationException("readyToBeRepaired is not supported in Tablet");
     }
 
     protected long getLastStatusCheckTime() {
