@@ -23,6 +23,7 @@ import org.apache.doris.nereids.search.SearchParserBaseVisitor;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.antlr.v4.runtime.CharStreams;
@@ -472,7 +473,7 @@ public class SearchDslParser {
                 // End of term (only if not escaped - handled above)
                 if (currentTerm.length() > 0) {
                     terms.add(currentTerm.toString());
-                    currentTerm = new StringBuilder();
+                    currentTerm.setLength(0);  // Reuse StringBuilder instead of creating new one
                 }
             } else {
                 currentTerm.append(c);
@@ -1651,11 +1652,21 @@ public class SearchDslParser {
      * - fields: array of field names for multi-field search (mutually exclusive with default_field)
      */
     public static class SearchOptions {
+        @JsonProperty("default_field")
         private String defaultField = null;
+
+        @JsonProperty("default_operator")
         private String defaultOperator = null;
+
+        @JsonProperty("mode")
         private String mode = "standard";
+
+        @JsonProperty("minimum_should_match")
         private Integer minimumShouldMatch = null;
+
         private List<String> fields = null;
+
+        @JsonProperty("type")
         private String type = "best_fields";  // "best_fields" (default) or "cross_fields"
 
         public String getDefaultField() {
@@ -1698,8 +1709,22 @@ public class SearchDslParser {
             return fields == null ? null : Collections.unmodifiableList(fields);
         }
 
+        /**
+         * Set fields with empty element filtering.
+         * Empty or whitespace-only strings are filtered out.
+         */
+        @JsonSetter("fields")
         public void setFields(List<String> fields) {
-            this.fields = fields == null ? null : new ArrayList<>(fields);
+            if (fields == null) {
+                this.fields = null;
+                return;
+            }
+            // Filter out empty or whitespace-only elements
+            List<String> filtered = fields.stream()
+                    .filter(f -> f != null && !f.trim().isEmpty())
+                    .map(String::trim)
+                    .collect(Collectors.toList());
+            this.fields = filtered.isEmpty() ? null : new ArrayList<>(filtered);
         }
 
         /**
@@ -1750,75 +1775,59 @@ public class SearchDslParser {
         public boolean isCrossFieldsMode() {
             return "cross_fields".equals(type);
         }
-    }
 
-    /**
-     * Parse options JSON string.
-     * Supports the following fields:
-     * - default_field: default field name when DSL doesn't specify field
-     * - default_operator: "and" or "or" for multi-term queries
-     * - mode: "standard" or "lucene"
-     * - minimum_should_match: integer for Lucene mode
-     * - fields: array of field names for multi-field search
-     * - type: "best_fields" (default) or "cross_fields" for multi-field search semantics
-     */
-    private static SearchOptions parseOptions(String optionsJson) {
-        SearchOptions options = new SearchOptions();
-        if (optionsJson == null || optionsJson.trim().isEmpty()) {
-            return options;
-        }
-
-        try {
-            // Parse JSON using Jackson
-            com.fasterxml.jackson.databind.JsonNode jsonNode = JSON_MAPPER.readTree(optionsJson);
-
-            if (jsonNode.has("default_field")) {
-                options.setDefaultField(jsonNode.get("default_field").asText());
-            }
-            if (jsonNode.has("default_operator")) {
-                options.setDefaultOperator(jsonNode.get("default_operator").asText());
-            }
-            if (jsonNode.has("mode")) {
-                options.setMode(jsonNode.get("mode").asText());
-            }
-            if (jsonNode.has("minimum_should_match")) {
-                options.setMinimumShouldMatch(jsonNode.get("minimum_should_match").asInt());
-            }
-            // Parse fields array for multi-field search
-            if (jsonNode.has("fields")) {
-                com.fasterxml.jackson.databind.JsonNode fieldsNode = jsonNode.get("fields");
-                if (fieldsNode.isArray()) {
-                    List<String> fieldsList = new ArrayList<>();
-                    for (com.fasterxml.jackson.databind.JsonNode fieldNode : fieldsNode) {
-                        String fieldValue = fieldNode.asText().trim();
-                        if (!fieldValue.isEmpty()) {
-                            fieldsList.add(fieldValue);
-                        }
-                    }
-                    if (!fieldsList.isEmpty()) {
-                        options.setFields(fieldsList);
-                    }
-                }
-            }
-            // Parse type for multi-field search semantics
-            if (jsonNode.has("type")) {
-                options.setType(jsonNode.get("type").asText());
-            }
-
+        /**
+         * Validate the options after deserialization.
+         * Checks for:
+         * - Mutual exclusion between fields and default_field
+         * - minimum_should_match is non-negative if specified
+         *
+         * @throws IllegalArgumentException if validation fails
+         */
+        public void validate() {
             // Validation: fields and default_field are mutually exclusive
-            if (options.getFields() != null && !options.getFields().isEmpty()
-                    && options.getDefaultField() != null && !options.getDefaultField().isEmpty()) {
+            if (fields != null && !fields.isEmpty()
+                    && defaultField != null && !defaultField.isEmpty()) {
                 throw new IllegalArgumentException(
                         "'fields' and 'default_field' are mutually exclusive. Use only one.");
             }
+            // Validation: minimum_should_match should be non-negative
+            if (minimumShouldMatch != null && minimumShouldMatch < 0) {
+                throw new IllegalArgumentException(
+                        "'minimum_should_match' must be non-negative, got: " + minimumShouldMatch);
+            }
+        }
+    }
+
+    /**
+     * Parse options JSON string using Jackson databind.
+     * The SearchOptions class uses @JsonProperty annotations for field mapping
+     * and @JsonSetter for custom deserialization logic (e.g., filtering empty fields).
+     *
+     * @param optionsJson JSON string containing search options
+     * @return Parsed and validated SearchOptions
+     * @throws IllegalArgumentException if JSON is invalid or validation fails
+     */
+    private static SearchOptions parseOptions(String optionsJson) {
+        if (optionsJson == null || optionsJson.trim().isEmpty()) {
+            return new SearchOptions();
+        }
+
+        try {
+            // Use Jackson to deserialize directly into SearchOptions
+            // @JsonProperty annotations handle field mapping
+            // @JsonSetter on setFields() handles empty element filtering
+            SearchOptions options = JSON_MAPPER.readValue(optionsJson, SearchOptions.class);
+            // Run validation checks (mutual exclusion, range checks, etc.)
+            options.validate();
+            return options;
         } catch (IllegalArgumentException e) {
+            // Re-throw validation errors as-is
             throw e;
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException(
                     "Invalid search options JSON: '" + optionsJson + "'. Error: " + e.getMessage(), e);
         }
-
-        return options;
     }
 
     /**
