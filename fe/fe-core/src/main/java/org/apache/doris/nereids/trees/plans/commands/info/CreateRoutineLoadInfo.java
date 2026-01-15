@@ -446,9 +446,13 @@ public class CreateRoutineLoadInfo {
         }
     }
 
-    private void validateFlexiblePartialUpdate(OlapTable table) throws UserException {
+    private void validateFlexiblePartialUpdate(OlapTable table) throws AnalysisException {
         // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
-        table.validateForFlexiblePartialUpdate();
+        try {
+            table.validateForFlexiblePartialUpdate();
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         // Routine load specific validations
         // Must use JSON format
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");

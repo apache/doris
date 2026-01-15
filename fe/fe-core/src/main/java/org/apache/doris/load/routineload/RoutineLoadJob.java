@@ -2102,9 +2102,8 @@ public abstract class RoutineLoadJob
                 JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
             throw new DdlException("Flexible partial update does not support fuzzy_parse");
         }
-        // Cannot specify COLUMNS mapping (check routineLoadDesc)
-        if (routineLoadDesc != null && routineLoadDesc.getColumnsInfo() != null
-                && !routineLoadDesc.getColumnsInfo().getColumns().isEmpty()) {
+        // Cannot specify COLUMNS mapping
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
             throw new DdlException("Flexible partial update does not support COLUMNS specification");
         }
     }
