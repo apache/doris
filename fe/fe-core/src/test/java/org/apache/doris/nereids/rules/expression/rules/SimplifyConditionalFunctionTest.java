@@ -60,10 +60,10 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         assertRewrite(new Coalesce(slot, nonNullableSlot), new Coalesce(slot, nonNullableSlot));
 
         // coalesce(null, null) -> null
-        assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE), new NullLiteral(BooleanType.INSTANCE));
+        assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE), NullLiteral.INSTANCE);
 
         // coalesce(null) -> null
-        assertRewrite(new Coalesce(NullLiteral.INSTANCE), new NullLiteral(BooleanType.INSTANCE));
+        assertRewrite(new Coalesce(NullLiteral.INSTANCE), NullLiteral.INSTANCE);
 
         // coalesce(non-nullable_slot) -> non-nullable_slot
         assertRewrite(new Coalesce(nonNullableSlot), nonNullableSlot);
