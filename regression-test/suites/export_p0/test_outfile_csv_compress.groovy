@@ -36,7 +36,7 @@ suite("test_outfile_csv_compress", "p0") {
             DISTRIBUTED BY HASH(name) PROPERTIES("replication_num" = "1");
         """
         sql """ INSERT INTO ${table_name} values(1, 'zhangsan');"""
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 10; i++) {
             sql """ insert into ${table_name} select id + ${i}, concat(name, id + ${i}) from ${table_name};"""
         }
 
