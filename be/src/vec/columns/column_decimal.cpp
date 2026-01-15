@@ -537,12 +537,20 @@ void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_m
 }
 
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
-    return data[n].value / DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
-    return data[n].value % DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 
 template class ColumnDecimal<TYPE_DECIMAL32>;

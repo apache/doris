@@ -96,10 +96,10 @@ Status RuntimeFilterConsumerHelper::_append_rf_into_conjuncts(
 }
 
 Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
-        RuntimeState* state, int* arrived_rf_num, vectorized::VExprContextSPtrs& conjuncts,
-        const RowDescriptor& row_descriptor) {
+        RuntimeState* state, const RowDescriptor& row_descriptor, int& arrived_rf_num,
+        vectorized::VExprContextSPtrs& arrived_conjuncts) {
     if (_is_all_rf_applied) {
-        *arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
+        arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
         return Status::OK();
     }
 
@@ -107,7 +107,7 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     // So need to add lock
     std::unique_lock l(_rf_locks);
     if (_is_all_rf_applied) {
-        *arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
+        arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
         return Status::OK();
     }
 
@@ -120,24 +120,12 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     }
     // 2. Append unapplied runtime filters to _conjuncts
     if (!exprs.empty()) {
-        RETURN_IF_ERROR(_append_rf_into_conjuncts(state, exprs, conjuncts, row_descriptor));
+        RETURN_IF_ERROR(_append_rf_into_conjuncts(state, exprs, arrived_conjuncts, row_descriptor));
     }
     if (current_arrived_rf_num == _runtime_filter_descs.size()) {
         _is_all_rf_applied = true;
     }
-
-    *arrived_rf_num = current_arrived_rf_num;
-    return Status::OK();
-}
-
-Status RuntimeFilterConsumerHelper::clone_conjunct_ctxs(
-        RuntimeState* state, vectorized::VExprContextSPtrs& scanner_conjuncts,
-        vectorized::VExprContextSPtrs& local_state_conjuncts) {
-    std::unique_lock l(_rf_locks);
-    scanner_conjuncts.resize(local_state_conjuncts.size());
-    for (size_t i = 0; i != local_state_conjuncts.size(); ++i) {
-        RETURN_IF_ERROR(local_state_conjuncts[i]->clone(state, scanner_conjuncts[i]));
-    }
+    arrived_rf_num = current_arrived_rf_num;
     return Status::OK();
 }
 

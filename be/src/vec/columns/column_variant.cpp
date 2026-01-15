@@ -232,9 +232,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
                 type_changed = true;
             }
         } else {
-            if (least_common_type_id != from_type_id &&
-                schema_util::is_conversion_required_between_integers(from_type_id,
-                                                                     least_common_type_id)) {
+            if (least_common_type_id != from_type_id) {
                 type_changed = true;
                 DataTypePtr new_least_common_base_type;
                 get_least_supertype_jsonb(PrimitiveTypeSet {from_type_id, least_common_type_id},
@@ -702,7 +700,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
 
 void ColumnVariant::try_insert(const Field& field) {
     size_t old_size = size();
-    const auto& object = field.get<const VariantMap&>();
+    const auto& object = field.get<TYPE_VARIANT>();
     for (const auto& [key, value] : object) {
         if (!has_subcolumn(key)) {
             bool succ = add_sub_column(key, old_size);
@@ -875,7 +873,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                size());
     }
     res = Field::create_field<TYPE_VARIANT>(VariantMap());
-    auto& object = res.get<VariantMap&>();
+    auto& object = res.get<TYPE_VARIANT>();
 
     for (const auto& entry : subcolumns) {
         FieldWithDataType field;
@@ -1453,7 +1451,7 @@ bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
         FieldWithDataType field;
         get(row, field);
         if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
-            const auto& array = field.field.get<Array>();
+            const auto& array = field.field.get<TYPE_ARRAY>();
             bool only_nulls_inside = true;
             for (const auto& elem : array) {
                 if (elem.get_type() != PrimitiveType::TYPE_NULL) {

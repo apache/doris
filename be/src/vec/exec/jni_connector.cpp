@@ -172,14 +172,14 @@ Status JniConnector::close() {
             COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
 
             RETURN_ERROR_IF_EXC(env);
-            int64_t _append = 0;
+            jlong _append = 0;
             RETURN_IF_ERROR(
                     _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
                             .call(&_append));
 
             COUNTER_UPDATE(_java_append_data_time, _append);
 
-            int64_t _create = 0;
+            jlong _create = 0;
             RETURN_IF_ERROR(
                     _jni_scanner_obj
                             .call_long_method(env, _jni_scanner_get_create_vector_table_time)

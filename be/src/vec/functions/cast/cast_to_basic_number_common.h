@@ -151,7 +151,8 @@ struct CastToInt {
 
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeInt<ToCppT> &&
-                 std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType>)
+                 (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType> ||
+                  std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>))
     static inline bool from_bool(FromCppT from, ToCppT& to, CastParameters& params) {
         CastUtil::static_cast_set(to, from);
         return true;
@@ -224,7 +225,31 @@ struct CastToInt {
     }
 
     template <typename FromCppT, typename ToCppT>
-        requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT>)
+        requires(IsCppTypeInt<ToCppT> && IsDecimalV2<FromCppT>)
+    static inline bool _from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
+                                     ToCppT& to,
+                                     const typename FromCppT::NativeType& scale_multiplier,
+                                     bool narrow_integral, CastParameters& params) {
+        constexpr auto min_result = std::numeric_limits<ToCppT>::lowest();
+        constexpr auto max_result = std::numeric_limits<ToCppT>::max();
+        auto tmp = from.value() / scale_multiplier;
+        if (narrow_integral) {
+            if (tmp < min_result || tmp > max_result) {
+                params.status = Status::Error(
+                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                        fmt::format("Arithmetic overflow when converting "
+                                    "value {} from type {} to type {}",
+                                    decimal_to_string(from.value(), from_scale),
+                                    type_to_string(FromCppT::PType), int_type_name<ToCppT>));
+                return false;
+            }
+        }
+        to = static_cast<ToCppT>(tmp);
+        return true;
+    }
+
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeInt<ToCppT> && IsDecimalNumber<FromCppT> && !IsDecimal128V2<FromCppT>)
     static inline bool _from_decimal(FromCppT from, UInt32 from_precision, UInt32 from_scale,
                                      ToCppT& to,
                                      const typename FromCppT::NativeType& scale_multiplier,
@@ -294,7 +319,8 @@ struct CastToFloat {
     }
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeFloat<ToCppT> &&
-                 std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType>)
+                 (std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType> ||
+                  std::is_same_v<FromCppT, PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>))
     static inline bool from_bool(const FromCppT& from, ToCppT& to, CastParameters& params) {
         CastUtil::static_cast_set(to, from);
         return true;
@@ -325,11 +351,20 @@ struct CastToFloat {
         }
     }
     template <typename FromCppT, typename ToCppT>
-        requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT>)
+        requires(IsCppTypeFloat<ToCppT> && IsDecimalNumber<FromCppT> && !IsDecimalV2<FromCppT>)
     static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
                                        const typename FromCppT::NativeType& scale_multiplier,
                                        CastParameters& params) {
         to = static_cast<ToCppT>(static_cast<double>(from.value) /
+                                 static_cast<double>(scale_multiplier));
+        return true;
+    }
+    template <typename FromCppT, typename ToCppT>
+        requires(IsCppTypeFloat<ToCppT> && IsDecimalV2<FromCppT>)
+    static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
+                                       const typename FromCppT::NativeType& scale_multiplier,
+                                       CastParameters& params) {
+        to = static_cast<ToCppT>(static_cast<double>(from.value()) /
                                  static_cast<double>(scale_multiplier));
         return true;
     }

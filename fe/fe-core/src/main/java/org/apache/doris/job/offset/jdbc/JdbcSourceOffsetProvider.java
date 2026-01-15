@@ -18,6 +18,7 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.httpv2.entity.ResponseBody;
+import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -183,7 +184,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
@@ -258,7 +259,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         CompareOffsetRequest requestParams =
                 new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties, offsetFirst, offsetSecond);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -430,6 +431,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             this.remainingSplits = tableSplits.values().stream()
                     .flatMap(List::stream)
                     .collect(Collectors.toList());
+        } else {
+            // The source reader is automatically initialized when the split is obtained.
+            // In latest mode, a separate init is required.init source reader
+            initSourceReader();
         }
     }
 
@@ -444,7 +449,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         FetchTableSplitsRequest requestParams =
                 new FetchTableSplitsRequest(getJobId(), sourceType.name(), sourceProperties, table);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -490,10 +495,60 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         return DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startMode);
     }
 
+    /**
+     * Source reader needs to be initialized here.
+     * For example, PG slots need to be created first;
+     * otherwise, conflicts will occur in multi-backends scenarios.
+     */
+    private void initSourceReader() throws JobException {
+        Backend backend = StreamingJobUtils.selectBackend();
+        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                .setApi("/api/initReader")
+                .setParams(new Gson().toJson(requestParams)).build();
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        InternalService.PRequestCdcClientResult result = null;
+        try {
+            Future<PRequestCdcClientResult> future =
+                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                log.warn("Failed to init job {} reader, {}", getJobId(), result.getStatus().getErrorMsgs(0));
+                throw new JobException(
+                        "Failed to init source reader," + result.getStatus().getErrorMsgs(0) + ", response: "
+                                + result.getResponse());
+            }
+            String response = result.getResponse();
+            try {
+                ResponseBody<String> responseObj = objectMapper.readValue(
+                        response,
+                        new TypeReference<ResponseBody<String>>() {
+                        }
+                );
+                if (responseObj.getCode() == RestApiStatusCode.OK.code) {
+                    log.info("Init {} source reader successfully, response: {}", getJobId(), responseObj.getData());
+                    return;
+                } else {
+                    throw new JobException("Failed to init source reader, error: " + responseObj.getData());
+                }
+            } catch (JobException jobex) {
+                log.warn("Failed to init {} source reader, {}", getJobId(), response);
+                throw new JobException(jobex.getMessage());
+            } catch (Exception e) {
+                log.warn("Failed to init {} source reader, {}", getJobId(), response);
+                throw new JobException("Failed to init source reader, cause " + e.getMessage());
+            }
+        } catch (ExecutionException | InterruptedException ex) {
+            log.warn("init source reader: ", ex);
+            throw new JobException(ex);
+        }
+    }
+
     public void cleanMeta(Long jobId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
         JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/close")

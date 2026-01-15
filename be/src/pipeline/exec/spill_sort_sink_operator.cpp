@@ -230,7 +230,7 @@ Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state, TUnique
         RETURN_IF_ERROR(status);
         block.clear_column_data();
     }
-    parent._sort_sink_operator->reset(_runtime_state.get());
+    RETURN_IF_ERROR(parent._sort_sink_operator->reset(_runtime_state.get()));
 
     return Status::OK();
 }

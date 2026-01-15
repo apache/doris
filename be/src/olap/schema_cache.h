@@ -87,7 +87,9 @@ public:
 
     SchemaCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::SCHEMA_CACHE, capacity, LRUCacheType::NUMBER,
-                             config::schema_cache_sweep_time_sec) {}
+                             config::schema_cache_sweep_time_sec, /*num shards*/ 32,
+                             /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                             /*is lru-k*/ false) {}
 
 private:
     static constexpr char SCHEMA_DELIMITER = '-';
