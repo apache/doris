@@ -34,7 +34,6 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
-#include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
