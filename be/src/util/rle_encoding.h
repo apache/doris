@@ -445,12 +445,6 @@ void RleEncoder<T>::Put(T value, size_t run_length) {
     // Handle run_length > 1 more efficiently
     while (run_length > 0) {
         if (current_value_ == value) [[likely]] {
-            // Calculate how many values we can add to the current run
-            if (repeat_count_ >= 8) {
-                // Already in a repeated run, just add all remaining
-                repeat_count_ += run_length;
-                return;
-            }
             // Need to buffer values until we reach 8
             size_t to_buffer = std::min(run_length, size_t(8 - num_buffered_values_));
             for (size_t i = 0; i < to_buffer; ++i) {
