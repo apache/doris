@@ -34,6 +34,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
@@ -51,7 +52,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -94,11 +94,22 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (SessionVariable.isFeDebug()) {
+            try {
+                new AdjustNullable(false).rewriteRoot(plan, null);
+            } catch (Exception e) {
+                throw new NereidsException("(PushDownAggregation) input plan has nullable problem", e);
+            }
+        }
         int mode = SessionVariable.getEagerAggregationMode();
         if (mode < 0) {
             return plan;
         } else {
-            return plan.accept(this, jobContext);
+            Plan result = plan.accept(this, jobContext);
+            if (SessionVariable.isFeDebug()) {
+                result = new AdjustNullable(true).rewriteRoot(result, null);
+            }
+            return result;
         }
     }
 
@@ -185,10 +196,8 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 LogicalAggregate<Plan> eagerAgg =
                         agg.withAggOutputChild(newOutputExpressions, child);
                 NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
-                LogicalPlan normalized = normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
+                return normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
                         context.getCascadesContext());
-                AdjustNullable adjustNullable = new AdjustNullable(false, false);
-                return adjustNullable.rewriteRoot(normalized, null);
             }
         } catch (RuntimeException e) {
             String msg = "PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString();
