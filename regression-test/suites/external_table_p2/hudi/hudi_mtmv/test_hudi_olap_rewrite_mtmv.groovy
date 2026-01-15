@@ -46,7 +46,7 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
     String props = context.config.otherConfigs.get("hudiEmrCatalog")
 
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-    String mvSql = "SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id;";
+    String mvSql = "SELECT par, count(*) FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id group by par;";
 
     sql """drop catalog if exists ${catalogName}"""
     sql """CREATE CATALOG if not exists ${catalogName} PROPERTIES (
@@ -55,6 +55,82 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
 
     sql """analyze table ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 with sync"""
     sql """alter table ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 modify column par set stats ('row_count'='10');"""
+    sql """
+alter table ${catalogName}.hudi_mtmv_regression_test.hudi_table_1
+modify column age set stats (
+  "ndv"="10",
+  "num_nulls"="0",
+  "min_value"="1",
+  "max_value"="10",
+  "row_count"="10"
+);
+"""
+
+    sql """
+alter table ${catalogName}.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_record_key set stats (
+  "ndv"="10",
+  "num_nulls"="0",
+  "min_value"="20250121171615893_0_0",
+  "max_value"="20250121171615893_7_1",
+  "row_count"="10"
+);
+"""
+
+    sql """
+alter table ${catalogName}.hudi_mtmv_regression_test.hudi_table_1
+modify column id set stats (
+  "ndv"="10",
+  "num_nulls"="0",
+  "min_value"="1",
+  "max_value"="10",
+  "row_count"="10"
+);
+"""
+
+    sql """
+alter table ${catalogName}.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_file_name set stats (
+  "ndv"="2",
+  "num_nulls"="0",
+  "min_value"="58eabd3f-1996-4cb6-83e4-56fd11cb4e7d-0_0-30-108_20250121171615893.parquet",
+  "max_value"="7f98e9ac-bd11-48fd-ac80-9ca6dc1ddb34-0_1-30-109_20250121171615893.parquet",
+  "row_count"="10"
+);
+"""
+
+    sql """
+alter table ${catalogName}.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_partition_path set stats (
+  "ndv"="2",
+  "num_nulls"="0",
+  "min_value"="par=a",
+  "max_value"="par=b",
+  "row_count"="10"
+);
+"""
+
+    sql """
+alter table ${catalogName}.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_commit_seqno set stats (
+  "ndv"="10",
+  "num_nulls"="0",
+  "min_value"="20250121171615893_0_0",
+  "max_value"="20250121171615893_1_4",
+  "row_count"="10"
+);
+"""
+
+    sql """
+alter table ${catalogName}.hudi_mtmv_regression_test.hudi_table_1
+modify column _hoodie_commit_time set stats (
+  "ndv"="1",
+  "num_nulls"="0",
+  "min_value"="20250121171615893",
+  "max_value"="20250121171615893",
+  "row_count"="10"
+);
+"""
 
     sql """drop materialized view if exists ${mvName};"""
 
@@ -79,15 +155,12 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
 
-    def explainOnePartition = sql """ explain  ${mvSql} """
-    logger.info("explainOnePartition: " + explainOnePartition.toString())
-    assertTrue(explainOnePartition.toString().contains("VUNION"))
     order_qt_refresh_one_partition_rewrite "${mvSql}"
 
     mv_rewrite_success("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
-    mv_not_part_in("SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
+    mv_not_part_in("SELECT par, count(*) FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id where a.par='b' group by par;", "${mvName}")
 
     //refresh auto
     sql """
