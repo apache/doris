@@ -34,10 +34,13 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -136,40 +139,63 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
 
-        List<AggregateFunction> aggFunctions = new ArrayList<>();
+        HashMap<AggregateFunction, AggregateFunction> aggFunctions = Maps.newHashMap();
         boolean hasSumIf = false;
-        for (AggregateFunction aggFunction : agg.getAggregateFunctions()) {
-            if (pushDownAggFunctionSet.contains(aggFunction.getClass())
-                    && !aggFunction.isDistinct()) {
-                if (aggFunction instanceof Sum && ((Sum) aggFunction).child() instanceof If) {
-                    If body = (If) ((Sum) aggFunction).child();
-                    Set<Slot> valueSlots = Sets.newHashSet(body.getTrueValue().getInputSlots());
-                    valueSlots.addAll(body.getFalseValue().getInputSlots());
-                    if (body.getCondition().getInputSlots().stream().anyMatch(s -> valueSlots.contains(s))) {
-                        // do not push down sum(if a then a else b)
-                        return agg;
+        // TODO context.aliasMap 是否还需要使用identityMap？？？
+        Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
+        for (NamedExpression aggOutput : agg.getOutputExpressions()) {
+            List<AggregateFunction> funcs = Lists.newArrayList();
+            aggFunctionsForOutputExpressions.put(aggOutput, funcs);
+            for (Object obj : aggOutput.collect(AggregateFunction.class::isInstance)) {
+                AggregateFunction aggFunction = (AggregateFunction) obj;
+                if (pushDownAggFunctionSet.contains(aggFunction.getClass())
+                        && !aggFunction.isDistinct()) {
+                    if (aggFunction instanceof Sum && ((Sum) aggFunction).child() instanceof If) {
+                        If body = (If) ((Sum) aggFunction).child();
+                        Set<Slot> valueSlots = Sets.newHashSet(body.getTrueValue().getInputSlots());
+                        valueSlots.addAll(body.getFalseValue().getInputSlots());
+                        if (body.getCondition().getInputSlots().stream().anyMatch(s -> valueSlots.contains(s))) {
+                            // do not push down sum(if a then a else b)
+                            return agg;
+                        }
+                        Sum sumTrue = new Sum(body.getTrueValue());
+                        if (aggFunctions.containsKey(sumTrue)) {
+                            funcs.add(aggFunctions.get(sumTrue));
+                        } else {
+                            aggFunctions.put(sumTrue, sumTrue);
+                            funcs.add(sumTrue);
+                        }
+                        if (!(body.getFalseValue() instanceof NullLiteral)) {
+                            Sum sumFalse = new Sum(body.getFalseValue());
+                            if (aggFunctions.containsKey(sumFalse)) {
+                                funcs.add(aggFunctions.get(sumFalse));
+                            } else {
+                                aggFunctions.put(sumFalse, sumFalse);
+                                funcs.add(sumFalse);
+                            }
+                        }
+                        groupKeys.addAll(body.getCondition().getInputSlots()
+                                .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
+                        hasSumIf = true;
+                    } else {
+                        if (aggFunctions.containsKey(aggFunction)) {
+                            funcs.add(aggFunctions.get(aggFunction));
+                        } else {
+                            aggFunctions.put(aggFunction, aggFunction);
+                            funcs.add(aggFunction);
+                        }
                     }
-                    aggFunctions.add(new Sum(body.getTrueValue()));
-                    if (!(body.getFalseValue() instanceof NullLiteral)) {
-                        aggFunctions.add(new Sum(body.getFalseValue()));
-                    }
-                    groupKeys.addAll(body.getCondition().getInputSlots()
-                            .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
-                    hasSumIf = true;
                 } else {
-                    aggFunctions.add(aggFunction);
+                    return agg;
                 }
-            } else {
-                return agg;
             }
         }
-        aggFunctions = aggFunctions.stream().distinct().collect(Collectors.toList());
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         if (!checkSubTreePattern(agg.child())) {
             return agg;
         }
 
-        PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
+        PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions.keySet()),
                 groupKeys, null, context.getCascadesContext(), hasSumIf);
         try {
             Plan child = agg.child().accept(writer, pushDownContext);
@@ -185,15 +211,34 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 //                                 ->scan(T1[A...])
                 //                       ->scan(T2)
                 List<NamedExpression> newOutputExpressions = new ArrayList<>();
-                Map<Expression, Slot> replaceMap = new HashMap<>();
-                for (Expression x : pushDownContext.getAliasMap().keySet()) {
-                    replaceMap.put(x.child(0), pushDownContext.getAliasMap().get(x).toSlot());
-                }
+                //Map<AggregateFunction, AggregateFunction> replaceMap = new HashMap<>();
+                //for (AggregateFunction aggFunc : pushDownContext.getAliasMap().keySet()) {
+                //    Alias alias = pushDownContext.getAliasMap().get(aggFunc);
+                //    replaceMap.put(aggFunc, (AggregateFunction) aggFunc.withChildren((Expression) alias.toSlot()));
+                //}
 
                 for (NamedExpression ne : agg.getOutputExpressions()) {
                     if (ne instanceof SlotReference) {
                         newOutputExpressions.add(ne);
                     } else {
+                        // every expression has its own replaceMap
+                        // aggregation(output=[min(A), sum(A)])
+                        //     --> join
+                        //            -> T1 [A ...]
+                        //            -> T2 [...]
+                        // =>
+                        // aggregation(output=[min(minA), sum(sumA)])
+                        //     --> join
+                        //            -> agg(output=[min(A) as minA, sum(A) as sumA])
+                        //                  -> T1 [A ...]
+                        //            -> T2 [...]
+                        // for min(A), replaceMap: A->minA
+                        // for sum(A), replaceMap: A->sumA
+                        Map<Expression, Slot> replaceMap = new HashMap<>();
+                        List<AggregateFunction> relatedAggFunc = aggFunctionsForOutputExpressions.get(ne);
+                        for (AggregateFunction func : relatedAggFunc) {
+                            replaceMap.put(func.child(0), pushDownContext.getAliasMap().get(func).toSlot());
+                        }
                         NamedExpression replaceAliasExpr = (NamedExpression) ExpressionUtils.replace(ne, replaceMap);
                         replaceAliasExpr = (NamedExpression) ExpressionUtils.rebuildSignature(replaceAliasExpr);
                         newOutputExpressions.add(replaceAliasExpr);

@@ -212,3 +212,33 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------PhysicalOlapScan[date_dim]
 
+-- !min_sum_same_slot --
+PhysicalResultSink
+--PhysicalProject
+----filter(brand IS NULL)
+------hashAgg[GLOBAL]
+--------PhysicalDistribute[DistributionSpecHash]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN shuffle] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[store_sales(ss)]
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[date_dim(dt)]
+----------------PhysicalProject
+------------------PhysicalOlapScan[web_sales(ws)]
+
+Hint log:
+Used: leading({ ss dt } ws )
+UnUsed:
+SyntaxError:
+
+-- !min_sum_same_slot_exe --
+
+-- !sum_min_same_slot_exe --
+

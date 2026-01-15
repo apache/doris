@@ -38,6 +38,7 @@ public class PushDownAggContext {
     public static final int BIG_JOIN_BUILD_SIZE = 400_000;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;
+    // using IdentityHashMap instead of HashMap is required by queries like tpc-ds q5
     private final IdentityHashMap<AggregateFunction, Alias> aliasMap;
     private final Set<Slot> aggFunctionsInputSlots;
 
