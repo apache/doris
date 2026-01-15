@@ -77,7 +77,7 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
 
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
 
-    // For ASOF JOIN, detect the inequality direction from the other_join_conjuncts expression
+    // For ASOF JOIN, detect the inequality direction and sort bucket indices by match column
     if (is_asof_join(p._join_op) && !_other_join_conjuncts.empty()) {
         auto& conjunct = _other_join_conjuncts[0];
         if (conjunct && conjunct->root()) {
@@ -86,6 +86,44 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
             // For <=, <: inequality_is_greater = false (find SMALLEST build value)
             _shared_state->asof_inequality_is_greater =
                     (opcode == TExprOpcode::GE || opcode == TExprOpcode::GT);
+            // For >, <: inequality_is_strict = true (exclude exact matches)
+            // For >=, <=: inequality_is_strict = false (include exact matches)
+            _shared_state->asof_inequality_is_strict =
+                    (opcode == TExprOpcode::GT || opcode == TExprOpcode::LT);
+
+            // Extract match column from expression's right child (build side column)
+            if (conjunct->root()->get_num_children() >= 2 && _shared_state->build_block) {
+                auto right_child = conjunct->root()->get_child(1);
+                if (right_child && right_child->is_slot_ref()) {
+                    auto* slot_ref = static_cast<vectorized::VSlotRef*>(right_child.get());
+                    int col_idx = slot_ref->column_id();
+                    auto& build_block = *_shared_state->build_block;
+                    if (col_idx >= 0 && col_idx < (int)build_block.columns()) {
+                        // Store match column for later use
+                        _shared_state->asof_build_match_column =
+                                build_block.get_by_position(col_idx).column;
+
+                        // Sort bucket indices by match column value (ascending order)
+                        // For >=/>: we'll binary search for largest value <= probe
+                        // For <=/<: we'll binary search for smallest value >= probe
+                        auto& sorted_indices = _shared_state->asof_sorted_bucket_indices;
+                        const auto* match_col = _shared_state->asof_build_match_column.get();
+                        if (match_col) {
+                            for (auto& bucket_indices : sorted_indices) {
+                                if (bucket_indices.size() > 1) {
+                                    std::sort(bucket_indices.begin(), bucket_indices.end(),
+                                              [match_col](uint32_t a, uint32_t b) {
+                                                  // Sort by match column value ascending
+                                                  // Note: row index in hash table is 1-based
+                                                  return match_col->compare_at(a - 1, b - 1,
+                                                                               *match_col, 1) < 0;
+                                              });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

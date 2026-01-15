@@ -598,6 +598,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_asof_join_conjuncts(vectorized::Blo
     //
     // For >= inequality (probe >= build): find build row with LARGEST value satisfying condition
     // For <= inequality (probe <= build): find build row with SMALLEST value satisfying condition
+    //
+    // OPTIMIZATION: Use binary search on pre-sorted bucket indices instead of linear scan.
+    // The bucket indices are sorted by match column value in ascending order during probe open().
     auto row_count = output_block->rows();
     if (!row_count) {
         return Status::OK();
@@ -606,100 +609,203 @@ Status ProcessHashTableProbe<JoinOpType>::do_asof_join_conjuncts(vectorized::Blo
     SCOPED_TIMER(_parent->_non_equal_join_conjuncts_timer);
     size_t orig_columns = output_block->columns();
 
-    // Execute the inequality condition to find which rows satisfy it
-    vectorized::IColumn::Filter other_conjunct_filter(row_count, 1);
-    {
-        bool can_be_filter_all = false;
-        RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
-                _parent->_other_join_conjuncts, nullptr, output_block, &other_conjunct_filter,
-                &can_be_filter_all));
-    }
-
     // For ASOF JOIN, we need to find the CLOSEST match for each probe row
     // Build a filter that keeps only the best match for each probe row group
     auto filter_column = vectorized::ColumnUInt8::create(row_count, 0);
     auto* __restrict filter_map = filter_column->get_data().data();
-    const auto* __restrict conjunct_filter = other_conjunct_filter.data();
 
     constexpr bool is_outer_join = JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN ||
                                    JoinOpType == TJoinOp::ASOF_RIGHT_OUTER_JOIN;
 
-    // Get inequality direction from shared state
+    // Get inequality direction, strictness, and match column from shared state
     bool inequality_is_greater = _parent->_shared_state->asof_inequality_is_greater;
+    bool inequality_is_strict = _parent->_shared_state->asof_inequality_is_strict;
+    const vectorized::IColumn* build_match_col_raw =
+            _parent->_shared_state->asof_build_match_column.get();
 
-    // Get the build match column for comparison
-    // For ASOF JOIN, the match column is the build side column in the inequality expression
-    // The expression is like: probe.ts >= build.ts, where build.ts is what we need to compare
-    // We extract this from the expression's right child (the build column)
-    const vectorized::IColumn* build_match_col = nullptr;
+    // Get the build match column from output_block for comparison
+    const vectorized::IColumn* output_build_match_col = nullptr;
     if (!_parent->_other_join_conjuncts.empty()) {
         auto& conjunct = _parent->_other_join_conjuncts[0];
         if (conjunct && conjunct->root() && conjunct->root()->get_num_children() >= 2) {
-            // The right child of the comparison is the build column
             auto right_child = conjunct->root()->get_child(1);
             if (right_child && right_child->is_slot_ref()) {
-                // Get the column_id which is the index in the block
                 auto* slot_ref = static_cast<vectorized::VSlotRef*>(right_child.get());
                 int col_idx = slot_ref->column_id();
                 if (col_idx >= 0 && col_idx < (int)output_block->columns()) {
-                    build_match_col = output_block->get_by_position(col_idx).column.get();
+                    output_build_match_col = output_block->get_by_position(col_idx).column.get();
                 }
             }
         }
     }
-    // Fallback to first build column if we couldn't find the match column
-    if (!build_match_col && _right_col_idx < output_block->columns()) {
-        build_match_col = output_block->get_by_position(_right_col_idx).column.get();
+    if (!output_build_match_col && _right_col_idx < output_block->columns()) {
+        output_build_match_col = output_block->get_by_position(_right_col_idx).column.get();
+    }
+
+    // Get probe match column from output_block (left child of the comparison)
+    const vectorized::IColumn* probe_match_col = nullptr;
+    if (!_parent->_other_join_conjuncts.empty()) {
+        auto& conjunct = _parent->_other_join_conjuncts[0];
+        if (conjunct && conjunct->root() && conjunct->root()->get_num_children() >= 2) {
+            auto left_child = conjunct->root()->get_child(0);
+            if (left_child && left_child->is_slot_ref()) {
+                auto* slot_ref = static_cast<vectorized::VSlotRef*>(left_child.get());
+                int col_idx = slot_ref->column_id();
+                if (col_idx >= 0 && col_idx < (int)output_block->columns()) {
+                    probe_match_col = output_block->get_by_position(col_idx).column.get();
+                }
+            }
+        }
     }
 
     // Process rows group by group (grouped by probe_index)
-    // For each group, find the closest match among all satisfying rows
+    // For each group, use binary search on pre-sorted bucket indices to find the closest match
     size_t group_start = 0;
     while (group_start < row_count) {
-        int32_t current_probe_idx = _probe_indexs.get_element(group_start);
+        uint32_t current_probe_idx = _probe_indexs.get_element(group_start);
 
         // Find the end of this group
         size_t group_end = group_start + 1;
-        while (group_end < row_count &&
-               _probe_indexs.get_element(group_end) == (uint32_t)current_probe_idx) {
+        while (group_end < row_count && _probe_indexs.get_element(group_end) == current_probe_idx) {
             ++group_end;
         }
 
-        // Find the best match in this group
         ssize_t best_match_idx = -1;
         ssize_t null_placeholder_idx = -1;
+        size_t group_size = group_end - group_start;
 
-        for (size_t i = group_start; i < group_end; ++i) {
-            uint32_t build_idx = _build_indexs.get_element(i);
+        // For small groups, use linear scan (binary search overhead not worth it)
+        // For larger groups with sorted data, use binary search
+        bool use_binary_search = (group_size > 8) && build_match_col_raw && probe_match_col;
 
-            // Track null placeholder for outer join
-            if (build_idx == 0) {
-                null_placeholder_idx = i;
-                continue;
+        if (use_binary_search) {
+            // Collect valid (non-null build) indices in this group
+            std::vector<size_t> valid_indices;
+            valid_indices.reserve(group_size);
+            for (size_t i = group_start; i < group_end; ++i) {
+                uint32_t build_idx = _build_indexs.get_element(i);
+                if (build_idx == 0) {
+                    null_placeholder_idx = i;
+                } else {
+                    valid_indices.push_back(i);
+                }
             }
 
-            // Check if this row satisfies the inequality
-            if (!conjunct_filter[i]) {
-                continue;
-            }
+            if (!valid_indices.empty()) {
+                // Sort valid indices by build match column value (ascending)
+                std::sort(valid_indices.begin(), valid_indices.end(),
+                          [output_build_match_col](size_t a, size_t b) {
+                              return output_build_match_col->compare_at(
+                                             a, b, *output_build_match_col, 1) < 0;
+                          });
 
-            // Compare with current best to find closest match
-            if (best_match_idx < 0) {
-                best_match_idx = i;
-            } else if (build_match_col) {
-                // Compare build column values to find closest match
-                // For >= (inequality_is_greater=true): want LARGEST build value
-                // For <= (inequality_is_greater=false): want SMALLEST build value
-                int cmp = build_match_col->compare_at(i, best_match_idx, *build_match_col, 1);
+                // Binary search for the best match
+                // For >=: find largest build value <= probe value
+                // For > : find largest build value < probe value
+                // For <=: find smallest build value >= probe value
+                // For < : find smallest build value > probe value
+                size_t probe_row = group_start; // Use first row in group to get probe value
+
                 if (inequality_is_greater) {
-                    // For >=: pick the one with larger build value
-                    if (cmp > 0) {
-                        best_match_idx = i;
+                    // For >= or >: find largest build.ts where probe.ts >= build.ts (or >)
+                    // Binary search for upper_bound of probe value, then go back
+                    auto it = std::upper_bound(
+                            valid_indices.begin(), valid_indices.end(), probe_row,
+                            [probe_match_col, output_build_match_col](size_t probe_idx,
+                                                                      size_t build_output_idx) {
+                                return probe_match_col->compare_at(probe_idx, build_output_idx,
+                                                                   *output_build_match_col, 1) < 0;
+                            });
+                    // upper_bound gives first element > probe, so we want the one before
+                    if (it != valid_indices.begin()) {
+                        --it;
+                        // For strict inequality (>), skip if build == probe
+                        if (inequality_is_strict) {
+                            int cmp = probe_match_col->compare_at(probe_row, *it,
+                                                                  *output_build_match_col, 1);
+                            if (cmp == 0 && it != valid_indices.begin()) {
+                                --it;
+                                best_match_idx = *it;
+                            } else if (cmp != 0) {
+                                best_match_idx = *it;
+                            }
+                        } else {
+                            best_match_idx = *it;
+                        }
                     }
                 } else {
-                    // For <=: pick the one with smaller build value
-                    if (cmp < 0) {
-                        best_match_idx = i;
+                    // For <= or <: find smallest build.ts where probe.ts <= build.ts (or <)
+                    // Binary search for lower_bound of probe value
+                    auto it =
+                            std::lower_bound(valid_indices.begin(), valid_indices.end(), probe_row,
+                                             [probe_match_col, output_build_match_col](
+                                                     size_t build_output_idx, size_t probe_idx) {
+                                                 return output_build_match_col->compare_at(
+                                                                build_output_idx, probe_idx,
+                                                                *probe_match_col, 1) < 0;
+                                             });
+                    if (it != valid_indices.end()) {
+                        // For strict inequality (<), skip if build == probe
+                        if (inequality_is_strict) {
+                            int cmp = probe_match_col->compare_at(probe_row, *it,
+                                                                  *output_build_match_col, 1);
+                            if (cmp == 0) {
+                                ++it;
+                                if (it != valid_indices.end()) {
+                                    best_match_idx = *it;
+                                }
+                            } else {
+                                best_match_idx = *it;
+                            }
+                        } else {
+                            best_match_idx = *it;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Linear scan for small groups or when binary search prerequisites not met
+            for (size_t i = group_start; i < group_end; ++i) {
+                uint32_t build_idx = _build_indexs.get_element(i);
+
+                if (build_idx == 0) {
+                    null_placeholder_idx = i;
+                    continue;
+                }
+
+                // For linear scan, we need to check the inequality condition
+                // Compare probe and build match column values
+                bool satisfies = false;
+                if (probe_match_col && output_build_match_col) {
+                    int cmp = probe_match_col->compare_at(i, i, *output_build_match_col, 1);
+                    if (inequality_is_greater) {
+                        // For >= : cmp >= 0 (probe >= build)
+                        // For >  : cmp > 0  (probe > build)
+                        satisfies = inequality_is_strict ? (cmp > 0) : (cmp >= 0);
+                    } else {
+                        // For <= : cmp <= 0 (probe <= build)
+                        // For <  : cmp < 0  (probe < build)
+                        satisfies = inequality_is_strict ? (cmp < 0) : (cmp <= 0);
+                    }
+                }
+
+                if (!satisfies) {
+                    continue;
+                }
+
+                if (best_match_idx < 0) {
+                    best_match_idx = i;
+                } else if (output_build_match_col) {
+                    int cmp = output_build_match_col->compare_at(i, best_match_idx,
+                                                                 *output_build_match_col, 1);
+                    if (inequality_is_greater) {
+                        if (cmp > 0) {
+                            best_match_idx = i;
+                        }
+                    } else {
+                        if (cmp < 0) {
+                            best_match_idx = i;
+                        }
                     }
                 }
             }
