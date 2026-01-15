@@ -26,6 +26,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
@@ -325,6 +326,20 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_total_disk_size(data_disk_size() + index_disk_size());
     set_segments_key_bounds_truncated(is_segments_key_bounds_truncated() ||
                                       other.is_segments_key_bounds_truncated());
+    if (_rowset_meta_pb.num_segment_rows_size() > 0) {
+        if (other.num_segments() > 0) {
+            if (other._rowset_meta_pb.num_segment_rows_size() > 0) {
+                for (auto row_count : other._rowset_meta_pb.num_segment_rows()) {
+                    _rowset_meta_pb.add_num_segment_rows(row_count);
+                }
+            } else {
+                // This may happen when a partial update load commits in high version doirs_be
+                // and publishes with new segments in low version doris_be. In this case, just clear
+                // all num_segment_rows.
+                _rowset_meta_pb.clear_num_segment_rows();
+            }
+        }
+    }
     for (auto&& key_bound : other.get_segments_key_bounds()) {
         add_segment_key_bounds(key_bound);
     }
@@ -343,6 +358,7 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
     // Otherwise the schema is stale and lead to wrong data read
+    TEST_SYNC_POINT_RETURN_WITH_VOID("RowsetMeta::merge_rowset_meta:skip_schema_merge");
     if (tablet_schema()->num_variant_columns() > 0) {
         // merge extracted columns
         TabletSchemaSPtr merged_schema;
