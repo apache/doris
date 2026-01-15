@@ -72,7 +72,7 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
                                                 any(),
                                                 logicalProject(
                                                         logicalFilter(
-                                                                logicalRecursiveCte().when(cte -> cte.getCteName().equals("xx"))
+                                                                logicalRecursiveUnion().when(cte -> cte.getCteName().equals("xx"))
                                                         )
                                                 )
                                         )
