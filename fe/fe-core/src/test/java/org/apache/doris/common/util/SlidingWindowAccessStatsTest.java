@@ -176,7 +176,7 @@ public class SlidingWindowAccessStatsTest {
 
     @Test
     public void testTopNComparatorOrdersByAccessCountThenLastAccessTimeDesc() throws Exception {
-        Field f = SlidingWindowAccessStats.class.getDeclaredField("TOPN_ACTIVE_TABLET_COMPARATOR");
+        Field f = SlidingWindowAccessStats.class.getDeclaredField("TOPN_ACTIVE_COMPARATOR");
         f.setAccessible(true);
         @SuppressWarnings("unchecked")
         Comparator<SlidingWindowAccessStats.AccessStatsResult> cmp =
