@@ -111,40 +111,6 @@ public class CreateRoutineLoadInfo {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 
-    /**
-     * Parse unique_key_update_mode string to TUniqueKeyUpdateMode enum.
-     * Returns null if the mode string is invalid.
-     */
-    public static TUniqueKeyUpdateMode parseUniqueKeyUpdateMode(String modeStr) {
-        if (modeStr == null) {
-            return null;
-        }
-        switch (modeStr.toUpperCase()) {
-            case "UPSERT":
-                return TUniqueKeyUpdateMode.UPSERT;
-            case "UPDATE_FIXED_COLUMNS":
-                return TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
-            case "UPDATE_FLEXIBLE_COLUMNS":
-                return TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
-            default:
-                return null;
-        }
-    }
-
-    /**
-     * Validate unique_key_update_mode string value.
-     * @throws AnalysisException if the mode string is invalid
-     */
-    public static TUniqueKeyUpdateMode parseAndValidateUniqueKeyUpdateMode(String modeStr) throws AnalysisException {
-        TUniqueKeyUpdateMode mode = parseUniqueKeyUpdateMode(modeStr);
-        if (mode == null) {
-            throw new AnalysisException(UNIQUE_KEY_UPDATE_MODE
-                    + " should be one of {'UPSERT', 'UPDATE_FIXED_COLUMNS', 'UPDATE_FLEXIBLE_COLUMNS'}, but found "
-                    + modeStr);
-        }
-        return mode;
-    }
-
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(MAX_ERROR_NUMBER_PROPERTY)
@@ -268,6 +234,40 @@ public class CreateRoutineLoadInfo {
         if (comment != null) {
             this.comment = comment;
         }
+    }
+
+    /**
+     * Parse unique_key_update_mode string to TUniqueKeyUpdateMode enum.
+     * Returns null if the mode string is invalid.
+     */
+    public static TUniqueKeyUpdateMode parseUniqueKeyUpdateMode(String modeStr) {
+        if (modeStr == null) {
+            return null;
+        }
+        switch (modeStr.toUpperCase()) {
+            case "UPSERT":
+                return TUniqueKeyUpdateMode.UPSERT;
+            case "UPDATE_FIXED_COLUMNS":
+                return TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+            case "UPDATE_FLEXIBLE_COLUMNS":
+                return TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Validate unique_key_update_mode string value.
+     * @throws AnalysisException if the mode string is invalid
+     */
+    public static TUniqueKeyUpdateMode parseAndValidateUniqueKeyUpdateMode(String modeStr) throws AnalysisException {
+        TUniqueKeyUpdateMode mode = parseUniqueKeyUpdateMode(modeStr);
+        if (mode == null) {
+            throw new AnalysisException(UNIQUE_KEY_UPDATE_MODE
+                    + " should be one of {'UPSERT', 'UPDATE_FIXED_COLUMNS', 'UPDATE_FLEXIBLE_COLUMNS'}, but found "
+                    + modeStr);
+        }
+        return mode;
     }
 
     public String getName() {
