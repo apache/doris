@@ -181,7 +181,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private KeysType keysType;
     @Setter
     @SerializedName(value = "pi", alternate = {"partitionInfo"})
-    private PartitionInfo partitionInfo;
+    private PartitionInfo partitionInfo; // should modify only under table's lock
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
