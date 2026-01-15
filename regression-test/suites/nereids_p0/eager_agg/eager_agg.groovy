@@ -236,4 +236,45 @@ suite("eager_agg") {
       join  date_dim on d_date_sk = ss_sold_date_sk
     group by d_year;
     """
+
+
+    qt_min_sum_same_slot """
+    explain shape plan
+    select /*+leading({ss dt} ws)*/  dt.d_year 
+        ,min(d_year) brand
+        ,sum(d_year) sum_agg 
+    from  store_sales ss
+        join date_dim dt
+        join web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year, ss_hdemo_sk + d_moy
+    having brand is null;
+    """
+
+    qt_min_sum_same_slot_exe """
+    select /*+leading({ss dt} ws)*/  dt.d_year 
+        ,min(d_year) brand
+        ,sum(d_year) sum_agg 
+    from  store_sales ss
+        join date_dim dt
+        join web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year, ss_hdemo_sk + d_moy
+    having brand is null;
+    """
+
+    qt_sum_min_same_slot_exe """
+    select /*+leading({ss dt} ws)*/  dt.d_year 
+        ,sum(d_year) sum_agg 
+        ,min(d_year) brand  
+    from  store_sales ss
+        join date_dim dt
+        join web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by dt.d_year, ss_hdemo_sk + d_moy
+    having brand is null;
+    """
 }
