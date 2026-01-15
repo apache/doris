@@ -601,14 +601,234 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', '2025-01-26 10:00:00', 'bj')
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (ts='2025-01-25 10:00:00')
         SELECT id, name, region FROM ${tb_ts_src}
     """
     order_qt_q16 """ SELECT * FROM ${tb1} ORDER BY id """
     sql """ DROP TABLE IF EXISTS ${tb_ts_src} """
 
-    // Test Case 17: Static partition with DECIMAL type
+    // ============================================================================
+    // Test Cases for static partition overwrite with VALUES clause
+    // ============================================================================
+
+    // Test Case 17: Basic static partition overwrite with single VALUE
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            dt DATE,
+            region STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25', 'bj'),
+        (2, 'Bob', '2025-01-25', 'sh'),
+        (3, 'Charlie', '2025-01-26', 'bj')
+    """
+    // Overwrite with single VALUE
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (dt='2025-01-25', region='bj')
+        VALUES (10, 'Eve')
+    """
+    order_qt_q17 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 18: Static partition overwrite with multiple VALUES
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            dt DATE,
+            region STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25', 'bj'),
+        (2, 'Bob', '2025-01-25', 'sh'),
+        (3, 'Charlie', '2025-01-26', 'bj')
+    """
+    // Overwrite with multiple VALUES
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (dt='2025-01-25', region='bj')
+        VALUES
+            (10, 'Eve'),
+            (11, 'Frank'),
+            (12, 'Grace')
+    """
+    order_qt_q18 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 19: Static partition overwrite with VALUES and different data types
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            amount DECIMAL(10,2),
+            is_active BOOLEAN,
+            score FLOAT,
+            level INT
+        ) ENGINE=iceberg
+        PARTITION BY LIST (amount, is_active) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 100.50, true, 85.5, 1),
+        (2, 'Bob', 100.50, false, 90.0, 2),
+        (3, 'Charlie', 200.75, true, 75.5, 1)
+    """
+    // Overwrite with VALUES containing multiple data types
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (amount=100.50, is_active=true)
+        VALUES (10, 'Eve', 95.5, 3)
+    """
+    order_qt_q19 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 20: Static partition overwrite with empty VALUES (delete partition)
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            dt DATE,
+            region STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25', 'bj'),
+        (2, 'Bob', '2025-01-25', 'sh'),
+        (3, 'Charlie', '2025-01-26', 'bj')
+    """
+    // Delete partition by overwriting with empty VALUES (should handle gracefully)
+    // Note: This behavior depends on implementation - empty VALUES might not be allowed
+    // Alternative: Use VALUES with a condition that yields no results
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (dt='2025-01-25', region='bj')
+        SELECT * FROM ${tb1} WHERE 1=0
+    """
+    order_qt_q20 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 21: Multiple partitions with different VALUES
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            dt DATE,
+            region STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25', 'bj'),
+        (2, 'Bob', '2025-01-25', 'sh'),
+        (3, 'Charlie', '2025-01-26', 'bj')
+    """
+    // Overwrite first partition
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (dt='2025-01-25', region='bj')
+        VALUES (10, 'Eve')
+    """
+    // Overwrite second partition
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (dt='2025-01-25', region='sh')
+        VALUES (20, 'Frank')
+    """
+    order_qt_q21 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 22: Static partition overwrite with VALUES containing LONG timestamp
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            timestamp_val BIGINT
+        ) ENGINE=iceberg
+        PARTITION BY LIST (timestamp_val) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', 1706140800000),
+        (2, 'Bob', 1706227200000),
+        (3, 'Charlie', 1706313600000)
+    """
+    // Overwrite with VALUES containing LONG type
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (timestamp_val=1706140800000)
+        VALUES (10, 'Eve')
+    """
+    order_qt_q22 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 23: Static partition overwrite with VALUES containing DATETIME
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            ts DATETIME,
+            category STRING
+        ) ENGINE=iceberg
+        PARTITION BY LIST (ts, category) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25 10:00:00', 'food'),
+        (2, 'Bob', '2025-01-25 10:00:00', 'drink'),
+        (3, 'Charlie', '2025-01-26 11:00:00', 'food')
+    """
+    // Overwrite with VALUES containing DATETIME type
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (ts='2025-01-25 10:00:00', category='food')
+        VALUES (10, 'Eve')
+    """
+    order_qt_q23 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 24: Static partition overwrite with VALUES - multiple rows with different types
+    sql """ DROP TABLE IF EXISTS ${tb1} """
+    sql """
+        CREATE TABLE ${tb1} (
+            id BIGINT,
+            name STRING,
+            dt DATE,
+            region STRING,
+            amount DECIMAL(10,2)
+        ) ENGINE=iceberg
+        PARTITION BY LIST (dt, region) ()
+    """
+    sql """
+        INSERT INTO ${tb1} VALUES
+        (1, 'Alice', '2025-01-25', 'bj', 100.50),
+        (2, 'Bob', '2025-01-25', 'sh', 200.75),
+        (3, 'Charlie', '2025-01-26', 'bj', 150.25)
+    """
+    // Overwrite with multiple VALUES containing DECIMAL type
+    sql """
+        INSERT OVERWRITE TABLE ${tb1}
+        PARTITION (dt='2025-01-25', region='bj')
+        VALUES
+            (10, 'Eve', 99.99),
+            (11, 'Frank', 88.88),
+            (12, 'Grace', 77.77)
+    """
+    order_qt_q24 """ SELECT * FROM ${tb1} ORDER BY id """
+
+    // Test Case 25: Static partition with DECIMAL type
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -625,13 +845,13 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 300.25)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (amount=100.50)
         SELECT 10, 'Eve'
     """
-    order_qt_q17 """ SELECT * FROM ${tb1} ORDER BY id """
+    order_qt_q25 """ SELECT * FROM ${tb1} ORDER BY id """
 
-    // Test Case 18: Hybrid mode with DECIMAL type (static) + INTEGER (dynamic)
+    // Test Case 26: Hybrid mode with DECIMAL type (static) + INTEGER (dynamic)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -663,14 +883,14 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 200.75, 10)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (amount=100.50)
         SELECT id, name, quantity FROM ${tb_decimal_src}
     """
-    order_qt_q18 """ SELECT * FROM ${tb1} ORDER BY id """
+    order_qt_q26 """ SELECT * FROM ${tb1} ORDER BY id """
     sql """ DROP TABLE IF EXISTS ${tb_decimal_src} """
 
-    // Test Case 19: Multiple types in static partition (INTEGER, FLOAT, BOOLEAN, STRING)
+    // Test Case 27: Multiple types in static partition (INTEGER, FLOAT, BOOLEAN, STRING)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -691,13 +911,13 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (4, 'David', 1, 85.5, false, 'A')
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (level=1, score=85.5, is_active=true, category='A')
         SELECT 10, 'Eve'
     """
-    order_qt_q19 """ SELECT * FROM ${tb1} ORDER BY id """
+    order_qt_q27 """ SELECT * FROM ${tb1} ORDER BY id """
 
-    // Test Case 20: Hybrid mode with multiple types (2 static + 2 dynamic)
+    // Test Case 28: Hybrid mode with multiple types (2 static + 2 dynamic)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -733,18 +953,18 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (4, 'David', 2, 90.0, true, 'A')
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (level=1, score=85.5)
         SELECT id, name, is_active, category FROM ${tb_multi_src}
     """
-    order_qt_q20 """ SELECT * FROM ${tb1} ORDER BY id """
+    order_qt_q28 """ SELECT * FROM ${tb1} ORDER BY id """
     sql """ DROP TABLE IF EXISTS ${tb_multi_src} """
 
     // ============================================================================
     // Test Cases for non-identity partition transforms - static partition overwrite should fail
     // ============================================================================
 
-    // Test Case 21: Error scenario - bucket partition (non-identity transform)
+    // Test Case 29: Error scenario - bucket partition (non-identity transform)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -777,7 +997,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 22: Error scenario - truncate partition (non-identity transform)
+    // Test Case 30: Error scenario - truncate partition (non-identity transform)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -810,7 +1030,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 23: Error scenario - day partition (non-identity time transform)
+    // Test Case 31: Error scenario - day partition (non-identity time transform)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -843,7 +1063,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 24: Error scenario - year partition (non-identity time transform)
+    // Test Case 32: Error scenario - year partition (non-identity time transform)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -876,7 +1096,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 25: Error scenario - month partition (non-identity time transform)
+    // Test Case 33: Error scenario - month partition (non-identity time transform)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -909,7 +1129,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 26: Error scenario - hour partition (non-identity time transform)
+    // Test Case 34: Error scenario - hour partition (non-identity time transform)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -942,7 +1162,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 27: Error scenario - mixed identity and non-identity partitions (bucket)
+    // Test Case 35: Error scenario - mixed identity and non-identity partitions (bucket)
     // Table has identity partition (region) + non-identity partition (bucket on id)
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
@@ -977,7 +1197,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 28: Error scenario - truncate on integer column
+    // Test Case 36: Error scenario - truncate on integer column
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -1010,7 +1230,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 29: Error scenario - bucket on BIGINT column
+    // Test Case 37: Error scenario - bucket on BIGINT column
     sql """ DROP TABLE IF EXISTS ${tb1} """
     sql """
         CREATE TABLE ${tb1} (
@@ -1043,7 +1263,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         exception "Cannot use static partition syntax for non-identity partition field"
     }
 
-    // Test Case 30: Mixed partitions - identity column is OK, but non-identity should fail
+    // Test Case 38: Mixed partitions - identity column is OK, but non-identity should fail
     // Test that specifying only identity partition columns works,
     // but including non-identity columns fails
     sql """ DROP TABLE IF EXISTS ${tb1} """
