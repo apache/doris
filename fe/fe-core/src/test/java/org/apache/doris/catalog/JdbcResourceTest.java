@@ -220,7 +220,7 @@ public class JdbcResourceTest {
 
         String jarFile = "driver.jar";
         Assertions.assertThrows(RuntimeException.class, () -> {
-            String result = JdbcResource.getFullDriverUrl(jarFile);
+            JdbcResource.getFullDriverUrl(jarFile);
         });
     }
 
