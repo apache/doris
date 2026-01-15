@@ -240,21 +240,24 @@ Status FullSorter::append_block(Block* block) {
 
     {
         SCOPED_TIMER(_merge_block_timer);
-        const auto& data = _state->unsorted_block()->get_columns_with_type_and_name();
+        auto& data = _state->unsorted_block()->get_columns_with_type_and_name();
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
+
+            auto mul_col = IColumn::mutate(std::move(data[i].column));
             if (is_column_const(*arrival_data[i].column)) {
-                data[i].column->assume_mutable()->insert_many_from(
+                mul_col->insert_many_from(
                         assert_cast<const ColumnConst*>(arrival_data[i].column.get())
                                 ->get_data_column(),
                         0, sz);
             } else {
-                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+                mul_col->insert_range_from(*arrival_data[i].column, 0, sz);
             }
+            data[i].column = std::move(mul_col);
         }
         block->clear_column_data();
     }

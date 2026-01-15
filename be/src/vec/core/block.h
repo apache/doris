@@ -159,6 +159,8 @@ public:
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
+    ColumnsWithTypeAndName& get_columns_with_type_and_name();
+
     std::vector<std::string> get_names() const;
     DataTypes get_data_types() const;
 
@@ -229,6 +231,8 @@ public:
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
     void clear_column_data(int64_t column_size = -1) noexcept;
+
+    void clear_columns(std::vector<uint32_t>& column_ids);
 
     MOCK_FUNCTION bool mem_reuse() { return !data.empty(); }
 
@@ -395,6 +399,8 @@ public:
 
     size_t rows() const;
     size_t columns() const { return _columns.size(); }
+
+    bool is_empty_column() const { return _columns.empty(); }
 
     bool empty() const { return rows() == 0; }
 

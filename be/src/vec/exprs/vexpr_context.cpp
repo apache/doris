@@ -326,9 +326,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         ctxs[0]->_memory_usage += result_filter.allocated_bytes();
     }
     if (can_filter_all) {
-        for (auto& col : columns_to_filter) {
-            block->get_by_position(col).column->assume_mutable()->clear();
-        }
+        block->clear_columns(columns_to_filter);
     } else {
         try {
             Block::filter_block_internal(block, columns_to_filter, result_filter);
@@ -364,10 +362,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
         ctxs[0]->_memory_usage += filter.allocated_bytes();
     }
     if (can_filter_all) {
-        for (auto& col : columns_to_filter) {
-            // NOLINTNEXTLINE(performance-move-const-arg)
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
-        }
+        block->clear_columns(columns_to_filter);
     } else {
         RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, filter));
     }

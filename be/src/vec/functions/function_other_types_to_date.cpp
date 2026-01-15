@@ -138,7 +138,7 @@ struct StrToDate {
         const auto& rdata = specific_char_column->get_chars();
         const auto& roffsets = specific_char_column->get_offsets();
 
-        ColumnPtr res;
+        MutableColumnPtr res;
         // Because of we cant distinguish by return_type when we find function. so the return_type may NOT be same with real return type
         // which decided by FE. we directly use block column's type which decided by FE.
         if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
@@ -146,12 +146,11 @@ struct StrToDate {
             if (col_const[1]) {
                 execute_impl_const_right<TYPE_DATEV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
-                        result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                        result_null_map, static_cast<ColumnDateV2*>(res.get())->get_data());
             } else {
-                execute_impl<TYPE_DATEV2>(
-                        context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
+                execute_impl<TYPE_DATEV2>(context, ldata, loffsets, rdata, roffsets,
+                                          result_null_map,
+                                          static_cast<ColumnDateV2*>(res.get())->get_data());
             }
         } else {
             DCHECK(block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2);
@@ -160,12 +159,11 @@ struct StrToDate {
             if (col_const[1]) {
                 execute_impl_const_right<TYPE_DATETIMEV2>(
                         context, ldata, loffsets, specific_char_column->get_data_at(0),
-                        result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                        result_null_map, static_cast<ColumnDateTimeV2*>(res.get())->get_data());
             } else {
                 execute_impl<TYPE_DATETIMEV2>(
                         context, ldata, loffsets, rdata, roffsets, result_null_map,
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
+                        static_cast<ColumnDateTimeV2*>(res.get())->get_data());
             }
         }
 
@@ -293,17 +291,16 @@ struct MakeDateImpl {
         const auto* year_col = assert_cast<const ColumnInt32*>(argument_columns[0].get());
         const auto* dayofyear_col = assert_cast<const ColumnInt32*>(argument_columns[1].get());
 
-        ColumnPtr res_column;
+        MutableColumnPtr res_column;
 
         res_column = ColumnDateV2::create(input_rows_count);
         if (col_const[1]) {
-            execute_impl_right_const(
-                    year_col->get_data(), dayofyear_col->get_element(0), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+            execute_impl_right_const(year_col->get_data(), dayofyear_col->get_element(0),
+                                     result_null_map,
+                                     static_cast<ColumnDateV2*>(res_column.get())->get_data());
         } else {
-            execute_impl(
-                    year_col->get_data(), dayofyear_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+            execute_impl(year_col->get_data(), dayofyear_col->get_data(), result_null_map,
+                         static_cast<ColumnDateV2*>(res_column.get())->get_data());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -454,7 +451,7 @@ private:
 };
 
 struct DateTruncState {
-    using Callback_function = std::function<void(const ColumnPtr&, ColumnPtr& res, size_t)>;
+    using Callback_function = std::function<void(const ColumnPtr&, MutableColumnPtr& res, size_t)>;
     Callback_function callback_function;
 };
 
@@ -528,7 +525,7 @@ struct DateTrunc {
 
         const auto& datetime_column = block.get_by_position(arguments[DateArgIsFirst ? 0 : 1])
                                               .column->convert_to_full_column_if_const();
-        ColumnPtr res = ColumnType::create(input_rows_count);
+        MutableColumnPtr res = ColumnType::create(input_rows_count);
         auto* state = reinterpret_cast<DateTruncState*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         DCHECK(state != nullptr);
@@ -539,10 +536,10 @@ struct DateTrunc {
 
 private:
     template <TimeUnit Unit>
-    static void execute_impl_right_const(const ColumnPtr& datetime_column, ColumnPtr& result_column,
-                                         size_t input_rows_count) {
+    static void execute_impl_right_const(const ColumnPtr& datetime_column,
+                                         MutableColumnPtr& result_column, size_t input_rows_count) {
         auto& data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
-        auto& res = static_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
+        auto& res = static_cast<ColumnType*>(result_column.get())->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = binary_cast<NativeType, DateValueType>(data[i]);
             if (!dt.template datetime_trunc<Unit>()) {
@@ -594,17 +591,17 @@ public:
         nested_column = remove_nullable(nested_column);
         const auto* data_col = assert_cast<const ColumnInt32*>(nested_column.get());
 
-        ColumnPtr res_column;
+        MutableColumnPtr res_column;
         if (block.get_by_position(result).type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
             res_column = ColumnDate::create(input_rows_count);
             _execute<VecDateTimeValue, Int64>(
                     input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateTime*>(res_column.get())->get_data());
         } else {
             res_column = ColumnDateV2::create(input_rows_count);
             _execute<DateV2Value<DateV2ValueType>, UInt32>(
                     input_rows_count, data_col->get_data(), result_null_map,
-                    static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
+                    static_cast<ColumnDateV2*>(res_column.get())->get_data());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -990,24 +987,22 @@ struct LastDayImpl {
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        ColumnPtr res_column;
+        MutableColumnPtr res_column;
         ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column);
         if (is_nullable) {
             auto null_map = ColumnUInt8::create(input_rows_count, 0);
             auto data_col = assert_cast<const ColumnType*>(argument_column.get());
             res_column = ResultColumnType::create(input_rows_count);
-            execute_straight(
-                    input_rows_count, data_col->get_data(),
-                    static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
+            execute_straight(input_rows_count, data_col->get_data(),
+                             static_cast<ResultColumnType*>(res_column.get())->get_data());
 
-            block.replace_by_position(result,
-                                      ColumnNullable::create(res_column, std::move(null_map)));
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
         } else {
             auto data_col = assert_cast<const ColumnType*>(argument_column.get());
             res_column = ResultColumnType::create(input_rows_count);
-            execute_straight(
-                    input_rows_count, data_col->get_data(),
-                    static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
+            execute_straight(input_rows_count, data_col->get_data(),
+                             static_cast<ResultColumnType*>(res_column.get())->get_data());
             block.replace_by_position(result, std::move(res_column));
         }
         return Status::OK();

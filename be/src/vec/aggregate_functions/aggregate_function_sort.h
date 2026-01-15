@@ -57,14 +57,10 @@ struct AggregateFunctionSortData {
             : sort_desc(std::move(sort_desc)), block(block.clone_empty()) {}
 
     void merge(const AggregateFunctionSortData& rhs) {
-        if (block.rows() == 0) {
-            block = rhs.block;
-        } else {
-            for (size_t i = 0; i < block.columns(); i++) {
-                auto column = block.get_by_position(i).column->assume_mutable();
-                auto column_rhs = rhs.block.get_by_position(i).column;
-                column->insert_range_from(*column_rhs, 0, rhs.block.rows());
-            }
+        for (size_t i = 0; i < block.columns(); i++) {
+            auto column = block.get_by_position(i).column->assert_mutable();
+            auto column_rhs = rhs.block.get_by_position(i).column;
+            column->insert_range_from(*column_rhs, 0, rhs.block.rows());
         }
     }
 
@@ -105,7 +101,7 @@ struct AggregateFunctionSortData {
                                block.columns(), columns_num);
 
         for (size_t i = 0; i < columns_num; ++i) {
-            auto column = block.get_by_position(i).column->assume_mutable();
+            auto column = block.get_by_position(i).column->assert_mutable();
             column->insert_from(*columns[i], row_num);
         }
     }
