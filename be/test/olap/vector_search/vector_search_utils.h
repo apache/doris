@@ -209,9 +209,6 @@ protected:
         TSlotDescriptor slot_desc;
         slot_desc.id = 0;
         slot_desc.parent = 0;
-        slot_desc.isMaterialized = true;
-        slot_desc.need_materialize = true;
-        slot_desc.__isset.need_materialize = true;
         TTypeNode type_node;
         type_node.type = TTypeNodeType::type::SCALAR;
         TScalarType scalar_type;
@@ -256,7 +253,7 @@ protected:
         _virtual_slot_ref_expr.nodes.push_back(virtual_slot_ref_node);
         _ann_index_iterator = std::make_unique<vector_search_utils::MockAnnIndexIterator>();
 
-        _row_desc = RowDescriptor(*_desc_tbl, {0}, {false});
+        _row_desc = RowDescriptor(*_desc_tbl, {0});
 
         // Create CLucene RAM directory instead of mock
         _ram_dir = std::make_shared<lucene::store::RAMDirectory>();

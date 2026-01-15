@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
@@ -69,7 +70,8 @@ public class OBSPropertyTest {
         origProps.put("obs.use_path_style", "true");
         origProps.put("test_non_storage_param", "test_non_storage_value");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
-        OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
+        OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         Map<String, String> s3Props = new HashMap<>();
         Map<String, String> obsConfig = obsProperties.getMatchedProperties();
         Assertions.assertTrue(!obsConfig.containsKey("test_non_storage_param"));
@@ -90,7 +92,7 @@ public class OBSPropertyTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("obs.use_path_style");
-        obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
+        obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(1);
         s3Props = obsProperties.getBackendConfigProperties();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
@@ -101,7 +103,8 @@ public class OBSPropertyTest {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         origProps.put("obs.access_key", "myOBSAccessKey");
         origProps.put("obs.secret_key", "myOBSSecretKey");
-        OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
+        OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(1);
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
         Assertions.assertEquals("cn-north-4", obsProperties.getRegion());
         Assertions.assertEquals("myOBSAccessKey", obsProperties.getAccessKey());
         Assertions.assertEquals("myOBSSecretKey", obsProperties.getSecretKey());
@@ -150,6 +153,23 @@ public class OBSPropertyTest {
         props.put("obs.secret_key", "mySecretKey");
         obsStorageProperties = (OBSProperties) StorageProperties.createPrimary(props);
         Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+    }
+
+    @Test
+    public void testS3DisableHadoopCache() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        OBSProperties s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
+        props.put("fs.obs.impl.disable.cache", "true");
+        s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
+        props.put("fs.obs.impl.disable.cache", "false");
+        s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
+        props.put("fs.obs.impl.disable.cache", "null");
+        s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
     }
 
     @Test

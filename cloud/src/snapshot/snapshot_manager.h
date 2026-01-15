@@ -29,6 +29,7 @@ class InstanceChecker;
 class StorageVaultAccessor;
 class InstanceDataMigrator;
 class InstanceChainCompactor;
+class MetaChecker;
 
 // A abstract class for managing cluster snapshots.
 class SnapshotManager {
@@ -61,6 +62,8 @@ public:
     virtual int check_mvcc_meta_key(InstanceChecker* checker);
 
     virtual int inverted_check_mvcc_meta_key(InstanceChecker* checker);
+
+    virtual int check_meta(MetaChecker* meta_checker);
 
     // Recycle snapshots that are expired or marked as recycled, based on the retention policy.
     // Return 0 for success otherwise error.

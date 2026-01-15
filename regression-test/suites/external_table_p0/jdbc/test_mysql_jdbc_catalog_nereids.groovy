@@ -20,7 +20,7 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,exte
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "mysql_jdbc_catalog_nereids";
         String internal_db_name = "regression_test_jdbc_catalog_p0";

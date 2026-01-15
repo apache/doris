@@ -73,8 +73,9 @@ Status VWalWriter::write_wal(vectorized::Block* block) {
                     { return Status::InternalError("Failed to write wal!"); });
     PBlock pblock;
     size_t uncompressed_bytes = 0, compressed_bytes = 0;
+    int64_t compressed_time = 0;
     RETURN_IF_ERROR(block->serialize(_be_exe_version, &pblock, &uncompressed_bytes,
-                                     &compressed_bytes,
+                                     &compressed_bytes, &compressed_time,
                                      segment_v2::CompressionTypePB::NO_COMPRESSION));
     RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
     return Status::OK();

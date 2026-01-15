@@ -175,6 +175,9 @@
 2010-12-01T00:00:01
 
 -- !sql --
+2010-12-02T00:00
+
+-- !sql --
 22:23:00
 
 -- !sql --
@@ -297,11 +300,44 @@ February
 -- !sql --
 0
 
+-- !sql_second_time_with_micro1 --
+1
+
+-- !sql_second_time_with_micro2 --
+59
+
+-- !sql_second_time_with_micro3 --
+0
+
+-- !sql_second_time_with_micro4 --
+45
+
 -- !sql --
 767890
 
+-- !sql_microsecond_special_format --
+\N
+
+-- !sql_microsecond_time_with_micro1 --
+123456
+
+-- !sql_microsecond_time_with_micro2 --
+999999
+
+-- !sql_microsecond_time_with_micro3 --
+1
+
+-- !sql_microsecond_time_with_micro4 --
+500000
+
+-- !sql_microsecond_time_with_micro5 --
+789000
+
 -- !sql --
 2014-12-21T12:34:56
+
+-- !sql --
+\N
 
 -- !sql --
 2014-12-21T12:34:56
@@ -441,6 +477,63 @@ February
 9999-08-01T13:21:03	9999
 
 -- !sql --
+19
+
+-- !sql --
+20
+
+-- !sql --
+20
+
+-- !sql --
+21
+
+-- !sql --
+21
+
+-- !sql --
+1
+
+-- !sql --
+100
+
+-- !sql --
+20
+
+-- !sql --
+20
+
+-- !sql --
+20
+
+-- !sql --
+19
+
+-- !sql --
+19
+
+-- !sql --
+20
+
+-- !sql --
+21
+
+-- !sql --
+21
+
+-- !sql --
+22
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
 1987
 
 -- !sql --
@@ -537,6 +630,37 @@ February
 
 -- !sql --
 767891
+123456
+1
+999999
+
+-- !sql --
+767891	1999-01-02T10:11:12.767891
+999999	2024-12-31T23:59:59.999999
+
+-- !sql --
+1	2024-01-01T00:00:00.000001
+
+-- !sql_second_simple --
+56
+
+-- !sql_second_datetime_with_micro --
+56
+
+-- !sql_microsecond_datetime_with_micro --
+789123
+
+-- !sql_table_second_all --
+\N
+\N
+\N
+56
+
+-- !sql_table_microsecond_all --
+\N
+\N
+\N
+789123
 
 -- !sql --
 1	2022-08-01
@@ -603,6 +727,9 @@ true
 
 -- !sql --
 2022 31 4
+
+-- !sql --
+\N
 
 -- !sql --
 2022-07-12T20:00:45

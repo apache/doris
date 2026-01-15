@@ -18,9 +18,11 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
+import lombok.Getter;
 import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.util.Map;
@@ -46,6 +48,7 @@ public class HiveGlueMetaStoreProperties extends AbstractHiveProperties {
             "aws.catalog.credentials.provider.factory.class";
 
     // ========== Fields ==========
+    @Getter
     private AWSGlueMetaStoreBaseProperties baseProperties;
 
     @ConnectorProperty(names = {AWS_GLUE_MAX_RETRY_KEY},
@@ -72,6 +75,14 @@ public class HiveGlueMetaStoreProperties extends AbstractHiveProperties {
             required = false,
             description = "Catalog separator character for AWS Glue.")
     protected String awsGlueCatalogSeparator = "";
+
+    @ConnectorProperty(names = {"glue.credentials_provider_type"},
+            required = false,
+            description = "The credentials provider type of S3. "
+                    + "Options are: DEFAULT, ASSUME_ROLE, ANONYMOUS, ENVIRONMENT, SYSTEM_PROPERTIES, "
+                    + "WEB_IDENTITY_TOKEN_FILE, INSTANCE_PROFILE. "
+                    + "If not set, it will use the default provider chain of AWS SDK.")
+    protected String awsCredentialsProviderType = AwsCredentialsProviderMode.DEFAULT.name();
 
     // ========== Constructor ==========
 
@@ -113,6 +124,8 @@ public class HiveGlueMetaStoreProperties extends AbstractHiveProperties {
         setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_SESSION_TOKEN, baseProperties.glueSessionToken);
         setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_ROLE_ARN, baseProperties.glueIAMRole);
         setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_EXTERNAL_ID, baseProperties.glueExternalId);
+        setHiveConfPropertiesIfNotNull(hiveConf,
+                AWSGlueConfig.AWS_CREDENTIALS_PROVIDER_MODE, awsCredentialsProviderType);
     }
 
     private static void setHiveConfPropertiesIfNotNull(HiveConf hiveConf, String key, String value) {

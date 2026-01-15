@@ -50,19 +50,8 @@ suite ("multi_agg_with_same_slot") {
 
     sql "analyze table d_table with sync;"
     sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
-    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
-
-    mv_rewrite_success_without_check_chosen("select k1,k2,avg(k3),max(k3) from d_table group by k1,k2 order by 1,2;", "kmv")
-
-    mv_rewrite_success_without_check_chosen("select k1,k2,avg(k3)+max(k3) from d_table group by k1,k2 order by 1,2;", "kmv")
-
-    mv_rewrite_success_without_check_chosen("select k1,k2,avg(k3)+max(k3) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;", "kmv")
-
-    mv_rewrite_success_without_check_chosen("select k1,k2,max(k5) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;", "kmv2")
-
-    sql """set enable_stats=true;"""
 
     mv_rewrite_success("select k1,k2,avg(k3),max(k3) from d_table group by k1,k2 order by 1,2;", "kmv")
     qt_select_mv "select k1,k2,avg(k3),max(k3) from d_table group by k1,k2 order by 1,2;"

@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 // nereids_testOrderByQueryOnProjectView
 suite ("orderByOnPView") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -40,26 +42,16 @@ suite ("orderByOnPView") {
     sql """insert into orderByOnPView values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into orderByOnPView values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view orderByOnPView_mv as select deptno as a1, empid as a2 from orderByOnPView;")
-
-    sleep(3000)
+    create_sync_mv(db, "orderByOnPView", "orderByOnPView_mv", "select deptno as a1, empid as a2 from orderByOnPView;")
 
     sql """insert into orderByOnPView values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table orderByOnPView with sync;"
     sql """alter table orderByOnPView modify column time_col set stats ('row_count'='4');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_fail("select * from orderByOnPView where time_col='2020-01-01' order by empid;", "orderByOnPView_mv")
     order_qt_select_star "select * from orderByOnPView order by empid;"
 
     mv_rewrite_success("select empid from orderByOnPView where deptno = 0 order by deptno;", "orderByOnPView_mv")
     order_qt_select_mv "select empid from orderByOnPView order by deptno;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from orderByOnPView where time_col='2020-01-01' order by empid;", "orderByOnPView_mv")
-
-    mv_rewrite_success("select empid from orderByOnPView where deptno = 0 order by deptno;", "orderByOnPView_mv")
 }

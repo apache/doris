@@ -70,3 +70,15 @@ mysql
 -- !select_xml_tvf --
 1000	<catalog><book><author> Gambardella Matthew</author><title>XML Developers Guide</title><genre>Computer</genre><price>44.95</price><publish_date>2000-10-01</publish_date><description>An in-depth look at creating application\n                          with XML</description></book></catalog>
 
+-- !varbinary_desc --
+BLOB_COLUMN	varbinary(1048576)	Yes	true	\N	
+ID_COLUMN	int	No	true	\N	
+
+-- !varbinary_select --
+1	0x48656C6C6F20576F726C6421
+
+-- !varbinary_select_after_insert --
+1	0x48656C6C6F20576F726C6421
+2	0x48656C6C6F20576F726C6421
+3	\N
+

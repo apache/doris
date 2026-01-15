@@ -50,7 +50,7 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
-          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
+          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id)) {
     CHECK_EQ(destinations.size(), 1);
 }
 

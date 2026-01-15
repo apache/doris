@@ -17,91 +17,187 @@
 
 #pragma once
 
+#include <variant>
+
+#include "CLucene/index/DocRange.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-template <typename TermIterator>
-class SegmentPostingsBase : public DocSet {
+class Postings : public DocSet {
 public:
-    SegmentPostingsBase() = default;
-    SegmentPostingsBase(TermIterator iter) : _iter(std::move(iter)) {
-        if (_iter->next()) {
-            int32_t d = _iter->doc();
-            _doc = d >= INT_MAX ? TERMINATED : d;
-        } else {
-            _doc = TERMINATED;
+    Postings() = default;
+    ~Postings() override = default;
+
+    virtual void positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) {
+        output.clear();
+        append_positions_with_offset(offset, output);
+    }
+
+    virtual void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) = 0;
+};
+
+using PostingsPtr = std::shared_ptr<Postings>;
+
+class SegmentPostings final : public Postings {
+public:
+    using IterVariant = std::variant<std::monostate, TermDocsPtr, TermPositionsPtr>;
+
+    explicit SegmentPostings(TermDocsPtr iter, bool enable_scoring = false)
+            : _iter(std::move(iter)), _enable_scoring(enable_scoring) {
+        if (auto* p = std::get_if<TermDocsPtr>(&_iter)) {
+            _raw_iter = p->get();
         }
+        _init_doc();
+    }
+
+    explicit SegmentPostings(TermPositionsPtr iter, bool enable_scoring = false)
+            : _iter(std::move(iter)), _enable_scoring(enable_scoring), _has_positions(true) {
+        if (auto* p = std::get_if<TermPositionsPtr>(&_iter)) {
+            _raw_iter = p->get();
+        }
+        _init_doc();
     }
 
     uint32_t advance() override {
-        if (_iter->next()) {
-            return _doc = _iter->doc();
+        if (_block.doc_many && _cursor < _block.doc_many_size_) {
+            return _doc = (*_block.doc_many)[_cursor++];
         }
-        return _doc = TERMINATED;
+        if (!_refill()) {
+            return _doc = TERMINATED;
+        }
+        return _doc = (*_block.doc_many)[_cursor++];
     }
 
     uint32_t seek(uint32_t target) override {
         if (target <= _doc) {
             return _doc;
         }
-        if (_iter->skipTo(target)) {
-            return _doc = _iter->doc();
+
+        if (_block.doc_many) {
+            while (_cursor < _block.doc_many_size_) {
+                uint32_t curr = (*_block.doc_many)[_cursor++];
+                if (curr >= target) {
+                    return _doc = curr;
+                }
+            }
         }
+
+        _raw_iter->skipToBlock(target);
+
+        while (_refill()) {
+            while (_cursor < _block.doc_many_size_) {
+                uint32_t curr = (*_block.doc_many)[_cursor++];
+                if (curr >= target) {
+                    return _doc = curr;
+                }
+            }
+        }
+
         return _doc = TERMINATED;
     }
 
     uint32_t doc() const override { return _doc; }
 
-    uint32_t size_hint() const override { return _iter->docFreq(); }
+    uint32_t size_hint() const override { return _raw_iter ? _raw_iter->docFreq() : 0; }
 
-    virtual int32_t freq() const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "freq() method not implemented in base SegmentPostingsBase class");
+    uint32_t freq() const override {
+        if (!_enable_scoring || !_block.freq_many || _cursor == 0) {
+            return 1;
+        }
+        return (*_block.freq_many)[_cursor - 1];
     }
 
-    virtual int32_t norm() const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "norm() method not implemented in base SegmentPostingsBase class");
+    uint32_t norm() const override {
+        if (!_enable_scoring || !_block.norm_many || _cursor == 0) {
+            return 1;
+        }
+        return (*_block.norm_many)[_cursor - 1];
     }
 
-protected:
-    TermIterator _iter;
+    void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {
+        if (!_has_positions) {
+            throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "This posting type does not support position information");
+        }
+        if (!_block.freq_many) {
+            throw Exception(doris::ErrorCode::INTERNAL_ERROR,
+                            "Position information requested but freq data is missing");
+        }
+
+        auto* term_pos_ptr = std::get_if<TermPositionsPtr>(&_iter);
+        if (!term_pos_ptr || !*term_pos_ptr) {
+            throw Exception(doris::ErrorCode::INTERNAL_ERROR,
+                            "Position information requested but TermPositions iterator is missing");
+        }
+
+        uint32_t current_doc_idx = _cursor - 1;
+        if (current_doc_idx > _prox_cursor) {
+            int32_t skip_count = 0;
+            for (uint32_t i = _prox_cursor; i < current_doc_idx; ++i) {
+                skip_count += (*_block.freq_many)[i];
+            }
+            if (skip_count > 0) {
+                (*term_pos_ptr)->addLazySkipProxCount(skip_count);
+            }
+        }
+
+        uint32_t freq = (*_block.freq_many)[current_doc_idx];
+        int32_t position = 0;
+        for (uint32_t i = 0; i < freq; ++i) {
+            position += (*term_pos_ptr)->nextDeltaPosition();
+            output.push_back(position + offset);
+        }
+
+        _prox_cursor = current_doc_idx + 1;
+    }
+
+    bool scoring_enabled() const { return _enable_scoring; }
 
 private:
+    bool _refill() {
+        _block.need_positions = _has_positions;
+        if (!_raw_iter->readRange(&_block)) {
+            return false;
+        }
+        _cursor = 0;
+        _prox_cursor = 0;
+        return _block.doc_many_size_ > 0;
+    }
+
+    void _init_doc() {
+        if (!_raw_iter) {
+            throw Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                            "SegmentPostings requires a valid iterator");
+        }
+        if (_refill()) {
+            _doc = (*_block.doc_many)[_cursor++];
+        } else {
+            _doc = TERMINATED;
+        }
+    }
+
+    IterVariant _iter;
+    lucene::index::TermDocs* _raw_iter = nullptr;
     uint32_t _doc = TERMINATED;
+    bool _enable_scoring = false;
+    bool _has_positions = false;
+
+    DocRange _block;
+    uint32_t _cursor = 0;
+    uint32_t _prox_cursor = 0;
 };
 
-template <typename TermIterator>
-class SegmentPostings final : public SegmentPostingsBase<TermIterator> {
-public:
-    SegmentPostings(TermIterator iter) : SegmentPostingsBase<TermIterator>(std::move(iter)) {}
+using SegmentPostingsPtr = std::shared_ptr<SegmentPostings>;
 
-    int32_t freq() const override { return this->_iter->freq(); }
-    int32_t norm() const override { return this->_iter->norm(); }
-};
+inline SegmentPostingsPtr make_segment_postings(TermDocsPtr iter, bool enable_scoring = false) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring);
+}
 
-template <typename TermIterator>
-class NoScoreSegmentPosting final : public SegmentPostingsBase<TermIterator> {
-public:
-    NoScoreSegmentPosting(TermIterator iter) : SegmentPostingsBase<TermIterator>(std::move(iter)) {}
-
-    int32_t freq() const override { return 1; }
-    int32_t norm() const override { return 1; }
-};
-
-template <typename TermIterator>
-class EmptySegmentPosting final : public SegmentPostingsBase<TermIterator> {
-public:
-    EmptySegmentPosting() = default;
-
-    uint32_t advance() override { return TERMINATED; }
-    uint32_t seek(uint32_t) override { return TERMINATED; }
-    uint32_t doc() const override { return TERMINATED; }
-    uint32_t size_hint() const override { return 0; }
-
-    int32_t freq() const override { return 1; }
-    int32_t norm() const override { return 1; }
-};
+inline SegmentPostingsPtr make_segment_postings(TermPositionsPtr iter,
+                                                bool enable_scoring = false) {
+    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring);
+}
 
 } // namespace doris::segment_v2::inverted_index::query_v2

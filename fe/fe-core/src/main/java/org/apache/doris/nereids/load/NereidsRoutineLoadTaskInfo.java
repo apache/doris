@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
 
@@ -65,8 +67,10 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected boolean emptyFieldAsNull;
     protected int sendBatchParallelism;
     protected boolean loadToSingleTablet;
-    protected boolean isPartialUpdate;
+    protected TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected boolean memtableOnSinkNode;
+    protected int timeoutSec;
 
     /**
      * NereidsRoutineLoadTaskInfo
@@ -76,7 +80,8 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
             String sequenceCol, double maxFilterRatio, NereidsImportColumnDescs columnDescs,
             Expression precedingFilter, Expression whereExpr, Separator columnSeparator,
             Separator lineDelimiter, byte enclose, byte escape, int sendBatchParallelism,
-            boolean loadToSingleTablet, boolean isPartialUpdate, boolean memtableOnSinkNode) {
+            boolean loadToSingleTablet, boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            boolean memtableOnSinkNode) {
         this.execMemLimit = execMemLimit;
         this.jobProperties = jobProperties;
         this.maxBatchIntervalS = maxBatchIntervalS;
@@ -94,8 +99,12 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.escape = escape;
         this.sendBatchParallelism = sendBatchParallelism;
         this.loadToSingleTablet = loadToSingleTablet;
-        this.isPartialUpdate = isPartialUpdate;
+        if (isPartialUpdate) {
+            this.uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+        }
+        this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.memtableOnSinkNode = memtableOnSinkNode;
+        this.timeoutSec = calTimeoutSec();
     }
 
     @Override
@@ -108,12 +117,21 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         return -1L;
     }
 
-    @Override
-    public int getTimeout() {
+    public int calTimeoutSec() {
         int timeoutSec = (int) maxBatchIntervalS * Config.routine_load_task_timeout_multiplier;
         int realTimeoutSec = timeoutSec < Config.routine_load_task_min_timeout_sec
                 ? Config.routine_load_task_min_timeout_sec : timeoutSec;
         return realTimeoutSec;
+    }
+
+    @Override
+    public int getTimeout() {
+        return this.timeoutSec;
+    }
+
+    @Override
+    public void setTimeout(int timeout) {
+        this.timeoutSec = timeout;
     }
 
     @Override
@@ -300,7 +318,22 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
 
     @Override
     public boolean isFixedPartialUpdate() {
-        return isPartialUpdate;
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+    }
+
+    @Override
+    public TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return uniquekeyUpdateMode;
+    }
+
+    @Override
+    public boolean isFlexiblePartialUpdate() {
+        return uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS;
+    }
+
+    @Override
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewKeyPolicy;
     }
 
     @Override

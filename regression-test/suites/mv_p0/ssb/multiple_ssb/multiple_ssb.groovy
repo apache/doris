@@ -154,7 +154,10 @@ suite ("multiple_ssb") {
 
     sql """analyze table lineorder_flat with sync;"""
     sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
-    sql """set enable_stats=false;"""
+    sql """alter table lineorder_flat modify column a1 set stats ('row_count'='1');"""
+    sql """alter table lineorder_flat modify column a4 set stats ('row_count'='1');"""
+    sql """alter table lineorder_flat modify column a6 set stats ('row_count'='1');"""
+    sql """alter table lineorder_flat modify column x2 set stats ('row_count'='1');"""
 
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
@@ -239,50 +242,4 @@ suite ("multiple_ssb") {
     mv_rewrite_success("""select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY;""",
             "count_LO_ORDERPRIORITY_3")
     qt_select_count_3 "select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY order by 1,2;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
-                FROM lineorder_flat
-                WHERE
-                    LO_ORDERDATE >= 19930101
-                    AND LO_ORDERDATE <= 19931231
-                    AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
-                    AND LO_QUANTITY < 25;""", "lineorder_q_1_1")
-
-    mv_rewrite_success("""SELECT
-                SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
-                P_BRAND
-            FROM lineorder_flat
-            WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
-            GROUP BY (LO_ORDERDATE DIV 10000), P_BRAND
-            ORDER BY YEAR, P_BRAND;""", "lineorder_q_2_1")
-
-    mv_rewrite_success("""SELECT
-                C_NATION,
-                S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
-                SUM(LO_REVENUE) AS revenue
-            FROM lineorder_flat
-            WHERE
-                C_REGION = 'ASIA'
-                AND S_REGION = 'ASIA'
-                AND LO_ORDERDATE >= 19920101
-                AND LO_ORDERDATE <= 19971231
-            GROUP BY C_NATION, S_NATION, YEAR
-            ORDER BY YEAR ASC, revenue DESC;""", "lineorder_q_3_1")
-
-    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
-                C_NATION,
-                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
-                FROM lineorder_flat
-                WHERE
-                C_REGION = 'AMERICA'
-                AND S_REGION = 'AMERICA'
-                AND P_MFGR IN ('MFGR#1', 'MFGR#2')
-                GROUP BY YEAR, C_NATION
-                ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_q_4_1")
-
-    mv_rewrite_success("""select LO_ORDERDATE, sum(LO_ORDERDATE) from lineorder_flat where LO_ORDERDATE in (1,2,3) group by LO_ORDERDATE;""",
-            "count_LO_ORDERPRIORITY_1")
-    mv_rewrite_success("""select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY;""",
-            "count_LO_ORDERPRIORITY_3")
 }

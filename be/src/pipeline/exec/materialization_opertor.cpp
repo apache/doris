@@ -55,12 +55,15 @@ void MaterializationSharedState::get_block(vectorized::Block* block) {
 }
 
 Status MaterializationSharedState::merge_multi_response() {
-    std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
+    std::unordered_map<int64_t, std::pair<vectorized::Block, int>> block_maps;
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             vectorized::Block partial_block;
+            size_t uncompressed_size = 0;
+            int64_t uncompressed_time = 0;
             DCHECK(rpc_struct.response.blocks_size() > i);
-            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
+            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block(),
+                                                      &uncompressed_size, &uncompressed_time));
             if (rpc_struct.response.blocks(i).has_profile()) {
                 auto response_profile =
                         RuntimeProfile::from_proto(rpc_struct.response.blocks(i).profile());
@@ -68,14 +71,20 @@ Status MaterializationSharedState::merge_multi_response() {
             }
 
             if (!partial_block.is_empty_column()) {
-                _block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
+                block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
             }
         }
 
         for (int j = 0; j < block_order_results[i].size(); ++j) {
             auto backend_id = block_order_results[i][j];
             if (backend_id) {
-                auto& source_block_rows = _block_maps[backend_id];
+                if (UNLIKELY(block_maps.find(backend_id) == block_maps.end())) {
+                    return Status::InternalError(
+                            fmt::format("MaterializationSharedState::merge_multi_response, "
+                                        "backend_id {} not found in block_maps",
+                                        backend_id));
+                }
+                auto& source_block_rows = block_maps[backend_id];
                 DCHECK(source_block_rows.second < source_block_rows.first.rows());
                 for (int k = 0; k < response_blocks[i].columns(); ++k) {
                     response_blocks[i].get_column_by_position(k)->insert_from(

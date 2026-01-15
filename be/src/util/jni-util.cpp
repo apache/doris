@@ -138,6 +138,7 @@ const std::string GetKerb5ConfPath() {
         options.push_back(GetKerb5ConfPath());
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
+            // To convert a string to a char*, const_cast is used.
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
         }
 
@@ -339,6 +340,7 @@ Status JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std
     }
     env->DeleteLocalRef(hashmap_class);
     RETURN_IF_ERROR(LocalToGlobalRef(env, hashmap_local_object, hashmap_object));
+    env->DeleteLocalRef(hashmap_local_object);
     return Status::OK();
 }
 

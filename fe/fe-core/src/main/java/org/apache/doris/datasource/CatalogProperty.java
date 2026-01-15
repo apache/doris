@@ -24,7 +24,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import com.aliyun.odps.table.utils.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -43,12 +43,30 @@ import java.util.stream.Collectors;
 public class CatalogProperty {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
+    // Default: false, mapping BINARY types to STRING for compatibility
+    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
+
     @Deprecated
     @SerializedName(value = "resource")
     private String resource;
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
+
+    /**
+     * An ordered list of all initialized {@link StorageProperties} instances.
+     * <p>
+     * The order of this list is significant:
+     * <ul>
+     *   <li>The default HDFSProperties (if auto-created) is always inserted at index 0.</li>
+     *   <li>Explicitly configured storage providers follow in the order they are detected.</li>
+     *   <li>Callers rely on this deterministic ordering for selecting or iterating through
+     *       storage backends.</li>
+     * </ul>
+     * <p>
+     * Declared as {@code volatile} to ensure visibility across threads once initialized.
+     */
+    private volatile List<StorageProperties> orderedStoragePropertiesList;
 
     // Lazy-loaded storage properties map, using volatile to ensure visibility
     private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
@@ -76,6 +94,21 @@ public class CatalogProperty {
 
     public Map<String, String> getProperties() {
         return Maps.newHashMap(properties);
+    }
+
+    /**
+     * @return true if varbinary mapping is enabled, false otherwise
+     */
+    public boolean getEnableMappingVarbinary() {
+        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_VARBINARY, "false"));
+    }
+
+    /**
+     * Set enable mapping varbinary property.
+     * @param enable true to enable varbinary mapping, false to disable
+     */
+    public void setEnableMappingVarbinary(boolean enable) {
+        addProperty(ENABLE_MAPPING_VARBINARY, String.valueOf(enable));
     }
 
     public void modifyCatalogProps(Map<String, String> props) {
@@ -119,13 +152,13 @@ public class CatalogProperty {
     /**
      * Get storage properties map with lazy loading, using double-check locking to ensure thread safety
      */
-    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+    private void initStorageProperties() {
         if (storagePropertiesMap == null) {
             synchronized (this) {
                 if (storagePropertiesMap == null) {
                     try {
-                        List<StorageProperties> storageProperties = StorageProperties.createAll(getProperties());
-                        this.storagePropertiesMap = storageProperties.stream()
+                        this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
+                        this.storagePropertiesMap = orderedStoragePropertiesList.stream()
                                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
@@ -135,7 +168,16 @@ public class CatalogProperty {
                 }
             }
         }
+    }
+
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        initStorageProperties();
         return storagePropertiesMap;
+    }
+
+    public List<StorageProperties> getOrderedStoragePropertiesList() {
+        initStorageProperties();
+        return orderedStoragePropertiesList;
     }
 
     public void checkMetaStoreAndStorageProperties(Class msClass) {

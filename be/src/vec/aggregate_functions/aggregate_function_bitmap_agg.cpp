@@ -46,6 +46,7 @@ AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) 
 
 AggregateFunctionPtr create_aggregate_function_bitmap_agg(const std::string& name,
                                                           const DataTypes& argument_types,
+                                                          const DataTypePtr& result_type,
                                                           const bool result_is_nullable,
                                                           const AggregateFunctionAttr& attr) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();

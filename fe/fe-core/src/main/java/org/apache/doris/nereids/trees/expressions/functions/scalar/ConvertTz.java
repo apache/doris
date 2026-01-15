@@ -44,8 +44,8 @@ public class ConvertTz extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable, Monotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
     /**

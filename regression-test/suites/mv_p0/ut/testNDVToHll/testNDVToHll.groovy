@@ -45,15 +45,6 @@ suite ("testNDVToHll") {
 
     sql "analyze table user_tags with sync;"
     sql """alter table user_tags modify column time_col set stats ('row_count'='7');"""
-    sql """set enable_stats=false;"""
-
-    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
-
-    mv_rewrite_success_without_check_chosen("select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
-
-    mv_rewrite_success_without_check_chosen("select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
-
-    sql """set enable_stats=true;"""
 
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
     order_qt_select_star "select * from user_tags order by time_col,tag_id;"

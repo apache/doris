@@ -429,7 +429,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
                             return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
-                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                    comparisonPredicate.withChildren(left, DecimalV3Literal.createWithoutCheck256(
                                             literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             // TODO: the ideal way is to return an If expr like:
@@ -443,7 +443,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
                             return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
-                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                    comparisonPredicate.withChildren(left, DecimalV3Literal.createWithoutCheck256(
                                             literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             return BooleanLiteral.of(false);
@@ -625,7 +625,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
                 trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
                 Expression newLiteral = new DecimalV3Literal(
-                        DecimalV3Type.createDecimalV3TypeLooseCheck(leftType.getPrecision(), leftType.getScale()),
+                        DecimalV3Type.createDecimalV3Type(leftType.getPrecision(), leftType.getScale()),
                         trailingZerosValue);
                 return Optional.of(comparisonPredicate.withChildren(left, newLiteral));
             }

@@ -368,12 +368,12 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
 
     SpillSinkRunnable spill_runnable(
             state, nullptr, operator_profile(),
-            [this, query_id] {
+            [this, state, query_id] {
                 DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
                     auto status = Status::InternalError(
                             "fault_inject partitioned_hash_join_sink "
                             "revoke_memory canceled");
-                    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, status);
+                    state->get_query_ctx()->cancel(status);
                     return status;
                 });
                 SCOPED_TIMER(_spill_build_timer);

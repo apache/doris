@@ -28,6 +28,7 @@ public enum EtlJobType {
     // create by job scheduler,inner use
     @Deprecated
     INSERT_JOB,
+    @Deprecated
     INGESTION,
     UNKNOWN
 }

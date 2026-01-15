@@ -120,6 +120,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.ResultRow;
@@ -499,7 +500,10 @@ public class StmtExecutor {
                 execute(queryId);
                 return;
             } catch (UserException e) {
-                if (!e.getMessage().contains(FeConstants.CLOUD_RETRY_E230) || i == retryTime) {
+                if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
+                    // We have retried internally(in handleQueryWithRetry()) for other kinds of exceptions.
+                    // And for error in SystemInfoService.NEED_REPLAN_ERRORS, they are not handled internally but here
+                    // so we just handle these errors, and throw exception for other errors.
                     throw e;
                 }
                 if (this.coord != null && this.coord.isQueryCancelled()) {
@@ -515,8 +519,8 @@ public class StmtExecutor {
                 if (DebugPointUtil.isEnable("StmtExecutor.retry.longtime")) {
                     randomMillis = 1000;
                 }
-                LOG.warn("receive E-230 tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
-                        i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
+                LOG.warn("receive '{}' tried={} first queryId={} last queryId={} new queryId={} sleep={}ms",
+                        e.getMessage(), i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
                 context.getState().reset();
@@ -684,7 +688,9 @@ public class StmtExecutor {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
                 }
-                if (Config.isCloudMode() && e.getDetailMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
@@ -732,8 +738,9 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             try {
+                checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-                checkBlockRules();
+                checkBlockRulesByScan(planner);
             } catch (Exception e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
@@ -905,14 +912,16 @@ public class StmtExecutor {
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
-                if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
+                    // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
                     throw e;
                 }
-                LOG.warn("due to exception {} retry {} rpc {} user {}",
+                LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
 
                 boolean isNeedRetry = false;
@@ -1296,12 +1305,6 @@ public class StmtExecutor {
                 return;
             }
 
-            if (context.isRunProcedure()) {
-                // plsql will get the returned results without sending them to mysql client.
-                // see org/apache/doris/plsql/executor/DorisRowResult.java
-                return;
-            }
-
             boolean isDryRun = ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery;
             while (true) {
                 // register the fetch result time.
@@ -1404,6 +1407,8 @@ public class StmtExecutor {
                     DebugUtil.printId(context.queryId()), e.getMessage());
             LOG.warn(internalErrorSt.getErrorMsg());
             coordBase.cancel(internalErrorSt);
+            // set to null so that the retry logic will generate a new coordinator
+            this.coord = null;
             throw e;
         } finally {
             coordBase.close();
@@ -1438,7 +1443,12 @@ public class StmtExecutor {
             }
         }
         if (address == null) {
-            throw new AnalysisException("No Alive backends");
+            String computeGroupHints = "";
+            if (Config.isCloudMode()) {
+                // null: computeGroupNotFoundPromptMsg select cluster for hint msg
+                computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(null);
+            }
+            throw new AnalysisException("No Alive backends" + computeGroupHints);
         }
 
         // 5. send rpc to BE
@@ -1732,6 +1742,7 @@ public class StmtExecutor {
                             break;
                         case DATETIME:
                         case DATETIMEV2:
+                        case TIMESTAMPTZ:
                             DateTimeV2Literal datetime = new DateTimeV2Literal(item);
                             long microSecond = datetime.getMicroSecond();
                             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
@@ -1970,14 +1981,6 @@ public class StmtExecutor {
 
     public Coordinator getCoord() {
         return coord;
-    }
-
-    public List<String> getColumns() {
-        return parsedStmt.getColLabels();
-    }
-
-    public List<Type> getReturnTypes() {
-        return exprToType(parsedStmt.getResultExprs());
     }
 
     public List<Type> getReturnTypes(Queriable stmt) {

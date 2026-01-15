@@ -74,14 +74,19 @@ PROPERTIES (
         throw new Exception("File flink-doris-syncdb.jar download failed.")
     }
 
-    def javaPath = ["bash", "-c", "which java"].execute().text.trim()
-    logger.info("System java path: ${javaPath}")
+    def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${systemJavaPath}")
+
+    def runtimeJavaHome = System.getProperty("java.home")
+    logger.info("Runtime java home: ${runtimeJavaHome}")
+    def javaPath = "${runtimeJavaHome}/bin/java"
+
     def javaVersion = System.getProperty("java.version")
-    logger.info("System java version: ${javaVersion}")
+    logger.info("Runtime java version: ${javaVersion}")
 
     def addOpens = ""
     if (javaVersion.startsWith("17")) {
-        addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED"
+        addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED"
     }
 
     def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"

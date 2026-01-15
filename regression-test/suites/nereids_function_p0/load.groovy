@@ -225,6 +225,9 @@ suite("load") {
     }
 
     if (!isClusterKeyEnabled()) {
+    sql """
+    set debug_skip_fold_constant=true;
+    """
     // test fn_test_ip_not_nullable_rowstore table with update action
     // not null will throw exception if we has data in table
     test {
@@ -236,6 +239,9 @@ suite("load") {
         sql "update fn_test_ip_not_nullable_rowstore set ip6 = '' where id = 1;"
         exception("parse ipv6 fail")
     }
+    sql """
+    set debug_skip_fold_constant=false;
+    """
 
     sql "update fn_test_ip_not_nullable_rowstore set ip4 = '192.10.10.1' where id = 1;"
     def sql_res1 = sql "select * from fn_test_ip_not_nullable_rowstore where id = 1;"
@@ -808,6 +814,11 @@ suite("load") {
     assertEquals(sql_res_not_null_array.size(), sql_res_not_null_rowstore_array.size())
     for (int i = 0; i < sql_res_not_null_array.size(); i++) {
         for (int j = 0; j < sql_res_not_null_array[i].size(); j++) {
+            if (sql_res_not_null_array[i][j] != sql_res_not_null_rowstore_array[i][j]) {
+                def plan_sql_res_not_null_array = sql "explain verbose select * from fn_test_not_nullable_array order by id;"
+                def plan_sql_res_not_null_rowstore_array = sql "explain verbose select * from fn_test_not_nullable_rowstore_array order by id;"
+                log.info("i: ${i}, j: ${j}, array plan: ${plan_sql_res_not_null_array}, rowstore_array: ${plan_sql_res_not_null_rowstore_array}".toString())
+            }
             assertEquals(sql_res_not_null_array[i][j], sql_res_not_null_rowstore_array[i][j])
         }
     }

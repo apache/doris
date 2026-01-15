@@ -43,17 +43,15 @@ Status SimpleEqualityDelete::_build_set() {
     return Status::OK();
 }
 
-Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
+Status SimpleEqualityDelete::filter_data_block(
+        Block* data_block, const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
     SCOPED_TIMER(equality_delete_time);
-    auto* column_and_type = data_block->try_get_by_name(_delete_column_name);
-    if (column_and_type == nullptr) {
-        return Status::InternalError("Can't find the delete column '{}' in data file",
-                                     _delete_column_name);
-    }
-    if (column_and_type->type->get_primitive_type() != _delete_column_type) {
+    auto column_and_type =
+            data_block->get_by_position(col_name_to_block_idx->at(_delete_column_name));
+    if (column_and_type.type->get_primitive_type() != _delete_column_type) {
         return Status::InternalError(
                 "Not support type change in column '{}', src type: {}, target type: {}",
-                _delete_column_name, column_and_type->type->get_name(), (int)_delete_column_type);
+                _delete_column_name, column_and_type.type->get_name(), (int)_delete_column_type);
     }
     size_t rows = data_block->rows();
     // _filter: 1 => in _hybrid_set; 0 => not in _hybrid_set
@@ -64,12 +62,12 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
         _filter->assign(rows, UInt8(0));
     }
 
-    if (column_and_type->column->is_nullable()) {
+    if (column_and_type.column->is_nullable()) {
         const NullMap& null_map =
-                reinterpret_cast<const ColumnNullable*>(column_and_type->column.get())
+                reinterpret_cast<const ColumnNullable*>(column_and_type.column.get())
                         ->get_null_map_data();
         _hybrid_set->find_batch_nullable(
-                remove_nullable(column_and_type->column)->assume_mutable_ref(), rows, null_map,
+                remove_nullable(column_and_type.column)->assume_mutable_ref(), rows, null_map,
                 *_filter);
         if (_hybrid_set->contain_null()) {
             auto* filter_data = _filter->data();
@@ -78,7 +76,7 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
             }
         }
     } else {
-        _hybrid_set->find_batch(column_and_type->column->assume_mutable_ref(), rows, *_filter);
+        _hybrid_set->find_batch(column_and_type.column->assume_mutable_ref(), rows, *_filter);
     }
     // should reverse _filter
     auto* filter_data = _filter->data();
@@ -105,22 +103,25 @@ Status MultiEqualityDelete::_build_set() {
     return Status::OK();
 }
 
-Status MultiEqualityDelete::filter_data_block(Block* data_block) {
+Status MultiEqualityDelete::filter_data_block(
+        Block* data_block, const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
     SCOPED_TIMER(equality_delete_time);
     size_t column_index = 0;
-    for (std::string column_name : _delete_block->get_names()) {
-        auto* column_and_type = data_block->try_get_by_name(column_name);
-        if (column_and_type == nullptr) {
-            return Status::InternalError("Can't find the delete column '{}' in data file",
-                                         column_name);
+
+    for (auto delete_col : _delete_block->get_columns_with_type_and_name()) {
+        const std::string& column_name = delete_col.name;
+        if (!col_name_to_block_idx->contains(column_name)) {
+            return Status::InternalError("Column '{}' not found in data block: {}", column_name,
+                                         data_block->dump_structure());
         }
-        if (!_delete_block->get_by_name(column_name).type->equals(*column_and_type->type)) {
+        auto column_and_type =
+                data_block->safe_get_by_position(col_name_to_block_idx->at(column_name));
+        if (!delete_col.type->equals(*column_and_type.type)) {
             return Status::InternalError(
                     "Not support type change in column '{}', src type: {}, target type: {}",
-                    column_name, _delete_block->get_by_name(column_name).type->get_name(),
-                    column_and_type->type->get_name());
+                    column_name, delete_col.type->get_name(), column_and_type.type->get_name());
         }
-        _data_column_index[column_index++] = data_block->get_position_by_name(column_name);
+        _data_column_index[column_index++] = col_name_to_block_idx->at(column_name);
     }
     size_t rows = data_block->rows();
     _data_hashes.clear();

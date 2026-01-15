@@ -46,9 +46,8 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
 
     public IcebergRollbackToSnapshotAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
-            IcebergExternalTable icebergTable) {
-        super("rollback_to_snapshot", properties, partitionNamesInfo, whereCondition, icebergTable);
+            Optional<Expression> whereCondition) {
+        super("rollback_to_snapshot", properties, partitionNamesInfo, whereCondition);
     }
 
     @Override

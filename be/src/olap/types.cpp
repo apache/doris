@@ -100,18 +100,10 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_IPV4>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_IPV6>(),
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(),
             nullptr};
     return field_type_array[int(field_type)];
 }
-
-#define INIT_ARRAY_TYPE_INFO_LIST(type)                                               \
-    {                                                                                 \
-        get_init_array_type_info<type>(0), get_init_array_type_info<type>(1),         \
-                get_init_array_type_info<type>(2), get_init_array_type_info<type>(3), \
-                get_init_array_type_info<type>(4), get_init_array_type_info<type>(5), \
-                get_init_array_type_info<type>(6), get_init_array_type_info<type>(7), \
-                get_init_array_type_info<type>(8)                                     \
-    }
 
 template <FieldType field_type>
 const ArrayTypeInfo* get_init_array_type_info(int32_t iterations) {
@@ -130,51 +122,6 @@ const ArrayTypeInfo* get_init_array_type_info(int32_t iterations) {
             &nested_type_info_3, &nested_type_info_4, &nested_type_info_5,
             &nested_type_info_6, &nested_type_info_7, &nested_type_info_8};
     return nested_type_info_array[iterations];
-}
-
-const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
-    DCHECK(iterations <= 8) << "the depth of nested array type should not be larger than 8";
-    static constexpr int32_t depth = 9;
-    static const ArrayTypeInfo* array_type_Info_arr[][depth] = {
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_TINYINT),
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_SMALLINT),
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_INT),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_BIGINT),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_LARGEINT),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_FLOAT),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DOUBLE),
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_CHAR),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DATE),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DATETIME),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DECIMAL),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_VARCHAR),
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_HLL),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_BOOL),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_BITMAP),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_STRING),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DATEV2),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DATETIMEV2),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_TIMEV2),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DECIMAL32),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DECIMAL64),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DECIMAL128I),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_JSONB),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_VARIANT),
-            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_AGG_STATE)};
-    return array_type_Info_arr[int(leaf_type)][iterations];
 }
 
 // Produce a struct type info

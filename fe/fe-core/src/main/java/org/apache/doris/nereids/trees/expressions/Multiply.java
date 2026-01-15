@@ -31,7 +31,7 @@ import java.util.List;
 /**
  * Multiply Expression.
  */
-public class Multiply extends BinaryArithmetic implements PropagateNullable {
+public class Multiply extends BinaryArithmetic implements PropagateNullable, NeedSessionVarGuard {
 
     public Multiply(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.MULTIPLY);

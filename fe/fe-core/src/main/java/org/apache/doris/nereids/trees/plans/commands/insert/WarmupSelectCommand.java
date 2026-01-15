@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
@@ -213,5 +214,15 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
 
         ShowResultSet resultSet = new ShowResultSet(metaData, rows);
         executor.sendResultSet(resultSet);
+    }
+
+    /**
+     * Skip auth check for warmup select command.
+     * The blackhole table is a system table and doesn't require LOAD privilege.
+     * Nereids analyzer will check SELECT privilege on source tables.
+     */
+    @Override
+    protected boolean needAuthCheck(TableIf targetTableIf) {
+        return false;
     }
 }

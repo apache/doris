@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -359,7 +360,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(0).getDouble());
     }
 
@@ -368,7 +370,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(second.getValue()).getDouble());
     }
 
@@ -394,7 +397,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(0).getDouble());
     }
 
@@ -403,7 +407,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(second.getValue()).getDouble());
     }
 
@@ -429,7 +434,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(0).getDouble());
     }
 
@@ -438,7 +444,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first, IntegerLiteral second) {
-        DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
+        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
+                new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundFloor(second.getValue()).getDouble());
     }
 
@@ -734,6 +741,18 @@ public class NumericArithmetic {
         double evenMag = 2 * Math.ceil(mag / 2);
         double value = Math.copySign(evenMag, first.getValue());
         return new DoubleLiteral(value);
+    }
+
+    /**
+     * factorial
+     */
+    @ExecFunction(name = "factorial")
+    public static Expression factorial(BigIntLiteral first) {
+        long value = first.getValue();
+        if (value < 0 || value > 20) {
+            return new NullLiteral(BigIntType.INSTANCE);
+        }
+        return new BigIntLiteral(ArithmeticUtils.factorial((int) value));
     }
 
     /**

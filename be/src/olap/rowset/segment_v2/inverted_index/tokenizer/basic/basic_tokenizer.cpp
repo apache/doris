@@ -33,8 +33,15 @@ BasicTokenizer::BasicTokenizer(bool own_reader) {
     this->ownReader = own_reader;
 }
 
-void BasicTokenizer::initialize(BasicTokenizerMode mode) {
-    _mode = mode;
+void BasicTokenizer::initialize(const std::string& extra_chars) {
+    _extra_char_set.fill(false);
+    _has_extra_chars = !extra_chars.empty();
+
+    for (uint8_t c : extra_chars) {
+        if (c < 128) {
+            _extra_char_set[c] = true;
+        }
+    }
 }
 
 Token* BasicTokenizer::next(Token* token) {
@@ -60,16 +67,16 @@ void BasicTokenizer::reset() {
     (void)numRead;
     assert(_buffer.size() == numRead);
 
-    if (_mode == BasicTokenizerMode::L1) {
-        cut<BasicTokenizerMode::L1>();
-    } else if (_mode == BasicTokenizerMode::L2) {
-        cut<BasicTokenizerMode::L2>();
+    if (_has_extra_chars) {
+        cut<true>();
+    } else {
+        cut<false>();
     }
 
     _data_len = static_cast<int32_t>(_tokens_text.size());
 }
 
-template <BasicTokenizerMode mode>
+template <bool HasExtraChars>
 void BasicTokenizer::cut() {
     auto* s = (uint8_t*)_buffer.data();
     auto length = static_cast<int32_t>(_buffer.size());
@@ -102,17 +109,16 @@ void BasicTokenizer::cut() {
                 continue;
             }
 
-            if constexpr (mode == BasicTokenizerMode::L1) {
-                if (IS_CHINESE_CHAR(c)) {
+            if (IS_CHINESE_CHAR(c)) {
+                const int32_t len = i - prev_i;
+                _tokens_text.emplace_back(reinterpret_cast<const char*>(s + prev_i), len);
+            }
+
+            if constexpr (HasExtraChars) {
+                if (c < 128 && _extra_char_set[c]) {
                     const int32_t len = i - prev_i;
                     _tokens_text.emplace_back(reinterpret_cast<const char*>(s + prev_i), len);
                 }
-            } else if constexpr (mode == BasicTokenizerMode::L2) {
-                if (u_hasBinaryProperty(c, UCHAR_WHITE_SPACE)) {
-                    continue;
-                }
-                const int32_t len = i - prev_i;
-                _tokens_text.emplace_back(reinterpret_cast<const char*>(s + prev_i), len);
             }
         }
     }

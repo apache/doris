@@ -49,6 +49,10 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor.template apply<PrimitiveType::TYPE_DATETIMEV2>(
                 field.template get<
                         typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return visitor.template apply<PrimitiveType::TYPE_TIMESTAMPTZ>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
     case PrimitiveType::TYPE_LARGEINT:
         return visitor.template apply<PrimitiveType::TYPE_LARGEINT>(
                 field.template get<

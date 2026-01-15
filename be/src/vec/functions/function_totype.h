@@ -22,6 +22,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -118,6 +119,13 @@ private:
         } else if constexpr (is_complex_v<Impl::PrimitiveTypeImpl>) {
             if (const auto* col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
                         column.get())) {
+                auto col_res = Impl::ReturnColumnType::create();
+                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
+                block.replace_by_position(result, std::move(col_res));
+                return Status::OK();
+            }
+        } else if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_VARBINARY) {
+            if (const auto* col = check_and_get_column<ColumnVarbinary>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
                 block.replace_by_position(result, std::move(col_res));
@@ -465,11 +473,19 @@ public:
 
         auto& col_ptr = block.get_by_position(arguments[0]).column;
 
-        auto res = Impl::ColumnType::create();
         if (const auto* col = check_and_get_column<ColumnString>(col_ptr.get())) {
             auto col_res = Impl::ColumnType::create();
-            RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(), col_res->get_chars(),
-                                         col_res->get_offsets(), null_map->get_data()));
+            if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString>) {
+                RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
+                                             col_res->get_chars(), col_res->get_offsets(),
+                                             null_map->get_data()));
+            } else if (std::is_same_v<typename Impl::ReturnType, DataTypeVarbinary>) {
+                RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(), col_res.get(),
+                                             null_map->get_data()));
+            } else {
+                return Status::RuntimeError("Illegal returntype {} of argument of function {}",
+                                            col_res->get_name(), get_name());
+            }
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
@@ -506,31 +522,48 @@ public:
         if constexpr (is_allow_null) {
             auto null_map = ColumnUInt8::create(input_rows_count, 0);
             auto& null_map_data = null_map->get_data();
-            if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
-                auto col_res = Impl::ColumnType::create();
-                RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
-                                             col_res->get_chars(), col_res->get_offsets(),
-                                             &null_map_data));
-                block.get_by_position(result).column =
-                        ColumnNullable::create(std::move(col_res), std::move(null_map));
-            } else {
-                return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                            block.get_by_position(arguments[0]).column->get_name(),
-                                            get_name());
+            if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_STRING) {
+                if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
+                    auto col_res = Impl::ColumnType::create();
+                    RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
+                                                 col_res->get_chars(), col_res->get_offsets(),
+                                                 &null_map_data));
+                    block.get_by_position(result).column =
+                            ColumnNullable::create(std::move(col_res), std::move(null_map));
+                    return Status::OK();
+                }
+            } else if (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_VARBINARY) {
+                if (const auto* col = assert_cast<const ColumnVarbinary*>(col_ptr.get())) {
+                    auto col_res = Impl::ColumnType::create();
+                    RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
+                                                 col_res->get_offsets(), &null_map_data));
+                    block.get_by_position(result).column =
+                            ColumnNullable::create(std::move(col_res), std::move(null_map));
+                    return Status::OK();
+                }
             }
         } else {
-            if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
-                auto col_res = Impl::ColumnType::create();
-                RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
-                                             col_res->get_chars(), col_res->get_offsets()));
-                block.replace_by_position(result, std::move(col_res));
-            } else {
-                return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                            block.get_by_position(arguments[0]).column->get_name(),
-                                            get_name());
+            if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_STRING) {
+                if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
+                    auto col_res = Impl::ColumnType::create();
+                    RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
+                                                 col_res->get_chars(), col_res->get_offsets()));
+                    block.replace_by_position(result, std::move(col_res));
+                    return Status::OK();
+                }
+            } else if (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_VARBINARY) {
+                if (const auto* col = assert_cast<const ColumnVarbinary*>(col_ptr.get())) {
+                    auto col_res = Impl::ColumnType::create();
+                    RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
+                                                 col_res->get_offsets()));
+                    block.replace_by_position(result, std::move(col_res));
+                    return Status::OK();
+                }
             }
         }
-        return Status::OK();
+        return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                    block.get_by_position(arguments[0]).column->get_name(),
+                                    get_name());
     }
 };
 } // namespace doris::vectorized

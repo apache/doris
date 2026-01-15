@@ -252,13 +252,16 @@ public:
         auto pblock = std::make_unique<PBlock>();
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
+        int64_t compress_time = 0;
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::ZSTD;
         Status st = block->serialize(be_exec_version, pblock.get(), &uncompressed_bytes,
-                                     &compressed_bytes, compression_type);
+                                     &compressed_bytes, &compress_time, compression_type);
         ASSERT_EQ(st.ok(), true);
         // deserialize
         auto block_1 = std::make_shared<Block>();
-        st = block_1->deserialize(*pblock);
+        size_t uncompress_size = 0;
+        int64_t uncompressed_time = 0;
+        st = block_1->deserialize(*pblock, &uncompress_size, &uncompressed_time);
         ASSERT_EQ(st.ok(), true);
         // check block_1 and block is same
         for (auto col_idx = 0; col_idx < block->columns(); ++col_idx) {

@@ -44,8 +44,9 @@ class RuntimePredicate {
 public:
     RuntimePredicate(const TTopnFilterDesc& desc);
 
-    void init_target(int32_t target_node_id,
-                     phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc);
+    Status init_target(int32_t target_node_id,
+                       phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
+                       const int column_id);
 
     bool enable() const {
         // when sort node and scan node are not in the same fragment, predicate will be disabled
@@ -66,9 +67,7 @@ public:
         }
         RETURN_IF_ERROR(tablet_schema->have_column(_contexts[target_node_id].col_name));
         _contexts[target_node_id].tablet_schema = tablet_schema;
-        int64_t index = DORIS_TRY(_contexts[target_node_id].get_field_index())
-                                _contexts[target_node_id]
-                                        .predicate = SharedPredicate::create_shared(index);
+        DCHECK(_contexts[target_node_id].predicate != nullptr);
         return Status::OK();
     }
 
@@ -110,6 +109,7 @@ public:
     }
 
 private:
+    StringRef _get_string_ref(const Field& field, const PrimitiveType type);
     void check_target_node_id(int32_t target_node_id) const {
         if (!_contexts.contains(target_node_id)) {
             std::string msg = "context target node ids: [";
@@ -129,6 +129,7 @@ private:
     struct TargetContext {
         TExpr expr;
         std::string col_name;
+        // TODO(gabriel): remove this
         TabletSchemaSPtr tablet_schema;
         std::shared_ptr<ColumnPredicate> predicate;
 
@@ -153,13 +154,14 @@ private:
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
     Arena _predicate_arena;
-    std::function<std::string(const Field&)> _get_value_fn;
-    std::function<ColumnPredicate*(const DataTypePtr&, int, const std::string&, bool,
-                                   vectorized::Arena&)>
+    std::function<std::shared_ptr<ColumnPredicate>(
+            const int cid, const vectorized::DataTypePtr& data_type, StringRef& value,
+            bool opposite, vectorized::Arena& arena)>
             _pred_constructor;
     bool _detected_source = false;
     bool _detected_target = false;
     bool _has_value = false;
+    PrimitiveType _type;
 };
 
 } // namespace vectorized

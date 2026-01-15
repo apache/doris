@@ -195,12 +195,12 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     @Override
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
-        ctx.clear();
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
             asynExecutor.finalizeQuery();
         }
         returnResultFromRemoteExecutor.clear();
         executor.finalizeQuery();
+        ctx.clear();
         ConnectContext.remove();
     }
 }

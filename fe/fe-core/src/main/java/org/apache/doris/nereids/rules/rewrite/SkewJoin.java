@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -108,8 +110,13 @@ public class SkewJoin extends OneRewriteRuleFactory {
             join.setHint(hint);
             return join;
         } else {
+            List<Expression> newHotValues = new ArrayList<>(hotValues.size());
+            DataType dataType = skewExpr.getDataType();
+            for (Expression value : hotValues) {
+                newHotValues.add(TypeCoercionUtils.castIfNotSameType(value, dataType));
+            }
             DistributeHint hint = new DistributeHint(DistributeType.SHUFFLE_RIGHT,
-                    new JoinSkewInfo(skewExpr, hotValues, false));
+                    new JoinSkewInfo(skewExpr, newHotValues, false));
             join.setHint(hint);
             return SaltJoin.transform(join);
         }

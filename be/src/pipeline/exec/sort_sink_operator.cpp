@@ -49,7 +49,7 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     case TSortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc());
+                p._child->row_desc(), state->get_query_ctx()->has_runtime_predicate(p._node_id));
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
@@ -91,7 +91,7 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
           _limit(tnode.limit),
-          _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _row_descriptor(descs, tnode.row_tuples),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
           _is_colocate(tnode.sort_node.__isset.is_colocate && tnode.sort_node.is_colocate),
           _require_bucket_distribution(require_bucket_distribution),

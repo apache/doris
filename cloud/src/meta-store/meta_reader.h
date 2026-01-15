@@ -108,6 +108,17 @@ public:
                                        TabletStatsPB* tablet_stats, Versionstamp* versionstamp,
                                        bool snapshot = false);
 
+    // Get the tablet load stats for the given tablet_ids (batch version).
+    // If a tablet_id does not exist, then it will not be included in the respective map.
+    TxnErrorCode get_tablet_load_stats(const std::vector<int64_t>& tablet_ids,
+                                       std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                       std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                       bool snapshot = false);
+    TxnErrorCode get_tablet_load_stats(Transaction* txn, const std::vector<int64_t>& tablet_ids,
+                                       std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                       std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                       bool snapshot = false);
+
     // Get the tablet compact stats for the given tablet
     //
     // If the `tablet_stats` is not nullptr, it will be filled with the deserialized TabletStatsPB.
@@ -294,6 +305,10 @@ public:
     TxnErrorCode get_snapshot(Transaction* txn, Versionstamp snapshot_versionstamp,
                               SnapshotPB* snapshot_pb, bool snapshot = false);
 
+    // Whether any snapshot exists.
+    TxnErrorCode has_snapshot(bool* has, bool snapshot = false);
+    TxnErrorCode has_snapshot(Transaction* txn, bool* has, bool snapshot = false);
+
     // Whether the snapshot has references.
     TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,
                                          bool snapshot = false);
@@ -303,6 +318,11 @@ public:
     // Count how many instances reference this snapshot.
     int count_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
                                   bool snapshot = false);
+
+    // Find derived instance IDs that were cloned from a specific snapshot.
+    // Returns only instance IDs (without reading full InstanceInfoPB).
+    TxnErrorCode find_derived_instance_ids(Transaction* txn, Versionstamp snapshot_version,
+                                           std::vector<std::string>* out, bool snapshot = false);
 
     // Whether the table has no indexes.
     TxnErrorCode has_no_indexes(int64_t db_id, int64_t table_id, bool* no_indexes,

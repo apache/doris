@@ -59,8 +59,8 @@ public interface RequireTrivialTypes {
             DateType.INSTANCE,
             DateTimeType.INSTANCE,
             DateV2Type.INSTANCE,
-            DateTimeV2Type.SYSTEM_DEFAULT,
-            TimeV2Type.INSTANCE,
+            DateTimeV2Type.WILDCARD,
+            TimeV2Type.WILDCARD,
             VarcharType.SYSTEM_DEFAULT,
             StringType.INSTANCE
     );

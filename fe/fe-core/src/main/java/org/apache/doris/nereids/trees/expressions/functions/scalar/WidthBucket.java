@@ -39,6 +39,10 @@ import java.util.List;
  */
 public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
+                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(FloatType.INSTANCE,
+                    FloatType.INSTANCE, FloatType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE,
                     TinyIntType.INSTANCE, TinyIntType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE,
@@ -46,11 +50,7 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE,
                     IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE,
-                    BigIntType.INSTANCE, BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(FloatType.INSTANCE,
-                    FloatType.INSTANCE, FloatType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
-                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE)
+                    BigIntType.INSTANCE, BigIntType.INSTANCE, BigIntType.INSTANCE)
             );
 
     /**

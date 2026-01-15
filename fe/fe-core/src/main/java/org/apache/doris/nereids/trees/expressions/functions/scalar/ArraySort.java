@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.LambdaType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +42,8 @@ public class ArraySort extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
+            FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX)),
+            FunctionSignature.ret(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX)).args(LambdaType.INSTANCE)
     );
 
     /**
@@ -57,11 +60,13 @@ public class ArraySort extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child(0).getDataType();
-        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
+        if (children.get(0).getDataType() instanceof ArrayType) {
+            DataType argType = child(0).getDataType();
+            if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
                     || ((ArrayType) argType).getItemType().isVariantType()
                     || ((ArrayType) argType).getItemType().isJsonType())) {
-            throw new AnalysisException("array_sort does not support types: " + argType.toSql());
+                throw new AnalysisException("array_sort does not support types: " + argType.toSql());
+            }
         }
     }
 
@@ -71,7 +76,35 @@ public class ArraySort extends ScalarFunction
     @Override
     public ArraySort withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArraySort(getFunctionParams(children));
+        return new ArraySort(children.get(0));
+    }
+
+    @Override
+    public DataType getDataType() {
+        if (children.get(0) instanceof Lambda) {
+            Lambda lambda = (Lambda) children.get(0);
+            ArrayItemReference argRef = lambda.getLambdaArguments().get(0);
+            Expression arrayExpr = argRef.getArrayExpression();
+            ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
+            return ArrayType.of(arrayType.getItemType(), true);
+        } else if (children.get(0).getDataType() instanceof ArrayType) {
+            Expression arrayExpr = children.get(0);
+            ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
+            return ArrayType.of(arrayType.getItemType(), true);
+        } else {
+            throw new AnalysisException("The first arg of array_sort must be lambda or array");
+        }
+    }
+
+    @Override
+    public boolean nullable() {
+        if (children.get(0) instanceof Lambda) {
+            return ((Lambda) children.get(0)).getLambdaArguments().stream()
+                    .map(ArrayItemReference::getArrayExpression)
+                    .anyMatch(Expression::nullable);
+        } else {
+            return child(0).nullable();
+        }
     }
 
     @Override

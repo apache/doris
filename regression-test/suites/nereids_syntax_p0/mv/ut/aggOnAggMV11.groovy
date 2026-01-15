@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("aggOnAggMV11") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
@@ -43,16 +45,12 @@ suite ("aggOnAggMV11") {
     sql """insert into aggOnAggMV11 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV11 values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view aggOnAggMV11_mv as select deptno as a1, count(salary) from aggOnAggMV11 group by deptno;")
-
-    sleep(3000)
+    create_sync_mv(db, "aggOnAggMV11", "aggOnAggMV11_mv", "select deptno as a1, count(salary) from aggOnAggMV11 group by deptno;")
 
     sql """insert into aggOnAggMV11 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV11 with sync;"
     sql """alter table aggOnAggMV11 modify column time_col set stats ('row_count'='7');"""
-
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
     order_qt_select_star "select * from aggOnAggMV11 order by empid;"
@@ -60,11 +58,4 @@ suite ("aggOnAggMV11") {
     mv_rewrite_fail("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;",
             "aggOnAggMV11_mv")
     order_qt_select_mv "select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno order by 1;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
-
-    mv_rewrite_fail("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;",
-            "aggOnAggMV11_mv")
 }

@@ -510,7 +510,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
-        s = output_rs_reader->next_block(&output_block);
+        s = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {
@@ -615,7 +615,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
-        s = output_rs_reader->next_block(&output_block);
+        s = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {
@@ -721,7 +721,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
-        s = output_rs_reader->next_block(&output_block);
+        s = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {
@@ -830,7 +830,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
-        st = output_rs_reader->next_block(&output_block);
+        st = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {
@@ -931,7 +931,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
-        st = output_rs_reader->next_block(&output_block);
+        st = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {
@@ -1021,7 +1021,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     do {
         block_create(tablet_schema, &output_block);
-        s = output_rs_reader->next_block(&output_block);
+        s = output_rs_reader->next_batch(&output_block);
         auto columns = output_block.get_columns_with_type_and_name();
         EXPECT_EQ(columns.size(), 2);
         for (auto i = 0; i < output_block.rows(); i++) {

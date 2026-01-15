@@ -178,7 +178,7 @@ public class AuditLogHelper {
         }
     }
 
-    private static String truncateByBytes(String str, int maxLen, String suffix) {
+    public static String truncateByBytes(String str, int maxLen, String suffix) {
         // use `getBytes().length` to get real byte length
         if (maxLen >= str.getBytes().length) {
             return str;
@@ -393,9 +393,11 @@ public class AuditLogHelper {
                             MetricRepo.updateClusterQueryLatency(physicalClusterName, elapseMs);
                         }
                         if (elapseMs > Config.qe_slow_log_ms) {
+                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
+                        }
+                        if (elapseMs > Config.sql_digest_generation_threshold_ms) {
                             String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                             auditEventBuilder.setSqlDigest(sqlDigest);
-                            MetricRepo.COUNTER_QUERY_SLOW.increase(1L);
                         }
                     }
                 }
@@ -406,9 +408,12 @@ public class AuditLogHelper {
                             statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
         }
 
-        boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
-                && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
-        String encryptSql = isAnalysisErr ? ctx.getState().getErrorMessage() : origStmt;
+        boolean isSyntaxErr = ctx.getState().getStateType() == MysqlStateType.ERR
+                && ctx.getState().getErrType() == QueryState.ErrType.SYNTAX_PARSE_ERR;
+        String encryptSql = isSyntaxErr ? "Syntax Error" : origStmt;
+        if (isSyntaxErr) {
+            auditEventBuilder.setErrorMessage("Syntax Error");
+        }
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();

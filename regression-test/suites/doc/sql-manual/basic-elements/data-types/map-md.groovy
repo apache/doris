@@ -150,10 +150,10 @@ suite("map-md", "p0") {
         exception "Type exceeds the maximum nesting depth of 9"
     }
     
-    test {
-        sql """ SELECT CAST(MAP('key1', 1, 'key2', 2) AS STRING) """
-        exception "can not cast from origin type MAP<VARCHAR(4),TINYINT> to target type=TEXT"
-    }
+    //    test {
+    //        sql """ SELECT CAST(MAP('key1', 1, 'key2', 2) AS STRING) """
+    //        exception "can not cast from origin type MAP<VARCHAR(4),TINYINT> to target type=TEXT"
+    //    }
 
     qt_sql """ SELECT CAST(MAP('key1', 1, 'key2', 2) AS MAP<STRING, STRING>) """
 

@@ -709,7 +709,7 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
         std::vector<TTupleId> tuple_ids;
         tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
-        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, std::vector<bool>(2, false));
+        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids);
         if (!_partition_by_eq_expr_ctxs.empty()) {
             RETURN_IF_ERROR(
                     vectorized::VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));
@@ -901,10 +901,9 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
 Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
                                                    const vectorized::VExprContextSPtr& expr,
                                                    vectorized::IColumn* dst_column, size_t length) {
-    int result_col_id = -1;
-    RETURN_IF_ERROR(expr->execute(block, &result_col_id));
-    DCHECK_GE(result_col_id, 0);
-    auto column = block->get_by_position(result_col_id).column->convert_to_full_column_if_const();
+    vectorized::ColumnPtr column;
+    RETURN_IF_ERROR(expr->execute(block, column));
+    column = column->convert_to_full_column_if_const();
     // iff dst_column is string, maybe overflow of 4G, so need ignore overflow
     // the column is used by compare_at self to find the range, it's need convert it when overflow?
     dst_column->insert_range_from_ignore_overflow(*column, 0, length);

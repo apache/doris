@@ -491,32 +491,29 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
 
         auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
-        MutableColumnPtr column_to;
+
+        // by default framework, to_type is already unwrapped nullable
+        MutableColumnPtr column_to = to_type->create_column();
+        ColumnNullable::MutablePtr nullable_col_to = ColumnNullable::create(
+                std::move(column_to), ColumnUInt8::create(input_rows_count, 0));
 
         if constexpr (Mode == CastModeType::NonStrictMode) {
-            auto to_nullable_type = make_nullable(to_type);
-            column_to = to_nullable_type->create_column();
-            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, {}));
+            // may write nulls to nullable_col_to
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, {}));
         } else if constexpr (Mode == CastModeType::StrictMode) {
-            if (to_type->is_nullable()) {
-                return Status::InternalError(
-                        "result type should be not nullable when casting string to decimal in "
-                        "strict cast mode");
-            }
-            column_to = to_type->create_column();
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
+            // WON'T write nulls to nullable_col_to, just raise errors. null_map is only used to skip invalid rows
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(
+                    *col_from, nullable_col_to->get_nested_column(), {}, null_map));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
 
-        block.get_by_position(result).column = std::move(column_to);
+        block.get_by_position(result).column = std::move(nullable_col_to);
         return Status::OK();
     }
 };
 
-// cast bool and int to decimal
+// cast bool and int to decimal. when may overflow, result column is nullable.
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType> &&
              (IsDataTypeInt<FromDataType> || IsDataTypeBool<FromDataType>))
@@ -547,8 +544,10 @@ public:
 
         auto from_max_int_digit_count = from_precision - from_scale;
         auto to_max_int_digit_count = to_precision - to_scale;
+        // may overflow. nullable result column.
         bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count);
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
         constexpr UInt32 to_max_digits =
                 NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
@@ -567,7 +566,7 @@ public:
 
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -590,7 +589,7 @@ public:
                                                       multiply_may_overflow, narrow_integral>(
                                     vec_from_data[i], vec_to_data[i], to_precision, to_scale,
                                     scale_multiplier, min_result, max_result, params)) {
-                            if (result_is_nullable) {
+                            if (set_nullable) {
                                 null_map_data[i] = 1;
                             } else {
                                 return params.status;
@@ -601,7 +600,7 @@ public:
                 },
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
 
-        if (result_is_nullable) {
+        if (narrow_integral) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
@@ -611,7 +610,7 @@ public:
     }
 };
 
-// cast float and double to decimal
+// cast float and double to decimal. ALWAYS nullable result column.
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeDecimal<ToDataType> && IsDataTypeFloat<FromDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
@@ -644,14 +643,11 @@ public:
         bool narrow_integral =
                 (to_max_int_digit_count < from_max_int_digit_count) ||
                 (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
-        ColumnUInt8::MutablePtr col_null_map_to;
-        NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
-            col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
-            null_map_data = col_null_map_to->get_data().data();
-        }
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
+        NullMap::value_type* null_map_data = col_null_map_to->get_data().data();
 
         auto col_to = ToDataType::ColumnType::create(input_rows_count, to_scale);
         const auto& vec_from = col_from->get_data();
@@ -673,7 +669,7 @@ public:
                                             typename ToDataType::FieldType>(
                         vec_from_data[i], vec_to_data[i], to_precision, to_scale, scale_multiplier,
                         min_result, max_result, params)) {
-                if (result_is_nullable) {
+                if (set_nullable) {
                     null_map_data[i] = 1;
                 } else {
                     return params.status;
@@ -681,12 +677,8 @@ public:
             }
         }
 
-        if (result_is_nullable) {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
-        } else {
-            block.get_by_position(result).column = std::move(col_to);
-        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         return Status::OK();
     }
 };
@@ -742,13 +734,13 @@ public:
         bool narrow_integral = (to_max_int_digit_count < from_max_int_digit_count) ||
                                (to_max_int_digit_count == from_max_int_digit_count &&
                                 to_scale < from_original_scale);
-
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
         size_t size = col_from->size();
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(size, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -796,7 +788,7 @@ public:
                                     vec_from_data[i], from_precision, from_scale, vec_to_data[i],
                                     to_precision, to_scale, min_result, max_result, multiplier,
                                     params)) {
-                            if (result_is_nullable) {
+                            if (set_nullable) {
                                 null_map_data[i] = 1;
                             } else {
                                 return params.status;
@@ -806,7 +798,7 @@ public:
                     return Status::OK();
                 },
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
-        if (result_is_nullable) {
+        if (narrow_integral) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
@@ -850,13 +842,13 @@ public:
         bool narrow_integral =
                 (to_max_int_digit_count < from_max_int_digit_count) ||
                 (to_max_int_digit_count == from_max_int_digit_count && to_scale < from_scale);
-
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
         size_t size = col_from->size();
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(size, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -903,7 +895,7 @@ public:
                                     vec_from_data[i], from_precision, from_scale, vec_to_data[i],
                                     to_precision, to_scale, min_result, max_result, multiplier,
                                     params)) {
-                            if (result_is_nullable) {
+                            if (set_nullable) {
                                 null_map_data[i] = 1;
                             } else {
                                 return params.status;
@@ -913,7 +905,7 @@ public:
                     return Status::OK();
                 },
                 make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral)));
-        if (result_is_nullable) {
+        if (narrow_integral) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {

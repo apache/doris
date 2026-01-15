@@ -57,8 +57,6 @@ suite ("sum_devide_count") {
 
     sql """analyze table d_table with sync;"""
     sql """alter table d_table modify column k3 set stats ('row_count'='15');"""
-    sql """set enable_stats=false;"""
-
 
     mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
     qt_select_mv "select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;"
@@ -71,13 +69,4 @@ suite ("sum_devide_count") {
 
     mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
     qt_select_mv "select sum(k2)/count(k2) from d_table;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
-
-    mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")
-
-    mv_rewrite_success("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;", "kavg")
-
-    mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
 }

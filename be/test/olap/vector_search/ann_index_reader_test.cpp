@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 
+#include "olap/rowset/segment_v2/ann_index/ann_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_iterator.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/faiss_ann_index.h"
@@ -89,6 +90,26 @@ TEST_F(AnnIndexReaderTest, TestConstructorWithDifferentMetrics) {
     EXPECT_EQ(reader->get_index_id(), 2);
 }
 
+TEST_F(AnnIndexReaderTest, TestConstructorWithIVF) {
+    // Test with IVF index type
+    auto properties = _properties;
+    properties["index_type"] = "ivf";
+    properties["nlist"] = "128";
+    properties["quantizer"] = "flat";
+
+    auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_properties = properties;
+    tablet_index->_index_id = 3;
+
+    auto reader = std::make_unique<segment_v2::AnnIndexReader>(tablet_index.get(),
+                                                               _mock_index_file_reader);
+    reader->_index_type = segment_v2::AnnIndexType::IVF;
+
+    EXPECT_EQ(reader->get_index_id(), 3);
+    EXPECT_EQ(reader->index_type(), IndexType::ANN);
+    EXPECT_EQ(reader->get_metric_type(), segment_v2::AnnIndexMetric::L2);
+}
+
 TEST_F(AnnIndexReaderTest, TestNewIterator) {
     // TODO: Fix if we using unique_ptr here.
     auto reader = std::make_shared<segment_v2::AnnIndexReader>(_tablet_index.get(),
@@ -115,8 +136,8 @@ TEST_F(AnnIndexReaderTest, TestLoadIndexSuccess) {
 
     // For the open method that returns Result<unique_ptr<...>>, we need to use a different approach
     // since gmock has issues with non-copyable return types
-    ON_CALL(*_mock_index_file_reader, open(testing::_, testing::_))
-            .WillByDefault(testing::Invoke(
+    EXPECT_CALL(*_mock_index_file_reader, open(testing::_, testing::_))
+            .WillOnce(testing::Invoke(
                     [](const doris::TabletIndex*, const doris::io::IOContext*)
                             -> doris::Result<std::unique_ptr<doris::segment_v2::DorisCompoundReader,
                                                              doris::segment_v2::DirectoryDeleter>> {
@@ -151,8 +172,8 @@ TEST_F(AnnIndexReaderTest, TestLoadIndexFailureOpen) {
     EXPECT_CALL(*_mock_index_file_reader, init(testing::_, testing::_))
             .WillOnce(testing::Return(Status::OK()));
 
-    ON_CALL(*_mock_index_file_reader, open(testing::_, testing::_))
-            .WillByDefault(testing::Invoke(
+    EXPECT_CALL(*_mock_index_file_reader, open(testing::_, testing::_))
+            .WillOnce(testing::Invoke(
                     [](const doris::TabletIndex*, const doris::io::IOContext*)
                             -> doris::Result<std::unique_ptr<doris::segment_v2::DorisCompoundReader,
                                                              doris::segment_v2::DirectoryDeleter>> {
@@ -209,6 +230,59 @@ TEST_F(AnnIndexReaderTest, TestQueryWithoutLoadIndex) {
     }
 }
 
+TEST_F(AnnIndexReaderTest, TestQueryIVFWithoutLoadIndex) {
+    // Test IVF index query
+    auto properties = _properties;
+    properties["index_type"] = "ivf";
+    properties["nlist"] = "64";
+    properties["quantizer"] = "flat";
+
+    auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_properties = properties;
+
+    auto reader = std::make_unique<segment_v2::AnnIndexReader>(tablet_index.get(),
+                                                               _mock_index_file_reader);
+
+    // Set up _vector_index manually to bypass load_index for testing
+    auto doris_faiss_vector_index = std::make_unique<doris::segment_v2::FaissVectorIndex>();
+    doris_faiss_vector_index->set_metric(doris::segment_v2::AnnIndexMetric::L2);
+
+    doris::segment_v2::FaissBuildParameter build_params;
+    build_params.dim = 4;
+    build_params.ivf_nlist = 64;
+    build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::IVF;
+    build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
+    build_params.quantizer = doris::segment_v2::FaissBuildParameter::Quantizer::FLAT;
+    doris_faiss_vector_index->build(build_params);
+
+    reader->_vector_index = std::move(doris_faiss_vector_index);
+    reader->_index_type = segment_v2::AnnIndexType::IVF;
+
+    // Create query parameters
+    const float query_data[] = {1.0f, 2.0f, 3.0f, 4.0f};
+    roaring::Roaring bitmap;
+    bitmap.add(1);
+    bitmap.add(2);
+
+    segment_v2::AnnTopNParam param {.query_value = query_data,
+                                    .query_value_size = 4,
+                                    .limit = 5,
+                                    ._user_params = VectorSearchUserParams {},
+                                    .roaring = &bitmap};
+
+    segment_v2::AnnIndexStats stats;
+    io::IOContext io_ctx;
+
+    Status status = reader->query(&io_ctx, &param, &stats);
+
+    // The query might succeed or fail depending on the internal index state,
+    // but it should not crash and should properly initialize distance and row_ids
+    if (status.ok()) {
+        EXPECT_NE(param.distance, nullptr);
+        EXPECT_NE(param.row_ids, nullptr);
+    }
+}
+
 TEST_F(AnnIndexReaderTest, TestRangeSearchWithoutLoadIndex) {
     auto reader = std::make_unique<segment_v2::AnnIndexReader>(_tablet_index.get(),
                                                                _mock_index_file_reader);
@@ -242,6 +316,61 @@ TEST_F(AnnIndexReaderTest, TestRangeSearchWithoutLoadIndex) {
     user_params.hnsw_ef_search = 50;
     user_params.hnsw_check_relative_distance = true;
     user_params.hnsw_bounded_queue = true;
+
+    segment_v2::AnnRangeSearchResult result;
+    segment_v2::AnnIndexStats stats;
+
+    Status status = reader->range_search(params, user_params, &result, &stats);
+
+    // The range search might succeed or fail depending on the internal index state,
+    // but it should not crash
+    if (status.ok()) {
+        EXPECT_NE(result.roaring, nullptr);
+    }
+}
+
+TEST_F(AnnIndexReaderTest, TestRangeSearchIVFWithoutLoadIndex) {
+    // Test IVF index range search
+    auto properties = _properties;
+    properties["index_type"] = "ivf";
+    properties["nlist"] = "64";
+    properties["quantizer"] = "flat";
+
+    auto tablet_index = std::make_unique<TabletIndex>();
+    tablet_index->_properties = properties;
+
+    auto reader = std::make_unique<segment_v2::AnnIndexReader>(tablet_index.get(),
+                                                               _mock_index_file_reader);
+
+    // Set up _vector_index manually to bypass load_index for testing
+    auto doris_faiss_vector_index = std::make_unique<doris::segment_v2::FaissVectorIndex>();
+    doris_faiss_vector_index->set_metric(doris::segment_v2::AnnIndexMetric::L2);
+
+    doris::segment_v2::FaissBuildParameter build_params;
+    build_params.dim = 4;
+    build_params.ivf_nlist = 64;
+    build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::IVF;
+    build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
+    build_params.quantizer = doris::segment_v2::FaissBuildParameter::Quantizer::FLAT;
+    doris_faiss_vector_index->build(build_params);
+
+    reader->_vector_index = std::move(doris_faiss_vector_index);
+    reader->_index_type = segment_v2::AnnIndexType::IVF;
+
+    // Create range search parameters
+    float query_data[] = {1.0f, 2.0f, 3.0f, 4.0f};
+    roaring::Roaring bitmap;
+    bitmap.add(1);
+    bitmap.add(2);
+
+    segment_v2::AnnRangeSearchParams params;
+    params.is_le_or_lt = true;
+    params.radius = 5.0f;
+    params.query_value = query_data;
+    params.roaring = &bitmap;
+
+    VectorSearchUserParams user_params;
+    user_params.ivf_nprobe = 2;
 
     segment_v2::AnnRangeSearchResult result;
     segment_v2::AnnIndexStats stats;
@@ -491,6 +620,67 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderRangeSearch) {
             ASSERT_FLOAT_EQ(doris_search_result_order_by_lables[i].second,
                             native_search_result_order_by_lables[i].second);
         }
+    }
+}
+
+TEST_F(AnnIndexReaderTest, AnnIndexReaderIVFRangeSearch) {
+    // Test IVF index range search functionality
+    std::map<std::string, std::string> index_properties;
+    index_properties["index_type"] = "ivf";
+    index_properties["metric_type"] = "l2_distance";
+    index_properties["dim"] = "32";
+    index_properties["nlist"] = "8"; // Small nlist for testing
+    index_properties["quantizer"] = "flat";
+    std::unique_ptr<doris::TabletIndex> index_meta = std::make_unique<doris::TabletIndex>();
+    index_meta->_properties = index_properties;
+    auto mock_index_file_reader = std::make_shared<MockIndexFileReader>();
+    auto ann_index_reader =
+            std::make_unique<segment_v2::AnnIndexReader>(index_meta.get(), mock_index_file_reader);
+    ann_index_reader->_index_type = segment_v2::AnnIndexType::IVF;
+
+    // Create and set up IVF index
+    auto doris_faiss_index = std::make_unique<doris::segment_v2::FaissVectorIndex>();
+    doris::segment_v2::FaissBuildParameter build_params;
+    build_params.dim = 32;
+    build_params.ivf_nlist = 8;
+    build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::IVF;
+    build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
+    build_params.quantizer = doris::segment_v2::FaissBuildParameter::Quantizer::FLAT;
+    doris_faiss_index->build(build_params);
+
+    const size_t num_vectors = 1000;
+    auto vectors = doris::vector_search_utils::generate_test_vectors_matrix(num_vectors, 32);
+    for (const auto& vec : vectors) {
+        doris_faiss_index->add(1, vec.data());
+    }
+
+    std::ignore = doris_faiss_index->save(this->_ram_dir.get());
+    std::vector<float> query_value = vectors[0];
+    const float radius = doris::vector_search_utils::get_radius_from_matrix(query_value.data(), 32,
+                                                                            vectors, 0.3F);
+
+    // Make sure all rows are in the roaring
+    auto roaring = std::make_unique<roaring::Roaring>();
+    for (size_t i = 0; i < num_vectors; ++i) {
+        roaring->add(i);
+    }
+
+    doris::segment_v2::AnnRangeSearchParams params;
+    params.radius = radius;
+    params.query_value = query_value.data();
+    params.roaring = roaring.get();
+    doris::VectorSearchUserParams custom_params;
+    doris::segment_v2::AnnRangeSearchResult result;
+    auto stats = std::make_unique<doris::segment_v2::AnnIndexStats>();
+    auto doris_faiss_vector_index = std::make_unique<doris::segment_v2::FaissVectorIndex>();
+    std::ignore = doris_faiss_vector_index->load(this->_ram_dir.get());
+    ann_index_reader->_vector_index = std::move(doris_faiss_vector_index);
+    Status status = ann_index_reader->range_search(params, custom_params, &result, stats.get());
+
+    // IVF range search should work without crashing
+    if (status.ok()) {
+        EXPECT_NE(result.roaring, nullptr);
+        EXPECT_GE(result.roaring->cardinality(), 0);
     }
 }
 

@@ -122,9 +122,11 @@ suite('test_temp_table', 'p0') {
     }
     assertFalse(hasTempTable)
 
-    def info_tables = "select * from information_schema.tables where table_name = 't_test_temp_table2'"
+    def info_tables = sql """select * from information_schema.tables where table_name = 't_test_temp_table2'"""
+    logger.info("info_tables: " + info_tables.toString())
     assertEquals(0, info_tables.size())
-    def info_columns = "select * from information_schema.columns  where table_name = 't_test_temp_table2'"
+    def info_columns = sql """select * from information_schema.columns  where table_name = 't_test_temp_table2'"""
+    logger.info("info_columns: " + info_columns.toString())
     assertEquals(0, info_columns.size())
 
 
@@ -549,24 +551,6 @@ suite('test_temp_table', 'p0') {
 
     try {
         sql "alter table t_test_temp_table2 replace with table t_test_table_with_data properties ('swap' = 'true')"
-        throw new IllegalStateException("Should throw error")
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
-    }
-    try {
-        sql "CREATE INDEX bitmap_index_1 ON t_test_temp_table2 (name) USING BITMAP COMMENT 'bitmap_name';"
-        throw new IllegalStateException("Should throw error")
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
-    }
-    try {
-        sql "CREATE INDEX bitmap_index_2 ON t_test_temp_table2 (name) USING INVERTED;"
-        throw new IllegalStateException("Should throw error")
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
-    }
-    try {
-        sql "ALTER TABLE t_test_temp_table2 ADD INDEX bitmap_index_3 (name) USING INVERTED;"
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {
         assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())

@@ -17,13 +17,18 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class HyperGraphTest {
+public class HyperGraphTest extends SqlTestBase {
     @Test
     void testStarGraph() {
         //      t2
@@ -104,5 +109,23 @@ public class HyperGraphTest {
             Assertions.assertEquals(tableNum, hyperGraph.getNodes().size());
             Assertions.assertEquals(edgeNum, hyperGraph.getJoinEdges().size());
         }
+    }
+
+    @Test
+    void testLimitOnScan() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext c1 = createCascadesContext(
+                "select * from (select * from T1 LIMIT 10) t join T2 on t.id = T2.id",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+
+        HyperGraph h1 = HyperGraph.builderForMv(p1).build();
+        Assertions.assertEquals(2, h1.getNodes().size());
+        Assertions.assertTrue(h1.getNodes().stream()
+                .anyMatch(node -> node.getPlan().containsType(LogicalLimit.class)));
     }
 }

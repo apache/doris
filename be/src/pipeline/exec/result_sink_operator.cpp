@@ -56,14 +56,14 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
         _sender = _parent->cast<ResultSinkOperatorX>()._sender;
     } else {
         std::shared_ptr<arrow::Schema> arrow_schema;
-        if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
             RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
                                                             state->timezone()));
         }
         VLOG_DEBUG << "create sender in INIT with instance id " << fragment_instance_id;
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 fragment_instance_id, p._result_sink_buffer_size_rows, &_sender, state,
-                p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL, arrow_schema));
+                p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL, arrow_schema));
     }
     _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
     return Status::OK();
@@ -76,17 +76,12 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<ResultSinkOperatorX>();
     // create writer based on sink type
     switch (p._sink_type) {
-    case TResultSinkType::MYSQL_PROTOCAL: {
-        if (state->mysql_row_binary_format()) {
-            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<true>(
-                    _sender, _output_vexpr_ctxs, custom_profile()));
-        } else {
-            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<false>(
-                    _sender, _output_vexpr_ctxs, custom_profile()));
-        }
+    case TResultSinkType::MYSQL_PROTOCOL: {
+        _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter(
+                _sender, _output_vexpr_ctxs, custom_profile(), state->mysql_row_binary_format()));
         break;
     }
-    case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
+    case TResultSinkType::ARROW_FLIGHT_PROTOCOL: {
         _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
                 _sender, _output_vexpr_ctxs, custom_profile()));
         break;
@@ -104,10 +99,10 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
                                          const TResultSink& sink)
         : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
                             std::numeric_limits<int>::max()),
-          _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL
-                             ? TResultSinkType::MYSQL_PROTOCAL
+          _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
+                             ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),
-          _result_sink_buffer_size_rows(_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL
+          _result_sink_buffer_size_rows(_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL
                                                 ? config::arrow_flight_result_sink_buffer_size_rows
                                                 : RESULT_SINK_BUFFER_SIZE),
           _row_desc(row_desc),
@@ -121,25 +116,19 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
-    if (_fetch_option.use_two_phase_fetch) {
-        for (auto& expr_ctx : _output_vexpr_ctxs) {
-            // Must materialize if it a slot, or the slot column id will be -1
-            expr_ctx->set_force_materialize_slot();
-        }
-    }
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
 
     if (state->query_options().enable_parallel_result_sink) {
         std::shared_ptr<arrow::Schema> arrow_schema;
-        if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
             RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
                                                             state->timezone()));
         }
         VLOG_DEBUG << "create sender in prepare with query id " << state->query_id();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 state->query_id(), _result_sink_buffer_size_rows, &_sender, state,
-                _sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL, arrow_schema));
+                _sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL, arrow_schema));
     }
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }

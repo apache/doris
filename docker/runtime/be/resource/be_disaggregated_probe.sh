@@ -36,11 +36,27 @@ TLS_CERTIFICATE_PATH=
 #tls_ca_certificate_path specify the path of root ca.
 TLS_CA_CERTIFICATE_PATH=
 
+log_stderr()
+{
+    echo "[`date`] $@" >&2
+}
+
 function parse_config_file_with_key()
 {
-    local key=$1
-    local value=`grep "^\s*$key\s*=" $CONFIG_FILE | sed "s|^\s*$key\s*=\s*\(.*\)\s*$|\1|g"`
-    echo $value
+    local confkey=$1
+
+    esc_key=$(printf '%s\n' "$confkey" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local confvalue=$(
+        grep -v '^[[:space:]]*#' "$CONFIG_FILE" |
+        grep -E "^[[:space:]]*${esc_key}[[:space:]]*=" |
+        tail -n1 |
+        sed -E 's/^[[:space:]]*[^=]+[[:space:]]*=[[:space:]]*//' |
+        sed -E 's/[[:space:]]*#.*$//' |
+        sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+    )
+    log_stderr "[info] read 'be.conf' config [ $confkey: $confvalue]"
+    echo "$confvalue"
+
 }
 
 
@@ -75,15 +91,17 @@ ready_probe_with_tls()
 
     if [[ "$http_code" != "200" ]]; then
         exit 1
-    fi
-
-    local res=$(echo "$response" | sed '$d')
-    local status=$(jq -r ".status" <<< $res)
-    if [[ "x$status" == "xOK" ]]; then
-        exit 0
     else
-        exit 1
+        exit 0
     fi
+#
+#    local res=$(echo "$response" | sed '$d')
+#    local status=$(jq -r ".status" <<< $res)
+#    if [[ "x$status" == "xOK" ]]; then
+#        exit 0
+#    else
+#        exit 1
+#    fi
 }
 
 ready_probe_with_no_tls()
@@ -98,15 +116,18 @@ ready_probe_with_no_tls()
 
     if [[ "$http_code" != "200" ]]; then
         exit 1
-    fi
-
-    local res=$(echo "$response" | sed '$d')
-    local status=$(jq -r ".status" <<< $res)
-    if [[ "x$status" == "xOK" ]]; then
-        exit 0
     else
-        exit 1
+        exit 0
     fi
+#    fi
+#
+#    local res=$(echo "$response" | sed '$d')
+#    local status=$(jq -r ".status" <<< $res)
+#    if [[ "x$status" == "xOK" ]]; then
+#        exit 0
+#    else
+#        exit 1
+#    fi
 }
 
 function ready_probe()

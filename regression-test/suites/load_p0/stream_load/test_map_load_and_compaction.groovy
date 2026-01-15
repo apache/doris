@@ -104,8 +104,8 @@ suite("test_map_load_and_compaction", "p0") {
         String compactionStatus = tablet.CompactionStatus
         checkCompactionStatus.call(compactionStatus, 6)
 
-        // trigger compaction
-        trigger_and_wait_compaction(testTable, "cumulative")
+        // trigger compaction for all rowsets be merged 
+        trigger_and_wait_compaction(testTable, "full")
         checkCompactionStatus.call(compactionStatus, 1)
 
         // finally check backend alive

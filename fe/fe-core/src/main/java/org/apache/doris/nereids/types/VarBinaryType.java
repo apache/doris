@@ -21,6 +21,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
+import com.google.common.base.Preconditions;
+
 import java.util.Objects;
 
 /**
@@ -28,7 +30,9 @@ import java.util.Objects;
  */
 public class VarBinaryType extends PrimitiveType {
 
-    public static final int MAX_VARBINARY_LENGTH = ScalarType.MAX_VARCHAR_LENGTH;
+    // The maximum length of VarBinary type set int32. but actually it can be up to
+    // uint32 in BE.
+    public static final int MAX_VARBINARY_LENGTH = ScalarType.MAX_VARBINARY_LENGTH;
     public static final VarBinaryType MAX_VARBINARY_TYPE = new VarBinaryType(MAX_VARBINARY_LENGTH);
     public static final VarBinaryType INSTANCE = new VarBinaryType();
     public int len = -1;
@@ -38,6 +42,8 @@ public class VarBinaryType extends PrimitiveType {
     }
 
     public VarBinaryType(int len) {
+        Preconditions.checkArgument(0 <= len && len <= MAX_VARBINARY_LENGTH,
+                "VarBinary length must be between 0 and " + MAX_VARBINARY_LENGTH + ", but got: " + len);
         this.len = len;
     }
 

@@ -55,7 +55,6 @@ public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWi
         // 1. create test catalog
         String createStmt = "create catalog test1 properties(\n"
                 + "    \"type\" = \"test\",\n"
-                + "    \"use_meta_cache\" = \"false\",\n"
                 + "    \"catalog_provider.class\" "
                 + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameComparedLowercaseMetaCacheFalseTest$ExternalTableNameComparedLowercaseProvider\"\n"
                 + ");";

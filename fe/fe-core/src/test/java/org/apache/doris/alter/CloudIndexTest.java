@@ -17,13 +17,7 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.BuildIndexClause;
-import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DataSortInfo;
-import org.apache.doris.analysis.DropIndexClause;
-import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.CatalogTestUtil;
@@ -49,6 +43,9 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
@@ -90,9 +87,7 @@ public class CloudIndexTest {
 
     private static Database db;
     private static OlapTable olapTable;
-    private static CreateIndexClause createIndexClause;
-    private static BuildIndexClause buildIndexClause;
-    private static DropIndexClause dropIndexClause;
+    private static CreateIndexOp createIndexOp;
     private static CancelBuildIndexCommand cancelBuildIndexCommand;
     private static SchemaChangeHandler schemaChangeHandler;
 
@@ -382,19 +377,18 @@ public class CloudIndexTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("gram_size", "2");
         properties.put("bf_size", "256");
-
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                IndexType.NGRAM_BF,
+                "NGRAM_BF",
                 properties, "ngram bf index");
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(createIndexClause);
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
         ctx.getSessionVariable().setEnableAddIndexForNewData(true);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
         Assert.assertEquals(1, table.getIndexes().size());
@@ -433,19 +427,19 @@ public class CloudIndexTest {
         properties.put("gram_size", "2");
         properties.put("bf_size", "256");
 
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                IndexType.NGRAM_BF,
+                "NGRAM_BF",
                 properties, "ngram bf index");
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(createIndexClause);
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
         // Set session variable to false (default)
         ctx.getSessionVariable().setEnableAddIndexForNewData(false);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
         Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
@@ -495,19 +489,18 @@ public class CloudIndexTest {
         // Explicitly set parser="none" for raw inverted index
         Map<String, String> properties = Maps.newHashMap();
         properties.put("parser", "none");
-
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                IndexType.INVERTED,
+                "INVERTED",
                 properties, "raw inverted index");
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(createIndexClause);
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
         ctx.getSessionVariable().setEnableAddIndexForNewData(false);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
 
@@ -558,19 +551,19 @@ public class CloudIndexTest {
         // Explicitly set parser="none" for raw inverted index
         Map<String, String> properties = Maps.newHashMap();
         properties.put("parser", "none");
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                IndexType.INVERTED,
+                "INVERTED",
                 properties, "lightweight raw inverted index");
         TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(createIndexClause);
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
         // Test with enable_add_index_for_new_data = true, should use lightweight mode
         ctx.getSessionVariable().setEnableAddIndexForNewData(true);
-        schemaChangeHandler.process(alterClauses, db, table);
+        schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         // Lightweight mode should not create any schema change jobs
         Assert.assertEquals(1, indexChangeJobMap.size());
@@ -610,17 +603,17 @@ public class CloudIndexTest {
         properties.put("lower_case", "true");
 
         // Use VARCHAR column v1 (index 2) for string type support
-        IndexDef indexDef = new IndexDef(indexName, false,
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(2).getName()),
-                IndexType.INVERTED,
+                "INVERTED",
                 properties, "tokenized inverted index with english parser");
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(createIndexClause);
-        schemaChangeHandler.process(alterClauses, db, table);
+        createIndexOp = new CreateIndexOp(tableNameInfo, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        schemaChangeHandler.process(alterOps, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
         Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());

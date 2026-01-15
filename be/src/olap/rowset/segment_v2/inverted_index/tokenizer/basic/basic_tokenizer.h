@@ -23,24 +23,19 @@ using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
 
-enum class BasicTokenizerMode {
-    L1 = 1, // English + numbers + Chinese tokenization
-    L2 = 2  // L1 + all Unicode characters tokenized
-};
-
 class BasicTokenizer : public DorisTokenizer {
 public:
     BasicTokenizer() = default;
     BasicTokenizer(bool own_reader);
     ~BasicTokenizer() override = default;
 
-    void initialize(BasicTokenizerMode mode);
+    void initialize(const std::string& extra_chars = "");
 
     Token* next(Token* token) override;
     void reset() override;
 
 private:
-    template <BasicTokenizerMode mode>
+    template <bool HasExtraChars>
     void cut();
 
     int32_t _buffer_index = 0;
@@ -48,7 +43,8 @@ private:
     std::string _buffer;
     std::vector<std::string_view> _tokens_text;
 
-    BasicTokenizerMode _mode = BasicTokenizerMode::L1;
+    std::array<bool, 128> _extra_char_set {};
+    bool _has_extra_chars = false;
 };
 
 } // namespace doris::segment_v2::inverted_index

@@ -18,13 +18,15 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "io/fs/file_reader.h"
-#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/stream_reader.h"
+#include "olap/tablet_fwd.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
 
+class ColumnReader;
 class ColumnReaderCache;
-class Segment;
-using SegmentSPtr = std::shared_ptr<Segment>;
+class ColumnMetaAccessor;
 
 // Key: pair of column uid and variant path (empty for normal column)
 using ColumnReaderCacheKey = std::pair<int32_t, vectorized::PathInData>;
@@ -32,7 +34,7 @@ using ColumnReaderCacheKey = std::pair<int32_t, vectorized::PathInData>;
 // This node holds the cached ColumnReader and its key.
 struct CacheNode {
     ColumnReaderCacheKey key; // key: (column uid, column path)
-    std::shared_ptr<segment_v2::ColumnReader> reader;
+    std::shared_ptr<ColumnReader> reader;
     std::chrono::steady_clock::time_point last_access; // optional if needed
 };
 
@@ -40,7 +42,14 @@ struct CacheNode {
 // Limit the column reader count to config::max_segment_partial_column_cache_size
 class ColumnReaderCache {
 public:
-    explicit ColumnReaderCache(Segment* segment);
+    // Main constructor used in production: cache is bound to a specific segment's
+    // ColumnMetaAccessor, TabletSchema, file reader and row count, plus a footer
+    // getter callback (Segment::_get_segment_footer).
+    ColumnReaderCache(
+            ColumnMetaAccessor* accessor, TabletSchemaSPtr tablet_schema,
+            io::FileReaderSPtr file_reader, uint64_t num_rows,
+            std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)>
+                    get_footer_cb);
     virtual ~ColumnReaderCache();
     // Get all available readers
     // if include_subcolumns is true, return all available readers, including subcolumn readers
@@ -52,7 +61,7 @@ public:
                              OlapReaderStatistics* stats);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
-    virtual Status get_path_column_reader(uint32_t col_uid, vectorized::PathInData relative_path,
+    virtual Status get_path_column_reader(int32_t col_uid, vectorized::PathInData relative_path,
                                           std::shared_ptr<ColumnReader>* column_reader,
                                           OlapReaderStatistics* stats,
                                           const SubcolumnColumnMetaInfo::Node* node_hint = nullptr);
@@ -60,11 +69,13 @@ public:
 private:
     // Lookup function remains similar
     std::shared_ptr<ColumnReader> _lookup(const ColumnReaderCacheKey& key);
-    // Insert and create column reader if not exists
-    Status _insert(const ColumnReaderCacheKey& key, const ColumnReaderOptions& opts,
-                   const SegmentFooterPB& footer, int32_t column_id,
-                   const io::FileReaderSPtr& file_reader, size_t num_rows,
-                   std::shared_ptr<ColumnReader>* column_reader);
+    // Insert helper: assumes _cache_mutex already locked, will evict if needed
+    void _insert_locked_nocheck(const ColumnReaderCacheKey& key,
+                                const std::shared_ptr<ColumnReader>& reader);
+
+    // Insert an already-created reader directly into cache
+    void _insert_direct(const ColumnReaderCacheKey& key,
+                        const std::shared_ptr<ColumnReader>& column_reader);
     // keep _lru_list and _cache_map thread safe
     std::mutex _cache_mutex;
     // Doubly-linked list to maintain LRU order
@@ -72,8 +83,15 @@ private:
     // Map from key to list iterator for O(1) access
     std::unordered_map<ColumnReaderCacheKey, std::list<CacheNode>::iterator> _cache_map;
     int _be_exec_version = BeExecVersionManager::get_newest_version();
-    // ATTN: Do not use share_ptr, reference will be recycled
-    Segment* _segment;
+
+    // Non-owning pointer to the segment's ColumnMetaAccessor.
+    ColumnMetaAccessor* _accessor = nullptr;
+    // Segment-level context needed to construct ColumnReader.
+    TabletSchemaSPtr _tablet_schema;
+    io::FileReaderSPtr _file_reader;
+    uint64_t _num_rows = 0;
+    // Callback to get footer, usually bound to Segment::_get_segment_footer.
+    std::function<Status(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics*)> _get_footer_cb;
 };
 
 } // namespace doris::segment_v2

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.Utils;
@@ -79,6 +80,11 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Map<ExprId, ExprId> replaceMap) {
         aggregate = visitChildren(this, aggregate, replaceMap);
         aggregate = (LogicalAggregate<? extends Plan>) exprIdReplacer.rewriteExpr(aggregate, replaceMap);
+        if (aggregate.getSourceRepeat().isPresent()) {
+            LogicalRepeat<?> sourceRepeat = (LogicalRepeat<?>) exprIdReplacer.rewriteExpr(
+                    aggregate.getSourceRepeat().get(), replaceMap);
+            aggregate = aggregate.withSourceRepeat(sourceRepeat);
+        }
 
         if (aggregate.getGroupByExpressions().isEmpty() || aggregate.getSourceRepeat().isPresent()) {
             return aggregate;

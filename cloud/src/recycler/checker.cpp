@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -35,6 +36,7 @@
 #include <numeric>
 #include <sstream>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -60,6 +62,7 @@
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
 #endif
+#include "recycler/recycler.h"
 #include "recycler/util.h"
 
 namespace doris::cloud {
@@ -156,7 +159,11 @@ int Checker::start() {
             {
                 std::lock_guard lock(mtx_);
                 // skip instance in recycling
-                if (working_instance_map_.count(instance_id)) continue;
+                if (working_instance_map_.count(instance_id)) {
+                    LOG(INFO) << "checker skip instance already working, instance_id="
+                              << instance_id;
+                    continue;
+                }
             }
             auto checker = std::make_shared<InstanceChecker>(txn_kv_, instance.instance_id());
             if (checker->init(instance) != 0) {
@@ -166,10 +173,14 @@ int Checker::start() {
             }
             std::string check_job_key;
             job_check_key({instance.instance_id()}, &check_job_key);
+            LOG(INFO) << "checker picked instance, instance_id=" << instance.instance_id()
+                      << " enqueue_time_s=" << enqueue_time_s;
             int ret = prepare_instance_recycle_job(txn_kv_.get(), check_job_key,
                                                    instance.instance_id(), ip_port_,
                                                    config::check_object_interval_seconds * 1000);
             if (ret != 0) { // Prepare failed
+                LOG(WARNING) << "checker prepare job failed, instance_id=" << instance.instance_id()
+                             << " ret=" << ret;
                 continue;
             } else {
                 std::lock_guard lock(mtx_);
@@ -182,54 +193,66 @@ int Checker::start() {
             g_bvar_checker_enqueue_cost_s.put(instance_id, ctime_ms / 1000 - enqueue_time_s);
 
             bool success {true};
+            auto log_progress = [&](std::string_view stage) {
+                LOG(INFO) << "checker progress, instance_id=" << instance_id << " stage=" << stage;
+            };
 
+            log_progress("do_check");
             if (int ret = checker->do_check(); ret != 0) {
                 success = false;
             }
 
             if (config::enable_inverted_check) {
+                log_progress("do_inverted_check");
                 if (int ret = checker->do_inverted_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_delete_bitmap_inverted_check) {
+                log_progress("do_delete_bitmap_inverted_check");
                 if (int ret = checker->do_delete_bitmap_inverted_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_mow_job_key_check) {
+                log_progress("do_mow_job_key_check");
                 if (int ret = checker->do_mow_job_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_tablet_stats_key_check) {
+                log_progress("do_tablet_stats_key_check");
                 if (int ret = checker->do_tablet_stats_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_restore_job_check) {
+                log_progress("do_restore_job_check");
                 if (int ret = checker->do_restore_job_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_txn_key_check) {
+                log_progress("do_txn_key_check");
                 if (int ret = checker->do_txn_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_meta_rowset_key_check) {
+                log_progress("do_meta_rowset_key_check");
                 if (int ret = checker->do_meta_rowset_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_delete_bitmap_storage_optimize_v2_check) {
+                log_progress("do_delete_bitmap_storage_optimize_check_v2");
                 if (int ret = checker->do_delete_bitmap_storage_optimize_check(2 /*version*/);
                     ret != 0) {
                     success = false;
@@ -237,19 +260,29 @@ int Checker::start() {
             }
 
             if (config::enable_version_key_check) {
+                log_progress("do_version_key_check");
                 if (int ret = checker->do_version_key_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_snapshot_check) {
+                log_progress("do_snapshots_check");
                 if (int ret = checker->do_snapshots_check(); ret != 0) {
                     success = false;
                 }
             }
 
             if (config::enable_mvcc_meta_key_check) {
+                log_progress("do_mvcc_meta_key_check");
                 if (int ret = checker->do_mvcc_meta_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_packed_file_check) {
+                log_progress("do_packed_file_check");
+                if (int ret = checker->do_packed_file_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -259,6 +292,8 @@ int Checker::start() {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
                                             ip_port_, success, ctime_ms);
             }
+            LOG(INFO) << "checker finished instance, instance_id=" << instance.instance_id()
+                      << " success=" << success;
             {
                 std::lock_guard lock(mtx_);
                 working_instance_map_.erase(instance.instance_id());
@@ -429,7 +464,9 @@ int key_exist(TxnKv* txn_kv, std::string_view key) {
 
 InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id)
         : txn_kv_(txn_kv), instance_id_(instance_id) {
-    snapshot_manager_ = std::make_shared<SnapshotManager>(std::move(txn_kv));
+    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv);
+    resource_mgr_ = std::make_shared<ResourceManager>(std::move(txn_kv));
+    resource_mgr_->init();
 }
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {
@@ -616,6 +653,12 @@ int InstanceChecker::do_check() {
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
             auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
 
+            // Skip check if segment is already packed into a larger file
+            const auto& index_map = rs_meta.packed_slice_locations();
+            if (index_map.find(path) != index_map.end()) {
+                continue;
+            }
+
             if (tablet_files_cache.files.contains(path)) {
                 continue;
             }
@@ -670,6 +713,7 @@ int InstanceChecker::do_check() {
             }
         }
         if (!index_ids.empty()) {
+            const auto& index_map = rs_meta.packed_slice_locations();
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
                 std::vector<std::string> index_path_v;
                 if (rs_meta.tablet_schema().inverted_index_storage_format() ==
@@ -689,6 +733,10 @@ int InstanceChecker::do_check() {
                 }
 
                 if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
+                        // Skip check if inverted index file is already packed into a larger file
+                        if (index_map.find(idx_file_path) != index_map.end()) {
+                            return true;
+                        }
                         if (!tablet_files_cache.files.contains(idx_file_path)) {
                             LOG(INFO) << "loss index file: " << idx_file_path;
                             return false;
@@ -944,21 +992,25 @@ int InstanceChecker::do_inverted_check() {
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            const auto& path = file->path;
+            if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
+                continue; // packed_file has dedicated check logic
+            }
             ++num_scanned;
-            int ret = check_segment_file(file->path);
+            int ret = check_segment_file(path);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
-                             << " path=" << file->path;
+                             << " path=" << path;
                 if (ret == 1) {
                     ++num_file_leak;
                 } else {
                     check_ret = -1;
                 }
             }
-            ret = check_inverted_index_file(file->path);
+            ret = check_inverted_index_file(path);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check index file, uri=" << accessor->uri()
-                             << " path=" << file->path;
+                             << " path=" << path;
                 if (ret == 1) {
                     ++num_file_leak;
                 } else {
@@ -2668,5 +2720,363 @@ void InstanceChecker::get_all_accessor(std::vector<StorageVaultAccessor*>* acces
     for (const auto& [_, accessor] : accessor_map_) {
         accessors->push_back(accessor.get());
     }
+}
+
+int InstanceChecker::do_packed_file_check() {
+    LOG(INFO) << "begin to check packed files, instance_id=" << instance_id_;
+    int check_ret = 0;
+    long num_scanned_rowsets = 0;
+    long num_scanned_packed_files = 0;
+    long num_packed_file_loss = 0;
+    long num_packed_file_leak = 0;
+    long num_ref_count_mismatch = 0;
+    long num_small_file_ref_mismatch = 0;
+    using namespace std::chrono;
+    auto start_time = steady_clock::now();
+    DORIS_CLOUD_DEFER {
+        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        LOG(INFO) << "check packed files finished, cost=" << cost
+                  << "s. instance_id=" << instance_id_
+                  << " num_scanned_rowsets=" << num_scanned_rowsets
+                  << " num_scanned_packed_files=" << num_scanned_packed_files
+                  << " num_packed_file_loss=" << num_packed_file_loss
+                  << " num_packed_file_leak=" << num_packed_file_leak
+                  << " num_ref_count_mismatch=" << num_ref_count_mismatch
+                  << " num_small_file_ref_mismatch=" << num_small_file_ref_mismatch;
+    };
+
+    // Map to track expected reference count for each packed file
+    // packed_file_path -> expected_ref_count (from rowset metas)
+    std::unordered_map<std::string, int64_t> expected_ref_counts;
+    // Map to track small files referenced in packed files
+    // packed_file_path -> set of small_file_paths
+    std::unordered_map<std::string, std::unordered_set<std::string>> packed_file_small_files;
+
+    // Step 1: Scan all rowset metas to collect packed_slice_locations references
+    // Use efficient range scan instead of iterating through each tablet_id
+    auto collect_packed_refs = [&](const doris::RowsetMetaCloudPB& rs_meta) {
+        const auto& index_map = rs_meta.packed_slice_locations();
+        for (const auto& [small_file_path, index_pb] : index_map) {
+            if (!index_pb.has_packed_file_path() || index_pb.packed_file_path().empty()) {
+                continue;
+            }
+            const std::string& packed_file_path = index_pb.packed_file_path();
+            expected_ref_counts[packed_file_path]++;
+            packed_file_small_files[packed_file_path].insert(small_file_path);
+        }
+    };
+
+    {
+        std::string start_key = meta_rowset_key({instance_id_, 0, 0});
+        std::string end_key = meta_rowset_key({instance_id_, INT64_MAX, 0});
+
+        std::unique_ptr<RangeGetIterator> it;
+        do {
+            if (stopped()) {
+                return -1;
+            }
+
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to create txn for packed file check";
+                return -1;
+            }
+
+            err = txn->get(start_key, end_key, &it);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to scan rowset metas, err=" << err;
+                check_ret = -1;
+                break;
+            }
+
+            while (it->has_next() && !stopped()) {
+                auto [k, v] = it->next();
+                if (!it->has_next()) {
+                    start_key = k;
+                }
+
+                doris::RowsetMetaCloudPB rs_meta;
+                if (!rs_meta.ParseFromArray(v.data(), v.size())) {
+                    LOG(WARNING) << "malformed rowset meta, key=" << hex(k);
+                    check_ret = -1;
+                    continue;
+                }
+
+                num_scanned_rowsets++;
+
+                collect_packed_refs(rs_meta);
+            }
+            start_key.push_back('\x00'); // Update to next smallest key for iteration
+        } while (it->more() && !stopped());
+    }
+
+    // Rowsets in recycle keys may still hold packed file references while ref count
+    // updates are pending, so include them when calculating expected references.
+    {
+        std::string start_key = recycle_rowset_key({instance_id_, 0, ""});
+        std::string end_key = recycle_rowset_key({instance_id_, INT64_MAX, "\xff"});
+
+        std::unique_ptr<RangeGetIterator> it;
+        do {
+            if (stopped()) {
+                return -1;
+            }
+
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to create txn for recycle rowset scan in packed file check";
+                return -1;
+            }
+
+            err = txn->get(start_key, end_key, &it);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to scan recycle rowset metas, err=" << err;
+                check_ret = -1;
+                break;
+            }
+
+            while (it->has_next() && !stopped()) {
+                auto [k, v] = it->next();
+                if (!it->has_next()) {
+                    start_key = k;
+                }
+
+                RecycleRowsetPB recycle_rowset;
+                if (!recycle_rowset.ParseFromArray(v.data(), v.size())) {
+                    LOG(WARNING) << "malformed recycle rowset, key=" << hex(k);
+                    check_ret = -1;
+                    continue;
+                }
+
+                if (!recycle_rowset.has_rowset_meta()) {
+                    continue;
+                }
+
+                num_scanned_rowsets++;
+                collect_packed_refs(recycle_rowset.rowset_meta());
+            }
+            start_key.push_back('\x00'); // Update to next smallest key for iteration
+        } while (it->more() && !stopped());
+    }
+
+    // Step 2: Scan all packed file metadata and verify
+    // Also collect all packed file paths from metadata for Step 3
+    // Map: resource_id -> set of packed_file_paths
+    std::unordered_map<std::string, std::unordered_set<std::string>> packed_files_in_metadata;
+    std::string begin = packed_file_key({instance_id_, ""});
+    std::string end = packed_file_key({instance_id_, "\xff"});
+    std::string scan_begin = begin;
+
+    while (true) {
+        if (stopped()) {
+            return -1;
+        }
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn for scanning packed files";
+            return -1;
+        }
+
+        std::unique_ptr<RangeGetIterator> it;
+        err = txn->get(scan_begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to scan packed file keys, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+
+        std::string last_key;
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            last_key.assign(k.data(), k.size());
+            num_scanned_packed_files++;
+
+            std::string packed_file_path;
+            if (!InstanceRecycler::decode_packed_file_key(k, &packed_file_path)) {
+                LOG(WARNING) << "failed to decode packed file key, key=" << hex(k);
+                check_ret = -1;
+                continue;
+            }
+
+            cloud::PackedFileInfoPB packed_info;
+            if (!packed_info.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "failed to parse packed file info, packed_file_path="
+                             << packed_file_path;
+                check_ret = -1;
+                continue;
+            }
+
+            // Step 2.1: Verify packed file exists in storage
+            if (!packed_info.resource_id().empty()) {
+                // Collect packed file path for Step 3
+                packed_files_in_metadata[packed_info.resource_id()].insert(packed_file_path);
+
+                auto* accessor = get_accessor(packed_info.resource_id());
+                if (accessor == nullptr) {
+                    LOG(WARNING) << "accessor not found for packed file, resource_id="
+                                 << packed_info.resource_id()
+                                 << ", packed_file_path=" << packed_file_path;
+                    check_ret = -1;
+                    continue;
+                }
+
+                int ret = accessor->exists(packed_file_path);
+                if (ret < 0) {
+                    LOG(WARNING) << "failed to check packed file existence, packed_file_path="
+                                 << packed_file_path << ", ret=" << ret;
+                    check_ret = -1;
+                    continue;
+                }
+
+                if (ret != 0) {
+                    // ret == 1 means file not found, ret > 1 means other error
+                    // When packed file doesn't exist in storage, ref_cnt must be 0 and state must be RECYCLING
+                    bool ref_cnt_valid = (packed_info.ref_cnt() == 0);
+                    bool state_valid = (packed_info.state() == cloud::PackedFileInfoPB::RECYCLING);
+                    if (!ref_cnt_valid || !state_valid) {
+                        LOG(WARNING) << "packed file not found in storage but metadata is invalid, "
+                                        "packed_file_path="
+                                     << packed_file_path << ", ref_cnt=" << packed_info.ref_cnt()
+                                     << " (expected=0), state=" << packed_info.state()
+                                     << " (expected=RECYCLING), ret=" << ret;
+                        num_packed_file_loss++;
+                        check_ret = 1; // Data inconsistency identified
+                    }
+                    // If ref_cnt == 0 and state == RECYCLING, this is expected (file is being recycled)
+                }
+                // ret == 0 means file exists, which is expected
+            }
+
+            // Step 2.2: Verify reference count matches expected count
+            int64_t expected_ref = expected_ref_counts[packed_file_path];
+            if (packed_info.ref_cnt() != expected_ref) {
+                LOG(WARNING) << "packed file ref count mismatch, packed_file_path="
+                             << packed_file_path << ", expected=" << expected_ref
+                             << ", actual=" << packed_info.ref_cnt();
+                num_ref_count_mismatch++;
+                check_ret = 1; // Data inconsistency identified
+            }
+
+            // Step 2.3: Verify small files in packed_info match rowset references
+            std::unordered_set<std::string> small_files_in_meta;
+            for (const auto& small_file : packed_info.slices()) {
+                if (!small_file.deleted()) {
+                    small_files_in_meta.insert(small_file.path());
+                }
+            }
+
+            const auto& expected_small_files = packed_file_small_files[packed_file_path];
+            if (small_files_in_meta != expected_small_files) {
+                // Check for missing small files
+                for (const auto& expected_path : expected_small_files) {
+                    if (small_files_in_meta.find(expected_path) == small_files_in_meta.end()) {
+                        LOG(WARNING) << "small file missing in packed file info, packed_file_path="
+                                     << packed_file_path << ", small_file_path=" << expected_path;
+                        num_small_file_ref_mismatch++;
+                        check_ret = 1;
+                    }
+                }
+                // Check for extra small files (may be deleted, so less critical)
+                for (const auto& meta_path : small_files_in_meta) {
+                    if (expected_small_files.find(meta_path) == expected_small_files.end()) {
+                        LOG(INFO) << "small file in packed file info not found in rowset metas, "
+                                     "may be deleted, packed_file_path="
+                                  << packed_file_path << ", small_file_path=" << meta_path;
+                    }
+                }
+            }
+        }
+
+        if (!it->more()) {
+            break;
+        }
+        scan_begin = last_key;
+        scan_begin.push_back('\x00');
+    }
+
+    // Step 3: Check for leaked packed files (exist in storage but not in metadata)
+    // Scan all storage vaults to find packed files and verify they are in metadata
+    {
+        std::vector<StorageVaultAccessor*> accessors;
+        get_all_accessor(&accessors);
+
+        for (StorageVaultAccessor* accessor : accessors) {
+            if (stopped()) {
+                return -1;
+            }
+
+            // Find resource_id for this accessor
+            std::string resource_id;
+            for (const auto& [id, acc] : accessor_map_) {
+                if (acc.get() == accessor) {
+                    resource_id = id;
+                    break;
+                }
+            }
+
+            if (resource_id.empty()) {
+                continue;
+            }
+
+            // List all files under data/packed_file/ directory
+            std::unique_ptr<ListIterator> list_it;
+            int ret = accessor->list_directory("data/packed_file", &list_it);
+            if (ret != 0) {
+                // Directory may not exist, which is fine
+                if (ret < 0) {
+                    LOG(WARNING) << "failed to list packed_file directory, resource_id="
+                                 << resource_id << ", ret=" << ret;
+                    check_ret = -1;
+                }
+                continue;
+            }
+
+            const auto& expected_packed_files = packed_files_in_metadata[resource_id];
+            while (list_it->has_next()) {
+                if (stopped()) {
+                    return -1;
+                }
+
+                auto file_meta = list_it->next();
+                if (!file_meta.has_value()) {
+                    break;
+                }
+
+                const std::string& file_path = file_meta->path;
+                // Only check files (not directories), and ensure it's a packed file
+                // Skip directories (paths ending with '/') and non-packed-file paths
+                if (file_path.empty() || file_path.back() == '/' ||
+                    !file_path.starts_with("data/packed_file/")) {
+                    continue;
+                }
+
+                // Check if this packed file is in metadata
+                if (expected_packed_files.find(file_path) == expected_packed_files.end()) {
+                    LOG(WARNING) << "packed file found in storage but not in metadata, "
+                                    "resource_id="
+                                 << resource_id << ", packed_file_path=" << file_path;
+                    num_packed_file_leak++;
+                    check_ret = 1; // Data leak identified
+                }
+            }
+        }
+    }
+
+    if (num_packed_file_loss > 0 || num_packed_file_leak > 0 || num_ref_count_mismatch > 0 ||
+        num_small_file_ref_mismatch > 0) {
+        return 1; // Data loss or inconsistency identified
+    }
+
+    if (check_ret < 0) {
+        return check_ret; // Temporary error
+    }
+
+    return 0; // Success
 }
 } // namespace doris::cloud

@@ -84,7 +84,7 @@ suite ("test_alter_table_property") {
     def result = sql_return_maparray """
     show create table ${tableName}
     """
-    logger.info(${result[0]})
+    logger.info("${result[0]}")
     def createTableStr = result[0]['Create Table']
     assertTrue(createTableStr.contains("\"storage_medium\" = \"ssd\""))
 

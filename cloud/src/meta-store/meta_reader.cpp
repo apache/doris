@@ -311,6 +311,74 @@ TxnErrorCode MetaReader::get_tablet_compact_stats(
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode MetaReader::get_tablet_load_stats(
+        const std::vector<int64_t>& tablet_ids,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+        std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_tablet_load_stats(txn.get(), tablet_ids, tablet_stats, versionstamps, snapshot);
+}
+
+TxnErrorCode MetaReader::get_tablet_load_stats(
+        Transaction* txn, const std::vector<int64_t>& tablet_ids,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+        std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
+    if (tablet_ids.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    std::vector<std::string> tablet_load_stats_keys;
+    for (size_t i = 0; i < tablet_ids.size(); ++i) {
+        int64_t tablet_id = tablet_ids[i];
+        std::string tablet_load_stats_key =
+                versioned::tablet_load_stats_key({instance_id_, tablet_id});
+        tablet_load_stats_keys.push_back(std::move(tablet_load_stats_key));
+    }
+
+    std::vector<std::optional<std::pair<std::string, Versionstamp>>> versioned_values;
+    TxnErrorCode err = versioned_batch_get(txn, tablet_load_stats_keys, snapshot_version_,
+                                           &versioned_values, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    for (size_t i = 0; i < versioned_values.size(); ++i) {
+        const auto& kv = versioned_values[i];
+        if (!kv.has_value()) {
+            continue; // Key not found, skip
+        }
+
+        const std::string& value = kv->first;
+        Versionstamp versionstamp = kv->second;
+        int64_t tablet_id = tablet_ids[i];
+
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
+
+        if (versionstamps) {
+            versionstamps->emplace(tablet_id, versionstamp);
+        }
+
+        if (tablet_stats) {
+            TabletStatsPB tablet_stat;
+            if (!tablet_stat.ParseFromString(value)) {
+                LOG_ERROR("Failed to parse TabletStatsPB")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("key", hex(tablet_load_stats_keys[i]))
+                        .tag("value", hex(value));
+                return TxnErrorCode::TXN_INVALID_DATA;
+            }
+            tablet_stats->emplace(tablet_id, std::move(tablet_stat));
+        }
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::get_tablet_merged_stats(int64_t tablet_id, TabletStatsPB* tablet_stats,
                                                  Versionstamp* versionstamp, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
@@ -352,25 +420,15 @@ TxnErrorCode MetaReader::get_tablet_merged_stats(Transaction* txn, int64_t table
 void MetaReader::merge_tablet_stats(const TabletStatsPB& load_stats,
                                     const TabletStatsPB& compact_stats,
                                     TabletStatsPB* tablet_stats) {
-    tablet_stats->set_base_compaction_cnt(compact_stats.base_compaction_cnt());
-    tablet_stats->set_cumulative_compaction_cnt(compact_stats.cumulative_compaction_cnt());
-    tablet_stats->set_cumulative_point(compact_stats.cumulative_point());
-    tablet_stats->set_last_base_compaction_time_ms(compact_stats.last_base_compaction_time_ms());
-    tablet_stats->set_last_cumu_compaction_time_ms(compact_stats.last_cumu_compaction_time_ms());
-    tablet_stats->set_full_compaction_cnt(compact_stats.full_compaction_cnt());
-    tablet_stats->set_last_full_compaction_time_ms(compact_stats.last_full_compaction_time_ms());
-
+    // The compact_stats is the based tablet stats, and load_stats only contains
+    // the detached stats updated by load operations.
+    tablet_stats->CopyFrom(compact_stats);
     tablet_stats->set_num_rows(load_stats.num_rows() + compact_stats.num_rows());
     tablet_stats->set_num_rowsets(load_stats.num_rowsets() + compact_stats.num_rowsets());
     tablet_stats->set_num_segments(load_stats.num_segments() + compact_stats.num_segments());
     tablet_stats->set_data_size(load_stats.data_size() + compact_stats.data_size());
     tablet_stats->set_index_size(load_stats.index_size() + compact_stats.index_size());
     tablet_stats->set_segment_size(load_stats.segment_size() + compact_stats.segment_size());
-    if (load_stats.has_idx()) {
-        tablet_stats->mutable_idx()->CopyFrom(load_stats.idx());
-    } else if (compact_stats.has_idx()) {
-        tablet_stats->mutable_idx()->CopyFrom(compact_stats.idx());
-    }
 }
 
 TxnErrorCode MetaReader::get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index,
@@ -1058,6 +1116,32 @@ TxnErrorCode MetaReader::get_snapshot(Transaction* txn, Versionstamp snapshot_ve
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode MetaReader::has_snapshot(bool* has, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return has_snapshot(txn.get(), has, snapshot);
+}
+
+TxnErrorCode MetaReader::has_snapshot(Transaction* txn, bool* has, bool snapshot) {
+    std::string snapshot_key = versioned::snapshot_full_key({instance_id_});
+    std::string snapshot_full_key = encode_versioned_key(snapshot_key, Versionstamp::max());
+
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(snapshot_key, snapshot_full_key, &it, snapshot, 1);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    *has = it->has_next();
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::has_snapshot_references(Versionstamp snapshot_version,
                                                  bool* has_references, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
@@ -1108,6 +1192,43 @@ int MetaReader::count_snapshot_references(Transaction* txn, Versionstamp snapsho
     }
 
     return count;
+}
+
+TxnErrorCode MetaReader::find_derived_instance_ids(Transaction* txn, Versionstamp snapshot_version,
+                                                   std::vector<std::string>* out, bool snapshot) {
+    // Key format: ${prefix} + ${10-byte-versionstamp} + ${derived_instance_id}
+    std::string snapshot_ref_key_start =
+            versioned::snapshot_reference_key_prefix(instance_id_, snapshot_version);
+    std::string snapshot_ref_key_end = snapshot_ref_key_start + '\xFF';
+
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(snapshot_ref_key_start, snapshot_ref_key_end, &it, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get snapshot references, snapshot_version="
+                     << snapshot_version.to_string() << " err=" << err;
+        return err;
+    }
+
+    // Parse instance IDs from keys
+    std::unordered_set<std::string> unique_ids;
+    while (it->has_next()) {
+        auto [key, value] = it->next();
+
+        // Decode the snapshot reference key to extract ref_instance_id
+        std::string ref_instance_id;
+        std::string_view key_view = key;
+        if (versioned::decode_snapshot_ref_key(&key_view, nullptr, nullptr, &ref_instance_id) &&
+            !ref_instance_id.empty()) {
+            unique_ids.insert(std::move(ref_instance_id));
+        } else {
+            LOG(WARNING) << "failed to decode snapshot reference key, key=" << hex(key);
+        }
+    }
+
+    // Convert set to vector
+    out->assign(unique_ids.begin(), unique_ids.end());
+
+    return TxnErrorCode::TXN_OK;
 }
 
 TxnErrorCode MetaReader::get_load_rowset_metas(

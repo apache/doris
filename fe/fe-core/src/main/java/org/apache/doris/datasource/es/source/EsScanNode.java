@@ -41,7 +41,6 @@ import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -84,7 +83,7 @@ public class EsScanNode extends ExternalScanNode {
      * For multicatalog es.
      **/
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, boolean esExternalTable) {
-        super(id, desc, "EsScanNode", StatisticalType.ES_SCAN_NODE, false);
+        super(id, desc, "EsScanNode", false);
         if (esExternalTable) {
             EsExternalTable externalTable = (EsExternalTable) (desc.getTable());
             table = externalTable.getEsTable();

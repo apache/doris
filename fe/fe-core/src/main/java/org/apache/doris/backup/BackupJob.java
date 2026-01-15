@@ -76,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 
@@ -111,7 +112,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
     // tablet id -> snapshot info
     @SerializedName("si")
-    private Map<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
     // save all related table[partition] info
     @SerializedName("meta")
     private BackupMeta backupMeta;
@@ -136,7 +137,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     // Record partition IDs that were dropped during backup (tableId -> set of partitionIds)
     @SerializedName("dp")
-    private Map<Long, Set<Long>> droppedPartitionsByTable = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, Set<Long>> droppedPartitionsByTable = Maps.newConcurrentMap();
 
     private long commitSeq = 0;
 

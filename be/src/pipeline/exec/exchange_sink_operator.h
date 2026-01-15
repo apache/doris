@@ -233,7 +233,7 @@ private:
     MOCK_FUNCTION void _init_sink_buffer();
 
     template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     // Use ExchangeSinkOperatorX to create a sink buffer.
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,

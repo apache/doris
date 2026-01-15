@@ -160,6 +160,11 @@ public class OlapTableSink extends DataSink {
                 : false);
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;
+        // (Note) This code may need to be removed because:
+        // 1. For broker load and routine load, this check has already been moved ahead to the stage
+        //    before the import task is started.
+        // 2. For other import methods, the loadToSingleTablet mode is actually not enabled,
+        //    as it is hardcoded as false in the code.
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
@@ -858,6 +863,9 @@ public class OlapTableSink extends DataSink {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getAllBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(id);
+            if (backend == null) {
+                continue;
+            }
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         return nodesInfo;

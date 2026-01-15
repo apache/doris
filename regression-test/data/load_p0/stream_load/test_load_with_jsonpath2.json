@@ -1,0 +1,20 @@
+[
+    {
+        "k1": "7395.231067",
+        "k2": "1000",
+        "k3": "I am a long string here.",
+        "k4": "I am another long string here 2."
+    },
+    {
+        "k1": "7291.703724",
+        "k2": "2000",
+        "k3": "I am a long string here.",
+        "k4": "I am another long string here 3."
+    },
+    {
+        "k1": "22",
+        "k2": "7291",
+        "k3": "I am a long string here.",
+        "k4": "I am another long string here 4."
+    }
+]

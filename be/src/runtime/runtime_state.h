@@ -33,7 +33,6 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -43,7 +42,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group.h"
@@ -102,7 +100,7 @@ public:
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     // RuntimeState for executing expr in fe-support.
-    RuntimeState(const TQueryGlobals& query_globals);
+    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals);
 
     // for job task only
     RuntimeState();
@@ -142,19 +140,33 @@ public:
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                         : _query_options.query_timeout;
     }
-    int num_scanner_threads() const {
-        return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
-    }
-    int min_scan_concurrency_of_scan_scheduler() const {
-        return _query_options.__isset.min_scan_scheduler_concurrency
-                       ? _query_options.min_scan_scheduler_concurrency
+    int max_scanners_concurrency() const {
+        return _query_options.__isset.max_scanners_concurrency
+                       ? _query_options.max_scanners_concurrency
                        : 0;
     }
+    int max_file_scanners_concurrency() const {
+        return _query_options.__isset.max_file_scanners_concurrency
+                       ? _query_options.max_file_scanners_concurrency
+                       : max_scanners_concurrency();
+    }
 
-    int min_scan_concurrency_of_scanner() const {
-        return _query_options.__isset.min_scanner_concurrency
-                       ? _query_options.min_scanner_concurrency
+    int min_scanners_concurrency() const {
+        return _query_options.__isset.min_scanners_concurrency
+                       ? _query_options.min_scanners_concurrency
                        : 1;
+    }
+
+    int min_file_scanners_concurrency() const {
+        return _query_options.__isset.min_file_scanners_concurrency
+                       ? _query_options.min_file_scanners_concurrency
+                       : 1;
+    }
+
+    // Support extended regex
+    // like look-around zero-width assertions(`?=`, `?!`, `?<=`, `?<!`)
+    bool enable_extended_regex() const {
+        return _query_options.__isset.enable_extended_regex && _query_options.enable_extended_regex;
     }
 
     TQueryType::type query_type() const { return _query_options.query_type; }
@@ -163,6 +175,7 @@ public:
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    const std::string& lc_time_names() const { return _lc_time_names; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -191,10 +204,6 @@ public:
 
     bool enable_insert_strict() const {
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
-    }
-
-    bool enable_decimal256() const {
-        return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
 
     bool enable_common_expr_pushdown() const {
@@ -698,7 +707,7 @@ public:
     VectorSearchUserParams get_vector_search_params() const {
         return VectorSearchUserParams(_query_options.hnsw_ef_search,
                                       _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue);
+                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
     }
 
 private:
@@ -747,6 +756,7 @@ private:
     int32_t _nano_seconds;
     std::string _timezone;
     cctz::time_zone _timezone_obj;
+    std::string _lc_time_names;
 
     TUniqueId _query_id;
     // fragment id for each TPipelineFragmentParams
@@ -796,7 +806,6 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
-    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 
@@ -818,9 +827,6 @@ private:
     // only to lock _pipeline_id_to_profile
     std::shared_mutex _pipeline_profile_lock;
     std::vector<std::shared_ptr<RuntimeProfile>> _pipeline_id_to_profile;
-
-    // prohibit copies
-    RuntimeState(const RuntimeState&);
 
     // save error log to s3
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;

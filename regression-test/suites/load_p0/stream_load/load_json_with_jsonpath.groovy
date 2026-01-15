@@ -34,7 +34,7 @@ suite("test_load_json_with_jsonpath", "p0") {
             """
     }
 
-    def load_array_data = {new_json_reader_flag, table_name, strip_flag, read_flag, format_flag, exprs, json_paths,
+    def load_array_data = { table_name, strip_flag, read_flag, format_flag, exprs, json_paths,
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
         // load the json data
         streamLoad {
@@ -82,17 +82,98 @@ suite("test_load_json_with_jsonpath", "p0") {
 
         create_test_table.call()
 
-        load_array_data.call('false', testTable, 'true', '', 'json', '', '["$.k1", "$.v1"]', '', '', '', '', 'test_load_with_jsonpath.json')
+        load_array_data.call(testTable, 'true', '', 'json', '', '["$.k1", "$.v1"]', '', '', '', '', 'test_load_with_jsonpath.json')
 
         check_data_correct(testTable)
 
         // test new json load, should be deleted after new_load_scan ready
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table.call()
-        load_array_data.call('true', testTable, 'true', '', 'json', '', '["$.k1", "$.v1"]', '', '', '', '', 'test_load_with_jsonpath.json')
+        load_array_data.call(testTable, 'true', '', 'json', '', '["$.k1", "$.v1"]', '', '', '', '', 'test_load_with_jsonpath.json')
         check_data_correct(testTable)
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // case2 with duplicate json paths
+    try {
+        sql "DROP TABLE IF EXISTS tbl_test_load_json_with_jsonpath2"
+
+        sql """
+            CREATE TABLE IF NOT EXISTS tbl_test_load_json_with_jsonpath2 (
+              `k1` varchar(128) NULL COMMENT "",
+              `k2` int NULL COMMENT "",
+              `k22` int NULL COMMENT "",
+              `k222` int NULL COMMENT "",
+              `k2222` int NULL COMMENT "",
+              `k3` STRING NULL COMMENT "",
+              `k33` STRING NULL COMMENT "",
+              `k333` STRING NULL COMMENT "",
+              `k3333` STRING NULL COMMENT "",
+              `k4` STRING NULL COMMENT "",
+              `k44` STRING NULL COMMENT "",
+              `k444` STRING NULL COMMENT "",
+              `k4444` STRING NULL COMMENT "",
+              `k44444` STRING NULL COMMENT "",
+              `k444444` STRING NULL COMMENT "",
+              `k4444444` STRING NULL COMMENT "",
+              `k44444444` STRING NULL COMMENT "",
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+
+        load_array_data.call(
+            'tbl_test_load_json_with_jsonpath2',
+            'true',
+            '',
+            'json',
+            '',
+            '["$.k1", "$.k2", "$.k2", "$.k2", "$.k3", "$.k3", "$.k3","$.k3", "$.k4", "$.k4", "$.k4", "$.k4", "$.k4", "$.k4", "$.k4", "$.k4"]',
+            '', '', '', '', 'test_load_with_jsonpath2.json')
+
+        qt_test_select2 "select * from tbl_test_load_json_with_jsonpath2 order by k1"
+
+    } finally {
+        
+    }
+
+    // case3 without json paths
+    try {
+        sql "DROP TABLE IF EXISTS tbl_test_load_json_with_jsonpath3"
+
+        sql """
+            CREATE TABLE IF NOT EXISTS tbl_test_load_json_with_jsonpath3 (
+              `k1` varchar(128) NULL COMMENT "",
+              `k2` int NULL COMMENT "",
+              `k3` STRING NULL COMMENT "",
+              `k4` STRING NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+
+        load_array_data.call(
+            'tbl_test_load_json_with_jsonpath3',
+            'true',
+            '',
+            'json',
+            '',
+            '[]',
+            '', '', '', '', 'test_load_with_jsonpath2.json')
+
+        qt_test_select3 "select * from tbl_test_load_json_with_jsonpath3 order by k1"
+
+    } finally {
+        
     }
 }

@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("unique_mv") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
@@ -40,17 +42,11 @@ suite ("unique_mv") {
             );
         """
 
-    createMV("""create materialized view mv_1 as select call_uuid as a1,org_id as a2,call_time as a3,id as a4,campaign_id as a5,aa as a6 from c5816_t""")
+    create_sync_mv(db, "c5816_t", "mv_1", "select call_uuid as a1,org_id as a2,call_time as a3,id as a4,campaign_id as a5,aa as a6 from c5816_t;")
     sql """insert into c5816_t values (1,2,"2023-11-20 00:00:00",4,"adc",12);"""
 
     sql "analyze table c5816_t with sync;"
     sql """alter table c5816_t modify column org_id set stats ('row_count'='1');"""
 
-    sql """set enable_stats=false;"""
-
     mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
-
 }

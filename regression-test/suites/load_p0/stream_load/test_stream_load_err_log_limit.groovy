@@ -39,8 +39,13 @@ suite("test_stream_load_err_log_limit", "p0, nonConcurrent") {
         for (String id in backendId_to_backendIP.keySet()) {
             def beIp = backendId_to_backendIP.get(id)
             def bePort = backendId_to_backendHttpPort.get(id)
-            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
-            assertTrue(out.contains("OK"))
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                def (code, out, err) = curl("POST", String.format("https://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue) + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
+                assertTrue(out.contains("OK"))
+            } else {
+                def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+                assertTrue(out.contains("OK"))
+            }
         }
     }
 

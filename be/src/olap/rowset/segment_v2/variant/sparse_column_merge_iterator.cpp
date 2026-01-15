@@ -126,7 +126,8 @@ void SparseColumnMergeIterator::_merge_to(vectorized::MutableColumnPtr& dst) {
     for (size_t row = 0; row != _sparse_column_cache->sparse_column->size(); ++row) {
         // Use separate index to iterate over sorted sorted_src_subcolumn_for_sparse_column.
         size_t sorted_src_subcolumn_for_sparse_column_idx = 0;
-        size_t sorted_src_subcolumn_for_sparse_column_size = _src_subcolumns_for_sparse.size();
+        size_t sorted_src_subcolumn_for_sparse_column_size =
+                _sorted_src_subcolumn_for_sparse.size();
 
         size_t offset = src_serialized_sparse_column_offsets[row - 1];
         size_t end = src_serialized_sparse_column_offsets[row];

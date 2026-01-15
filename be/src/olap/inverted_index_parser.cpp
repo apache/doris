@@ -69,11 +69,15 @@ InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::st
 
 std::string get_parser_string_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_KEY);
-    } else {
-        return INVERTED_INDEX_PARSER_NONE;
+    auto it = properties.find(INVERTED_INDEX_PARSER_KEY);
+    if (it != properties.end()) {
+        return it->second;
     }
+    it = properties.find(INVERTED_INDEX_PARSER_KEY_ALIAS);
+    if (it != properties.end()) {
+        return it->second;
+    }
+    return INVERTED_INDEX_PARSER_NONE;
 }
 
 std::string get_parser_mode_string_from_properties(
@@ -82,6 +86,9 @@ std::string get_parser_mode_string_from_properties(
         return properties.at(INVERTED_INDEX_PARSER_MODE_KEY);
     } else {
         auto parser_it = properties.find(INVERTED_INDEX_PARSER_KEY);
+        if (parser_it == properties.end()) {
+            parser_it = properties.find(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        }
         if (parser_it != properties.end() && parser_it->second == INVERTED_INDEX_PARSER_IK) {
             return INVERTED_INDEX_PARSER_SMART;
         }
@@ -160,13 +167,19 @@ std::string get_parser_dict_compression_from_properties(
     }
 }
 
-std::string get_custom_analyzer_string_from_properties(
+std::string get_analyzer_name_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_CUSTOM_ANALYZER_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
-    } else {
-        return "";
+    auto it = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
+    if (it != properties.end() && !it->second.empty()) {
+        return it->second;
     }
+
+    it = properties.find(INVERTED_INDEX_NORMALIZER_NAME_KEY);
+    if (it != properties.end() && !it->second.empty()) {
+        return it->second;
+    }
+
+    return "";
 }
 
 } // namespace doris

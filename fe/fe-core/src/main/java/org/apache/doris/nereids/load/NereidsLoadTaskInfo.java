@@ -42,6 +42,9 @@ public interface NereidsLoadTaskInfo {
 
     int getTimeout();
 
+    default void setTimeout(int timeout) {
+    }
+
     long getMemLimit();
 
     String getTimezone();

@@ -17,8 +17,6 @@
 
 package org.apache.doris.cluster;
 
-import org.apache.doris.analysis.AddBackendClause;
-import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -29,11 +27,15 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -207,16 +209,16 @@ public class SystemInfoServiceTest {
     @Test
     public void addBackendTest() throws UserException {
         clearAllBackend();
-        AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        stmt.analyze();
+        AddBackendOp op = new AddBackendOp(Lists.newArrayList("192.168.0.1:1234"), Maps.newHashMap());
+        op.validate(new ConnectContext());
         try {
-            Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
+            Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), true);
         } catch (DdlException e) {
             Assert.fail();
         }
 
         try {
-            Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
+            Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), true);
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("already exists"));
         }
@@ -236,25 +238,25 @@ public class SystemInfoServiceTest {
     @Test
     public void removeBackendTest() throws UserException {
         clearAllBackend();
-        AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        stmt.analyze();
+        AddBackendOp op = new AddBackendOp(Lists.newArrayList("192.168.0.1:1234"), Maps.newHashMap());
+        op.validate(new ConnectContext());
         try {
-            Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
+            Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), true);
         } catch (DdlException e) {
             e.printStackTrace();
         }
 
-        DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        dropStmt.analyze();
+        DropBackendOp dropBackendOp = new DropBackendOp(Lists.newArrayList("192.168.0.1:1234"), true);
+        dropBackendOp.validate(new ConnectContext());
         try {
-            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
+            Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
+            Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
         }
@@ -263,25 +265,25 @@ public class SystemInfoServiceTest {
     @Test
     public void removeBackendTestByBackendId() throws UserException {
         clearAllBackend();
-        AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        stmt.analyze();
+        AddBackendOp op = new AddBackendOp(Lists.newArrayList("192.168.0.1:1234"), Maps.newHashMap());
+        op.validate(new ConnectContext());
         try {
-            Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
+            Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), true);
         } catch (DdlException e) {
             e.printStackTrace();
         }
 
-        DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList(String.valueOf(backendId)));
-        dropStmt.analyze();
+        DropBackendOp dropBackendOp = new DropBackendOp(Lists.newArrayList(String.valueOf(backendId)), true);
+        dropBackendOp.validate(new ConnectContext());
         try {
-            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
+            Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
+            Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
         }

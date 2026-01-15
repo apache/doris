@@ -26,7 +26,7 @@ QueryContext* AggregateFunctionAIAggData::_ctx = nullptr;
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("ai_agg",
                                    [](const std::string& name, const DataTypes& argument_types,
-                                      const bool result_is_nullable,
+                                      const DataTypePtr& result_type, const bool result_is_nullable,
                                       const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
                                        return creator_without_type::create<AggregateFunctionAIAgg>(
                                                argument_types, result_is_nullable, attr);

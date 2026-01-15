@@ -76,7 +76,6 @@ public class ExplodeJsonArrayInt extends TableGeneratingFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        Expression[] args = {new Cast(children.get(0), ArrayType.of(BigIntType.INSTANCE))};
-        return new Explode(args);
+        return new Explode(new Cast(children.get(0), ArrayType.of(BigIntType.INSTANCE)));
     }
 }
