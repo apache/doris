@@ -308,9 +308,6 @@ protected:
 
     Status _get_topn_filters(RuntimeState* state);
 
-    // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
-    // so that it will be destroyed uniformly at the end of the query.
-    vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
     atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
@@ -418,9 +415,6 @@ protected:
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
 
-    // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
-    // so that it will be destroyed uniformly at the end of the query.
-    vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
     // If sort info is set, push limit to each scanner;

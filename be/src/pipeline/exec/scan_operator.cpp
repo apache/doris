@@ -183,10 +183,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         _condition_cache_digest = 0;
     }
 
-    _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
-    for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
-    }
     RETURN_IF_ERROR(_process_conjuncts(state));
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
@@ -295,7 +291,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     continue;
                 }
             } else { // All conjuncts are pushed down as predicate column
-                _stale_expr_ctxs.emplace_back(conjunct);
                 it = _conjuncts.erase(it);
                 continue;
             }
