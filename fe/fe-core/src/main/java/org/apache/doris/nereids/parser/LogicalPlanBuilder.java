@@ -4672,7 +4672,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("SELECT * must have a FROM clause");
                     }
                 }
-                if (input instanceof LogicalOneRowRelation) {
+                List<UnboundFunction> functions =
+                        ExpressionUtils.collectAll(projects, UnboundFunction.class::isInstance);
+                // always add a LogicalProject if we meet UNNEST
+                boolean meetUnnest = false;
+                for (UnboundFunction func : functions) {
+                    if (func.getName().equalsIgnoreCase("UNNEST")) {
+                        meetUnnest = true;
+                        break;
+                    }
+                }
+                if (input instanceof LogicalOneRowRelation && !meetUnnest) {
                     return new UnboundOneRowRelation(((LogicalOneRowRelation) input).getRelationId(), projects);
                 }
                 return new LogicalProject<>(projects, isDistinct, input);
