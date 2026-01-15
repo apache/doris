@@ -96,7 +96,7 @@ public:
         DCHECK_EQ(false_column->size(), false_selector.size());
         DCHECK_EQ(PType, result_type->get_primitive_type());
         auto result_column = result_type->create_column();
-        result_column->resize(count);
+        init_result_column(result_column, count);
         dispatch_const(result_column, true_column, true_selector);
         dispatch_const(result_column, false_column, false_selector);
         DCHECK_EQ(result_column->size(), count);
@@ -104,6 +104,17 @@ public:
     }
 
 private:
+    // if result_column is nullable,nullmap will all init to false
+    static void init_result_column(MutableColumnPtr& result_column, size_t count) {
+        if (auto* result_nullable_column =
+                    check_and_get_column<ColumnNullable>(result_column.get())) {
+            result_nullable_column->get_null_map_data().resize_fill(count, 0);
+            result_nullable_column->get_nested_column().resize(count);
+        } else {
+            result_column->resize(count);
+        }
+    }
+
     static void dispatch_const(MutableColumnPtr& result_column, const ColumnPtr& from_column,
                                const Selector& selector) {
         const auto& [from_data_column, is_const] = unpack_if_const(from_column);
