@@ -1376,6 +1376,23 @@ public class CreateTableInfo {
         return new KeysDesc(keysType, keys, clusterKeysColumnNames);
     }
 
+    private boolean hasAnalyzedInvertedIndexProperty(IndexDefinition indexDef) {
+        Map<String, String> properties = indexDef.getProperties();
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String analyzerName = properties.get(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY);
+        if (!Strings.isNullOrEmpty(analyzerName)) {
+            return true;
+        }
+        String normalizerName = properties.get(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        if (!Strings.isNullOrEmpty(normalizerName)) {
+            return true;
+        }
+        String parser = InvertedIndexUtil.getInvertedIndexParser(properties);
+        return !Strings.isNullOrEmpty(parser) && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equals(parser);
+    }
+
     // 1. if the column is variant type, check it's field pattern is valid
     // 2. if the column is not variant type, check it's index def is valid
     private void columnToIndexesCheck() {
@@ -1415,6 +1432,13 @@ public class CreateTableInfo {
                                     throw new AnalysisException("field pattern: "
                                             + fieldPattern + " is not supported for inverted index"
                                             + " of column: " + column.getName());
+                                }
+                                if (hasAnalyzedInvertedIndexProperty(indexDef)
+                                        && !field.getDataType().isStringLikeType()) {
+                                    throw new AnalysisException("field pattern: " + fieldPattern
+                                            + " is not supported for analyzed inverted index"
+                                            + " of column: " + column.getName()
+                                            + " with type " + field.getDataType());
                                 }
                                 fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
                                                                                                     .add(indexDef);
