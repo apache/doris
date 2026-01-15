@@ -421,6 +421,11 @@ public:
     static Status create_query_value(
             const PrimitiveType& primitiveType, const doris::vectorized::Field* value,
             std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
+        if (value == nullptr || value->is_null()) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "Cannot create inverted index query value from NULL");
+        }
+
         switch (primitiveType) {
 #define M(TYPE)                                                                         \
     case TYPE: {                                                                        \
