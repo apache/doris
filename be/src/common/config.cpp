@@ -1230,7 +1230,7 @@ DEFINE_Int32(segment_cache_capacity, "-1");
 DEFINE_Int32(segment_cache_fd_percentage, "20");
 DEFINE_mInt32(estimated_mem_per_column_reader, "512");
 DEFINE_Int32(segment_cache_memory_percentage, "5");
-DEFINE_Bool(enable_segment_cache_prune, "true");
+DEFINE_Bool(enable_segment_cache_prune, "false");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -2080,6 +2080,8 @@ Status set_fuzzy_configs() {
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_packed_file"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";

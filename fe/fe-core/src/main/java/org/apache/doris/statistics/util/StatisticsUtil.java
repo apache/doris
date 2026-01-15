@@ -56,6 +56,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
@@ -1148,18 +1149,43 @@ public class StatisticsUtil {
             // 3. Check partition
             return needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta);
         } else {
-            // Now, we only support Hive external table auto analyze.
-            if (!(table instanceof HMSExternalTable)) {
+            if (!StatisticsUtil.supportAutoAnalyze(table)) {
                 return false;
             }
-            HMSExternalTable hmsTable = (HMSExternalTable) table;
-            if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
-                return false;
-            }
-            // External is hard to calculate change rate, use time interval to control analyze frequency.
+            // External is hard to calculate change rate, use time interval to control
+            // analyze frequency.
             return System.currentTimeMillis()
                     - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
+    }
+
+    /**
+     * Check if the table supports auto analyze feature.
+     * @param table The table to check
+     * @return true if the table supports auto analyze, false otherwise
+     */
+    public static boolean supportAutoAnalyze(TableIf table) {
+        if (table == null) {
+            return false;
+        }
+
+        // Support OLAP table
+        if (table instanceof OlapTable) {
+            return true;
+        }
+
+        // Support Iceberg table
+        if (table instanceof IcebergExternalTable) {
+            return true;
+        }
+
+        // Support HMS table (only HIVE and ICEBERG types)
+        if (table instanceof HMSExternalTable) {
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            DLAType dlaType = hmsTable.getDlaType();
+            return dlaType.equals(DLAType.HIVE) || dlaType.equals(DLAType.ICEBERG);
+        }
+        return false;
     }
 
     public static boolean needAnalyzePartition(OlapTable table, TableStatsMeta tableStatsStatus,

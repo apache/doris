@@ -117,6 +117,8 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
+    bool is_shuffled_operator() const override { return true; }
+
 private:
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;

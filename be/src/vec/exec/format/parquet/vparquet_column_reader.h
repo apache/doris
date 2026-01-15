@@ -53,12 +53,9 @@ using ColumnString = ColumnStr<UInt32>;
 
 class ParquetColumnReader {
 public:
-    struct Statistics {
-        Statistics()
-                : read_time(0),
-                  read_calls(0),
-                  page_index_read_calls(0),
-                  read_bytes(0),
+    struct ColumnStatistics {
+        ColumnStatistics()
+                : page_index_read_calls(0),
                   decompress_time(0),
                   decompress_cnt(0),
                   decode_header_time(0),
@@ -67,14 +64,11 @@ public:
                   decode_level_time(0),
                   decode_null_map_time(0),
                   skip_page_header_num(0),
-                  parse_page_header_num(0) {}
+                  parse_page_header_num(0),
+                  read_page_header_time(0) {}
 
-        Statistics(io::BufferedStreamReader::Statistics& fs, ColumnChunkReaderStatistics& cs,
-                   int64_t null_map_time)
-                : read_time(fs.read_time),
-                  read_calls(fs.read_calls),
-                  page_index_read_calls(0),
-                  read_bytes(fs.read_bytes),
+        ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time)
+                : page_index_read_calls(0),
                   decompress_time(cs.decompress_time),
                   decompress_cnt(cs.decompress_cnt),
                   decode_header_time(cs.decode_header_time),
@@ -83,12 +77,10 @@ public:
                   decode_level_time(cs.decode_level_time),
                   decode_null_map_time(null_map_time),
                   skip_page_header_num(cs.skip_page_header_num),
-                  parse_page_header_num(cs.parse_page_header_num) {}
+                  parse_page_header_num(cs.parse_page_header_num),
+                  read_page_header_time(cs.read_page_header_time) {}
 
-        int64_t read_time;
-        int64_t read_calls;
         int64_t page_index_read_calls;
-        int64_t read_bytes;
         int64_t decompress_time;
         int64_t decompress_cnt;
         int64_t decode_header_time;
@@ -98,27 +90,27 @@ public:
         int64_t decode_null_map_time;
         int64_t skip_page_header_num;
         int64_t parse_page_header_num;
+        int64_t read_page_header_time;
 
-        void merge(Statistics& statistics) {
-            read_time += statistics.read_time;
-            read_calls += statistics.read_calls;
-            read_bytes += statistics.read_bytes;
-            page_index_read_calls += statistics.page_index_read_calls;
-            decompress_time += statistics.decompress_time;
-            decompress_cnt += statistics.decompress_cnt;
-            decode_header_time += statistics.decode_header_time;
-            decode_value_time += statistics.decode_value_time;
-            decode_dict_time += statistics.decode_dict_time;
-            decode_level_time += statistics.decode_level_time;
-            decode_null_map_time += statistics.decode_null_map_time;
-            skip_page_header_num += statistics.skip_page_header_num;
-            parse_page_header_num += statistics.parse_page_header_num;
+        void merge(ColumnStatistics& col_statistics) {
+            page_index_read_calls += col_statistics.page_index_read_calls;
+            decompress_time += col_statistics.decompress_time;
+            decompress_cnt += col_statistics.decompress_cnt;
+            decode_header_time += col_statistics.decode_header_time;
+            decode_value_time += col_statistics.decode_value_time;
+            decode_dict_time += col_statistics.decode_dict_time;
+            decode_level_time += col_statistics.decode_level_time;
+            decode_null_map_time += col_statistics.decode_null_map_time;
+            skip_page_header_num += col_statistics.skip_page_header_num;
+            parse_page_header_num += col_statistics.parse_page_header_num;
+            read_page_header_time += col_statistics.read_page_header_time;
         }
     };
 
-    ParquetColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                        cctz::time_zone* ctz, io::IOContext* io_ctx)
+    ParquetColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                        io::IOContext* io_ctx)
             : _row_ranges(row_ranges), _total_rows(total_rows), _ctz(ctz), _io_ctx(io_ctx) {}
+
     virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
@@ -136,16 +128,15 @@ public:
     }
 
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
-                         const tparquet::RowGroup& row_group,
-                         const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                         io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size,
+                         const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
+                         cctz::time_zone* ctz, io::IOContext* io_ctx,
+                         std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size,
                          std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
                          bool in_collection = false, const std::set<uint64_t>& column_ids = {},
                          const std::set<uint64_t>& filter_column_ids = {});
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
-    virtual Statistics statistics() = 0;
+    virtual ColumnStatistics column_statistics() = 0;
     virtual void close() = 0;
 
     virtual void reset_filter_map_index() = 0;
@@ -153,16 +144,14 @@ public:
     FieldSchema* get_field_schema() const { return _field_schema; }
 
 protected:
-    void _generate_read_ranges(int64_t start_index, int64_t end_index,
-                               std::list<RowRange>& read_ranges);
+    void _generate_read_ranges(RowRange page_row_range, RowRanges* result_ranges) const;
 
     FieldSchema* _field_schema = nullptr;
-    const std::vector<RowRange>& _row_ranges;
+    const RowRanges& _row_ranges;
     size_t _total_rows = 0;
     const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     int64_t _current_row_index = 0;
-    int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
 
     size_t _filter_map_index = 0;
@@ -173,7 +162,7 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 class ScalarColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
-    ScalarColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
+    ScalarColumnReader(const RowRanges& row_ranges, size_t total_rows,
                        const tparquet::ColumnChunk& chunk_meta,
                        const tparquet::OffsetIndex* offset_index, cctz::time_zone* ctz,
                        io::IOContext* io_ctx)
@@ -190,9 +179,8 @@ public:
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
-    Statistics statistics() override {
-        return Statistics(_stream_reader->statistics(), _chunk_reader->statistics(),
-                          _decode_null_map_time);
+    ColumnStatistics column_statistics() override {
+        return ColumnStatistics(_chunk_reader->chunk_statistics(), _decode_null_map_time);
     }
     void close() override {}
 
@@ -291,8 +279,8 @@ private:
 class ArrayColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ArrayColumnReader)
 public:
-    ArrayColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                      cctz::time_zone* ctz, io::IOContext* io_ctx)
+    ArrayColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                      io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
     Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
@@ -306,7 +294,7 @@ public:
     const std::vector<level_t>& get_def_level() const override {
         return _element_reader->get_def_level();
     }
-    Statistics statistics() override { return _element_reader->statistics(); }
+    ColumnStatistics column_statistics() override { return _element_reader->column_statistics(); }
     void close() override {}
 
     void reset_filter_map_index() override { _element_reader->reset_filter_map_index(); }
@@ -318,8 +306,8 @@ private:
 class MapColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(MapColumnReader)
 public:
-    MapColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                    cctz::time_zone* ctz, io::IOContext* io_ctx)
+    MapColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                    io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~MapColumnReader() override { close(); }
 
@@ -337,9 +325,9 @@ public:
         return _key_reader->get_def_level();
     }
 
-    Statistics statistics() override {
-        Statistics kst = _key_reader->statistics();
-        Statistics vst = _value_reader->statistics();
+    ColumnStatistics column_statistics() override {
+        ColumnStatistics kst = _key_reader->column_statistics();
+        ColumnStatistics vst = _value_reader->column_statistics();
         kst.merge(vst);
         return kst;
     }
@@ -359,8 +347,8 @@ private:
 class StructColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(StructColumnReader)
 public:
-    StructColumnReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                       cctz::time_zone* ctz, io::IOContext* io_ctx)
+    StructColumnReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                       io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~StructColumnReader() override { close(); }
 
@@ -394,12 +382,12 @@ public:
         return _child_readers.begin()->second->get_def_level();
     }
 
-    Statistics statistics() override {
-        Statistics st;
+    ColumnStatistics column_statistics() override {
+        ColumnStatistics st;
         for (const auto& column_name : _read_column_names) {
             auto reader = _child_readers.find(column_name);
             if (reader != _child_readers.end()) {
-                Statistics cst = reader->second->statistics();
+                ColumnStatistics cst = reader->second->column_statistics();
                 st.merge(cst);
             }
         }
@@ -424,8 +412,8 @@ private:
 // This is used when a column is not needed but its structure is required (e.g., for map keys)
 class SkipReadingReader : public ParquetColumnReader {
 public:
-    SkipReadingReader(const std::vector<RowRange>& row_ranges, size_t total_rows,
-                      cctz::time_zone* ctz, io::IOContext* io_ctx, FieldSchema* field_schema)
+    SkipReadingReader(const RowRanges& row_ranges, size_t total_rows, cctz::time_zone* ctz,
+                      io::IOContext* io_ctx, FieldSchema* field_schema)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {
         _field_schema = field_schema; // Use inherited member from base class
         VLOG_DEBUG << "[ParquetReader] Created SkipReadingReader for field: "
@@ -465,7 +453,7 @@ public:
         return Status::OK();
     }
 
-    static std::unique_ptr<SkipReadingReader> create_unique(const std::vector<RowRange>& row_ranges,
+    static std::unique_ptr<SkipReadingReader> create_unique(const RowRanges& row_ranges,
                                                             size_t total_rows, cctz::time_zone* ctz,
                                                             io::IOContext* io_ctx,
                                                             FieldSchema* field_schema) {
@@ -492,8 +480,8 @@ public:
     }
 
     // Implement required pure virtual methods from base class
-    Statistics statistics() override {
-        return Statistics(); // Return empty statistics
+    ColumnStatistics column_statistics() override {
+        return ColumnStatistics(); // Return empty statistics
     }
 
     void close() override {

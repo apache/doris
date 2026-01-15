@@ -538,6 +538,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
 
+    public static final String ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER = "enable_parquet_filter_by_bloom_filter";
+
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
 
     public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
@@ -767,6 +769,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
+    public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
+            "cloud_table_version_cache_ttl_ms";
     // CLOUD_VARIABLES_BEGIN
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
@@ -2265,6 +2269,15 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableParquetFilterByMinMax = true;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER,
+            fuzzy = true,
+            description = {"控制 parquet reader 是否启用 bloom filter 过滤。默认为 true。",
+                    "Controls whether to filter by bloom filter in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetFilterByBloomFilter = true;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_ORC_FILTER_BY_MIN_MAX,
             description = {"控制 orc reader 是否启用 min-max 值过滤。默认为 true。",
                     "Controls whether to filter by min-max values in orc reader. "
@@ -2795,6 +2808,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean disableEmptyPartitionPrune = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
     public static long cloudPartitionVersionCacheTtlMs = 0;
+    @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
+    public long cloudTableVersionCacheTtlMs = 0;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -3292,6 +3307,7 @@ public class SessionVariable implements Serializable, Writable {
         }
         // parquet
         this.enableParquetFilterByMinMax = random.nextBoolean();
+        this.enableParquetFilterByBloomFilter = random.nextBoolean();
         this.enableParquetLazyMat = random.nextBoolean();
 
         // orc
@@ -4815,6 +4831,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
+        tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 

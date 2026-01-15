@@ -72,7 +72,7 @@ Status MetaScanner::open(RuntimeState* state) {
         auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                               _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-        RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        RETURN_IF_ERROR(reader->init_reader());
         static_cast<IcebergSysTableJniReader*>(reader.get())
                 ->set_col_name_to_block_idx(&_src_block_name_to_idx);
         _reader = std::move(reader);
@@ -80,7 +80,7 @@ Status MetaScanner::open(RuntimeState* state) {
         auto reader = PaimonSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
                                                              _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-        RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        RETURN_IF_ERROR(reader->init_reader());
         static_cast<PaimonSysTableJniReader*>(reader.get())
                 ->set_col_name_to_block_idx(&_src_block_name_to_idx);
         _reader = std::move(reader);

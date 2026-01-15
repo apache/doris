@@ -68,6 +68,32 @@ enum SnapshotSwitchStatus {
     SNAPSHOT_SWITCH_ON = 2;
 }
 
+enum KeySetType {
+    UNKNOWN_KEY_SET = 0;
+
+    // Single version keys
+    SINGLE_VERSION_PARTITION_VERSION = 1;
+    SINGLE_VERSION_TABLE_VERSION = 2;
+    SINGLE_VERSION_META_ROWSET = 3;
+    SINGLE_VERSION_META_TABLET = 4;
+    SINGLE_VERSION_META_SCHEMA = 5;
+    SINGLE_VERSION_TABLET_STATS = 6;
+    SINGLE_VERSION_TABLET_INDEX = 7;
+
+    // Multi version keys
+    MULTI_VERSION_PARTITION_VERSION = 10;
+    MULTI_VERSION_TABLE_VERSION = 12;
+    MULTI_VERSION_INDEX_PARTITION = 13;
+    MULTI_VERSION_INDEX_INDEX = 14;
+    MULTI_VERSION_INDEX_TABLET = 15;
+    MULTI_VERSION_TABLET_STATS = 16;
+    MULTI_VERSION_META_PARTITION = 17;
+    MULTI_VERSION_META_INDEX = 18;
+    MULTI_VERSION_META_TABLET = 19;
+    MULTI_VERSION_META_SCHEMA = 20;
+    MULTI_VERSION_META_ROWSET = 21;
+}
+
 message InstanceInfoPB {
     enum Status {
         NORMAL = 0;
@@ -102,12 +128,18 @@ message InstanceInfoPB {
 
     // Inherited from which instance (only used during rollback, the earliest instance id).
     optional string original_instance_id = 114;
-    optional string succeed_instance_id = 115;  // The last heir (only used during rollback).
+    optional string successor_instance_id = 115;  // The last heir (only used during rollback).
     optional bool ready_only = 116;             // A read only instance.
 
     // Snapshot properties.
     optional int64 max_reserved_snapshot = 117;
     optional int64 snapshot_interval_seconds = 118;
+
+    repeated KeySetType migrated_key_sets = 119;    // convert single version keys to multi version keys
+    repeated KeySetType compacted_key_sets = 120;   // compact snapshot chain ...
+
+    optional int64 snapshot_retained_data_size = 121;
+    optional int64 snapshot_billable_data_size = 122;
 }
 
 message StagePB {
@@ -729,6 +761,8 @@ message DropPartitionLogPB {
     repeated int64 partition_ids = 4;
     optional int64 expired_at_s = 5; // expiration timestamp
     optional bool update_table_version = 6;
+
+    map<string, int64> index_partition_to_data_size = 7;
 }
 
 message CommitIndexLogPB {
@@ -736,6 +770,7 @@ message CommitIndexLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     optional bool update_table_version = 4;
+    repeated int64 partition_ids = 5;
 }
 
 message DropIndexLogPB {
@@ -743,6 +778,8 @@ message DropIndexLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     optional int64 expiration = 4; // expiration timestamp
+
+    map<string, int64> index_partition_to_data_size = 5;
 }
 
 message UpdateTabletLogPB {
@@ -815,6 +852,15 @@ message SnapshotPB {
 
     // The resource id of the object store where snapshot image stored.
     optional string resource_id = 14;
+
+    // record the multipart upload file_name and upload_id, used for aborting multipart upload
+    optional string upload_file = 15;
+    optional string upload_id = 16;
+
+    optional int64 snapshot_meta_image_size = 17;
+    optional int64 snapshot_logical_data_size = 18;
+    optional int64 snapshot_retained_data_size = 19;
+    optional int64 snapshot_billable_data_size = 20;
 
     // TODO: add the referenced resources
 }
@@ -1103,6 +1149,9 @@ message GetVersionRequest {
     optional bool is_table_version = 9;
 
     optional string request_ip = 10;
+
+    // Wait the pending txn to be finished before getting version
+    optional bool wait_for_pending_txn = 11;
 };
 
 message GetVersionResponse {
@@ -1293,6 +1342,7 @@ message IndexRequest {
     optional int64 db_id = 5;
     optional bool is_new_table = 6; // For table version
     optional string request_ip = 7;
+    repeated int64 partition_ids = 8;
 }
 
 message IndexResponse {
@@ -1375,11 +1425,19 @@ message AlterInstanceRequest {
         SET_NORMAL                  = 7;
         SET_SNAPSHOT_PROPERTY       = 8;
     }
+
+    enum SnapshotProperty {
+        UNKNOWN_PROPERTY                = 0;
+        ENABLE_SNAPSHOT                 = 1;    // true or false
+        MAX_RESERVED_SNAPSHOTS          = 2;    // in [0, max_reserved_snapshots]
+        SNAPSHOT_INTERVAL_SECONDS       = 3;    // in [min_interval_seconds, +inf)
+    }
+
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
     optional string request_ip = 4;
-    map<string, string> properties = 5;
+    map<string, string> properties = 5; // key is the Name of SnapshotProperty value.
 }
 
 message AlterInstanceResponse {
@@ -1777,6 +1835,7 @@ message UpdateDeleteBitmapRequest {
     // 50-51: used for storage v2
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
+    optional int64 store_version = 52;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1976,12 +2035,27 @@ message BeginSnapshotResponse {
     optional ObjectStoreInfoPB obj_info = 4;
 }
 
+message UpdateSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string snapshot_id = 2;
+    // record the multipart upload file_name and upload_id, used for aborting multipart upload
+    optional string upload_file = 3;
+    optional string upload_id = 4;
+    optional string request_ip = 5;
+}
+
+message UpdateSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CommitSnapshotRequest {
     optional string cloud_unique_id = 1;
     optional string snapshot_id = 2;
     optional string image_url = 3;
     optional int64 last_journal_id = 4;
     optional string request_ip = 5;
+    optional int64 snapshot_meta_image_size = 6;
+    optional int64 snapshot_logical_data_size = 7;
 }
 
 message CommitSnapshotResponse {
@@ -2016,6 +2090,10 @@ message SnapshotInfoPB {
     optional string reason = 14;
 
     repeated string derived_instance_ids = 15;
+    optional int64 snapshot_meta_image_size = 16;
+    optional int64 snapshot_logical_data_size = 17;
+    optional int64 snapshot_retained_data_size = 18;
+    optional int64 snapshot_billable_data_size = 19;
 }
 
 message ListSnapshotRequest {
@@ -2023,6 +2101,7 @@ message ListSnapshotRequest {
     optional string required_snapshot_id = 2;   // Return all snapshots if not set.
     optional bool include_aborted = 3;
     optional string request_ip = 4;
+    optional string instance_id = 5;
 }
 
 message ListSnapshotResponse {
@@ -2063,7 +2142,52 @@ message CloneInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
     // The info of the object store where snapshot images stored
     optional ObjectStoreInfoPB obj_info = 2;
+    // The URL of the snapshot image
     optional string image_url = 3;
+}
+
+message PackedSlicePB {
+    optional string path = 1;
+    optional int64 offset = 2;
+    optional int64 size = 3;
+    optional bool deleted = 4;
+    optional int64 tablet_id = 5;
+    optional string rowset_id = 6;
+    optional int64 txn_id = 7;
+    optional bool corrected = 8;
+}
+
+message PackedFileInfoPB {
+    enum PackedFileState {
+        NORMAL = 0;
+        RECYCLING = 1;
+    }
+    optional int64 ref_cnt = 1;
+    optional int64 total_slice_num = 2;
+    optional int64 total_slice_bytes = 3;
+    optional int64 remaining_slice_bytes = 4;
+    optional int64 created_at_sec = 5;
+    optional bool corrected = 6;
+    optional PackedFileState state = 7 [default = NORMAL];
+    repeated PackedSlicePB slices = 8;
+    optional string resource_id = 9;
+}
+
+// Wrapper for packed file footer information. It keeps PackedFileInfoPB extensible for tools
+// reading packed file trailers.
+message PackedFileFooterPB {
+    optional PackedFileInfoPB packed_file_info = 1;
+}
+
+message UpdatePackedFileInfoRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
+    optional string packed_file_path = 3; // The path of the packed file
+    optional PackedFileInfoPB packed_file_info = 4;
+}
+
+message UpdatePackedFileInfoResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 service MetaService {
@@ -2154,11 +2278,14 @@ service MetaService {
 
     // cluster snapshot related methods
     rpc begin_snapshot(BeginSnapshotRequest) returns (BeginSnapshotResponse);
+    rpc update_snapshot(UpdateSnapshotRequest) returns (UpdateSnapshotResponse);
     rpc commit_snapshot(CommitSnapshotRequest) returns (CommitSnapshotResponse);
     rpc abort_snapshot(AbortSnapshotRequest) returns (AbortSnapshotResponse);
     rpc drop_snapshot(DropSnapshotRequest) returns (DropSnapshotResponse);
     rpc list_snapshot(ListSnapshotRequest) returns (ListSnapshotResponse);
     rpc clone_instance(CloneInstanceRequest) returns (CloneInstanceResponse);
+
+    rpc update_packed_file_info(UpdatePackedFileInfoRequest) returns (UpdatePackedFileInfoResponse);
 };
 
 service RecyclerService {

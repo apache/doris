@@ -19,6 +19,7 @@
 
 #include "CLucene/SharedHeader.h"
 #include "CLucene/_SharedHeader.h"
+#include "cloud/config.h"
 #include "common/status.h"
 #include "inverted_index_common.h"
 #include "inverted_index_desc.h"
@@ -432,7 +433,7 @@ void DorisFSDirectory::FSIndexOutputV2::close() {
         _index_v2_file_writer = nullptr;
     })
     if (_index_v2_file_writer) {
-        auto ret = _index_v2_file_writer->close();
+        auto ret = _index_v2_file_writer->close(true);
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {
@@ -924,23 +925,28 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(const io::FileSystemSPtr
     if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
         dir = _CLNEW DorisRAMFSDirectory();
     } else {
-        bool exists = false;
-        auto st = _fs->exists(file, &exists);
-        DBUG_EXECUTE_IF("DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok", {
-            st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "debug point: DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok");
-        })
-        LOG_AND_THROW_IF_ERROR(st, "Get directory exists IO error");
-        if (!exists) {
-            st = _fs->create_directory(file);
-            DBUG_EXECUTE_IF(
-                    "DorisFSDirectoryFactory::getDirectory_create_directory_status_is_not_ok", {
-                        st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                "debug point: "
-                                "DorisFSDirectoryFactory::getDirectory_create_directory_status_is_"
-                                "not_ok");
-                    })
-            LOG_AND_THROW_IF_ERROR(st, "Get directory create directory IO error");
+        // cloud mode does not need to create directory
+        if (!config::is_cloud_mode()) {
+            bool exists = false;
+            auto st = _fs->exists(file, &exists);
+            DBUG_EXECUTE_IF("DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok", {
+                st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "debug point: "
+                        "DorisFSDirectoryFactory::getDirectory_exists_status_is_not_ok");
+            })
+            LOG_AND_THROW_IF_ERROR(st, "Get directory exists IO error");
+            if (!exists) {
+                st = _fs->create_directory(file);
+                DBUG_EXECUTE_IF(
+                        "DorisFSDirectoryFactory::getDirectory_create_directory_status_is_not_ok", {
+                            st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                    "debug point: "
+                                    "DorisFSDirectoryFactory::getDirectory_create_directory_status_"
+                                    "is_"
+                                    "not_ok");
+                        })
+                LOG_AND_THROW_IF_ERROR(st, "Get directory create directory IO error");
+            }
         }
         dir = _CLNEW DorisFSDirectory();
     }

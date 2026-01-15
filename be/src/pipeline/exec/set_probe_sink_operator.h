@@ -113,6 +113,8 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
+    bool is_shuffled_operator() const override { return true; }
+
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
     Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state,

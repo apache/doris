@@ -1160,6 +1160,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    ctx.allow_packed_file = false;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1616,6 +1617,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    ctx.allow_packed_file = false;
 
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
@@ -1625,6 +1627,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
     ctx.tablet = _tablet;
+    ctx.job_id = _uuid;
 
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(

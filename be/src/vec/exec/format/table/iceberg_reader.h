@@ -173,9 +173,10 @@ public:
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs& conjuncts,
+            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                    slot_id_to_predicates,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
@@ -223,7 +224,6 @@ public:
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,

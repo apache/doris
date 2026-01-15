@@ -208,6 +208,10 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
+    void set_job_id(const std::string& job_id) { _rowset_meta_pb.set_job_id(job_id); }
+
+    const std::string& job_id() const { return _rowset_meta_pb.job_id(); }
+
     bool delete_flag() const { return _rowset_meta_pb.delete_flag(); }
 
     int64_t creation_time() const { return _rowset_meta_pb.creation_time(); }
@@ -423,6 +427,17 @@ public:
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;
+
+    void add_packed_slice_location(const std::string& segment_path,
+                                   const std::string& packed_file_path, int64_t offset,
+                                   int64_t size, int64_t packed_file_size) {
+        auto* index_map = _rowset_meta_pb.mutable_packed_slice_locations();
+        auto& index_pb = (*index_map)[segment_path];
+        index_pb.set_packed_file_path(packed_file_path);
+        index_pb.set_offset(offset);
+        index_pb.set_size(size);
+        index_pb.set_packed_file_size(packed_file_size);
+    }
 
 private:
     bool _deserialize_from_pb(std::string_view value);

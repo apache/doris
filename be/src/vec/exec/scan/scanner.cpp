@@ -41,6 +41,7 @@ Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
           _has_prepared(false) {
+    _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
@@ -210,7 +211,8 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     }
     // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    RETURN_IF_ERROR(_local_state->_helper.clone_conjunct_ctxs(_state, _conjuncts,
+                                                              _local_state->_conjuncts));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }

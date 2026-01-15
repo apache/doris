@@ -704,5 +704,5 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 ------------PhysicalOlapScan[t4]
 --------PhysicalLimit[LOCAL]
-----------PhysicalOlapScan[t4(x)]
+----------PhysicalOlapScan[t4]
 

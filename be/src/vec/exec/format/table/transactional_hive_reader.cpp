@@ -57,7 +57,6 @@ TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> 
 Status TransactionalHiveReader::init_reader(
         const std::vector<std::string>& column_names,
         std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -113,9 +112,8 @@ Status TransactionalHiveReader::init_reader(
     }
 
     Status status = orc_reader->init_reader(
-            &_col_names, col_name_to_block_idx, colname_to_value_range, conjuncts, true,
-            tuple_descriptor, row_descriptor, not_single_slot_filter_conjuncts,
-            slot_id_to_filter_conjuncts, table_info_node_ptr);
+            &_col_names, col_name_to_block_idx, conjuncts, true, tuple_descriptor, row_descriptor,
+            not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts, table_info_node_ptr);
     return status;
 }
 
@@ -212,7 +210,7 @@ Status TransactionalHiveReader::init_row_filters() {
                 &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE,
                 const_cast<std::unordered_map<std::string, uint32_t>*>(
                         &TransactionalHive::DELETE_COL_NAME_TO_BLOCK_IDX),
-                nullptr, {}, false, nullptr, nullptr, nullptr, nullptr, acid_info_node));
+                {}, false, nullptr, nullptr, nullptr, nullptr, acid_info_node));
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;

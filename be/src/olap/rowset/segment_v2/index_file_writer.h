@@ -57,7 +57,13 @@ public:
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();
-    Status close();
+    // Begin the close process. This mainly triggers the asynchronous close operation of
+    // _idx_v2_writer by calling close(true), which starts the close process but returns
+    // immediately without waiting for completion.
+    Status begin_close();
+    // Finish the close process. This waits for the close operation to complete by calling
+    // _idx_v2_writer->close(false), which blocks until the close is fully done.
+    Status finish_close();
     const InvertedIndexFileInfo* get_index_file_info() const {
         DCHECK(_closed) << debug_string();
         return &_file_info;
@@ -71,6 +77,9 @@ public:
     void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
     std::vector<std::string> get_index_file_names() const;
     std::string debug_string() const;
+
+    // Get internal file writer (for merge file index collection)
+    io::FileWriter* get_file_writer() const { return _idx_v2_writer.get(); }
 
 private:
     Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,

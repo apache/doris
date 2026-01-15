@@ -358,7 +358,6 @@ Status OrcReader::_create_file_reader() {
 Status OrcReader::init_reader(
         const std::vector<std::string>* column_names,
         std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, bool is_acid, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -367,7 +366,6 @@ Status OrcReader::init_reader(
         const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
     _table_column_names = column_names;
     _col_name_to_block_idx = col_name_to_block_idx;
-    _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
     _tuple_descriptor = tuple_descriptor;
@@ -1361,7 +1359,6 @@ Status OrcReader::_fill_partition_columns(
 Status OrcReader::_fill_missing_columns(
         Block* block, uint64_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    std::set<size_t> positions_to_erase;
     for (const auto& kv : missing_columns) {
         if (!_col_name_to_block_idx->contains(kv.first)) {
             return Status::InternalError("Failed to find missing column: {}, block: {}", kv.first,
@@ -1376,16 +1373,13 @@ Status OrcReader::_fill_missing_columns(
         } else {
             // fill with default value
             const auto& ctx = kv.second;
-            auto origin_column_num = block->columns();
-            int result_column_id = -1;
             // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            if (!is_origin_column) {
+            ColumnPtr result_column_ptr;
+            RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            if (result_column_ptr->use_count() == 1) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto result_column_ptr = block->get_by_position(result_column_id).column;
                 auto mutable_column = result_column_ptr->assume_mutable();
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
@@ -1396,11 +1390,9 @@ Status OrcReader::_fill_missing_columns(
                 block->replace_by_position(
                         (*_col_name_to_block_idx)[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                positions_to_erase.insert(result_column_id);
             }
         }
     }
-    block->erase(positions_to_erase);
     return Status::OK();
 }
 
@@ -1416,12 +1408,6 @@ Status OrcReader::_fill_row_id_columns(Block* block) {
     }
 
     return Status::OK();
-}
-
-void OrcReader::_init_bloom_filter(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    // generate bloom filter
-    // _reader->getBloomFilters()
 }
 
 void OrcReader::_init_system_properties() {

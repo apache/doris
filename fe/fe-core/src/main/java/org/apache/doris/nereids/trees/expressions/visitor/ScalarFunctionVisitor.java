@@ -391,6 +391,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
@@ -488,6 +490,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64Binary;
@@ -1939,6 +1942,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(quantileEmpty, context);
     }
 
+    default R visitQuantileStateFromBase64(QuantileStateFromBase64 quantileStateFromBase64, C context) {
+        return visitScalarFunction(quantileStateFromBase64, context);
+    }
+
+    default R visitQuantileStateToBase64(QuantileStateToBase64 quantileStateToBase64, C context) {
+        return visitScalarFunction(quantileStateToBase64, context);
+    }
+
     default R visitQuarter(Quarter quarter, C context) {
         return visitScalarFunction(quarter, context);
     }
@@ -2313,6 +2324,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTimeDiff(TimeDiff timeDiff, C context) {
         return visitScalarFunction(timeDiff, context);
+    }
+
+    default R visitTimeFormat(TimeFormat timeFormat, C context) {
+        return visitScalarFunction(timeFormat, context);
     }
 
     default R visitTimestamp(Timestamp timestamp, C context) {

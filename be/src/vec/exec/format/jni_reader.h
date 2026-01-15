@@ -101,8 +101,7 @@ public:
 
     ~MockJniReader() override = default;
 
-    Status init_reader(
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader();
 
     Status close() override {
         if (_jni_connector) {
@@ -117,9 +116,6 @@ protected:
             _jni_connector->collect_profile_before_close();
         }
     }
-
-private:
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
 #include "common/compile_check_end.h"

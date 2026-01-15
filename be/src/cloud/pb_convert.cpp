@@ -102,6 +102,15 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -170,6 +179,15 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
+    }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
     }
 }
 
@@ -250,6 +268,15 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
     }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -317,6 +344,15 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     if (in.has_reference_instance_id()) {
         out->set_reference_instance_id(in.reference_instance_id());
+    }
+    auto* slice_locations = out->mutable_packed_slice_locations();
+    slice_locations->clear();
+    slice_locations->insert(in.packed_slice_locations().begin(), in.packed_slice_locations().end());
+    if (in.has_is_recycled()) {
+        out->set_is_recycled(in.is_recycled());
+    }
+    if (in.has_job_id()) {
+        out->set_job_id(in.job_id());
     }
 }
 

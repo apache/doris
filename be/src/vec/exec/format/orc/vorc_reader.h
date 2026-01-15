@@ -159,7 +159,6 @@ public:
     Status init_reader(
             const std::vector<std::string>* column_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, bool is_acid,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -341,8 +340,6 @@ private:
     Status _fill_missing_columns(
             Block* block, uint64_t rows,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
-    void _init_bloom_filter(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
     void _init_file_description();
 
@@ -684,7 +681,6 @@ private:
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
 
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;
     LazyReadContext _lazy_read_ctx;
