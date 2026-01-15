@@ -90,6 +90,12 @@ public:
             const_cast<HyperLogLog*>(&hll)->update(static_cast<uint64_t>(expect_num));
             auto actual = hll.estimate_cardinality();
             EXPECT_EQ(expect, actual);
+        } else if constexpr (std::is_same_v<DataType, DataTypeDecimalV2>) {
+            EXPECT_EQ(expect_num, (*(int128_t*)unwrap_col->get_data_at(pos).data));
+        } else if constexpr (IsDataTypeDecimal<DataType>) {
+            EXPECT_EQ(expect_num,
+                      (*(typename DataType::FieldType::NativeType*)unwrap_col->get_data_at(pos)
+                                .data));
         } else {
             EXPECT_EQ(expect_num, unwrap_col->get_int(pos));
         }
@@ -164,11 +170,12 @@ public:
                     array[j] = Field::create_field<TYPE_STRING>(item);
                 } else if constexpr (IsDecimalNumber<FieldType>) {
                     auto item = FieldType(static_cast<uint64_t>(j));
-                    array[j] =
-                            Field::create_field<TYPE_DECIMALV2>(DecimalField<FieldType>(item, 20));
+                    array[j] = Field::create_field<TYPE_DECIMALV2>(
+                            *(typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType*)&item);
                 } else {
+                    auto v = static_cast<uint64_t>(j);
                     array[j] = Field::create_field<TYPE_DATETIMEV2>(
-                            FieldType(static_cast<uint64_t>(j)));
+                            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
                 }
             }
             input_col->insert(Field::create_field<TYPE_ARRAY>(array));

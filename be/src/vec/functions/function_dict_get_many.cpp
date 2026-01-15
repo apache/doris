@@ -97,10 +97,11 @@ public:
         // dict get many(name, array<value names>, struct<key columns>) -> struct <value columns>
 
         // get value names
-        const Array array_names = (*block.get_by_position(arguments[1]).column)[0].get<Array>();
+        const Array array_names =
+                (*block.get_by_position(arguments[1]).column)[0].get<TYPE_ARRAY>();
         std::vector<std::string> attribute_names;
         for (auto field : array_names) {
-            attribute_names.push_back(field.get<String>());
+            attribute_names.push_back(field.template get<TYPE_STRING>());
         }
         const auto dict = dict_state->dict;
 

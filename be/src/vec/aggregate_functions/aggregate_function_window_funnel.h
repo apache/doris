@@ -160,7 +160,6 @@ struct WindowFunnelState {
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
     int _match_event_list(size_t& start_row, size_t row_count) const {
         int matched_count = 0;
-        DateValueType start_timestamp;
         DateValueType end_timestamp;
 
         if (window < 0) {

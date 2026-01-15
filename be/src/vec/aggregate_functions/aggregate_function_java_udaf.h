@@ -65,19 +65,11 @@ public:
 
     Status close_and_delete_object() {
         JNIEnv* env = nullptr;
-        Defer defer {[&]() {
-            if (env != nullptr) {
-                env->DeleteGlobalRef(executor_cl);
-                env->DeleteGlobalRef(executor_obj);
-            }
-        }};
-        Status st = JniUtil::GetJNIEnv(&env);
-        if (!st.ok()) {
-            LOG(WARNING) << "Failed to get JNIEnv";
-            return st;
-        }
-        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_close_id);
-        st = JniUtil::GetJniExceptionMsg(env);
+
+        RETURN_IF_ERROR(Jni::Env::Get(&env));
+
+        auto st = executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_close_id)
+                          .call();
         if (!st.ok()) {
             LOG(WARNING) << "Failed to close JAVA UDAF: " << st.to_string();
             return st;
@@ -87,32 +79,22 @@ public:
 
     Status init_udaf(const TFunction& fn, const std::string& local_location) {
         JNIEnv* env = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf init_udaf function");
-        RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, UDAF_EXECUTOR_CLASS, &executor_cl));
+        RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf init_udaf function");
+        RETURN_IF_ERROR(Jni::Util::find_class(env, UDAF_EXECUTOR_CLASS, &executor_cl));
         RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
                                        "Java-Udaf register_func_id function");
 
-        // Add a scoped cleanup jni reference object. This cleans up local refs made below.
-        JniLocalFrame jni_frame;
-        {
-            TJavaUdfExecutorCtorParams ctor_params;
-            ctor_params.__set_fn(fn);
-            if (!fn.hdfs_location.empty() && !fn.checksum.empty()) {
-                ctor_params.__set_location(local_location);
-            }
-            jbyteArray ctor_params_bytes;
-
-            // Pushed frame will be popped when jni_frame goes out-of-scope.
-            RETURN_IF_ERROR(jni_frame.push(env));
-            RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-            executor_obj = env->NewObject(executor_cl, executor_ctor_id, ctor_params_bytes);
-
-            jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
-            env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
-            env->DeleteLocalRef(ctor_params_bytes);
+        TJavaUdfExecutorCtorParams ctor_params;
+        ctor_params.__set_fn(fn);
+        if (!fn.hdfs_location.empty() && !fn.checksum.empty()) {
+            ctor_params.__set_location(local_location);
         }
-        RETURN_ERROR_IF_EXC(env);
-        RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
+
+        Jni::LocalArray ctor_params_bytes;
+        RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
+        RETURN_IF_ERROR(executor_cl.new_object(env, executor_ctor_id)
+                                .with_arg(ctor_params_bytes)
+                                .call(&executor_obj));
         return Status::OK();
     }
 
@@ -120,7 +102,7 @@ public:
                int64_t row_num_start, int64_t row_num_end, const DataTypes& argument_types,
                int64_t place_offset) {
         JNIEnv* env = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf add function");
+        RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf add function");
 
         Block input_block;
         for (size_t i = 0; i < argument_size; ++i) {
@@ -134,70 +116,77 @@ public:
                 {"meta_address", std::to_string((long)input_table.get())},
                 {"required_fields", input_table_schema.first},
                 {"columns_types", input_table_schema.second}};
-        jobject input_map = nullptr;
-        RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
+
+        Jni::LocalObject input_map;
+        RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, input_params, &input_map));
         // invoke add batch
         // Keep consistent with the function signature of executor_add_batch_id.
-        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place,
-                              cast_set<int>(row_num_start), cast_set<int>(row_num_end),
-                              places_address, cast_set<int>(place_offset), input_map);
-        RETURN_ERROR_IF_EXC(env);
-        env->DeleteGlobalRef(input_map);
-        return JniUtil::GetJniExceptionMsg(env);
+
+        return executor_obj.call_void_method(env, executor_add_batch_id)
+                .with_arg((jboolean)is_single_place)
+                .with_arg(cast_set<jint>(row_num_start))
+                .with_arg(cast_set<jint>(row_num_end))
+                .with_arg(cast_set<jlong>(places_address))
+                .with_arg(cast_set<jint>(place_offset))
+                .with_arg(input_map)
+                .call();
     }
 
     Status merge(const AggregateJavaUdafData& rhs, int64_t place) {
         JNIEnv* env = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf merge function");
+        RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf merge function");
         serialize_data = rhs.serialize_data;
-        jsize len = cast_set<jsize>(serialize_data.length()); // jsize needs to be used.
-        jbyteArray arr = env->NewByteArray(len);
-        env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
-        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_merge_id, place, arr);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-        jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
-        env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
-        env->DeleteLocalRef(arr);
-        return JniUtil::GetJniExceptionMsg(env);
+        Jni::LocalArray byte_arr;
+        RETURN_IF_ERROR(Jni::Util::WriteBufferToByteArray(env, (jbyte*)serialize_data.data(),
+                                                          cast_set<jsize>(serialize_data.length()),
+                                                          &byte_arr));
+
+        return executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_merge_id)
+                .with_arg((jlong)place)
+                .with_arg(byte_arr)
+                .call();
     }
 
     Status write(BufferWritable& buf, int64_t place) {
         JNIEnv* env = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf write function");
+        RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf write function");
         // TODO: Here get a byte[] from FE serialize, and then allocate the same length bytes to
         // save it in BE, Because i'm not sure there is a way to use the byte[] not allocate again.
-        jbyteArray arr = (jbyteArray)(env->CallNonvirtualObjectMethod(
-                executor_obj, executor_cl, executor_serialize_id, place));
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-        int len = env->GetArrayLength(arr);
+        Jni::LocalArray arr;
+        RETURN_IF_ERROR(
+                executor_obj.call_nonvirtual_object_method(env, executor_cl, executor_serialize_id)
+                        .with_arg((jlong)place)
+                        .call(&arr));
+
+        jsize len = 0;
+        RETURN_IF_ERROR(arr.get_length(env, &len));
         serialize_data.resize(len);
-        env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
+        RETURN_IF_ERROR(arr.get_byte_elements(env, 0, len,
+                                              reinterpret_cast<jbyte*>(serialize_data.data())));
         buf.write_binary(serialize_data);
-        jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
-        env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
-        env->DeleteLocalRef(arr);
-        return JniUtil::GetJniExceptionMsg(env);
+        return Status::OK();
     }
 
     Status reset(int64_t place) {
         JNIEnv* env = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf reset function");
-        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_reset_id, place);
-        return JniUtil::GetJniExceptionMsg(env);
+        RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf reset function");
+        return executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_reset_id)
+                .with_arg(cast_set<jlong>(place))
+                .call();
     }
 
     void read(BufferReadable& buf) { buf.read_binary(serialize_data); }
 
     Status destroy() {
         JNIEnv* env = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf destroy function");
-        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_destroy_id);
-        return JniUtil::GetJniExceptionMsg(env);
+        RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf destroy function");
+        return executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_destroy_id)
+                .call();
     }
 
     Status get(IColumn& to, const DataTypePtr& result_type, int64_t place) const {
         JNIEnv* env = nullptr;
-        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf get value function");
+        RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf get value function");
 
         Block output_block;
         output_block.insert(ColumnWithTypeAndName(to.get_ptr(), result_type, "_result_"));
@@ -206,58 +195,55 @@ public:
         std::map<String, String> output_params = {{"is_nullable", output_nullable},
                                                   {"required_fields", output_table_schema.first},
                                                   {"columns_types", output_table_schema.second}};
-        jobject output_map = nullptr;
-        RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
-        long output_address =
-                env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
-        RETURN_ERROR_IF_EXC(env);
-        env->DeleteGlobalRef(output_map);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+
+        Jni::LocalObject output_map;
+        RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, output_params, &output_map));
+        long output_address;
+
+        RETURN_IF_ERROR(executor_obj.call_long_method(env, executor_get_value_id)
+                                .with_arg(cast_set<jlong>(place))
+                                .with_arg(output_map)
+                                .call(&output_address));
+
         return JniConnector::fill_block(&output_block, {0}, output_address);
     }
 
 private:
     Status register_func_id(JNIEnv* env) {
-        auto register_id = [&](const char* func_name, const char* func_sign, jmethodID& func_id) {
-            func_id = env->GetMethodID(executor_cl, func_name, func_sign);
-            Status s = JniUtil::GetJniExceptionMsg(env);
-            if (!s.ok()) {
-                LOG(WARNING) << "Failed to register function " << func_name << ": "
-                             << s.to_string();
-                return Status::InternalError(absl::Substitute(
-                        "Java-Udaf register_func_id meet error and error is $0", s.to_string()));
-            }
-            return s;
-        };
-        RETURN_IF_ERROR(register_id("<init>", UDAF_EXECUTOR_CTOR_SIGNATURE, executor_ctor_id));
-        RETURN_IF_ERROR(register_id("reset", UDAF_EXECUTOR_RESET_SIGNATURE, executor_reset_id));
-        RETURN_IF_ERROR(register_id("close", UDAF_EXECUTOR_CLOSE_SIGNATURE, executor_close_id));
-        RETURN_IF_ERROR(register_id("merge", UDAF_EXECUTOR_MERGE_SIGNATURE, executor_merge_id));
-        RETURN_IF_ERROR(
-                register_id("serialize", UDAF_EXECUTOR_SERIALIZE_SIGNATURE, executor_serialize_id));
-        RETURN_IF_ERROR(
-                register_id("getValue", UDAF_EXECUTOR_GET_SIGNATURE, executor_get_value_id));
-        RETURN_IF_ERROR(
-                register_id("destroy", UDAF_EXECUTOR_DESTROY_SIGNATURE, executor_destroy_id));
-        RETURN_IF_ERROR(
-                register_id("addBatch", UDAF_EXECUTOR_ADD_SIGNATURE, executor_add_batch_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "<init>", UDAF_EXECUTOR_CTOR_SIGNATURE,
+                                               &executor_ctor_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "reset", UDAF_EXECUTOR_RESET_SIGNATURE,
+                                               &executor_reset_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "close", UDAF_EXECUTOR_CLOSE_SIGNATURE,
+                                               &executor_close_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "merge", UDAF_EXECUTOR_MERGE_SIGNATURE,
+                                               &executor_merge_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "serialize", UDAF_EXECUTOR_SERIALIZE_SIGNATURE,
+                                               &executor_serialize_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "getValue", UDAF_EXECUTOR_GET_SIGNATURE,
+                                               &executor_get_value_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "destroy", UDAF_EXECUTOR_DESTROY_SIGNATURE,
+                                               &executor_destroy_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "addBatch", UDAF_EXECUTOR_ADD_SIGNATURE,
+                                               &executor_add_batch_id));
+
         return Status::OK();
     }
 
 private:
     // TODO: too many variables are hold, it's causing a lot of memory waste
     // it's time to refactor it.
-    jclass executor_cl;
-    jobject executor_obj;
-    jmethodID executor_ctor_id;
+    Jni::GlobalClass executor_cl;
+    Jni::GlobalObject executor_obj;
 
-    jmethodID executor_add_batch_id;
-    jmethodID executor_merge_id;
-    jmethodID executor_serialize_id;
-    jmethodID executor_get_value_id;
-    jmethodID executor_reset_id;
-    jmethodID executor_close_id;
-    jmethodID executor_destroy_id;
+    Jni::MethodId executor_ctor_id;
+    Jni::MethodId executor_add_batch_id;
+    Jni::MethodId executor_merge_id;
+    Jni::MethodId executor_serialize_id;
+    Jni::MethodId executor_get_value_id;
+    Jni::MethodId executor_reset_id;
+    Jni::MethodId executor_close_id;
+    Jni::MethodId executor_destroy_id;
     int argument_size = 0;
     std::string serialize_data;
 };

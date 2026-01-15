@@ -120,7 +120,7 @@ suite("nested_in_top_array", "p0"){
         sql_test_cast_to_scalar(table_name)
 
         // trigger and wait compaction
-        trigger_and_wait_compaction("${table_name}", "full")
+        trigger_and_wait_compaction("${table_name}", "full", 1800)
         sql_select_batch(table_name)
         sql_test_cast_to_array(table_name)    
         sql_test_cast_to_scalar(table_name)

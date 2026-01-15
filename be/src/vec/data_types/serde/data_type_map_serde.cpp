@@ -352,8 +352,8 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
         if ((null_map && (*null_map)[r])) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
                                              array_builder->type()->name()));
-        } else if (simd::contain_byte(keys_nullmap_data + offsets[r - 1],
-                                      offsets[r] - offsets[r - 1], 1)) {
+        } else if (simd::contain_one(keys_nullmap_data + offsets[r - 1],
+                                     offsets[r] - offsets[r - 1])) {
             // arrow do not support key is null, so we ignore the null key-value
             MutableColumnPtr key_mutable_data = nested_keys_column.clone_empty();
             MutableColumnPtr value_mutable_data = nested_values_column.clone_empty();

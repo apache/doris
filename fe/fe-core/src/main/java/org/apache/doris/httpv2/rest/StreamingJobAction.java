@@ -28,6 +28,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.ToString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -67,6 +68,7 @@ public class StreamingJobAction extends RestBaseController {
 
         StreamingInsertJob streamingJob = (StreamingInsertJob) job;
         try {
+            LOG.info("Committing offset with {}", offsetRequest.toString());
             streamingJob.commitOffset(offsetRequest);
             return ResponseEntityBuilder.ok("Offset committed successfully");
         } catch (Exception e) {
@@ -79,6 +81,7 @@ public class StreamingJobAction extends RestBaseController {
     @Getter
     @Setter
     @NoArgsConstructor
+    @ToString
     public static class CommitOffsetRequest {
         public long jobId;
         public long taskId;

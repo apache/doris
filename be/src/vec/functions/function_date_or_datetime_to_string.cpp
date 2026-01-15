@@ -77,8 +77,6 @@ public:
         return {};
     }
 
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-
     // In ICU, Week_array: {"", "Sunday", "Monday", ..., "Saturday"}, size = 8
     // Month_array: {"January", "February", ..., "December"}, size = 12
     static constexpr size_t DAY_NUM_IN_ICU = 8;
@@ -140,28 +138,48 @@ public:
         return IFunction::open(context, scope);
     }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-        const auto* sources =
-                check_and_get_column<ColumnVector<Transform::OpArgType>>(source_col.get());
-        auto col_res = ColumnString::create();
+        const NullMap* null_map = nullptr;
+        ColumnPtr actual_col = source_col;
 
-        // Support all input of datetime is valind to make sure not null return
-        if (sources) {
-            vector(context, sources->get_data(), col_res->get_chars(), col_res->get_offsets());
-            block.replace_by_position(result, std::move(col_res));
+        if (is_column_nullable(*source_col)) {
+            const auto* nullable_col = check_and_get_column<ColumnNullable>(source_col.get());
+            actual_col = nullable_col->get_nested_column_ptr();
+            null_map = &nullable_col->get_null_map_data();
+        }
+
+        const auto* sources =
+                check_and_get_column<ColumnVector<Transform::OpArgType>>(actual_col.get());
+        if (!sources) [[unlikely]] {
+            return Status::FatalError("Illegal column {} of first argument of function {}",
+                                      block.get_by_position(arguments[0]).column->get_name(), name);
+        }
+
+        auto col_res = ColumnString::create();
+        vector(context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
+               null_map);
+
+        if (null_map) {
+            const auto* nullable_col = check_and_get_column<ColumnNullable>(source_col.get());
+            block.replace_by_position(
+                    result,
+                    ColumnNullable::create(std::move(col_res),
+                                           nullable_col->get_null_map_column_ptr()->clone_resized(
+                                                   input_rows_count)));
         } else {
-            return Status::InternalError("Illegal column {} of first argument of function {}",
-                                         block.get_by_position(arguments[0]).column->get_name(),
-                                         name);
+            block.replace_by_position(result, std::move(col_res));
         }
         return Status::OK();
     }
 
 private:
     static void vector(FunctionContext* context, const PaddedPODArray<NativeType>& ts,
-                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
+                       const NullMap* null_map = nullptr) {
         const auto len = ts.size();
         res_data.resize(len * Transform::max_size);
         res_offsets.resize(len);
@@ -176,7 +194,12 @@ private:
             names_ptr = state->month_names;
         }
 
-        for (int i = 0; i < len; ++i) {
+        for (size_t i = 0; i < len; ++i) {
+            if (null_map && (*null_map)[i]) {
+                res_offsets[i] = cast_set<UInt32>(offset);
+                continue;
+            }
+
             const auto& t = ts[i];
             const auto date_time_value = binary_cast<NativeType, DateType>(t);
             res_offsets[i] = cast_set<UInt32>(

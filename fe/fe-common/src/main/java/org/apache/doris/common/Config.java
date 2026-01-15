@@ -3684,7 +3684,7 @@ public class Config extends ConfigBase {
                     + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
     public static String block_sql_ast_names = "";
 
-    public static long meta_service_rpc_reconnect_interval_ms = 5000;
+    public static long meta_service_rpc_reconnect_interval_ms = 100;
 
     public static long meta_service_rpc_retry_cnt = 10;
 
@@ -3770,6 +3770,13 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
+
+    @ConfField(description = {
+            "AWS SDK 用于调度异步重试、超时任务以及其他后台操作的线程池大小，全局共享",
+            "The thread pool size used by the AWS SDK to schedule asynchronous retries, timeout tasks, "
+                    + "and other background operations, shared globally"
+    })
+    public static int aws_sdk_async_scheduler_thread_pool_size = 20;
 
     @ConfField(description = {
             "agent tasks 健康检查的时间间隔，默认五分钟，小于等于 0 时不做健康检查",

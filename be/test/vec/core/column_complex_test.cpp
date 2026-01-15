@@ -608,7 +608,7 @@ TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
 
     Field field;
     column->get(0, field);
-    auto bitmap = field.get<BitmapValue>();
+    auto bitmap = field.get<TYPE_BITMAP>();
     EXPECT_TRUE(bitmap.contains(10));
     EXPECT_TRUE(bitmap.contains(1000000));
 }
@@ -636,7 +636,7 @@ TEST_F(ColumnBitmapTest, OperatorValidate) {
     for (size_t i = 0; i != row_size; ++i) {
         auto field = bitmap_column[i];
         ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
-        const auto& bitmap = vectorized::get<BitmapValue&>(field);
+        const auto& bitmap = field.get<TYPE_BITMAP>();
 
         ASSERT_EQ(bitmap.cardinality(), i + 1);
         for (size_t j = 0; j <= i; ++j) {
@@ -703,6 +703,26 @@ TEST(ColumnComplexTest, TestErase) {
     column_test->erase(3, 1);
 
     EXPECT_EQ(column_test->size(), 4);
+}
+
+TEST(ColumnComplexTest, TestUpdateHashWithValue) {
+    using ColumnTest = ColumnComplexType<TYPE_BITMAP>;
+
+    auto column_test = ColumnTest::create();
+
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+
+    SipHash hash;
+    for (size_t i = 0; i < column_test->size(); ++i) {
+        column_test->update_hash_with_value(i, hash);
+    }
+
+    std::vector<uint64_t> hash_values(column_test->size());
+    column_test->update_hashes_with_value(hash_values.data());
 }
 
 } // namespace doris::vectorized

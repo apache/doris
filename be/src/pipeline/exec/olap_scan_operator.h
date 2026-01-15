@@ -78,12 +78,28 @@ private:
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
 
-    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
-    PushDownType _should_push_down_topn_filter() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_bloom_filter() const override {
+        return PushDownType::ACCEPTABLE;
+    }
+    PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
-    PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_bitmap_filter() const override {
+        return PushDownType::ACCEPTABLE;
+    }
 
-    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_is_null_predicate(
+            vectorized::VectorizedFnCall* fn_call) const override {
+        return fn_call->fn().name.function_name == "is_null_pred" ||
+                               fn_call->fn().name.function_name == "is_not_null_pred"
+                       ? PushDownType::ACCEPTABLE
+                       : PushDownType::UNACCEPTABLE;
+    }
+    PushDownType _should_push_down_in_predicate() const override {
+        return PushDownType::ACCEPTABLE;
+    }
+    PushDownType _should_push_down_binary_predicate(
+            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+            StringRef* constant_val, const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr() override;
 
@@ -193,6 +209,7 @@ private:
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
 
+    RuntimeProfile::Counter* _statistics_collect_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
