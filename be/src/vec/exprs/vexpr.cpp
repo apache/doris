@@ -497,7 +497,12 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                 }
                 break;
             } else if (expr_node.fn.name.function_name == "coalesce") {
-                expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                if (expr_node.__isset.short_circuit_evaluation &&
+                    expr_node.short_circuit_evaluation) {
+                    expr = ShortCircuitCoalesceExpr::create_shared(expr_node);
+                } else {
+                    expr = VectorizedCoalesceExpr::create_shared(expr_node);
+                }
                 break;
             }
             expr = VectorizedFnCall::create_shared(expr_node);

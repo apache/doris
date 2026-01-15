@@ -69,4 +69,18 @@ public:
 private:
     inline static const std::string IFNULL_NAME = "ifnull";
 };
+
+class ShortCircuitCoalesceExpr final : public ShortCircuitExpr {
+public:
+    ENABLE_FACTORY_CREATOR(ShortCircuitCoalesceExpr);
+    ShortCircuitCoalesceExpr(const TExprNode& node) : ShortCircuitExpr(node) {}
+    ~ShortCircuitCoalesceExpr() override = default;
+    const std::string& expr_name() const override { return COALESCE_NAME; }
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
+
+private:
+    inline static const std::string COALESCE_NAME = "coalesce";
+};
+
 } // namespace doris::vectorized
