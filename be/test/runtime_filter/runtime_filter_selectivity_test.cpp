@@ -63,25 +63,28 @@ TEST_F(RuntimeFilterSelectivityTest, negative_sampling_frequency) {
 }
 
 TEST_F(RuntimeFilterSelectivityTest, judge_selectivity_below_threshold) {
-    bool always_true = false;
+    config::runtime_filter_sampling_frequency = 100;
+    RuntimeFilterSelectivity selectivity;
     // filter_rows/input_rows = 5/50000 = 0.0001 < 0.1
     // input_rows (50000) > min_judge_input_rows (40960)
-    RuntimeFilterSelectivity::judge_selectivity(0.1, 5, 50000, always_true);
-    EXPECT_TRUE(always_true);
+    selectivity.update_judge_selectivity(-1, 5, 50000, 0.1);
+    EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
 }
 
 TEST_F(RuntimeFilterSelectivityTest, judge_selectivity_above_threshold) {
-    bool always_true = false;
+    config::runtime_filter_sampling_frequency = 100;
+    RuntimeFilterSelectivity selectivity;
     // filter_rows/input_rows = 25000/50000 = 0.5 >= 0.1
-    RuntimeFilterSelectivity::judge_selectivity(0.1, 25000, 50000, always_true);
-    EXPECT_FALSE(always_true);
+    selectivity.update_judge_selectivity(-1, 25000, 50000, 0.1);
+    EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 }
 
 TEST_F(RuntimeFilterSelectivityTest, judge_selectivity_insufficient_input_rows) {
-    bool always_true = false;
+    config::runtime_filter_sampling_frequency = 100;
+    RuntimeFilterSelectivity selectivity;
     // Even though 5/100 = 0.05 < 0.1, input_rows (100) < min_judge_input_rows (40960)
-    RuntimeFilterSelectivity::judge_selectivity(0.1, 5, 100, always_true);
-    EXPECT_FALSE(always_true);
+    selectivity.update_judge_selectivity(-1, 5, 100, 0.1);
+    EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 }
 
 TEST_F(RuntimeFilterSelectivityTest, update_with_low_selectivity) {
@@ -171,20 +174,23 @@ TEST_F(RuntimeFilterSelectivityTest, reset_allows_reevaluation) {
 }
 
 TEST_F(RuntimeFilterSelectivityTest, edge_case_zero_rows) {
-    bool always_true = false;
-    RuntimeFilterSelectivity::judge_selectivity(0.1, 0, 0, always_true);
-    EXPECT_FALSE(always_true);
+    config::runtime_filter_sampling_frequency = 100;
+    RuntimeFilterSelectivity selectivity;
+    selectivity.update_judge_selectivity(-1, 0, 0, 0.1);
+    EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 }
 
 TEST_F(RuntimeFilterSelectivityTest, edge_case_exact_threshold) {
-    bool always_true = false;
+    config::runtime_filter_sampling_frequency = 100;
+    RuntimeFilterSelectivity selectivity;
     // Exactly at threshold: 5000/50000 = 0.1, NOT less than 0.1
-    RuntimeFilterSelectivity::judge_selectivity(0.1, 5000, 50000, always_true);
-    EXPECT_FALSE(always_true);
+    selectivity.update_judge_selectivity(-1, 5000, 50000, 0.1);
+    EXPECT_FALSE(selectivity.maybe_always_true_can_ignore());
 
     // Just below threshold: 4999/50000 = 0.09998 < 0.1
-    RuntimeFilterSelectivity::judge_selectivity(0.1, 4999, 50000, always_true);
-    EXPECT_TRUE(always_true);
+    RuntimeFilterSelectivity selectivity2;
+    selectivity2.update_judge_selectivity(-1, 4999, 50000, 0.1);
+    EXPECT_TRUE(selectivity2.maybe_always_true_can_ignore());
 }
 
 TEST_F(RuntimeFilterSelectivityTest, multiple_updates_before_threshold) {
