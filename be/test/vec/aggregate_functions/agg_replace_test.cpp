@@ -96,6 +96,13 @@ public:
             EXPECT_EQ(expect_num,
                       (*(typename DataType::FieldType::NativeType*)unwrap_col->get_data_at(pos)
                                 .data));
+        } else if constexpr (is_date_or_datetime(DataType::PType)) {
+            EXPECT_EQ(expect_num, (*(int64_t*)unwrap_col->get_data_at(pos).data));
+        } else if constexpr (DataType::PType == TYPE_DATEV2) {
+            EXPECT_EQ(expect_num, (*(uint32_t*)unwrap_col->get_data_at(pos).data));
+        } else if constexpr (DataType::PType == TYPE_DATETIMEV2 ||
+                             DataType::PType == TYPE_TIMESTAMPTZ) {
+            EXPECT_EQ(expect_num, (*(uint64_t*)unwrap_col->get_data_at(pos).data));
         } else {
             EXPECT_EQ(expect_num, unwrap_col->get_int(pos));
         }
@@ -182,10 +189,27 @@ public:
                     auto item = FieldType(static_cast<uint64_t>(j));
                     array[j] = Field::create_field<TYPE_DECIMALV2>(
                             *(typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType*)&item);
+                } else if (is_date_or_datetime(DataType::PType)) {
+                    auto v = static_cast<int64_t>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
+                } else if (DataType::PType == TYPE_TIMESTAMPTZ ||
+                           DataType::PType == TYPE_DATETIMEV2) {
+                    auto v = static_cast<uint64_t>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
+                } else if (DataType::PType == TYPE_DATEV2) {
+                    auto v = static_cast<uint32_t>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
+                } else if (DataType::PType == TYPE_LARGEINT) {
+                    auto v = static_cast<__int128>(j);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
                 } else {
                     auto v = static_cast<uint64_t>(j);
-                    array[j] = Field::create_field<TYPE_DATETIMEV2>(
-                            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
+                    array[j] = Field::create_field<DataType::PType>(
+                            *(typename PrimitiveTypeTraits<DataType::PType>::CppType*)&v);
                 }
             }
             input_col->insert(Field::create_field<TYPE_ARRAY>(array));

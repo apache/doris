@@ -2796,7 +2796,8 @@ auto assert_column_vector_insert_range_of_integer_callback = [](auto x, const Mu
     auto src_size = source_column->size();
     auto* col_vec_target = assert_cast<ColumnVector<PType>*>(target_column.get());
     auto* col_vec_src = assert_cast<ColumnVector<PType>*>(source_column.get());
-    if constexpr (std::is_same_v<T, Float32> || std::is_same_v<T, Float64>) {
+    if constexpr (std::is_same_v<T, Float32> || std::is_same_v<T, Float64> || is_date_type(PType) ||
+                  PType == TYPE_TIMESTAMPTZ) {
         typename PrimitiveTypeTraits<PType>::CppType begin;
         typename PrimitiveTypeTraits<PType>::CppType end;
         if constexpr (PType == TYPE_DATE || PType == TYPE_DATETIME) {

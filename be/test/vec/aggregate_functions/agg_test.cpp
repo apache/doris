@@ -246,7 +246,7 @@ TEST(AggTest, datetime_min_max_test) {
         // Get result by inserting into a column
         auto result_column = ColumnDateTime::create();
         agg_function->insert_result_into(place, *result_column);
-        int64_t result = result_column->get_element(0);
+        auto result = binary_cast<VecDateTimeValue, int64_t>(result_column->get_element(0));
         EXPECT_EQ(result, 20220315180000LL); // Minimum datetime
         agg_function->destroy(place);
     }
@@ -271,7 +271,7 @@ TEST(AggTest, datetime_min_max_test) {
         // Get result by inserting into a column
         auto result_column = ColumnDateTime::create();
         agg_function->insert_result_into(place, *result_column);
-        int64_t result = result_column->get_element(0);
+        auto result = binary_cast<VecDateTimeValue, int64_t>(result_column->get_element(0));
         EXPECT_EQ(result, 20240801220000LL); // Maximum datetime
         agg_function->destroy(place);
     }
@@ -306,7 +306,7 @@ TEST(AggTest, date_replace_test) {
     // REPLACE should return the last value
     auto result_column = ColumnDate::create();
     agg_function->insert_result_into(place, *result_column);
-    int64_t result = result_column->get_element(0);
+    auto result = binary_cast<VecDateTimeValue, int64_t>(result_column->get_element(0));
     EXPECT_EQ(result, 500LL);
     agg_function->destroy(place);
 }
@@ -357,7 +357,7 @@ TEST(AggTest, datetime_replace_if_not_null_test) {
 
     // Get the nested column and read the value
     const auto& nested_col = assert_cast<const ColumnDateTime&>(result_column->get_nested_column());
-    int64_t result = nested_col.get_element(0);
+    auto result = binary_cast<VecDateTimeValue, int64_t>(nested_col.get_element(0));
     EXPECT_EQ(result, 20230301060000LL); // Last value
     agg_function->destroy(place);
 }
