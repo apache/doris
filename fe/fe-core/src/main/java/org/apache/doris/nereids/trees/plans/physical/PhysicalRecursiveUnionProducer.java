@@ -61,7 +61,7 @@ public class PhysicalRecursiveUnionProducer<CHILD_TYPE extends Plan> extends Phy
 
     @Override
     public String toString() {
-        return Utils.toSqlStringSkipNull("PhysicalRecursiveCteRecursiveChild",
+        return Utils.toSqlStringSkipNull("PhysicalRecursiveUnionProducer",
                 "cteName", cteName);
     }
 

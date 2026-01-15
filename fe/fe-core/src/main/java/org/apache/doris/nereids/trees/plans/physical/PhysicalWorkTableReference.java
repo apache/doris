@@ -134,7 +134,7 @@ public class PhysicalWorkTableReference extends PhysicalRelation {
             return false;
         }
         PhysicalWorkTableReference that = (PhysicalWorkTableReference) o;
-        return cteId.equals(that.cteId) && nameParts.equals(that.nameParts) && outputs.equals(outputs);
+        return cteId.equals(that.cteId) && nameParts.equals(that.nameParts) && outputs.equals(that.outputs);
     }
 
     @Override

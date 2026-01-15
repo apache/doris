@@ -185,7 +185,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 1 / 3.0;
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
-    public static double RECURSIVE_CTE_EXPAND_RATION = 5.0;
+    public static double RECURSIVE_CTE_EXPAND_RATIO = 5.0;
 
     protected static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
     protected final GroupExpression groupExpression;
@@ -905,7 +905,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             consumerStats.addColumnStats(slot, colStats);
         }
         return new StatisticsBuilder()
-                .setRowCount(Math.max(1, consumerStats.getRowCount()) * RECURSIVE_CTE_EXPAND_RATION)
+                .setRowCount(Math.max(1, consumerStats.getRowCount()) * RECURSIVE_CTE_EXPAND_RATIO)
                 .putColumnStatistics(consumerStats.columnStatistics())
                 .build();
     }
@@ -1080,7 +1080,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             consumerStats.addColumnStats(slot, colStats);
         }
         return new StatisticsBuilder()
-                .setRowCount(Math.max(1, consumerStats.getRowCount()) * RECURSIVE_CTE_EXPAND_RATION)
+                .setRowCount(Math.max(1, consumerStats.getRowCount()) * RECURSIVE_CTE_EXPAND_RATIO)
                 .putColumnStatistics(consumerStats.columnStatistics())
                 .build();
     }
@@ -1578,7 +1578,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeRecursiveCte
      */
     public Statistics computeRecursiveCte(RecursiveCte recursiveCte, List<Statistics> childStats) {
-        // simliar as computeUnion
+        // similar as computeUnion
         List<SlotReference> head;
         Statistics headStats;
         List<List<SlotReference>> childOutputs = Lists.newArrayList(recursiveCte.getRegularChildrenOutputs());

@@ -87,7 +87,7 @@ public class LogicalWorkTableReference extends LogicalRelation {
             return false;
         }
         LogicalWorkTableReference that = (LogicalWorkTableReference) o;
-        return cteId.equals(that.cteId) && nameParts.equals(that.nameParts) && outputs.equals(outputs);
+        return cteId.equals(that.cteId) && nameParts.equals(that.nameParts) && outputs.equals(that.outputs);
     }
 
     @Override

@@ -66,7 +66,7 @@ public class PhysicalRecursiveUnionAnchor<CHILD_TYPE extends Plan> extends Physi
 
     @Override
     public String toString() {
-        return Utils.toSqlStringSkipNull("PhysicalRecursiveCteRecursiveChild",
+        return Utils.toSqlStringSkipNull("PhysicalRecursiveUnionAnchor",
                 "CTEId", cteId);
     }
 
