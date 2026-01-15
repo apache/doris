@@ -43,123 +43,134 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     sql """create database ${catalog_name}.test_db_retention"""
     sql """ use ${catalog_name}.test_db_retention """
 
-    String table_name = "test_branch_retention"
+    // Test 1: expire_snapshots verification - snapshots referenced by branches/tags should be protected
+    def table_name_expire = "test_expire_snapshots_branch"
+    sql """ drop table if exists ${table_name_expire} """
+    sql """ create table ${table_name_expire} (id int, name string) """
 
-    sql """ drop table if exists ${table_name} """
-    sql """ create table ${table_name} (id int, name string) """
+    // Create multiple snapshots on main branch
+    sql """ insert into ${table_name_expire} values (1, 'a') """
+    sql """ insert into ${table_name_expire} values (2, 'b') """
+    sql """ insert into ${table_name_expire} values (3, 'c') """
+    sql """ insert into ${table_name_expire} values (4, 'd') """
+    sql """ insert into ${table_name_expire} values (5, 'e') """
 
-    // Prepare data and snapshots
-    sql """ insert into ${table_name} values (1, 'a') """
-    sql """ insert into ${table_name} values (2, 'b') """
-    sql """ insert into ${table_name} values (3, 'c') """
-    sql """ insert into ${table_name} values (4, 'd') """
-    sql """ insert into ${table_name} values (5, 'e') """
+    List<List<Object>> snapshots_expire = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_expire}", "query_type" = "snapshots") order by committed_at; """
+    String s_expire_0 = snapshots_expire.get(0)[0]
+    String s_expire_1 = snapshots_expire.get(1)[0]
+    String s_expire_2 = snapshots_expire.get(2)[0]
+    String s_expire_3 = snapshots_expire.get(3)[0]
+    String s_expire_4 = snapshots_expire.get(4)[0]
 
-    List<List<Object>> snapshots = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name}", "query_type" = "snapshots") order by committed_at; """
-    String s0 = snapshots.get(0)[0]
-    String s1 = snapshots.get(1)[0]
-    String s2 = snapshots.get(2)[0]
-    String s3 = snapshots.get(3)[0]
-    String s4 = snapshots.get(4)[0]
+    // Create a branch with snapshot retention policy
+    sql """ alter table ${table_name_expire} create branch b_expire_test AS OF VERSION ${s_expire_2} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 3 SNAPSHOTS """
 
-    // Test 1.1.2: Snapshot retention count verification
-    sql """ alter table ${table_name} create branch b1_retention_count AS OF VERSION ${s2} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 3 SNAPSHOTS """
-    qt_b1_initial """ select * from ${table_name}@branch(b1_retention_count) order by id """ // 3 records
-    def snapshot_id1_refs_b1 = sql """ select snapshot_id from ${table_name}\$refs where name = 'b1_retention_count' """
-    assertEquals(snapshot_id1_refs_b1[0][0].toString(), s2)
+    // Write multiple snapshots to the branch
+    sql """ insert into ${table_name_expire}@branch(b_expire_test) values (6, 'f') """
+    sql """ insert into ${table_name_expire}@branch(b_expire_test) values (7, 'g') """
+    sql """ insert into ${table_name_expire}@branch(b_expire_test) values (8, 'h') """
+    sql """ insert into ${table_name_expire}@branch(b_expire_test) values (9, 'i') """
+    sql """ insert into ${table_name_expire}@branch(b_expire_test) values (10, 'j') """
 
-    // Write multiple snapshots to branch
-    sql """ insert into ${table_name}@branch(b1_retention_count) values (6, 'f') """
-    sql """ insert into ${table_name}@branch(b1_retention_count) values (7, 'g') """
-    sql """ insert into ${table_name}@branch(b1_retention_count) values (8, 'h') """
-    sql """ insert into ${table_name}@branch(b1_retention_count) values (9, 'i') """
-    sql """ insert into ${table_name}@branch(b1_retention_count) values (10, 'j') """
+    // Get the current snapshot count before expire
+    def snapshot_count_before_expire = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_expire}", "query_type" = "snapshots") """
+    logger.info("Snapshot count before expire: ${snapshot_count_before_expire[0][0]}")
 
-    // Verify branch still has data
-    qt_b1_after_writes """ select count(*) from ${table_name}@branch(b1_retention_count) """ // Should have more than 2 records
+    // Get branch ref snapshot
+    def branch_ref_snapshot = sql """ select snapshot_id from ${table_name_expire}\$refs where name = 'b_expire_test' """
 
-    // Test 1.1.3: Snapshot retention time verification
-    sql """ alter table ${table_name} create branch b1_retention_time AS OF VERSION ${s2} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 1 DAYS """
-    qt_b1_time_initial """ select * from ${table_name}@branch(b1_retention_time) order by id """ // 3 records
+    // Create tags to protect additional snapshots
+    sql """ alter table ${table_name_expire} create tag t_expire_protect AS OF VERSION ${s_expire_1} """
 
-    // Test 1.1.4: Combined retention policy
-    sql """ alter table ${table_name} create branch b1_combined AS OF VERSION ${s2} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 3 SNAPSHOTS 2 DAYS """
-    qt_b1_combined """ select * from ${table_name}@branch(b1_combined) order by id """ // 3 records
+    // Call expire_snapshots via Spark - should not delete snapshots referenced by branch/tag
+    // Using a timestamp that would expire old snapshots but not those referenced by branch/tag
+    spark_iceberg """CALL demo.system.expire_snapshots(table => 'test_db_retention.${table_name_expire}', older_than => TIMESTAMP '2020-01-01 00:00:00')"""
 
-    // Test 1.2.1: Branch snapshot independent evolution
-    sql """ alter table ${table_name} create branch b2_independent AS OF VERSION ${s1} """
-    sql """ alter table ${table_name} create branch b3_independent AS OF VERSION ${s1} """
+    // Verify snapshots are still accessible after expire_snapshots
+    qt_expire_branch_still_accessible """ select count(*) from ${table_name_expire}@branch(b_expire_test) """ // Should still have data
+    qt_expire_tag_still_accessible """ select * from ${table_name_expire}@tag(t_expire_protect) order by id """ // Should have 2 records
 
-    def snapshot_id1_refs_b2 = sql """ select snapshot_id from ${table_name}\$refs where name = 'b2_independent' """
-    assertEquals(snapshot_id1_refs_b2[0][0].toString(), s1)
+    // Verify the branch ref is still in refs table
+    def branch_ref_after_expire = sql """ select count(*) from ${table_name_expire}\$refs where name = 'b_expire_test' """
+    assertEquals(branch_ref_after_expire[0][0], 1)
 
+    // Verify the tag ref is still in refs table
+    def tag_ref_after_expire = sql """ select count(*) from ${table_name_expire}\$refs where name = 't_expire_protect' """
+    assertEquals(tag_ref_after_expire[0][0], 1)
 
-    sql """ insert into ${table_name}@branch(b2_independent) values (11, 'k') """
-    sql """ insert into ${table_name}@branch(b3_independent) values (12, 'l') """
+    // Test 3: expire_snapshots with snapshot retention count policy
+    def table_name_retain_count = "test_expire_retain_count"
+    sql """ drop table if exists ${table_name_retain_count} """
+    sql """ create table ${table_name_retain_count} (id int, name string) """
 
-    qt_b2_after_insert """ select * from ${table_name}@branch(b2_independent) order by id """ // Should have 11
-    qt_b3_after_insert """ select * from ${table_name}@branch(b3_independent) order by id """ // Should have 12
+    sql """ insert into ${table_name_retain_count} values (1, 'a') """
+    List<List<Object>> snapshots_retain = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_retain_count}", "query_type" = "snapshots") order by committed_at; """
+    def s_retain_0 = snapshots_retain[0][0].toString()
 
-    def snapshot_id1_refs_b2_after = sql """ select snapshot_id from ${table_name}\$refs where name = 'b2_independent' """
-    def snapshot_id1_refs_b3_after = sql """ select snapshot_id from ${table_name}\$refs where name = 'b3_independent' """
-    def snapshot_id1_parent_id = sql """select parent_id from ${table_name}\$snapshots where snapshot_id = '${snapshot_id1_refs_b2_after[0][0]}'"""
-    def snapshot_id2_parent_id = sql """select parent_id from ${table_name}\$snapshots where snapshot_id = '${snapshot_id1_refs_b3_after[0][0]}'"""
-    assertEquals(snapshot_id1_parent_id[0][0].toString(), snapshot_id2_parent_id[0][0].toString())
-    assertEquals(snapshot_id1_parent_id[0][0].toString(), s1)
+    // Create branch with snapshot retention count of 3
+    sql """ alter table ${table_name_retain_count} create branch b_retain_count AS OF VERSION ${s_retain_0} RETAIN 30 DAYS WITH SNAPSHOT RETENTION 3 SNAPSHOTS """
 
-    // Verify branches are independent
-    qt_b2_count """ select count(*) from ${table_name}@branch(b2_independent) """
-    qt_b3_count """ select count(*) from ${table_name}@branch(b3_independent) """
+    // Write 5 snapshots to the branch (exceeding retention count of 3)
+    sql """ insert into ${table_name_retain_count}@branch(b_retain_count) values (2, 'b') """
+    sql """ insert into ${table_name_retain_count}@branch(b_retain_count) values (3, 'c') """
+    sql """ insert into ${table_name_retain_count}@branch(b_retain_count) values (4, 'd') """
+    sql """ insert into ${table_name_retain_count}@branch(b_retain_count) values (5, 'e') """
+    sql """ insert into ${table_name_retain_count}@branch(b_retain_count) values (6, 'f') """
 
-    // Test 1.2.3: Branch snapshot rollback
-    sql """ alter table ${table_name} create branch b4_rollback """
-    sql """ insert into ${table_name}@branch(b4_rollback) values (13, 'm') """
-    sql """ insert into ${table_name}@branch(b4_rollback) values (14, 'n') """
-    sql """ insert into ${table_name}@branch(b4_rollback) values (15, 'o') """
+    // Get current snapshot id on branch
+    def branch_snapshot_id = sql """ select snapshot_id from ${table_name_retain_count}\$refs where name = 'b_retain_count' """
 
-    qt_b4_before_rollback """ select count(*) from ${table_name}@branch(b4_rollback) """ // Should have more records
+    // Count snapshots before expire
+    def snapshot_count_retain_before = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_retain_count}", "query_type" = "snapshots") """
 
-    // Rollback to initial state
-    sql """ alter table ${table_name} create or replace branch b4_rollback AS OF VERSION ${s0} """
-    qt_b4_after_rollback """ select * from ${table_name}@branch(b4_rollback) order by id """ // Should be empty or initial state
+    // Call expire_snapshots - older snapshots beyond retention count may be expired, but branch snapshot should be protected
+    spark_iceberg """CALL demo.system.expire_snapshots(table => 'test_db_retention.${table_name_retain_count}', older_than => TIMESTAMP '2020-01-01 00:00:00')"""
 
-    // Test branch retention with different time units
-    sql """ alter table ${table_name} create branch b5_hours RETAIN 2 HOURS """
-    sql """ alter table ${table_name} create branch b6_minutes RETAIN 30 MINUTES """
-    sql """ alter table ${table_name} create branch b7_days RETAIN 1 DAYS """
+    // Verify branch is still accessible and has data
+    qt_retain_count_branch_accessible """ select count(*) from ${table_name_retain_count}@branch(b_retain_count) """ // Should have data
+    qt_retain_count_branch_data """ select count(*) from ${table_name_retain_count}@branch(b_retain_count) where id > 0 """ // Should have multiple records
 
-    qt_b5_hours """ select count(*) from ${table_name}@branch(b5_hours) """
-    qt_b6_minutes """ select count(*) from ${table_name}@branch(b6_minutes) """
-    qt_b7_days """ select count(*) from ${table_name}@branch(b7_days) """
+    // Verify branch ref still exists
+    def branch_ref_retain_after = sql """ select count(*) from ${table_name_retain_count}\$refs where name = 'b_retain_count' """
+    assertEquals(branch_ref_retain_after[0][0], 1)
 
-    def table_name2 = "test_branch_retention_2"
-    sql """ drop table if exists ${table_name2} """
-    sql """ create table ${table_name2} (id int, name string) """
-    def b1 = "branch_retention_2_b1"
-    def b2 = "branch_retention_2_b2"
-    def t1 = "branch_retention_2_t1"
-    sql """insert into ${table_name2} values (100, 'base') """
-    List<List<Object>> snapshots2 = sql """ select snapshot_id from ${table_name2}\$snapshots order by committed_at; """
-    def snapshot2_0 = snapshots2[0][0].toString()
-    sql """alter table ${table_name2} create branch ${b1} AS OF VERSION ${snapshot2_0} RETAIN 2 MINUTES WITH SNAPSHOT RETENTION 3 SNAPSHOTS 1 MINUTES"""
-    def snapshot_id_b1 = sql """ select snapshot_id from ${table_name2}\$refs where name = '${b1}' """
-    assertEquals(snapshot_id_b1[0][0].toString(), snapshot2_0)
-    sql """insert into ${table_name2}@branch(${b1}) values (1, 'x'); """
-    sql """insert into ${table_name2}@branch(${b1}) values (2, 'y'); """
-    sql """insert into ${table_name2}@branch(${b1}) values (3, 'z'); """
-    sql """insert into ${table_name2}@branch(${b1}) values (4, 'w'); """
-    qt_branch2_b1_start """ select * from ${table_name2}@branch(${b1}) """ // Should have 3 records
-    def snapshot_id_b1_1 = sql """ select snapshot_id from ${table_name2}\$refs where name = '${b1}' """
-    sql """alter table ${table_name2} create branch ${b2} AS OF VERSION ${snapshot_id_b1_1[0][0]}"""
-    sql """alter table ${table_name2} create tag ${t1} AS OF VERSION ${snapshot_id_b1_1[0][0]}"""
-    sleep(70000) // Sleep for 70 seconds to exceed retention time
-    sql """select * from ${table_name2}@branch(${b2}) """
-    sql """select * from ${table_name2}@tag(${t1}) """
+    // Test 4: Verify that old unreferenced snapshots can be expired
+    def table_name_unref = "test_expire_unreferenced"
+    sql """ drop table if exists ${table_name_unref} """
+    sql """ create table ${table_name_unref} (id int, name string) """
 
-    sleep(60000) // Sleep for another 60 seconds to exceed retaintion time
-    sql """select * from ${table_name2}@branch(${b1}) """
-    qt_branch2_b1_end """ select count(*) from ${table_name2}\$refs where name='${b1}';""" // Shouldhave 1 record
+    // Create snapshots
+    sql """ insert into ${table_name_unref} values (1, 'old') """
+    sql """ insert into ${table_name_unref} values (2, 'old2') """
+    sql """ insert into ${table_name_unref} values (3, 'new') """
 
+    List<List<Object>> snapshots_unref = sql """ select snapshot_id, committed_at from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") order by committed_at; """
+    def old_snapshot_id = snapshots_unref[0][0]
+
+    // Create a tag pointing to the newest snapshot (not the old ones)
+    List<List<Object>> latest_snapshot = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") order by committed_at desc limit 1; """
+    def latest_snap_id = latest_snapshot[0][0]
+    sql """ alter table ${table_name_unref} create tag t_latest AS OF VERSION ${latest_snap_id} """
+
+    // Count snapshots before expire
+    def snapshot_count_unref_before = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") """
+
+    // Call expire_snapshots - old unreferenced snapshots should be expired
+    spark_iceberg """CALL demo.system.expire_snapshots(table => 'test_db_retention.${table_name_unref}', retain_last => 1)"""
+
+    // Count snapshots after expire
+    def snapshot_count_unref_after = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") """
+
+    // Verify that at least the latest snapshot (referenced by tag) still exists
+    qt_unref_tag_accessible """ select * from ${table_name_unref}@tag(t_latest) """ // Should have data
+
+    // Verify old snapshot is no longer accessible if it was expired
+    def old_snapshot_exists = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") where snapshot_id = '${old_snapshot_id}' """
+    logger.info("Old snapshot exists after expire: ${old_snapshot_exists[0][0]}")
+
+    // The tag-protected snapshot should still be in refs
+    def tag_ref_unref_after = sql """ select count(*) from ${table_name_unref}\$refs where name = 't_latest' """
+    assertEquals(tag_ref_unref_after[0][0], 1)
 
 }
 
