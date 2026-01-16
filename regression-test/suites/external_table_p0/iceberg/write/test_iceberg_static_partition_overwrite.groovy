@@ -633,7 +633,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """
         INSERT OVERWRITE TABLE ${tb1}
         PARTITION (dt='2025-01-25', region='bj')
-        VALUES (10, 'Eve')
+        (id, name) VALUES (10, 'Eve')
     """
     order_qt_q17 """ SELECT * FROM ${tb1} ORDER BY id """
 
@@ -658,7 +658,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """
         INSERT OVERWRITE TABLE ${tb1}
         PARTITION (dt='2025-01-25', region='bj')
-        VALUES
+        (id, name) VALUES
             (10, 'Eve'),
             (11, 'Frank'),
             (12, 'Grace')
@@ -715,8 +715,17 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     sql """
         INSERT OVERWRITE TABLE ${tb1}
         PARTITION (dt='2025-01-25', region='bj')
-        SELECT * FROM ${tb1} WHERE 1=0
+        SELECT id, name FROM ${tb1} WHERE 1=0
     """
+    test {
+        sql """
+            INSERT OVERWRITE TABLE ${tb1}
+            PARTITION (dt='2025-01-25', region='bj')
+            select * from ${tb1} where 1=0
+        """
+        exception "Expected 2 columns but got 4"
+    }
+
     order_qt_q20 """ SELECT * FROM ${tb1} ORDER BY id """
 
     // Test Case 21: Multiple partitions with different VALUES
