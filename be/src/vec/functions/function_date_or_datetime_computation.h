@@ -1267,16 +1267,34 @@ struct TimestampToDateTime : IFunction {
 
     static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
 
+    // Handle nulls manually to prevent invalid default values from causing errors
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto& arg_col = block.get_by_position(arguments[0]).column;
-        const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
+        // Handle null map manually
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
+        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+        const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);
+        if (null_map) {
+            VectorizedUtils::update_null_map(result_null_map, *null_map);
+        }
+
+        // Extract nested column
+        argument_column = remove_nullable(argument_column);
+
+        const auto& column_data = assert_cast<const ColumnInt64&>(*argument_column);
         auto res_col = ColumnDateTimeV2::create();
         res_col->get_data().resize_fill(input_rows_count, 0);
         auto& res_data = res_col->get_data();
         const cctz::time_zone& time_zone = context->state()->timezone_obj();
 
-        for (int i = 0; i < input_rows_count; ++i) {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (result_null_map[i]) {
+                continue;
+            }
             Int64 value = column_data.get_element(i);
             if (value < 0) [[unlikely]] {
                 throw_out_of_bound_int(name, value);
@@ -1291,7 +1309,13 @@ struct TimestampToDateTime : IFunction {
             dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
         }
 
-        block.replace_by_position(result, std::move(res_col));
+        if (null_map) {
+            block.replace_by_position(
+                    result,
+                    ColumnNullable::create(std::move(res_col), std::move(result_null_map_column)));
+        } else {
+            block.replace_by_position(result, std::move(res_col));
+        }
         return Status::OK();
     }
 };
