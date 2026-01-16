@@ -188,7 +188,7 @@ public class PlanReceiver implements AbstractReceiver {
 
     private void proposeAllDistributedPlans(GroupExpression groupExpression) {
         jobContext.getCascadesContext().pushJob(new OptimizeGroupExpressionJob(groupExpression,
-                new JobContext(jobContext.getCascadesContext(), PhysicalProperties.ANY, Double.MAX_VALUE)));
+                new JobContext(jobContext.getCascadesContext(), PhysicalProperties.ANY)));
         if (!groupExpression.isStatDerived()) {
             jobContext.getCascadesContext().pushJob(new DeriveStatsJob(groupExpression,
                     jobContext.getCascadesContext().getCurrentJobContext()));

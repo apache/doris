@@ -71,6 +71,16 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final boolean hasUnbound;
     private final Supplier<Set<Slot>> inputSlots = LazyCompute.of(
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
+    private final Supplier<Set<ExprId>> inputExprIds = LazyCompute.of(
+            () -> {
+                Set<Slot> inputSlots = getInputSlots();
+                Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(inputSlots.size());
+                for (Slot inputSlot : inputSlots) {
+                    exprIds.add(inputSlot.getExprId());
+                }
+                return exprIds.build();
+            }
+    );
     private final int fastChildrenHashCode;
     private final Supplier<String> toSqlCache = LazyCompute.of(this::computeToSql);
     private final Supplier<Integer> hashCodeCache = LazyCompute.of(this::computeHashCode);
@@ -394,12 +404,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Note that the input slots of subquery's inner plan is not included.
      */
     public final Set<ExprId> getInputSlotExprIds() {
-        Set<Slot> inputSlots = getInputSlots();
-        Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(inputSlots.size());
-        for (Slot inputSlot : inputSlots) {
-            exprIds.add(inputSlot.getExprId());
-        }
-        return exprIds.build();
+        return inputExprIds.get();
     }
 
     public boolean isLiteral() {
