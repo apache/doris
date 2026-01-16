@@ -640,6 +640,13 @@ void TxnLazyCommitTask::commit() {
         return;
     }
 
+    if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
+        // The txn has been aborted, no need to commit again.
+        code_ = MetaServiceCode::TXN_ALREADY_ABORTED;
+        LOG(INFO) << "txn_id=" << txn_id_ << " is already aborted, skip commit";
+        return;
+    }
+
     bool is_versioned_write = txn_info.versioned_write();
     bool is_versioned_read = txn_info.versioned_read();
     CloneChainReader meta_reader(instance_id_, txn_kv_.get(),
