@@ -427,6 +427,14 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         return false;
     }
 
+    // Skip ordered data compaction if any rowset has inverted/ann index.
+    for (auto& rowset : _input_rowsets) {
+        const auto& meta = rowset->rowset_meta();
+        if (meta->tablet_schema()->has_inverted_index() || meta->tablet_schema()->has_ann_index()) {
+            return false;
+        }
+    }
+
     // If some rowsets has idx files and some rowsets has not, we can not do link file compaction.
     // Since the output rowset will be broken.
 
