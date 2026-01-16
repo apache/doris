@@ -172,7 +172,8 @@ class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+              const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx,
+              std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~CsvReader() override = default;
 
     Status init_reader(bool is_load);

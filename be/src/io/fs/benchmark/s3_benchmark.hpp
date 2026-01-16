@@ -114,10 +114,10 @@ public:
         fd.path = get_file_path(state);
         fd.file_size = _file_size;
         io::FileReaderOptions reader_options;
-        IOContext io_ctx;
+        auto io_ctx = std::make_shared<IOContext>();
         auto reader = DORIS_TRY(io::DelegateReader::create_file_reader(
                 nullptr, fs_props, fd, reader_options, io::DelegateReader::AccessMode::SEQUENTIAL,
-                &io_ctx));
+                io_ctx));
         return read(state, reader);
     }
 };
