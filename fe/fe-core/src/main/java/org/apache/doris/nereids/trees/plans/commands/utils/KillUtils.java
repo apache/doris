@@ -21,15 +21,20 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -38,6 +43,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -128,11 +134,28 @@ public class KillUtils {
         }
 
         // 3. Query not found in any FE, try cancel the query in BE.
+        TUniqueId tQueryId;
+        try {
+            tQueryId = DebugUtil.parseTUniqueIdFromString(queryId);
+        } catch (NumberFormatException e) {
+            throw new UserException(e.getMessage());
+        }
+        Collection<Backend> nodesToPublish = Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values();
+        for (Backend be : nodesToPublish) {
+            if (be.isAlive()) {
+                try {
+                    BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(be.getBrpcAddress(), tQueryId,
+                                new Status(TStatusCode.CANCELLED, "User Cancelled"));
+                } catch (Throwable t) {
+                    LOG.info("send kill query {} rpc to be {} failed", queryId, be);
+                }
+            }
+        }
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("not found query '{}' in any FE, try to kill it in BE. Messages: {}",
                     queryId, errMsgs);
         }
-        ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_QUERY, queryId);
     }
 
     /**
