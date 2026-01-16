@@ -171,14 +171,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -416,10 +409,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // check and analyze database properties before create database
         db.checkStorageVault(properties);
         db.setDbProperties(new DatabaseProperty(properties));
-        String createdBy = getCurrentUserOrNull();
-        if (createdBy != null) {
-            db.setCreatedBy(createdBy);
-        }
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(db::setCreatedBy);
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -2344,10 +2334,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 .withExtraParams(createTableInfo)
                 .build();
         olapTable.setComment(createTableInfo.getComment());
-        String createdBy = getCurrentUserOrNull();
-        if (createdBy != null) {
-            olapTable.setCreatedBy(createdBy);
-        }
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(olapTable::setCreatedBy);
         // set base index id
         long baseIndexId = idGeneratorBuffer.getNextId();
         olapTable.setBaseIndexId(baseIndexId);
@@ -3169,12 +3156,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = Env.getCurrentEnv().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, createTableInfo.getProperties());
         mysqlTable.setComment(createTableInfo.getComment());
-        {
-            String createdBy = getCurrentUserOrNull();
-            if (createdBy != null) {
-                mysqlTable.setCreatedBy(createdBy);
-            }
-        }
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(mysqlTable::setCreatedBy);
         Pair<Boolean, Boolean> result = db.createTableWithLock(mysqlTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
@@ -3186,12 +3168,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = Env.getCurrentEnv().getNextId();
         OdbcTable odbcTable = new OdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
         odbcTable.setComment(createTableInfo.getComment());
-        {
-            String createdBy = getCurrentUserOrNull();
-            if (createdBy != null) {
-                odbcTable.setCreatedBy(createdBy);
-            }
-        }
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(odbcTable::setCreatedBy);
         Pair<Boolean, Boolean> result = db.createTableWithLock(odbcTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
@@ -3228,12 +3205,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = Env.getCurrentEnv().getNextId();
         esTable.setId(tableId);
         esTable.setComment(createTableInfo.getComment());
-        {
-            String createdBy = getCurrentUserOrNull();
-            if (createdBy != null) {
-                esTable.setCreatedBy(createdBy);
-            }
-        }
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(esTable::setCreatedBy);
         esTable.syncTableMetaData();
         Pair<Boolean, Boolean> result = db.createTableWithLock(esTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
@@ -3248,12 +3220,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, createTableInfo.getProperties());
         brokerTable.setComment(createTableInfo.getComment());
         brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
-        {
-            String createdBy = getCurrentUserOrNull();
-            if (createdBy != null) {
-                brokerTable.setCreatedBy(createdBy);
-            }
-        }
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(brokerTable::setCreatedBy);
         Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
 
@@ -3267,12 +3234,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         JdbcTable jdbcTable = new JdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
         jdbcTable.setComment(createTableInfo.getComment());
-        {
-            String createdBy = getCurrentUserOrNull();
-            if (createdBy != null) {
-                jdbcTable.setCreatedBy(createdBy);
-            }
-        }
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(jdbcTable::setCreatedBy);
         // check table if exists
         Pair<Boolean, Boolean> result = db.createTableWithLock(jdbcTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
