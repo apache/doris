@@ -38,8 +38,8 @@ struct MinusDecimalImpl {
 
     template <PrimitiveType Result>
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
-    static inline typename PrimitiveTypeTraits<Result>::CppType::NativeType apply(ArgNativeTypeA a,
-                                                                            ArgNativeTypeB b) {
+    static inline typename PrimitiveTypeTraits<Result>::CppType::NativeType apply(
+            ArgNativeTypeA a, ArgNativeTypeB b) {
         return static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(
                 static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(a) - b);
     }

@@ -47,9 +47,8 @@ struct DecimalScaleParams {
         } else if constexpr (DecimalPrimitiveType == TYPE_DECIMAL256) {
             return common::exp10_i256(n);
         } else {
-            static_assert(
-                    !sizeof(typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType),
-                    "All types must be matched with if constexpr.");
+            static_assert(!sizeof(typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType),
+                          "All types must be matched with if constexpr.");
         }
     }
 };

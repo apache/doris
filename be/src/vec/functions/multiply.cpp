@@ -133,8 +133,8 @@ struct MultiplyDecimalImpl {
 
     template <PrimitiveType Result>
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
-    static inline typename PrimitiveTypeTraits<Result>::CppType::NativeType
-            apply(ArgNativeTypeA a, ArgNativeTypeB b) {
+    static inline typename PrimitiveTypeTraits<Result>::CppType::NativeType apply(
+            ArgNativeTypeA a, ArgNativeTypeB b) {
         return static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(
                 static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(a) * b);
     }
@@ -430,11 +430,11 @@ struct MultiplyDecimalImpl {
 
     template <bool need_adjust_scale, bool check_overflow, PrimitiveType ResultType>
         requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType
-            apply(ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
-                  const DataTypeB& type_right, const DataTypeDecimal<ResultType>& type_result,
-                  const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
-                  const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier) {
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
+            ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
+            const DataTypeB& type_right, const DataTypeDecimal<ResultType>& type_result,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier) {
         typename PrimitiveTypeTraits<ResultType>::CppType::NativeType res;
         if constexpr (check_overflow) {
             // TODO handle overflow gracefully
@@ -512,11 +512,11 @@ struct MultiplyDecimalImpl {
 
     template <bool need_adjust_scale, bool check_overflow, PrimitiveType ResultType>
         requires(ResultType == TYPE_DECIMALV2)
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType
-            apply(ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
-                  const DataTypeB& type_right, const DataTypeDecimal<ResultType>& type_result,
-                  const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
-                  const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier) {
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
+            ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
+            const DataTypeB& type_right, const DataTypeDecimal<ResultType>& type_result,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier) {
         // Now, Doris only support decimal +-*/ decimal.
         if constexpr (check_overflow) {
             auto res = apply(DecimalV2Value(a), DecimalV2Value(b)).value();

@@ -568,8 +568,8 @@ struct ModDecimalImpl {
 
     template <PrimitiveType ResultType>
         requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
-    static inline typename PrimitiveTypeTraits<ResultType>::CppType::NativeType
-            impl(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType::NativeType impl(
+            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
         is_null = b == 0;
         b += is_null;
 
@@ -824,9 +824,9 @@ struct ModDecimalImpl {
 
     template <bool check_overflow_for_decimal, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType
-            apply(ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
-                  const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
+            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
         if constexpr (DataTypeA::PType == TYPE_DECIMALV2) {
             DecimalV2Value l(a);
             DecimalV2Value r(b);
