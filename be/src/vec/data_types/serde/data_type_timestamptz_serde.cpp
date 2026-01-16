@@ -191,7 +191,8 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
         } else {
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val =
-                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[i]);
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                            col_data[i].to_date_int_val());
             datetime_val.unix_timestamp(&timestamp, utc);
 
             if (_scale > 3) {
@@ -225,7 +226,8 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
 
         int64_t timestamp = 0;
         DateV2Value<DateTimeV2ValueType> datetime_val =
-                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[row_id]);
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                        col_data[row_id].to_date_int_val());
         if (!datetime_val.unix_timestamp(&timestamp, utc)) {
             return Status::InternalError("get unix timestamp error.");
         }

@@ -37,9 +37,6 @@ INSERT INTO test_ice_timestamp_tz_parquet VALUES (2, TIMESTAMP_LTZ '2025-06-01 1
 INSERT INTO test_ice_timestamp_tz_parquet VALUES (3, TIMESTAMP_LTZ '2025-12-31 23:59:59.999999');
 INSERT INTO test_ice_timestamp_tz_parquet VALUES (4, NULL);
 
-SELECT * FROM test_ice_timestamp_tz_orc;
-SELECT * FROM test_ice_timestamp_tz_parquet;
-
 DROP TABLE IF EXISTS test_ice_timestamp_tz_orc_write_with_mapping;
 DROP TABLE IF EXISTS test_ice_timestamp_tz_parquet_write_with_mapping;
 

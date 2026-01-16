@@ -726,6 +726,32 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
         return Status::OK();
     }
 };
+
+struct Int96toTimestampTz : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        ColumnPtr src_col = remove_nullable(src_physical_col);
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+
+        size_t rows = src_col->size() / sizeof(ParquetInt96);
+        const auto& src_data = assert_cast<const ColumnInt8*>(src_col.get())->get_data();
+        auto* ParquetInt96_data = (ParquetInt96*)src_data.data();
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+        auto& data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
+        static const cctz::time_zone utc = cctz::utc_time_zone();
+
+        for (int i = 0; i < rows; i++) {
+            ParquetInt96 src_cell_data = ParquetInt96_data[i];
+            auto& dst_value =
+                    reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[start_idx + i]);
+
+            int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
+            dst_value.from_unixtime(timestamp_with_micros / 1000000, utc);
+            dst_value.set_microsecond(timestamp_with_micros % 1000000);
+        }
+        return Status::OK();
+    }
+};
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized::parquet

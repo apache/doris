@@ -1216,10 +1216,11 @@ INSERT INTO test_varbinary_db.`test_varbinary_udf` VALUES (1, X'48656C6C6F20576F
 
 
 
-
+SET @original_time_zone = @@session.time_zone;
 SET time_zone = '+08:00';
 INSERT INTO test_timestamp_tz_db.ts_test VALUES (1,'2025-01-01 12:00:00','2025-01-01 12:00:00');
 INSERT INTO test_timestamp_tz_db.ts_test VALUES (2,NULL,NULL);
+SET time_zone = @original_time_zone;
 
 ANALYZE TABLE Doris.doris;
 ANALYZE TABLE Doris.DORIS;

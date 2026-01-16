@@ -41,7 +41,7 @@ suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
         def outfile_path = "/user/doris/tmp_data"
         def uri = "${defaultFS}" + "${outfile_path}/exp_"
 
-        def outfile_to_HDFS = {format,export_table_name ->
+        def outfile_to_HDFS = {format,export_table_name, enable_int96_timestamps ->
             // select ... into outfile ...
             def uuid = UUID.randomUUID().toString()
             outfile_path = "/user/doris/tmp_data/${uuid}"
@@ -53,7 +53,8 @@ suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
                 FORMAT AS ${format}
                 PROPERTIES (
                     "fs.defaultFS"="${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}"
+                    "hadoop.username" = "${hdfsUserName}",
+                    "enable_int96_timestamps"="${enable_int96_timestamps}"
                 );
             """
             logger.info("outfile success path: " + res[0][3]);
@@ -83,16 +84,15 @@ suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
                 "enable.mapping.timestamp_tz"="true"
             );"""
 
-
             sql """switch ${catalog_name_with_export}"""
             sql """use ${db_name}"""
             order_qt_select_desc_orc """ desc test_ice_timestamp_tz_orc; """
             order_qt_select_desc_parquet """ desc test_ice_timestamp_tz_parquet; """
-            // TODO: seems write to parquet with timestamp_tz has some problem
+
             def format = "parquet"
             def export_table_name = "test_ice_timestamp_tz_parquet"
 
-            def outfile_url0 = outfile_to_HDFS(format, export_table_name)
+            def outfile_url0 = outfile_to_HDFS(format, export_table_name, "true")
             order_qt_select_tvf0 """ select * from HDFS(
                         "uri" = "${outfile_url0}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -108,9 +108,25 @@ suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
+            def outfile_url0_false = outfile_to_HDFS(format, export_table_name, "false")
+            order_qt_select_tvf0_false """ select * from HDFS(
+                        "uri" = "${outfile_url0}.${format}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "enable_mapping_timestamp_tz"="true",
+                        "enable_mapping_varbinary"="true",
+                        "format" = "${format}");
+                        """
+            order_qt_select_tvf0_desc_false """ desc function HDFS(
+                        "uri" = "${outfile_url0}.${format}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "enable_mapping_timestamp_tz"="true",
+                        "enable_mapping_varbinary"="true",
+                        "format" = "${format}");
+                        """
+
             format = "parquet"
             export_table_name = "test_ice_timestamp_tz_orc"
-            def outfile_url1 = outfile_to_HDFS(format, export_table_name)
+            def outfile_url1 = outfile_to_HDFS(format, export_table_name, "true")
             order_qt_select_tvf1 """ select * from HDFS(
                         "uri" = "${outfile_url1}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -126,9 +142,25 @@ suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
+            def outfile_url1_false = outfile_to_HDFS(format, export_table_name, "false")
+            order_qt_select_tvf1_false """ select * from HDFS(
+                        "uri" = "${outfile_url1}.${format}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "enable_mapping_timestamp_tz"="true",
+                        "enable_mapping_varbinary"="true",
+                        "format" = "${format}");
+                        """
+            order_qt_select_tvf1_desc_false """ desc function HDFS(
+                        "uri" = "${outfile_url1}.${format}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "enable_mapping_timestamp_tz"="true",
+                        "enable_mapping_varbinary"="true",
+                        "format" = "${format}");
+                        """
+
             format = "orc"
             export_table_name = "test_ice_timestamp_tz_parquet"
-            def outfile_url2 = outfile_to_HDFS(format, export_table_name)
+            def outfile_url2 = outfile_to_HDFS(format, export_table_name, "true")
             order_qt_select_tvf2 """ select * from HDFS(
                         "uri" = "${outfile_url2}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -147,7 +179,7 @@ suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
 
             format = "orc"
             export_table_name = "test_ice_timestamp_tz_orc"
-            def outfile_url3 = outfile_to_HDFS(format, export_table_name)
+            def outfile_url3 = outfile_to_HDFS(format, export_table_name, "true")
             order_qt_select_tvf3 """ select * from HDFS(
                         "uri" = "${outfile_url3}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
