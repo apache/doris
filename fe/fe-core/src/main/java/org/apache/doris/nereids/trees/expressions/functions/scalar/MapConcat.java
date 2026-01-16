@@ -39,9 +39,6 @@ import java.util.Optional;
  */
 public class MapConcat extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args()
-    );
 
     /**
      * constructor with more than 0 arguments.
@@ -70,17 +67,9 @@ public class MapConcat extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         if (arity() == 0) {
-            return SIGNATURES;
-        } else {
-            return computeNonEmptySignatures();
+            return ImmutableList.of(FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args());
         }
-    }
 
-    /**
-     * Compute signatures when arity > 0.
-     * Extract key and value types, find common type, and construct signatures.
-     */
-    private List<FunctionSignature> computeNonEmptySignatures() {
         List<Expression> children = children();
 
         List<DataType> keyTypes = new ArrayList<>();
@@ -110,20 +99,8 @@ public class MapConcat extends ScalarFunction
             throw new AnalysisException("mapconcat cannot find the common value type of " + toSql());
         }
 
-        // Build result map type and signatures
         DataType retMapType = MapType.of(commonKeyType.get(), commonValueType.get());
-        List<DataType> retArgTypes = buildArgTypes(children, retMapType);
-
-        return ImmutableList.of(FunctionSignature.of(retMapType, retArgTypes));
-    }
-
-    /**
-     * Build argument types with type coercion.
-     * Map arguments are coerced to the result map type.
-     */
-    private List<DataType> buildArgTypes(List<Expression> children, DataType retMapType) {
         ImmutableList.Builder<DataType> retArgTypes = ImmutableList.builder();
-
         for (int i = 0; i < children.size(); i++) {
             DataType argType = children.get(i).getDataType();
             if (argType instanceof MapType) {
@@ -133,6 +110,6 @@ public class MapConcat extends ScalarFunction
             }
         }
 
-        return retArgTypes.build();
+        return ImmutableList.of(FunctionSignature.of(retMapType, retArgTypes.build()));
     }
 }
