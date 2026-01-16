@@ -109,6 +109,34 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
     _init_file_description();
 }
 
+ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                             const TFileRangeDesc& range, size_t batch_size,
+                             const cctz::time_zone* ctz,
+                             std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                             FileMetaCache* meta_cache, bool enable_lazy_mat)
+        : _profile(profile),
+          _scan_params(params),
+          _scan_range(range),
+          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _range_start_offset(range.start_offset),
+          _range_size(range.size),
+          _ctz(ctz),
+          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _state(state),
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_filter_by_bloom_filter(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
+    _meta_cache = meta_cache;
+    _init_profile();
+    _init_system_properties();
+    _init_file_description();
+}
+
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
                              bool enable_lazy_mat)
@@ -116,6 +144,27 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _scan_params(params),
           _scan_range(range),
           _io_ctx(io_ctx),
+          _state(state),
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_filter_by_bloom_filter(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
+    _meta_cache = meta_cache;
+    _init_system_properties();
+    _init_file_description();
+}
+
+ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                             std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                             FileMetaCache* meta_cache, bool enable_lazy_mat)
+        : _profile(nullptr),
+          _scan_params(params),
+          _scan_range(range),
+          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
+          _io_ctx_holder(std::move(io_ctx_holder)),
           _state(state),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
