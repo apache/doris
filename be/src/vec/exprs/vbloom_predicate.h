@@ -45,6 +45,11 @@ public:
     ~VBloomPredicate() override = default;
     Status execute_column(VExprContext* context, const Block* block,
                           ColumnPtr& result_column) const override;
+
+    Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                  const uint8_t* __restrict filter, ColumnPtr& result_column,
+                                  ColumnPtr* arg_column) const override;
+
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -57,6 +62,9 @@ public:
     uint64_t get_digest(uint64_t seed) const override;
 
 private:
+    Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
+                       ColumnPtr& result_column) const;
+
     std::shared_ptr<BloomFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bloom_predicate";
 };
