@@ -186,7 +186,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 //                       ->scan(T2)
                 List<NamedExpression> newOutputExpressions = new ArrayList<>();
                 Map<Expression, Slot> replaceMap = new HashMap<>();
-                for (Expression x : pushDownContext.getAliasMap().keySet()) {
+                for (Expression x : pushDownContext.getAggFunctions()) {
                     replaceMap.put(x.child(0), pushDownContext.getAliasMap().get(x).toSlot());
                 }
 
