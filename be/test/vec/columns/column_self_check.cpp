@@ -120,4 +120,31 @@ TEST(ColumnSelfCheckTest, nullmap_check_test) {
     }
 }
 
+TEST(ColumnSelfCheckTest, boolean_check) {
+    {
+        auto column_bool = ColumnHelper::create_column<DataTypeUInt8>({0, 1, 0, 1, 1});
+        EXPECT_EQ(column_bool->column_boolean_check(), true);
+    }
+    {
+        auto column_bool = ColumnHelper::create_column<DataTypeUInt8>({0, 1, 2, 1, 1});
+        EXPECT_EQ(column_bool->column_boolean_check(), false);
+    }
+
+    {
+        auto column_nullable_bool = ColumnHelper::create_nullable_column<DataTypeUInt8>(
+                {0, 1, 0, 1, 1}, {0, 0, 0, 0, 0});
+        EXPECT_EQ(column_nullable_bool->column_boolean_check(), true);
+    }
+    {
+        auto column_nullable_bool = ColumnHelper::create_nullable_column<DataTypeUInt8>(
+                {0, 1, 2, 1, 1}, {0, 0, 0, 0, 0});
+        EXPECT_EQ(column_nullable_bool->column_boolean_check(), false);
+    }
+
+    {
+        auto column_nullable_bool = ColumnHelper::create_nullable_column<DataTypeUInt8>(
+                {0, 1, 2, 1, 1}, {0, 0, 1, 0, 0});
+        EXPECT_EQ(column_nullable_bool->column_boolean_check(), true);
+    }
+}
 } // namespace doris::vectorized

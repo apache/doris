@@ -181,7 +181,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private KeysType keysType;
     @Setter
     @SerializedName(value = "pi", alternate = {"partitionInfo"})
-    private PartitionInfo partitionInfo;
+    private PartitionInfo partitionInfo; // should modify only under table's lock
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
@@ -969,7 +969,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
-                                Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                Replica replica = new LocalReplica(newReplicaId, beId, ReplicaState.NORMAL,
                                         visibleVersion, schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
                             }
@@ -3533,36 +3533,36 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         private String tableName;
 
         @Getter
-        private Long dataSize; // single replica data size
+        private long dataSize; // single replica data size
         @Getter
-        private Long totalReplicaDataSize;
+        private long totalReplicaDataSize;
 
         @Getter
-        private Long remoteDataSize; // single replica remote data size
+        private long remoteDataSize; // single replica remote data size
 
         @Getter
-        private Long replicaCount;
+        private long replicaCount;
 
         @Getter
-        private Long rowCount;
+        private long rowCount;
 
         @Getter
-        private Long rowsetCount;
+        private long rowsetCount;
 
         @Getter
-        private Long segmentCount;
+        private long segmentCount;
 
         @Getter
-        private Long localInvertedIndexSize;   // multi replicas
+        private long localInvertedIndexSize;   // multi replicas
 
         @Getter
-        private Long localSegmentSize;         // multi replicas
+        private long localSegmentSize;         // multi replicas
 
         @Getter
-        private Long remoteInvertedIndexSize;  // single replica
+        private long remoteInvertedIndexSize;  // single replica
 
         @Getter
-        private Long remoteSegmentSize;        // single replica
+        private long remoteSegmentSize;        // single replica
 
         public Statistics() {
             this.dbName = null;
@@ -3585,11 +3585,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         public Statistics(String dbName, String tableName,
-                Long dataSize, Long totalReplicaDataSize,
-                Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount,
-                Long localInvertedIndexSize, Long localSegmentSize,
-                Long remoteInvertedIndexSize, Long remoteSegmentSize) {
+                long dataSize, long totalReplicaDataSize,
+                long remoteDataSize, long replicaCount, long rowCount,
+                long rowsetCount, long segmentCount,
+                long localInvertedIndexSize, long localSegmentSize,
+                long remoteInvertedIndexSize, long remoteSegmentSize) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3784,5 +3784,29 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
         return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+    }
+
+    public void setColumnSeqMapping(Map<String, List<String>> columnSeqMapping) {
+        getOrCreatTableProperty().setColumnSeqMapping(columnSeqMapping);
+    }
+
+    public Map<String, List<String>> getColumnSeqMapping() {
+        return getOrCreatTableProperty().getColumnSeqMapping();
+    }
+
+    public boolean hasColumnSeqMapping() {
+        return getOrCreatTableProperty().hasColumnSeqMapping();
+    }
+
+    public boolean isSeqMappingKeyColumn(String column) {
+        return getOrCreatTableProperty().isSeqMappingKeyColumn(column);
+    }
+
+    public boolean isSeqMappingValueColumn(String column) {
+        return getOrCreatTableProperty().isSeqMappingValueColumn(column);
+    }
+
+    public String getSeqMappingKey(String column) {
+        return getOrCreatTableProperty().getSeqMappingKey(column);
     }
 }

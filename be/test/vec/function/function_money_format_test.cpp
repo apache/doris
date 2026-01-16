@@ -71,7 +71,7 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
     auto col_res_expected = ColumnString::create();
     for (const auto& input_and_expected : input_dec_str_and_expected_str) {
         DecimalV2Value dec_v2_value(input_and_expected.first);
-        col_dec_v2->insert_value(Decimal128V2(dec_v2_value.value()));
+        col_dec_v2->insert_value(dec_v2_value);
         col_res_expected->insert_data(input_and_expected.second.c_str(),
                                       input_and_expected.second.size());
     }

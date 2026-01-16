@@ -28,7 +28,7 @@ namespace doris::vectorized {
 
 template <PrimitiveType PT>
 using CompareType =
-        std::conditional_t<PT == TYPE_BOOLEAN, typename PrimitiveTypeTraits<PT>::ColumnItemType,
+        std::conditional_t<PT == TYPE_BOOLEAN, typename PrimitiveTypeTraits<PT>::CppType,
                            typename PrimitiveTypeTraits<PT>::CppNativeType>;
 
 template <PrimitiveType PT>
@@ -43,6 +43,47 @@ struct EqualsOp {
 template <>
 struct EqualsOp<TYPE_DECIMALV2> {
     static UInt8 apply(const Int128& a, const Int128& b) { return a == b; }
+};
+
+template <>
+struct EqualsOp<TYPE_DATE> {
+    using SymmetricOp = EqualsOp<TYPE_DATE>;
+    using NativeType = CompareType<TYPE_DATE>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a == b; }
+};
+
+template <>
+struct EqualsOp<TYPE_DATETIME> {
+    using SymmetricOp = EqualsOp<TYPE_DATETIME>;
+    using NativeType = CompareType<TYPE_DATETIME>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a == b; }
+};
+
+template <>
+struct EqualsOp<TYPE_DATEV2> {
+    using SymmetricOp = EqualsOp<TYPE_DATEV2>;
+    using NativeType = CompareType<TYPE_DATEV2>;
+    static UInt8 apply(const DateV2Value<DateV2ValueType>& a,
+                       const DateV2Value<DateV2ValueType>& b) {
+        return a == b;
+    }
+};
+
+template <>
+struct EqualsOp<TYPE_DATETIMEV2> {
+    using SymmetricOp = EqualsOp<TYPE_DATETIMEV2>;
+    using NativeType = CompareType<TYPE_DATETIMEV2>;
+    static UInt8 apply(const DateV2Value<DateTimeV2ValueType>& a,
+                       const DateV2Value<DateTimeV2ValueType>& b) {
+        return a == b;
+    }
+};
+
+template <>
+struct EqualsOp<TYPE_TIMESTAMPTZ> {
+    using SymmetricOp = EqualsOp<TYPE_TIMESTAMPTZ>;
+    using NativeType = CompareType<TYPE_TIMESTAMPTZ>;
+    static UInt8 apply(const TimestampTzValue& a, const TimestampTzValue& b) { return a == b; }
 };
 
 template <>
@@ -62,6 +103,47 @@ struct NotEqualsOp<TYPE_DECIMALV2> {
     static UInt8 apply(const DecimalV2Value& a, const DecimalV2Value& b) { return a != b; }
 };
 
+template <>
+struct NotEqualsOp<TYPE_DATE> {
+    using SymmetricOp = NotEqualsOp<TYPE_DATE>;
+    using NativeType = CompareType<TYPE_DATE>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a != b; }
+};
+
+template <>
+struct NotEqualsOp<TYPE_DATETIME> {
+    using SymmetricOp = NotEqualsOp<TYPE_DATETIME>;
+    using NativeType = CompareType<TYPE_DATETIME>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a != b; }
+};
+
+template <>
+struct NotEqualsOp<TYPE_DATEV2> {
+    using SymmetricOp = NotEqualsOp<TYPE_DATEV2>;
+    using NativeType = CompareType<TYPE_DATEV2>;
+    static UInt8 apply(const DateV2Value<DateV2ValueType>& a,
+                       const DateV2Value<DateV2ValueType>& b) {
+        return a != b;
+    }
+};
+
+template <>
+struct NotEqualsOp<TYPE_DATETIMEV2> {
+    using SymmetricOp = NotEqualsOp<TYPE_DATETIMEV2>;
+    using NativeType = CompareType<TYPE_DATETIMEV2>;
+    static UInt8 apply(const DateV2Value<DateTimeV2ValueType>& a,
+                       const DateV2Value<DateTimeV2ValueType>& b) {
+        return a != b;
+    }
+};
+
+template <>
+struct NotEqualsOp<TYPE_TIMESTAMPTZ> {
+    using SymmetricOp = NotEqualsOp<TYPE_TIMESTAMPTZ>;
+    using NativeType = CompareType<TYPE_TIMESTAMPTZ>;
+    static UInt8 apply(const TimestampTzValue& a, const TimestampTzValue& b) { return a != b; }
+};
+
 template <PrimitiveType PT>
 struct GreaterOp;
 
@@ -75,6 +157,47 @@ struct LessOp {
 template <>
 struct LessOp<TYPE_DECIMALV2> {
     static UInt8 apply(Int128 a, Int128 b) { return a < b; }
+};
+
+template <>
+struct LessOp<TYPE_DATE> {
+    using SymmetricOp = GreaterOp<TYPE_DATE>;
+    using NativeType = CompareType<TYPE_DATE>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a < b; }
+};
+
+template <>
+struct LessOp<TYPE_DATETIME> {
+    using SymmetricOp = GreaterOp<TYPE_DATETIME>;
+    using NativeType = CompareType<TYPE_DATETIME>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a < b; }
+};
+
+template <>
+struct LessOp<TYPE_DATEV2> {
+    using SymmetricOp = GreaterOp<TYPE_DATEV2>;
+    using NativeType = CompareType<TYPE_DATEV2>;
+    static UInt8 apply(const DateV2Value<DateV2ValueType>& a,
+                       const DateV2Value<DateV2ValueType>& b) {
+        return a < b;
+    }
+};
+
+template <>
+struct LessOp<TYPE_DATETIMEV2> {
+    using SymmetricOp = GreaterOp<TYPE_DATETIMEV2>;
+    using NativeType = CompareType<TYPE_DATETIMEV2>;
+    static UInt8 apply(const DateV2Value<DateTimeV2ValueType>& a,
+                       const DateV2Value<DateTimeV2ValueType>& b) {
+        return a < b;
+    }
+};
+
+template <>
+struct LessOp<TYPE_TIMESTAMPTZ> {
+    using SymmetricOp = GreaterOp<TYPE_TIMESTAMPTZ>;
+    using NativeType = CompareType<TYPE_TIMESTAMPTZ>;
+    static UInt8 apply(const TimestampTzValue& a, const TimestampTzValue& b) { return a < b; }
 };
 
 template <>
@@ -92,6 +215,47 @@ struct GreaterOp {
 template <>
 struct GreaterOp<TYPE_DECIMALV2> {
     static UInt8 apply(Int128 a, Int128 b) { return a > b; }
+};
+
+template <>
+struct GreaterOp<TYPE_DATE> {
+    using SymmetricOp = LessOp<TYPE_DATE>;
+    using NativeType = CompareType<TYPE_DATE>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a > b; }
+};
+
+template <>
+struct GreaterOp<TYPE_DATETIME> {
+    using SymmetricOp = LessOp<TYPE_DATETIME>;
+    using NativeType = CompareType<TYPE_DATETIME>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a > b; }
+};
+
+template <>
+struct GreaterOp<TYPE_DATEV2> {
+    using SymmetricOp = LessOp<TYPE_DATEV2>;
+    using NativeType = CompareType<TYPE_DATEV2>;
+    static UInt8 apply(const DateV2Value<DateV2ValueType>& a,
+                       const DateV2Value<DateV2ValueType>& b) {
+        return a > b;
+    }
+};
+
+template <>
+struct GreaterOp<TYPE_DATETIMEV2> {
+    using SymmetricOp = LessOp<TYPE_DATETIMEV2>;
+    using NativeType = CompareType<TYPE_DATETIMEV2>;
+    static UInt8 apply(const DateV2Value<DateTimeV2ValueType>& a,
+                       const DateV2Value<DateTimeV2ValueType>& b) {
+        return a > b;
+    }
+};
+
+template <>
+struct GreaterOp<TYPE_TIMESTAMPTZ> {
+    using SymmetricOp = LessOp<TYPE_TIMESTAMPTZ>;
+    using NativeType = CompareType<TYPE_TIMESTAMPTZ>;
+    static UInt8 apply(const TimestampTzValue& a, const TimestampTzValue& b) { return a > b; }
 };
 
 template <>
@@ -114,6 +278,47 @@ struct LessOrEqualsOp<TYPE_DECIMALV2> {
     static UInt8 apply(DecimalV2Value a, DecimalV2Value b) { return a <= b; }
 };
 
+template <>
+struct LessOrEqualsOp<TYPE_DATE> {
+    using SymmetricOp = GreaterOrEqualsOp<TYPE_DATE>;
+    using NativeType = CompareType<TYPE_DATE>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a <= b; }
+};
+
+template <>
+struct LessOrEqualsOp<TYPE_DATETIME> {
+    using SymmetricOp = GreaterOrEqualsOp<TYPE_DATETIME>;
+    using NativeType = CompareType<TYPE_DATETIME>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a <= b; }
+};
+
+template <>
+struct LessOrEqualsOp<TYPE_DATEV2> {
+    using SymmetricOp = GreaterOrEqualsOp<TYPE_DATEV2>;
+    using NativeType = CompareType<TYPE_DATEV2>;
+    static UInt8 apply(const DateV2Value<DateV2ValueType>& a,
+                       const DateV2Value<DateV2ValueType>& b) {
+        return a <= b;
+    }
+};
+
+template <>
+struct LessOrEqualsOp<TYPE_DATETIMEV2> {
+    using SymmetricOp = GreaterOrEqualsOp<TYPE_DATETIMEV2>;
+    using NativeType = CompareType<TYPE_DATETIMEV2>;
+    static UInt8 apply(const DateV2Value<DateTimeV2ValueType>& a,
+                       const DateV2Value<DateTimeV2ValueType>& b) {
+        return a <= b;
+    }
+};
+
+template <>
+struct LessOrEqualsOp<TYPE_TIMESTAMPTZ> {
+    using SymmetricOp = GreaterOrEqualsOp<TYPE_TIMESTAMPTZ>;
+    using NativeType = CompareType<TYPE_TIMESTAMPTZ>;
+    static UInt8 apply(const TimestampTzValue& a, const TimestampTzValue& b) { return a <= b; }
+};
+
 template <PrimitiveType PT>
 struct GreaterOrEqualsOp {
     using SymmetricOp = LessOrEqualsOp<PT>;
@@ -124,6 +329,47 @@ struct GreaterOrEqualsOp {
 template <>
 struct GreaterOrEqualsOp<TYPE_DECIMALV2> {
     static UInt8 apply(DecimalV2Value a, DecimalV2Value b) { return a >= b; }
+};
+
+template <>
+struct GreaterOrEqualsOp<TYPE_DATE> {
+    using SymmetricOp = LessOrEqualsOp<TYPE_DATE>;
+    using NativeType = CompareType<TYPE_DATE>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a >= b; }
+};
+
+template <>
+struct GreaterOrEqualsOp<TYPE_DATETIME> {
+    using SymmetricOp = LessOrEqualsOp<TYPE_DATETIME>;
+    using NativeType = CompareType<TYPE_DATETIME>;
+    static UInt8 apply(const VecDateTimeValue& a, const VecDateTimeValue& b) { return a >= b; }
+};
+
+template <>
+struct GreaterOrEqualsOp<TYPE_DATEV2> {
+    using SymmetricOp = LessOrEqualsOp<TYPE_DATEV2>;
+    using NativeType = CompareType<TYPE_DATEV2>;
+    static UInt8 apply(const DateV2Value<DateV2ValueType>& a,
+                       const DateV2Value<DateV2ValueType>& b) {
+        return a >= b;
+    }
+};
+
+template <>
+struct GreaterOrEqualsOp<TYPE_DATETIMEV2> {
+    using SymmetricOp = LessOrEqualsOp<TYPE_DATETIMEV2>;
+    using NativeType = CompareType<TYPE_DATETIMEV2>;
+    static UInt8 apply(const DateV2Value<DateTimeV2ValueType>& a,
+                       const DateV2Value<DateTimeV2ValueType>& b) {
+        return a >= b;
+    }
+};
+
+template <>
+struct GreaterOrEqualsOp<TYPE_TIMESTAMPTZ> {
+    using SymmetricOp = LessOrEqualsOp<TYPE_TIMESTAMPTZ>;
+    using NativeType = CompareType<TYPE_TIMESTAMPTZ>;
+    static UInt8 apply(const TimestampTzValue& a, const TimestampTzValue& b) { return a >= b; }
 };
 
 } // namespace doris::vectorized

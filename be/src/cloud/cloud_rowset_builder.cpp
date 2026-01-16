@@ -127,6 +127,15 @@ const RowsetMetaSharedPtr& CloudRowsetBuilder::rowset_meta() {
 
 Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
     if (_tablet->enable_unique_key_merge_on_write()) {
+        // For empty rowsets when skip_writing_empty_rowset_metadata=true,
+        // store only a lightweight marker instead of full rowset info.
+        // This allows CalcDeleteBitmapTask to detect and skip gracefully,
+        // while using minimal memory (~16 bytes per entry).
+        if (_skip_writing_rowset_metadata) {
+            _engine.txn_delete_bitmap_cache().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
+                                                                _req.txn_expiration);
+            return Status::OK();
+        }
         if (config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0) {
             auto st = _tablet->check_delete_bitmap_correctness(
                     _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, *_rowset_ids);

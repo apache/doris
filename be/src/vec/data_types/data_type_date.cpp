@@ -39,10 +39,8 @@ bool DataTypeDate::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-void DataTypeDate::cast_to_date(Int64& x) {
-    auto value = binary_cast<Int64, VecDateTimeValue>(x);
+void DataTypeDate::cast_to_date(VecDateTimeValue& value) {
     value.cast_to_date();
-    x = binary_cast<VecDateTimeValue, Int64>(value);
 }
 
 MutableColumnPtr DataTypeDate::create_column() const {

@@ -159,12 +159,12 @@ TEST_F(DataTypeNumberTest, get_default) {
 template <PrimitiveType T>
 void test_int_field(const typename PrimitiveTypeTraits<T>::DataType& dt) {
     TExprNode expr_node;
-    typename PrimitiveTypeTraits<T>::ColumnItemType value {
-            std::numeric_limits<typename PrimitiveTypeTraits<T>::ColumnItemType>::min()};
+    typename PrimitiveTypeTraits<T>::CppType value {
+            std::numeric_limits<typename PrimitiveTypeTraits<T>::CppType>::min()};
     expr_node.int_literal.value = value;
     EXPECT_EQ(dt.get_field(expr_node), Field::create_field<T>(value));
 
-    value = std::numeric_limits<typename PrimitiveTypeTraits<T>::ColumnItemType>::max();
+    value = std::numeric_limits<typename PrimitiveTypeTraits<T>::CppType>::max();
     expr_node.int_literal.value = value;
     EXPECT_EQ(dt.get_field(expr_node), Field::create_field<T>(value));
 

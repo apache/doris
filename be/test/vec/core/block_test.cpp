@@ -289,8 +289,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 4096; i++) {
-            mutable_nullable_vector->insert(vectorized::Field::create_field<TYPE_INT>(
-                    vectorized::cast_to_nearest_field_type(i)));
+            mutable_nullable_vector->insert(vectorized::Field::create_field<TYPE_INT>(i));
         }
         auto data_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
         vectorized::ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
@@ -812,8 +811,7 @@ TEST(BlockTest, dump_data) {
     auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
     for (int i = 0; i < 4096; i++) {
-        mutable_nullable_vector->insert(vectorized::Field::create_field<TYPE_INT>(
-                vectorized::cast_to_nearest_field_type(i)));
+        mutable_nullable_vector->insert(vectorized::Field::create_field<TYPE_INT>(i));
     }
     auto nint32_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
     vectorized::ColumnWithTypeAndName test_nullable_int32(mutable_nullable_vector->get_ptr(),
@@ -824,7 +822,7 @@ TEST(BlockTest, dump_data) {
     for (int i = 0; i < 1024; ++i) {
         VecDateTimeValue value;
         value.from_date_int64(20210501);
-        date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+        date_data.push_back(value);
     }
     vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
     vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
@@ -835,7 +833,7 @@ TEST(BlockTest, dump_data) {
     for (int i = 0; i < 1024; ++i) {
         VecDateTimeValue value;
         value.from_date_int64(20210501080910);
-        datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+        datetime_data.push_back(value);
     }
     vectorized::DataTypePtr datetime_type(std::make_shared<vectorized::DataTypeDateTime>());
     vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),

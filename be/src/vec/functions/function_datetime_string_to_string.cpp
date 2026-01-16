@@ -37,6 +37,9 @@ using FunctionFromUnixTimeNewDecimalOneArg =
         FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<false>>;
 using FunctionFromUnixTimeNewDecimalTwoArg =
         FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true>>;
+using FunctionTimeFormatDate = FunctionTimeFormat<TYPE_DATEV2>;
+using FunctionTimeFormatDateTime = FunctionTimeFormat<TYPE_DATETIMEV2>;
+using FunctionTimeFormatTime = FunctionTimeFormat<TYPE_TIMEV2>;
 
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateFormatV2>();
@@ -47,6 +50,9 @@ void register_function_date_time_string_to_string(SimpleFunctionFactory& factory
     factory.register_function<FunctionFromUnixTimeNewDecimalOneArg>();
     factory.register_function<FunctionFromUnixTimeNewDecimalTwoArg>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
+    factory.register_function<FunctionTimeFormatDate>();
+    factory.register_function<FunctionTimeFormatDateTime>();
+    factory.register_function<FunctionTimeFormatTime>();
 }
 
 } // namespace doris::vectorized

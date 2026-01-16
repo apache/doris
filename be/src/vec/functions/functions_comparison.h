@@ -289,8 +289,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->get_data().size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::vector_vector(col_left->get_data(), col_right->get_data(),
                                                      vec_res);
 
@@ -300,8 +300,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::vector_constant(col_left->get_data(),
                                                        col_right->get_element(0), vec_res);
 
@@ -311,8 +311,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_right->size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::constant_vector(col_left->get_element(0),
                                                        col_right->get_data(), vec_res);
 
