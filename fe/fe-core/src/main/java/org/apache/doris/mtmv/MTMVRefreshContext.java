@@ -59,8 +59,8 @@ public class MTMVRefreshContext {
         return baseTableSnapshotCache;
     }
 
-    public static MTMVRefreshContext buildContext(MTMV mtmv,
-                                                  Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
+    public static MTMVRefreshContext buildContext(MTMV mtmv, Map<List<String>, Set<String>> queryUsedPartitions)
+            throws AnalysisException {
         MTMVRefreshContext context = new MTMVRefreshContext(mtmv);
         context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions);
         context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv);

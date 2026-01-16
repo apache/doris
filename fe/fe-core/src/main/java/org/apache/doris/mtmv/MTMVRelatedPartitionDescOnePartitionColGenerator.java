@@ -55,6 +55,7 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
             return;
         }
         Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> res = Maps.newHashMap();
+        // the key is mv related table, the value is map<partition name, partition item>
         Map<MTMVRelatedTableIf, Map<String, PartitionItem>> relatedPartitionItems = lastResult.getItems();
         for (Entry<MTMVRelatedTableIf, Map<String, PartitionItem>> entry : relatedPartitionItems.entrySet()) {
             int relatedColPos = mvPartitionInfo.getPctColPos(entry.getKey());
