@@ -31,6 +31,7 @@ set(BUILD_BENCHMARKS OFF CACHE BOOL "Build benchmarks in OpenBLAS")
 set(NO_LAPACK OFF CACHE BOOL "Disable LAPACK in OpenBLAS")
 set(NO_CBLAS ON CACHE BOOL "Disable CBLAS in OpenBLAS")
 set(NO_AVX512 ON CACHE BOOL "Disable AVX512 in OpenBLAS")
+set(DYNAMIC_ARCH ON CACHE BOOL "Enable runtime CPU detection in OpenBLAS")
 
 # EXCLUDE_FROM_ALL so that binary in openblas is not installed.
 add_subdirectory(${PROJECT_SOURCE_DIR}/../contrib/openblas ${PROJECT_BINARY_DIR}/openblas EXCLUDE_FROM_ALL)
