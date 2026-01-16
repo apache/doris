@@ -304,9 +304,7 @@ public:
         return std::make_shared<DataTypeFixedLengthObject>();
     }
 
-    bool supported_incremental_mode() const override {
-        return true;
-    }
+    bool supported_incremental_mode() const override { return true; }
 
     void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
                                            int64_t frame_start, int64_t frame_end,
