@@ -140,7 +140,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         Set<AggregateFunction> aggFunctions = Sets.newHashSet();
         boolean hasSumIf = false;
-        // TODO context.aliasMap 是否还需要使用identityMap？？？
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
         for (NamedExpression aggOutput : agg.getOutputExpressions()) {
             List<AggregateFunction> funcs = Lists.newArrayList();
@@ -178,6 +177,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 }
             }
         }
+
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         if (!checkSubTreePattern(agg.child())) {
             return agg;
@@ -185,6 +185,9 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, null, context.getCascadesContext(), hasSumIf);
+        if (!pushDownContext.isValid()) {
+            return agg;
+        }
         try {
             Plan child = agg.child().accept(writer, pushDownContext);
             if (child != agg.child()) {
