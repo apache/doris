@@ -60,21 +60,20 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                             \
-    template <PrimitiveType PType>                                                            \
-    struct CLASS {                                                                            \
-        static constexpr PrimitiveType OpArgType = PType;                                     \
-        using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;                \
-        static constexpr auto name = #UNIT;                                                   \
-                                                                                              \
-        static inline auto execute(const NativeType& t) {                                     \
-            const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t); \
-            return date_time_value.FUNCTION;                                                  \
-        }                                                                                     \
-                                                                                              \
-        static DataTypes get_variadic_argument_types() {                                      \
-            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};       \
-        }                                                                                     \
+#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                       \
+    template <PrimitiveType PType>                                                      \
+    struct CLASS {                                                                      \
+        static constexpr PrimitiveType OpArgType = PType;                               \
+        using CppType = typename PrimitiveTypeTraits<PType>::CppType;                   \
+        static constexpr auto name = #UNIT;                                             \
+                                                                                        \
+        static inline auto execute(const CppType& date_time_value) {                    \
+            return date_time_value.FUNCTION;                                            \
+        }                                                                               \
+                                                                                        \
+        static DataTypes get_variadic_argument_types() {                                \
+            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()}; \
+        }                                                                               \
     }
 
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
@@ -83,11 +82,11 @@ TO_TIME_FUNCTION(ToYearImpl, year);
 template <PrimitiveType PType>
 struct ToCenturyImpl {
     static constexpr PrimitiveType OpArgType = PType;
-    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using CppType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "century";
 
-    static inline auto execute(const NativeType& t) {
-        const auto& date_time_value = (typename PrimitiveTypeTraits<PType>::CppType&)(t);
+    static inline auto execute(const CppType& t) {
+        const auto& date_time_value = t;
         int year = date_time_value.year();
         return (year - 1) / 100 + 1;
     }
@@ -119,7 +118,7 @@ TIME_FUNCTION_IMPL(ToSecondsImpl, to_seconds,
     template <PrimitiveType PType>                                                            \
     struct CLASS {                                                                            \
         static constexpr PrimitiveType OpArgType = PType;                                     \
-        using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;                   \
+        using ArgType = typename PrimitiveTypeTraits<PType>::CppType;                         \
         static constexpr auto name = #UNIT;                                                   \
                                                                                               \
         static inline auto execute(const ArgType& t) {                                        \
@@ -138,20 +137,18 @@ TIME_FUNCTION_ONE_ARG_IMPL(ToYearWeekOneArgImpl, yearweek, year_week(mysql_week_
 template <PrimitiveType PType>
 struct ToDateImpl {
     static constexpr PrimitiveType OpArgType = PType;
-    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
     using DateType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_date";
 
-    static auto execute(const NativeType& t) {
-        auto dt = binary_cast<NativeType, DateType>(t);
+    static auto execute(const DateType& t) {
         if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>>) {
-            return binary_cast<DateType, NativeType>(dt);
+            return t;
         } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
-            dt.cast_to_date();
-            return binary_cast<DateType, NativeType>(dt);
+            t.cast_to_date();
+            return t;
         } else {
-            return (PrimitiveTypeTraits<TYPE_DATEV2>::CppNativeType)(
-                    binary_cast<DateType, NativeType>(dt) >> TIME_PART_LENGTH);
+            return binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                    (UInt32)(t.to_date_int_val() >> TIME_PART_LENGTH));
         }
     }
 
@@ -169,7 +166,7 @@ struct DateImpl : public ToDateImpl<ArgType> {
 template <PrimitiveType PType>
 struct TimeStampImpl {
     static constexpr PrimitiveType OpArgType = PType;
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "timestamp";
 
     static auto execute(const ArgType& t) { return t; }
@@ -182,7 +179,7 @@ struct TimeStampImpl {
 template <PrimitiveType PType>
 struct DayNameImpl {
     static constexpr PrimitiveType OpArgType = PType;
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "dayname";
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
@@ -207,16 +204,16 @@ struct DayNameImpl {
 template <PrimitiveType PType>
 struct ToIso8601Impl {
     static constexpr PrimitiveType OpArgType = PType;
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_iso8601";
-    static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
+    static constexpr auto max_size = PType == TYPE_DATEV2 ? 10 : 26;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
                         const char* const* /*names_ptr*/) {
         auto length = dt.to_buffer((char*)res_data.data() + offset,
                                    std::is_same_v<ArgType, UInt32> ? -1 : 6);
-        if (std::is_same_v<ArgType, UInt64>) {
+        if (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
             res_data[offset + 10] = 'T';
         }
 
@@ -232,7 +229,7 @@ struct ToIso8601Impl {
 template <PrimitiveType PType>
 struct MonthNameImpl {
     static constexpr PrimitiveType OpArgType = PType;
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "monthname";
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
@@ -257,17 +254,16 @@ struct MonthNameImpl {
 template <PrimitiveType PType>
 struct DateFormatImpl {
     using DateType = typename PrimitiveTypeTraits<PType>::CppType;
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr PrimitiveType FromPType = PType;
 
     static constexpr auto name = "date_format";
 
     template <typename Impl>
-    static bool execute(const ArgType& t, StringRef format, ColumnString::Chars& res_data,
+    static bool execute(const DateType& dt, StringRef format, ColumnString::Chars& res_data,
                         size_t& offset, const cctz::time_zone& time_zone) {
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             // Handle non-special formats.
-            const auto& dt = (DateType&)t;
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
                                                   100 + SAFE_FORMAT_STRING_MARGIN)) {
@@ -279,8 +275,6 @@ struct DateFormatImpl {
             offset += len;
             return false;
         } else {
-            const auto& dt = (DateType&)t;
-
             if (!dt.is_valid_date()) {
                 return true;
             }
@@ -459,7 +453,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        using ArgColType = PrimitiveTypeTraits<Impl::ArgType>::ColumnType;
+        using ArgColType = typename PrimitiveTypeTraits<Impl::ArgType>::ColumnType;
         using ResColType = std::conditional_t<Impl::ArgType == PrimitiveType::TYPE_DECIMAL64,
                                               ColumnInt32, ColumnInt8>;
         using ResItemType = typename ResColType::value_type;

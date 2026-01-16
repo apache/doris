@@ -183,8 +183,8 @@ template <typename A>
 struct BitNotImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBitNot<A>::Type;
 
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(A a) {
+        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(a);
     }
 };
 

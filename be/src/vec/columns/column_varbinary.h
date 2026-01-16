@@ -39,7 +39,7 @@ private:
     struct less;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::ColumnItemType;
+    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType;
     using Container = PaddedPODArray<doris::StringView>;
 
 private:

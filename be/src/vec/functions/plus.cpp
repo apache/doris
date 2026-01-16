@@ -27,7 +27,7 @@ template <PrimitiveType Type>
 struct PlusImpl {
     static constexpr auto name = "add";
     static constexpr PrimitiveType PType = Type;
-    using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    using Arg = typename PrimitiveTypeTraits<Type>::CppType;
     NO_SANITIZE_UNDEFINED static inline Arg apply(Arg a, Arg b) { return a + b; }
 };
 

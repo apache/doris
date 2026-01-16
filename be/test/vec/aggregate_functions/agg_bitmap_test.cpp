@@ -264,8 +264,7 @@ void validate_bitmap_union_int_test() {
     // Prepare test data.
     auto column_int = data_type->create_column();
 
-    std::vector<typename PrimitiveTypeTraits<T>::ColumnItemType> values = {1, 2, 3, 4,  5,
-                                                                           1, 2, 3, 100};
+    std::vector<typename PrimitiveTypeTraits<T>::CppType> values = {1, 2, 3, 4, 5, 1, 2, 3, 100};
     auto values_size = values.size();
     for (int value : values) {
         (*column_int).insert(Field::create_field<T>(value));
