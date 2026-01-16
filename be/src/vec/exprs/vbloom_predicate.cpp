@@ -91,16 +91,16 @@ Status VBloomPredicate::_do_execute(VExprContext* context, const Block* block,
     return Status::OK();
 }
 
-Status VBloomPredicate::execute_column(VExprContext* context, const Block* block, 
+Status VBloomPredicate::execute_column(VExprContext* context, const Block* block,
                                        ColumnPtr& result_column) const {
     return _do_execute(context, block, nullptr, result_column);
 }
 
 Status VBloomPredicate::execute_runtime_filter(VExprContext* context, const Block* block,
-                                               const uint8_t* __restrict filter, size_t count,
+                                               const uint8_t* __restrict filter,
                                                ColumnPtr& result_column,
                                                ColumnPtr* arg_column) const {
-    return _do_execute(context, block, filter, count, result_column);
+    return _do_execute(context, block, filter, result_column);
 }
 const std::string& VBloomPredicate::expr_name() const {
     return EXPR_NAME;
