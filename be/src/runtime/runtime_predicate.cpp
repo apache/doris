@@ -77,33 +77,33 @@ Status RuntimePredicate::init_target(
 StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveType type) {
     switch (type) {
     case PrimitiveType::TYPE_BOOLEAN: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>();
+        const auto& v = field.get<TYPE_BOOLEAN>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_TINYINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>();
+        const auto& v = field.get<TYPE_TINYINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_SMALLINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>();
+        const auto& v = field.get<TYPE_SMALLINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_INT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>();
+        const auto& v = field.get<TYPE_INT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_BIGINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>();
+        const auto& v = field.get<TYPE_BIGINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_LARGEINT: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>();
+        const auto& v = field.get<TYPE_LARGEINT>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING: {
-        const auto& v = field.get<String>();
+        const auto& v = field.get<TYPE_STRING>();
         auto length = v.size();
         char* buffer = _predicate_arena.alloc(length);
         memset(buffer, 0, length);
@@ -112,56 +112,61 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         return {buffer, length};
     }
     case PrimitiveType::TYPE_DATEV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType>();
+        const auto& v = field.get<TYPE_DATEV2>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DATETIMEV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>();
+        const auto& v = field.get<TYPE_DATETIMEV2>();
         return StringRef((char*)&v, sizeof(v));
     }
+    case PrimitiveType::TYPE_TIMESTAMPTZ: {
+        const auto& v = field.get<TYPE_TIMESTAMPTZ>();
+        return StringRef((char*)&v, sizeof(v));
+        break;
+    }
     case PrimitiveType::TYPE_DATE: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATE>::CppType>();
+        const auto& v = field.get<TYPE_DATE>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DATETIME: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType>();
+        const auto& v = field.get<TYPE_DATETIME>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_TIMEV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>();
+        const auto& v = field.get<TYPE_TIMEV2>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL32: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL32>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL64: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL64>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMALV2: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType>();
+        const auto& v = field.get<TYPE_DECIMALV2>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL128I: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL128I>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_DECIMAL256: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType>();
+        const auto& v = field.get<TYPE_DECIMAL256>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_IPV4: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>();
+        const auto& v = field.get<TYPE_IPV4>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_IPV6: {
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>();
+        const auto& v = field.get<TYPE_IPV6>();
         return StringRef((char*)&v, sizeof(v));
     }
     case PrimitiveType::TYPE_VARBINARY: {
         // For VARBINARY type, use StringViewField to store binary data
-        const auto& v = field.get<typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType>();
+        const auto& v = field.get<TYPE_VARBINARY>();
         auto length = v.size();
         char* buffer = _predicate_arena.alloc(length);
         memset(buffer, 0, length);

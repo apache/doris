@@ -1695,7 +1695,7 @@ TEST(VTimestampFunctionsTest, curtime_test) {
         auto result_col = block.get_by_position(0).column;
         EXPECT_TRUE(result_col);
         if (const auto* const_col = check_and_get_column<ColumnConst>(result_col.get())) {
-            auto time_value = const_col->get_field().get<double>();
+            auto time_value = const_col->get_field().get<TYPE_TIMEV2>();
             EXPECT_GE(time_value, 0.0);
             EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
         }
@@ -1738,7 +1738,7 @@ TEST(VTimestampFunctionsTest, curtime_test) {
         auto result_col = block.get_by_position(1).column;
         EXPECT_TRUE(result_col);
         if (const auto* const_col = check_and_get_column<ColumnConst>(result_col.get())) {
-            auto time_value = const_col->get_field().get<double>();
+            auto time_value = const_col->get_field().get<TYPE_TIMEV2>();
             EXPECT_GE(time_value, 0.0);
             EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
         }

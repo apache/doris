@@ -77,7 +77,7 @@ public:
     char* alloc(size_t length) { return _arena.alloc(length); }
 
     void insert(const Field& x) override {
-        const auto& value = vectorized::get<const StringViewField&>(x);
+        const auto& value = x.get<TYPE_VARBINARY>();
         insert_data(value.data(), value.size());
     }
 

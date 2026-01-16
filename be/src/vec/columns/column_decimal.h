@@ -141,10 +141,7 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(value_type()); }
-    void insert(const Field& x) override {
-        data.push_back(
-                doris::vectorized::get<typename PrimitiveTypeTraits<T>::NearestFieldType>(x));
-    }
+    void insert(const Field& x) override { data.push_back(x.template get<T>()); }
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_many_defaults(size_t length) override {
@@ -199,7 +196,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
 

@@ -164,8 +164,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01";
         auto field = dt_date.get_field(expr_node);
-        auto int_value = field.get<int64_t>();
-        auto date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        auto date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -176,8 +175,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
         // should be OK
         expr_node.date_literal.value = "0000-01-01 00:00:00.000000";
         field = dt_date.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -187,8 +185,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 00:00:00.000000";
         field = dt_date.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -198,8 +195,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "2021-01-01";
         field = dt_date.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -209,8 +205,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31";
         field = dt_date.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -221,8 +216,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
         // it's OK to have time part for date
         expr_node.date_literal.value = "0000-01-01 23:59:59";
         field = dt_date.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -232,8 +226,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59";
         field = dt_date.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATE>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -245,8 +238,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
         TExprNode expr_node;
         expr_node.date_literal.value = "0000-01-01 00:00:00";
         auto field = dt_datetime.get_field(expr_node);
-        auto int_value = field.get<int64_t>();
-        auto date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        auto date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -256,8 +248,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -267,8 +258,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -278,8 +268,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.00000";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -290,8 +279,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
         // microsecond is discarded
         expr_node.date_literal.value = "0000-01-01 00:00:00.000001";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -301,8 +289,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.1";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -312,8 +299,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34.12345";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -323,8 +309,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59.999994";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -334,8 +319,7 @@ TEST_F(DataTypeDateTimeV1Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59.99999";
         field = dt_datetime.get_field(expr_node);
-        int_value = field.get<int64_t>();
-        date_value = binary_cast<int64_t, VecDateTimeValue>(int_value);
+        date_value = field.get<TYPE_DATETIME>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);

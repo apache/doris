@@ -132,15 +132,30 @@ struct PlusMinusDecimalImpl {
         auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
 
         if (check_overflow_for_decimal) {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<true>(a, b, *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+            if constexpr (ResultType == TYPE_DECIMALV2) {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(apply<true>(
+                                a.value(), b.value(), *type_left, *type_right, res_data_type,
+                                max_result_number, scale_diff_multiplier));
+            } else {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                                apply<true>(a, b, *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+            }
+
         } else {
-            column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<false>(a, b, *type_left, *type_right, res_data_type,
-                                         max_result_number, scale_diff_multiplier));
+            if constexpr (ResultType == TYPE_DECIMALV2) {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(apply<false>(
+                                a.value(), b.value(), *type_left, *type_right, res_data_type,
+                                max_result_number, scale_diff_multiplier));
+            } else {
+                column_result->get_element(0) =
+                        typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
+                                apply<false>(a, b, *type_left, *type_right, res_data_type,
+                                             max_result_number, scale_diff_multiplier));
+            }
         }
         return column_result;
     }
@@ -162,10 +177,18 @@ struct PlusMinusDecimalImpl {
         std::visit(
                 [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < column_left->size(); ++i) {
-                        c[i] = typename DataTypeDecimal<ResultType>::FieldType(
-                                apply<check_overflow_for_decimal>(a[i], b, *type_left, *type_right,
-                                                                  res_data_type, max_result_number,
-                                                                  scale_diff_multiplier));
+                        if constexpr (ResultType == TYPE_DECIMALV2) {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i].value(), b.value(), *type_left, *type_right,
+                                            res_data_type, max_result_number,
+                                            scale_diff_multiplier));
+                        } else {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i], b, *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+                        }
                     }
                 },
                 make_bool_variant(check_overflow_for_decimal));
@@ -189,10 +212,18 @@ struct PlusMinusDecimalImpl {
         std::visit(
                 [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < column_right->size(); ++i) {
-                        c[i] = typename DataTypeDecimal<ResultType>::FieldType(
-                                apply<check_overflow_for_decimal>(a, b[i], *type_left, *type_right,
-                                                                  res_data_type, max_result_number,
-                                                                  scale_diff_multiplier));
+                        if constexpr (ResultType == TYPE_DECIMALV2) {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a.value(), b[i].value(), *type_left, *type_right,
+                                            res_data_type, max_result_number,
+                                            scale_diff_multiplier));
+                        } else {
+                            c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                                    apply<check_overflow_for_decimal>(
+                                            a, b[i], *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+                        }
                     }
                 },
                 make_bool_variant(check_overflow_for_decimal));
@@ -233,8 +264,9 @@ struct PlusMinusDecimalImpl {
                                     DecimalV2Value(b[i]).to_string(),
                                     DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
-                c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
-                if (c[i].value > max.value() || c[i].value < min.value()) {
+                c[i] = DecimalV2Value((i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION +
+                                      sgn[i]);
+                if (c[i].value() > max.value() || c[i].value() < min.value()) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                     "Arithmetic overflow: {} {} {} = {}, result type: {}",
                                     DecimalV2Value(a[i]).to_string(), "add",
@@ -242,9 +274,10 @@ struct PlusMinusDecimalImpl {
                                     DecimalV2Value(i128_mul_result).to_string(), "decimalv2");
                 }
             } else {
-                c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
-                               DecimalV2Value::ONE_BILLION +
-                       sgn[i];
+                c[i] = DecimalV2Value(
+                        (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
+                                DecimalV2Value::ONE_BILLION +
+                        sgn[i]);
             }
         }
     }
@@ -274,10 +307,18 @@ struct PlusMinusDecimalImpl {
         std::visit(
                 [&](auto check_overflow_for_decimal) {
                     for (size_t i = 0; i < sz; i++) {
-                        c[i] = typename ColumnDecimal<ResultType>::value_type(
-                                apply<check_overflow_for_decimal>(
-                                        a[i], b[i], *type_left, *type_right, res_data_type,
-                                        max_result_number, scale_diff_multiplier));
+                        if constexpr (ResultType == TYPE_DECIMALV2) {
+                            c[i] = typename ColumnDecimal<ResultType>::value_type(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i].value(), b[i].value(), *type_left, *type_right,
+                                            res_data_type, max_result_number,
+                                            scale_diff_multiplier));
+                        } else {
+                            c[i] = typename ColumnDecimal<ResultType>::value_type(
+                                    apply<check_overflow_for_decimal>(
+                                            a[i], b[i], *type_left, *type_right, res_data_type,
+                                            max_result_number, scale_diff_multiplier));
+                        }
                     }
                 },
                 make_bool_variant(check_overflow_for_decimal));
@@ -295,7 +336,7 @@ struct PlusMinusDecimalImpl {
             // Now, Doris only support decimal +-*/ decimal.
             if constexpr (check_overflow) {
                 auto res = Impl::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
-                if (res > max_result_number.value || res < -max_result_number.value) {
+                if (res > max_result_number.value() || res < -max_result_number.value()) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                     "Arithmetic overflow: {} {} {} = {}, result type: {}",
                                     DecimalV2Value(a).to_string(), "add",
@@ -428,12 +469,22 @@ private:
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
 
+                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType
+                                        left_tmp;
+                                auto left_src =
+                                        column_left_ptr
+                                                ->template get_value<Impl::DataTypeA::PType>();
+                                std::memcpy(&left_tmp, &left_src, sizeof(left_src));
+                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType
+                                        right_tmp;
+                                auto right_src =
+                                        column_right_ptr
+                                                ->template get_value<Impl::DataTypeB::PType>();
+                                std::memcpy(&right_tmp, &right_src, sizeof(right_src));
                                 column_result = Impl::constant_constant(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
-                                        type_left, type_right, max_and_multiplier.first,
-                                        max_and_multiplier.second, type_result,
-                                        check_overflow_for_decimal);
+                                        left_tmp, right_tmp, type_left, type_right,
+                                        max_and_multiplier.first, max_and_multiplier.second,
+                                        type_result, check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -448,8 +499,10 @@ private:
                                         type_left, type_right, type_result);
 
                                 column_result = Impl::constant_constant(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
+                                        column_left_ptr
+                                                ->template get_value<Impl::DataTypeA::PType>(),
+                                        column_right_ptr
+                                                ->template get_value<Impl::DataTypeB::PType>(),
                                         type_left, type_right, max_and_multiplier.first,
                                         max_and_multiplier.second, type_result,
                                         check_overflow_for_decimal);
@@ -462,8 +515,8 @@ private:
             }
         } else {
             column_result = Impl::constant_constant(
-                    column_left_ptr->template get_value<typename Impl::ArgA>(),
-                    column_right_ptr->template get_value<typename Impl::ArgB>());
+                    column_left_ptr->template get_value<Impl::DataTypeA::PType>(),
+                    column_right_ptr->template get_value<Impl::DataTypeB::PType>());
         }
 
         return ColumnConst::create(std::move(column_result), column_left->size());
@@ -483,12 +536,14 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::vector_constant(
-                                        column_left->get_ptr(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
-                                        type_left, type_right, max_and_multiplier.first,
-                                        max_and_multiplier.second, type_result,
-                                        check_overflow_for_decimal);
+                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType tmp;
+                                auto src = column_right_ptr
+                                                   ->template get_value<Impl::DataTypeB::PType>();
+                                std::memcpy(&tmp, &src, sizeof(src));
+                                res = Impl::vector_constant(column_left->get_ptr(), tmp, type_left,
+                                                            type_right, max_and_multiplier.first,
+                                                            max_and_multiplier.second, type_result,
+                                                            check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -503,7 +558,8 @@ private:
                                         type_left, type_right, type_result);
                                 res = Impl::vector_constant(
                                         column_left->get_ptr(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
+                                        column_right_ptr
+                                                ->template get_value<Impl::DataTypeB::PType>(),
                                         type_left, type_right, max_and_multiplier.first,
                                         max_and_multiplier.second, type_result,
                                         check_overflow_for_decimal);
@@ -517,7 +573,7 @@ private:
         } else {
             res = Impl::vector_constant(
                     column_left->get_ptr(),
-                    column_right_ptr->template get_value<typename Impl::ArgB>());
+                    column_right_ptr->template get_value<Impl::DataTypeB::PType>());
         }
         return res;
     }
@@ -536,11 +592,14 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::constant_vector(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right->get_ptr(), type_left, type_right,
-                                        max_and_multiplier.first, max_and_multiplier.second,
-                                        type_result, check_overflow_for_decimal);
+                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType tmp;
+                                auto src = column_left_ptr
+                                                   ->template get_value<Impl::DataTypeA::PType>();
+                                std::memcpy(&tmp, &src, sizeof(src));
+                                res = Impl::constant_vector(tmp, column_right->get_ptr(), type_left,
+                                                            type_right, max_and_multiplier.first,
+                                                            max_and_multiplier.second, type_result,
+                                                            check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -554,7 +613,8 @@ private:
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
                                 res = Impl::constant_vector(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
+                                        column_left_ptr
+                                                ->template get_value<Impl::DataTypeA::PType>(),
                                         column_right->get_ptr(), type_left, type_right,
                                         max_and_multiplier.first, max_and_multiplier.second,
                                         type_result, check_overflow_for_decimal);
@@ -566,8 +626,9 @@ private:
                 }
             }
         } else {
-            res = Impl::constant_vector(column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right->get_ptr());
+            res = Impl::constant_vector(
+                    column_left_ptr->template get_value<Impl::DataTypeA::PType>(),
+                    column_right->get_ptr());
         }
         return res;
     }

@@ -317,7 +317,7 @@ Status parse_to_predicate(const uint32_t index, const std::string col_name,
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        RETURN_IF_ERROR(convert<TYPE_STRING>(type, res.value_str.front(), arena, v));
+        v = {res.value_str.front().data(), res.value_str.front().size()};
         switch (res.condition_op) {
         case PredicateType::EQ:
             predicate = create_comparison_predicate0<PredicateType::EQ>(index, col_name, type, v,

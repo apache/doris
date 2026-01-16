@@ -83,8 +83,7 @@ struct AggregateFunctionAvgData {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-            Decimal128V2 ret(cal_ret.value());
-            return ret;
+            return cal_ret;
         } else {
             if constexpr (T == TYPE_DECIMAL256) {
                 return static_cast<ResultT>(sum /
@@ -122,10 +121,10 @@ class AggregateFunctionAvg<T, TResult, Data> final
           UnaryExpression,
           NullableAggregateFunction {
 public:
-    using ResultType = PrimitiveTypeTraits<TResult>::ColumnItemType;
-    using ResultDataType = PrimitiveTypeTraits<TResult>::DataType;
-    using ColVecType = PrimitiveTypeTraits<T>::ColumnType;
-    using ColVecResult = PrimitiveTypeTraits<TResult>::ColumnType;
+    using ResultType = typename PrimitiveTypeTraits<TResult>::ColumnItemType;
+    using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;
     // The result calculated by PercentileApprox is an approximate value,
     // so the underlying storage uses float. The following calls will involve
     // an implicit cast to float.
@@ -158,15 +157,19 @@ public:
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (is_add) {
-            if constexpr (is_decimal(T)) {
-                this->data(place).sum += (DataType)column.get_data()[row_num].value;
+            if constexpr (T == TYPE_DECIMALV2) {
+                this->data(place).sum += column.get_data()[row_num];
+            } else if constexpr (is_decimal(T)) {
+                this->data(place).sum += column.get_data()[row_num].value;
             } else {
                 this->data(place).sum += (DataType)column.get_data()[row_num];
             }
             ++this->data(place).count;
         } else {
-            if constexpr (is_decimal(T)) {
-                this->data(place).sum -= (DataType)column.get_data()[row_num].value;
+            if constexpr (T == TYPE_DECIMALV2) {
+                this->data(place).sum += -column.get_data()[row_num];
+            } else if constexpr (is_decimal(T)) {
+                this->data(place).sum -= column.get_data()[row_num].value;
             } else {
                 this->data(place).sum -= (DataType)column.get_data()[row_num];
             }
@@ -186,7 +189,9 @@ public:
 
     NO_SANITIZE_UNDEFINED void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                                      Arena&) const override {
-        if constexpr (is_decimal(T)) {
+        if constexpr (T == TYPE_DECIMALV2) {
+            this->data(place).sum += this->data(rhs).sum;
+        } else if constexpr (is_decimal(T)) {
             this->data(place).sum += this->data(rhs).sum.value;
         } else {
             this->data(place).sum += this->data(rhs).sum;
