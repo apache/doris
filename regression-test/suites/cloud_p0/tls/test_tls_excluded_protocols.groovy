@@ -71,6 +71,10 @@ suite('test_tls_excluded_protocols', 'docker, p0') {
             return stdout.toString() + stderr.toString()
         }
 
+        def curlHelpOutput = runCommand("curl --help 2>&1 || true", "curl help")
+        def curlSupportsHttp09 = curlHelpOutput.contains("--http0.9")
+        logger.info("curl --http0.9 supported: ${curlSupportsHttp09}")
+
         // Certificate generation
         logger.info("=== Generating TLS certificates ===")
         runCommand("mkdir -p ${localCertDir}", "Failed to create cert directory")
@@ -215,20 +219,55 @@ ${sanEntries}
             def cert = "${localCertDir}/certificate.crt"
             def key = "${localCertDir}/certificate.key"
 
-            def curlOpts = " --http0.9"
             if (protocol == "https") {
-                curlOpts = "--cacert ${ca} --cert ${cert} --key ${key}"
+                def curlOpts = "--cacert ${ca} --cert ${cert} --key ${key}"
+                def cmd = "timeout 5 curl -sS -o /dev/null -w '%{http_code}' ${curlOpts} https://${host}:${port}/ 2>&1 || true"
+                def output = runCommand(cmd, "curl ${componentName}")
+
+                def sslErrors = ["ssl certificate problem", "bad certificate", "alert", "unable", "self signed certificate",
+                                 "err", "certificate has expired", "ssl: certificate subject name", "failed", "wrong version number", "failure"]
+                def hasSslError = sslErrors.any { output.toLowerCase().contains(it.toLowerCase()) }
+                def success = !hasSslError && (output.contains("200") || output.contains("302") || output.contains("301") || output.contains("404") || output.contains("000"))
+
+                logger.info("${componentName} https://${host}:${port} => ${success ? 'OK' : 'FAIL'} (${output.trim()})")
+                return success
             }
 
-            def cmd = "timeout 5 curl -sS -o /dev/null -w '%{http_code}' ${curlOpts} ${protocol}://${host}:${port}/ 2>&1 || true"
-            def output = runCommand(cmd, "curl ${componentName}")
+            if (curlSupportsHttp09) {
+                def cmd = "timeout 5 curl -sS -o /dev/null -w '%{http_code}' --http0.9 http://${host}:${port}/ 2>&1 || true"
+                def output = runCommand(cmd, "curl ${componentName}")
 
-            def sslErrors = ["ssl certificate problem", "bad certificate", "alert", "unable", "self signed certificate",
-                             "err", "certificate has expired", "ssl: certificate subject name", "failed", "wrong version number", "failure"]
-            def hasSslError = sslErrors.any { output.toLowerCase().contains(it.toLowerCase()) }
-            def success = !hasSslError && (output.contains("200") || output.contains("302") || output.contains("301") || output.contains("404")|| output.contains("000"))
+                def sslErrors = ["ssl certificate problem", "bad certificate", "alert", "unable", "self signed certificate",
+                                 "err", "certificate has expired", "ssl: certificate subject name", "failed", "wrong version number", "failure"]
+                def hasSslError = sslErrors.any { output.toLowerCase().contains(it.toLowerCase()) }
+                def success = !hasSslError && (output.contains("200") || output.contains("302") || output.contains("301") || output.contains("404") || output.contains("000"))
 
-            logger.info("${componentName} ${protocol}://${host}:${port} => ${success ? 'OK' : 'FAIL'} (${output.trim()})")
+                logger.info("${componentName} http://${host}:${port} => ${success ? 'OK' : 'FAIL'} (${output.trim()})")
+                return success
+            }
+
+            def cmd = "timeout 5 openssl s_client -connect ${host}:${port} < /dev/null 2>&1 || true"
+            def output = runCommand(cmd, "openssl ${componentName}")
+            def lower = output.toLowerCase()
+            def plainMarkers = [
+                "wrong version number",
+                "unknown protocol",
+                "no peer certificate available",
+                "ssl handshake has read 0 bytes",
+                "cipher is (none)",
+                "write:errno=0"
+            ]
+            def connectErrors = ["connection refused", "timed out", "no route to host", "connection reset"]
+
+            def hasCert = lower.contains("begin certificate")
+            def hasProtocol = lower.contains("protocol  : tls") || lower.contains("protocol : tls")
+            def hasCipher = lower.contains("cipher    :") || (lower.contains("cipher is") && !lower.contains("cipher is (none)"))
+            def hasTlsMarker = hasCert || hasProtocol || hasCipher
+            def hasPlainMarker = plainMarkers.any { lower.contains(it) }
+            def hasConnectError = connectErrors.any { lower.contains(it) }
+            def success = !hasConnectError && !hasTlsMarker && hasPlainMarker
+
+            logger.info("${componentName} openssl://${host}:${port} => ${success ? 'OK' : 'FAIL'} (${output.trim()})")
             return success
         }
 
