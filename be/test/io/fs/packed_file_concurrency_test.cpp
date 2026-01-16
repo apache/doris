@@ -679,7 +679,8 @@ TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
             for (int iter = 0; iter < kIterationPerThread; ++iter) {
                 // Use unique file names to avoid cache key conflicts between threads
                 // since CachedRemoteFileReader uses path().filename() for cache hash
-                std::string path = fmt::format("/tablet_{}/rowset_{}/file_t{}_i{}", tid, iter, tid, iter);
+                std::string path =
+                        fmt::format("/tablet_{}/rowset_{}/file_t{}_i{}", tid, iter, tid, iter);
 
                 PackedAppendContext append_info;
                 append_info.resource_id = resource_ids[tid];
