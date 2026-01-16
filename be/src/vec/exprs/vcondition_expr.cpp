@@ -559,9 +559,33 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
     // true: null_map_data[row]==0 && filled_idx[row]==0
     // if true, could filled current row data into result column
     for (size_t row = 0; row < input_rows_count; ++row) {
-        result_raw_data[row] +=
-                column_raw_data[row] *
-                typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+        if constexpr (std::is_same_v<ColumnType, ColumnDateV2>) {
+            result_raw_data[row] = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(
+                    result_raw_data[row].to_date_int_val() +
+                    column_raw_data[row].to_date_int_val() *
+                            uint32_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnDateTimeV2>) {
+            result_raw_data[row] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                    result_raw_data[row].to_date_int_val() +
+                    column_raw_data[row].to_date_int_val() *
+                            uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+            result_raw_data[row] = binary_cast<uint64_t, TimestampTzValue>(
+                    result_raw_data[row].to_date_int_val() +
+                    column_raw_data[row].to_date_int_val() *
+                            uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+                             std::is_same_v<ColumnType, ColumnDateTime>) {
+            result_raw_data[row] = binary_cast<int64_t, VecDateTimeValue>(
+                    binary_cast<VecDateTimeValue, int64_t>(result_raw_data[row]) +
+                    binary_cast<VecDateTimeValue, int64_t>(column_raw_data[row]) *
+                            int64_t(!(null_map_data[row] | filled_flag[row])));
+        } else {
+            result_raw_data[row] +=
+                    column_raw_data[row] *
+                    typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+        }
+
         filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
     }
 }

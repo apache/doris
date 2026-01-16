@@ -1432,7 +1432,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     std::vector<std::string> test_values = {"0000-01-01 00:00:00", "2023-01-01 15:00:00",
                                             "9999-12-31 23:59:59"};
     std::vector<TimestampTzValue> test_tz_values;
-    std::vector<PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::ColumnItemType> test_tz_raw_values;
+    std::vector<PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType> test_tz_raw_values;
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
     TimezoneUtils::load_offsets_to_cache();
     vectorized::CastParameters params;
@@ -1441,7 +1441,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
         test_tz_values.push_back(tz);
-        test_tz_raw_values.push_back(tz.to_date_int_val());
+        test_tz_raw_values.push_back(tz);
     }
     const int SlotId = 0;
 
@@ -1464,8 +1464,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("eq");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1552,8 +1551,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("ne");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1694,8 +1692,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("lt");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1755,8 +1752,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("le");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1813,8 +1809,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("gt");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1874,8 +1869,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("ge");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);

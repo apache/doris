@@ -192,6 +192,7 @@ public:
     }
     void operator()(const IPv6& x, JsonbWriter* writer) const { writer->writeInt128(int128_t(x)); }
     void operator()(const bool& x, JsonbWriter* writer) const { writer->writeBool(x); }
+    void operator()(const UInt8& x, JsonbWriter* writer) const { writer->writeBool(x); }
     void operator()(const Int8& x, JsonbWriter* writer) const { writer->writeInt8(x); }
     void operator()(const Int16& x, JsonbWriter* writer) const { writer->writeInt16(x); }
     void operator()(const Int32& x, JsonbWriter* writer) const { writer->writeInt32(x); }
@@ -291,7 +292,7 @@ bool ConvertNumeric::cast<Float64, UInt8>(const Float64& from, UInt8& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, UInt8>(const bool& from, UInt8& to) {
+bool ConvertNumeric::cast<UInt8, UInt8>(const UInt8& from, UInt8& to) {
     to = from;
     return true;
 }
@@ -346,7 +347,7 @@ bool ConvertNumeric::cast<Float32, Int8>(const Float32& from, Int8& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, Int8>(const bool& from, Int8& to) {
+bool ConvertNumeric::cast<UInt8, Int8>(const UInt8& from, Int8& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -395,7 +396,7 @@ bool ConvertNumeric::cast<Float32, Int16>(const Float32& from, Int16& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, Int16>(const bool& from, Int16& to) {
+bool ConvertNumeric::cast<UInt8, Int16>(const UInt8& from, Int16& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -444,7 +445,7 @@ bool ConvertNumeric::cast<Float32, Int32>(const Float32& from, Int32& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, Int32>(const bool& from, Int32& to) {
+bool ConvertNumeric::cast<UInt8, Int32>(const UInt8& from, Int32& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -493,7 +494,7 @@ bool ConvertNumeric::cast<Float32, Int64>(const Float32& from, Int64& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, Int64>(const bool& from, Int64& to) {
+bool ConvertNumeric::cast<UInt8, Int64>(const UInt8& from, Int64& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -542,7 +543,7 @@ bool ConvertNumeric::cast<Float32, Int128>(const Float32& from, Int128& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, Int128>(const bool& from, Int128& to) {
+bool ConvertNumeric::cast<UInt8, Int128>(const UInt8& from, Int128& to) {
     auto params = create_cast_params();
     return CastToInt::from_bool(from, to, params);
 }
@@ -591,7 +592,7 @@ bool ConvertNumeric::cast<Float32, Float32>(const Float32& from, Float32& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, Float32>(const bool& from, Float32& to) {
+bool ConvertNumeric::cast<UInt8, Float32>(const UInt8& from, Float32& to) {
     auto params = create_cast_params();
     return CastToFloat::from_bool(from, to, params);
 }
@@ -640,7 +641,7 @@ bool ConvertNumeric::cast<Float32, Float64>(const Float32& from, Float64& to) {
 }
 
 template <>
-bool ConvertNumeric::cast<bool, Float64>(const bool& from, Float64& to) {
+bool ConvertNumeric::cast<UInt8, Float64>(const UInt8& from, Float64& to) {
     auto params = create_cast_params();
     return CastToFloat::from_bool(from, to, params);
 }
@@ -666,7 +667,7 @@ bool ConvertNumeric::cast<Int32, Float64>(const Int32& from, Float64& to) {
 namespace {
 template <PrimitiveType From, PrimitiveType T>
 Field convert_numeric_type_impl(const Field& from) {
-    typename PrimitiveTypeTraits<T>::ColumnItemType result;
+    typename PrimitiveTypeTraits<T>::CppType result;
     if (!ConvertNumeric::cast(from.get<From>(), result)) {
         return {};
     }
