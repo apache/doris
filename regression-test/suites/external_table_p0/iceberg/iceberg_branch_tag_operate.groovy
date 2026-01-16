@@ -169,8 +169,8 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
     }
 
     test {
-        sql """ alter table ${table_name} create branch b8 as of version 11223344 """
-        exception "Cannot set b8 to unknown snapshot: 11223344"
+        sql """ alter table ${table_name} create branch b9 as of version 11223344 """
+        exception "Cannot set b9 to unknown snapshot: 11223344"
     }
 
     result = sql """select UPDATE_TIME from  information_schema.tables where TABLE_SCHEMA="test_db" and TABLE_NAME='${table_name}'"""
