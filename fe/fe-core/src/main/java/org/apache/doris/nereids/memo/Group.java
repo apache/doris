@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -63,6 +64,7 @@ public class Group {
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
     private final Map<GroupExpression, GroupExpression> enforcers = Maps.newHashMap();
     private final Map<DistributionSpec, GroupExpression> enforcerSpecs = Maps.newHashMap();
+    private final GroupPlan groupPlan;
     private boolean isStatsReliable = true;
     private LogicalProperties logicalProperties;
 
@@ -92,6 +94,7 @@ public class Group {
         this.groupId = groupId;
         addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
+        this.groupPlan = new GroupPlan(this);
     }
 
     /**
@@ -102,6 +105,7 @@ public class Group {
     public Group(GroupId groupId, LogicalProperties logicalProperties) {
         this.groupId = groupId;
         this.logicalProperties = logicalProperties;
+        this.groupPlan = new GroupPlan(this);
     }
 
     public GroupId getGroupId() {
@@ -174,6 +178,10 @@ public class Group {
 
     public List<GroupExpression> getPhysicalExpressions() {
         return physicalExpressions;
+    }
+
+    public GroupPlan getGroupPlan() {
+        return groupPlan;
     }
 
     /**

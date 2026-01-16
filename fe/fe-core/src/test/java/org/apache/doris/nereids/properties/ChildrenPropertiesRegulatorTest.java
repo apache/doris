@@ -100,6 +100,8 @@ public class ChildrenPropertiesRegulatorTest {
             List<GroupExpression> children;
             Group childGroup = Mockito.mock(Group.class);
             Mockito.when(childGroup.getLogicalProperties()).thenReturn(Mockito.mock(LogicalProperties.class));
+            GroupPlan childGroupPlan = new GroupPlan(childGroup);
+            Mockito.when(childGroup.getGroupPlan()).thenReturn(childGroupPlan);
             GroupExpression child = Mockito.mock(GroupExpression.class);
             Mockito.when(child.getOutputProperties(Mockito.any())).thenReturn(PhysicalProperties.MUST_SHUFFLE);
             Mockito.when(child.getOwnerGroup()).thenReturn(childGroup);
@@ -159,6 +161,8 @@ public class ChildrenPropertiesRegulatorTest {
             List<GroupExpression> children;
             Group childGroup = Mockito.mock(Group.class);
             Mockito.when(childGroup.getLogicalProperties()).thenReturn(Mockito.mock(LogicalProperties.class));
+            GroupPlan childGroupPlan = new GroupPlan(childGroup);
+            Mockito.when(childGroup.getGroupPlan()).thenReturn(childGroupPlan);
             GroupExpression child = Mockito.mock(GroupExpression.class);
             Mockito.when(child.getOutputProperties(Mockito.any())).thenReturn(PhysicalProperties.MUST_SHUFFLE);
             Mockito.when(child.getOwnerGroup()).thenReturn(childGroup);
