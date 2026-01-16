@@ -240,7 +240,7 @@ suite("eager_agg") {
 
     qt_min_sum_same_slot """
     explain shape plan
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss dt} ws)*/  dt.d_moy 
         ,min(d_year) brand
         ,sum(d_year) sum_agg 
     from  store_sales ss
@@ -248,12 +248,12 @@ suite("eager_agg") {
         join web_sales ws
     where dt.d_date_sk = ss_sold_date_sk
     and ss_item_sk = ws_item_sk
-    group by dt.d_year, ss_hdemo_sk + d_moy
+    group by d_moy
     having brand is null;
     """
 
     qt_min_sum_same_slot_exe """
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss dt} ws)*/  dt.d_moy 
         ,min(d_year) brand
         ,sum(d_year) sum_agg 
     from  store_sales ss
@@ -261,12 +261,12 @@ suite("eager_agg") {
         join web_sales ws
     where dt.d_date_sk = ss_sold_date_sk
     and ss_item_sk = ws_item_sk
-    group by dt.d_year, ss_hdemo_sk + d_moy
+    group by d_moy
     having brand is null;
     """
 
     qt_sum_min_same_slot_exe """
-    select /*+leading({ss dt} ws)*/  dt.d_year 
+    select /*+leading({ss dt} ws)*/  dt.d_moy 
         ,sum(d_year) sum_agg 
         ,min(d_year) brand  
     from  store_sales ss
@@ -274,7 +274,37 @@ suite("eager_agg") {
         join web_sales ws
     where dt.d_date_sk = ss_sold_date_sk
     and ss_item_sk = ws_item_sk
-    group by dt.d_year, ss_hdemo_sk + d_moy
+    group by d_moy
     having brand is null;
+    """
+
+    qt_no_push_aggkey_groupKey_overlap """
+    explain shape plan
+    select /*+leading({ss dt} ws)*/  dt.d_year 
+        ,min(d_year) brand
+        ,sum(d_year) sum_agg 
+    from  store_sales ss
+        join date_dim dt
+        join web_sales ws
+    where dt.d_date_sk = ss_sold_date_sk
+    and ss_item_sk = ws_item_sk
+    group by d_year
+    """
+
+    // if any union child can not push, do not push for all union children
+    qt_no_push_not_all_union_children_push """
+    explain shape plan
+    select  d_year 
+        ,min(d_moy) 
+        ,sum(d_moy)  
+    from (
+        select /*+leading({ss dt})*/  d_year, d_moy
+        from store_sales ss
+            join date_dim dt on dt.d_date_sk = ss_sold_date_sk
+        union all
+        select d_year, d_moy
+        from date_dim
+    ) t
+    group by d_year;
     """
 }

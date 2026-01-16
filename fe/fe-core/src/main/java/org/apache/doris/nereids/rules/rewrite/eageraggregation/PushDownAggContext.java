@@ -79,6 +79,14 @@ public class PushDownAggContext {
         this.passThroughBigJoin = passThroughBigJoin;
     }
 
+    /**
+     * check validation
+     * @return true, iff no group by key is in aggFunctionsInputSlots
+     */
+    public boolean isValid() {
+        return !groupKeys.stream().anyMatch(s -> aggFunctionsInputSlots.contains(s));
+    }
+
     public PushDownAggContext passThroughBigJoin() {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, true);
     }
