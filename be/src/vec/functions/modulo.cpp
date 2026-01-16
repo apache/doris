@@ -126,11 +126,22 @@ private:
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
 
+                                typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType
+                                        left_tmp;
+                                auto left_src =
+                                        column_left_ptr
+                                                ->template get_value<Impl::DataTypeA::PType>();
+                                std::memcpy(&left_tmp, &left_src, sizeof(left_src));
+                                typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType
+                                        right_tmp;
+                                auto right_src =
+                                        column_right_ptr
+                                                ->template get_value<Impl::DataTypeB::PType>();
+                                std::memcpy(&right_tmp, &right_src, sizeof(right_src));
                                 column_result = Impl::constant_constant(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
-                                        max_and_multiplier.first, max_and_multiplier.second,
-                                        type_result, check_overflow_for_decimal);
+                                        left_tmp, right_tmp, max_and_multiplier.first,
+                                        max_and_multiplier.second, type_result,
+                                        check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -143,12 +154,22 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-
+                                typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType
+                                        left_tmp;
+                                auto left_src =
+                                        column_left_ptr
+                                                ->template get_value<Impl::DataTypeA::PType>();
+                                std::memcpy(&left_tmp, &left_src, sizeof(left_src));
+                                typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType
+                                        right_tmp;
+                                auto right_src =
+                                        column_right_ptr
+                                                ->template get_value<Impl::DataTypeB::PType>();
+                                std::memcpy(&right_tmp, &right_src, sizeof(right_src));
                                 column_result = Impl::constant_constant(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
-                                        max_and_multiplier.first, max_and_multiplier.second,
-                                        type_result, check_overflow_for_decimal);
+                                        left_tmp, right_tmp, max_and_multiplier.first,
+                                        max_and_multiplier.second, type_result,
+                                        check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -157,9 +178,13 @@ private:
                 }
             }
         } else {
-            column_result = Impl::constant_constant(
-                    column_left_ptr->template get_value<typename Impl::ArgA>(),
-                    column_right_ptr->template get_value<typename Impl::ArgB>());
+            typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType left_tmp;
+            auto left_src = column_left_ptr->template get_value<Impl::DataTypeA::PType>();
+            std::memcpy(&left_tmp, &left_src, sizeof(left_src));
+            typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType right_tmp;
+            auto right_src = column_right_ptr->template get_value<Impl::DataTypeB::PType>();
+            std::memcpy(&right_tmp, &right_src, sizeof(right_src));
+            column_result = Impl::constant_constant(left_tmp, right_tmp);
         }
 
         return ColumnConst::create(std::move(column_result), column_left->size());
@@ -179,11 +204,14 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::vector_constant(
-                                        column_left->get_ptr(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
-                                        max_and_multiplier.first, max_and_multiplier.second,
-                                        type_result, check_overflow_for_decimal);
+                                typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType tmp;
+                                auto src = column_right_ptr
+                                                   ->template get_value<Impl::DataTypeB::PType>();
+                                std::memcpy(&tmp, &src, sizeof(src));
+                                res = Impl::vector_constant(column_left->get_ptr(), tmp,
+                                                            max_and_multiplier.first,
+                                                            max_and_multiplier.second, type_result,
+                                                            check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -196,11 +224,14 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::vector_constant(
-                                        column_left->get_ptr(),
-                                        column_right_ptr->template get_value<typename Impl::ArgB>(),
-                                        max_and_multiplier.first, max_and_multiplier.second,
-                                        type_result, check_overflow_for_decimal);
+                                typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType tmp;
+                                auto src = column_right_ptr
+                                                   ->template get_value<Impl::DataTypeB::PType>();
+                                std::memcpy(&tmp, &src, sizeof(src));
+                                res = Impl::vector_constant(column_left->get_ptr(), tmp,
+                                                            max_and_multiplier.first,
+                                                            max_and_multiplier.second, type_result,
+                                                            check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -209,9 +240,10 @@ private:
                 }
             }
         } else {
-            res = Impl::vector_constant(
-                    column_left->get_ptr(),
-                    column_right_ptr->template get_value<typename Impl::ArgB>());
+            typename PrimitiveTypeTraits<Impl::DataTypeB::PType>::CppType tmp;
+            auto src = column_right_ptr->template get_value<Impl::DataTypeB::PType>();
+            std::memcpy(&tmp, &src, sizeof(src));
+            res = Impl::vector_constant(column_left->get_ptr(), tmp);
         }
         return res;
     }
@@ -230,11 +262,14 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::constant_vector(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right->get_ptr(), max_and_multiplier.first,
-                                        max_and_multiplier.second, type_result,
-                                        check_overflow_for_decimal);
+                                typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType tmp;
+                                auto src = column_left_ptr
+                                                   ->template get_value<Impl::DataTypeA::PType>();
+                                std::memcpy(&tmp, &src, sizeof(src));
+                                res = Impl::constant_vector(tmp, column_right->get_ptr(),
+                                                            max_and_multiplier.first,
+                                                            max_and_multiplier.second, type_result,
+                                                            check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -247,11 +282,14 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                res = Impl::constant_vector(
-                                        column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right->get_ptr(), max_and_multiplier.first,
-                                        max_and_multiplier.second, type_result,
-                                        check_overflow_for_decimal);
+                                typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType tmp;
+                                auto src = column_left_ptr
+                                                   ->template get_value<Impl::DataTypeA::PType>();
+                                std::memcpy(&tmp, &src, sizeof(src));
+                                res = Impl::constant_vector(tmp, column_right->get_ptr(),
+                                                            max_and_multiplier.first,
+                                                            max_and_multiplier.second, type_result,
+                                                            check_overflow_for_decimal);
                                 return true;
                             })) {
                     throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -260,8 +298,10 @@ private:
                 }
             }
         } else {
-            res = Impl::constant_vector(column_left_ptr->template get_value<typename Impl::ArgA>(),
-                                        column_right->get_ptr());
+            typename PrimitiveTypeTraits<Impl::DataTypeA::PType>::CppType tmp;
+            auto src = column_left_ptr->template get_value<Impl::DataTypeA::PType>();
+            std::memcpy(&tmp, &src, sizeof(src));
+            res = Impl::constant_vector(tmp, column_right->get_ptr());
         }
         return res;
     }
@@ -489,8 +529,8 @@ struct ModuloDecimalImpl {
                   (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
     static constexpr auto name = "mod";
     static constexpr auto is_pmod = false;
-    using ArgA = typename PrimitiveTypeTraits<TypeA>::ColumnItemType;
-    using ArgB = typename PrimitiveTypeTraits<TypeB>::ColumnItemType;
+    using ArgA = typename PrimitiveTypeTraits<TypeA>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<TypeB>::CppType;
     using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
     using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
     using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
@@ -543,7 +583,7 @@ struct ModDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr constant_constant(
             ArgA a, ArgB b,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -554,20 +594,40 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(1, 0);
         if (check_overflow_for_decimal) {
             column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<true, ResultType>(a.value, b.value, null_map->get_element(0),
-                                                    max_result_number));
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<true, ResultType>(
+                            a.value, b.value, null_map->get_element(0), max_result_number));
         } else {
             column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<false, ResultType>(a.value, b.value, null_map->get_element(0),
-                                                     max_result_number));
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<false, ResultType>(
+                            a.value, b.value, null_map->get_element(0), max_result_number));
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr constant_constant(
+            ArgA a, ArgB b,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        auto column_result = ColumnDecimal<ResultType>::create(1, res_data_type.get_scale());
+
+        auto null_map = ColumnUInt8::create(1, 0);
+        if (check_overflow_for_decimal) {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<true, ResultType>(
+                            a.value(), b.value(), null_map->get_element(0), max_result_number));
+        } else {
+            column_result->get_element(0) =
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<false, ResultType>(
+                            a.value(), b.value(), null_map->get_element(0), max_result_number));
+        }
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr vector_constant(
             ColumnPtr column_left, ArgB b,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -598,7 +658,38 @@ struct ModDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr vector_constant(
+            ColumnPtr column_left, ArgB b,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_left_ptr = assert_cast<const ColumnTypeA*>(column_left.get());
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_left->size(), res_data_type.get_scale());
+        DCHECK(column_left_ptr != nullptr);
+
+        auto null_map = ColumnUInt8::create(column_left->size(), 0);
+        const auto& a = column_left_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_left->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a[i].value(), b.value(), n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a[i].value(), b.value(), n[i], max_result_number));
+            }
+        }
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr constant_vector(
             ArgA a, ColumnPtr column_right,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -630,7 +721,39 @@ struct ModDecimalImpl {
     }
 
     template <PrimitiveType ResultType>
-        requires(is_decimal(ResultType))
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr constant_vector(
+            ArgA a, ColumnPtr column_right,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_right_ptr = assert_cast<const ColumnTypeB*>(column_right.get());
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_right->size(), res_data_type.get_scale());
+        DCHECK(column_right_ptr != nullptr);
+
+        auto null_map = ColumnUInt8::create(column_right->size(), 0);
+        const auto& b = column_right_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_right->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a.value(), b[i].value(), n[i], max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a.value(), b[i].value(), n[i], max_result_number));
+            }
+        }
+
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
     static ColumnPtr vector_vector(
             ColumnPtr column_left, ColumnPtr column_right,
             const typename PrimitiveTypeTraits<ResultType>::CppType max_result_number,
@@ -650,30 +773,50 @@ struct ModDecimalImpl {
         const auto& c = column_result->get_data().data();
         auto& n = null_map->get_data();
         auto sz = column_right->size();
-        if constexpr (DataTypeA::PType == TYPE_DECIMALV2) {
-            if (check_overflow_for_decimal) {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = Decimal128V2(apply<true, TYPE_DECIMALV2>(a[i].value, b[i].value, n[i],
-                                                                    max_result_number));
-                }
-            } else {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = Decimal128V2(apply<false, TYPE_DECIMALV2>(a[i].value, b[i].value, n[i],
-                                                                     max_result_number));
-                }
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<true, ResultType>(a[i].value, b[i].value, n[i], max_result_number));
             }
-
         } else {
-            if (check_overflow_for_decimal) {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<true, ResultType>(
-                            a[i].value, b[i].value, n[i], max_result_number));
-                }
-            } else {
-                for (size_t i = 0; i < sz; ++i) {
-                    c[i] = typename DataTypeDecimal<ResultType>::FieldType(apply<false, ResultType>(
-                            a[i].value, b[i].value, n[i], max_result_number));
-                }
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = typename DataTypeDecimal<ResultType>::FieldType(
+                        apply<false, ResultType>(a[i].value, b[i].value, n[i], max_result_number));
+            }
+        }
+        return ColumnNullable::create(std::move(column_result), std::move(null_map));
+    }
+
+    template <PrimitiveType ResultType>
+        requires(ResultType == TYPE_DECIMALV2)
+    static ColumnPtr vector_vector(
+            ColumnPtr column_left, ColumnPtr column_right,
+            const typename PrimitiveTypeTraits<ResultType>::CppType max_result_number,
+            const typename PrimitiveTypeTraits<ResultType>::CppType scale_diff_multiplier,
+            const DataTypeDecimal<ResultType>& res_data_type, bool check_overflow_for_decimal) {
+        const auto* column_left_ptr = assert_cast<const ColumnTypeA*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const ColumnTypeB*>(column_right.get());
+
+        auto column_result =
+                ColumnDecimal<ResultType>::create(column_left->size(), res_data_type.get_scale());
+        DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
+
+        // function divide, modulo and pmod
+        auto null_map = ColumnUInt8::create(column_result->size(), 0);
+        const auto& a = column_left_ptr->get_data().data();
+        const auto& b = column_right_ptr->get_data().data();
+        const auto& c = column_result->get_data().data();
+        auto& n = null_map->get_data();
+        auto sz = column_right->size();
+        if (check_overflow_for_decimal) {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = DecimalV2Value(apply<true, TYPE_DECIMALV2>(a[i].value(), b[i].value(), n[i],
+                                                                  max_result_number));
+            }
+        } else {
+            for (size_t i = 0; i < sz; ++i) {
+                c[i] = DecimalV2Value(apply<false, TYPE_DECIMALV2>(a[i].value(), b[i].value(), n[i],
+                                                                   max_result_number));
             }
         }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));

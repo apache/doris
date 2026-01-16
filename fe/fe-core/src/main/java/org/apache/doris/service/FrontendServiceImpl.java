@@ -3649,7 +3649,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (AddPartitionOp addPartitionOp : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true, null);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(
@@ -3726,7 +3726,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     try {
                         if (Config.isCloudMode() && request.isSetBeEndpoint()) {
                             bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -3987,7 +3987,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     try {
                         if (Config.isCloudMode() && request.isSetBeEndpoint()) {
                             bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMapCloud(request.be_endpoint);
+                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -4382,6 +4382,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             jobInfo.setUserName(job.getUserIdentity().getQualifiedUser());
             jobInfo.setCurrentAbortTaskNum(job.getJobStatistic().currentAbortedTaskNum);
             jobInfo.setIsAbnormalPause(job.isAbnormalPause());
+            jobInfo.setComputeGroup(job.getClusterInfo());
             jobInfos.add(jobInfo);
         }
         if (LOG.isDebugEnabled()) {

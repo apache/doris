@@ -343,6 +343,9 @@ public class PlanUtils {
         }
 
         private static void doCollect(Expression expression, List<AggregateFunction> aggFunctions) {
+            if (!expression.containsType(AggregateFunction.class)) {
+                return;
+            }
             expression.foreach(expr -> {
                 if (expr instanceof AggregateFunction) {
                     aggFunctions.add((AggregateFunction) expr);
@@ -380,6 +383,9 @@ public class PlanUtils {
         }
 
         private static void doCollect(Expression expression, Map<AggregateFunction, Map<String, String>> aggFunctions) {
+            if (!expression.containsType(AggregateFunction.class)) {
+                return;
+            }
             expression.foreach(expr -> {
                 if (expr instanceof AggregateFunction) {
                     aggFunctions.put((AggregateFunction) expr, null);

@@ -88,7 +88,7 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,
                                      const cctz::time_zone& local_time_zone, int dt_scale,
                                      int tz_scale) {
-    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
     PROPAGATE_FALSE(vectorized::transform_date_scale(tz_scale, dt_scale, dt_value,
                                                      origin_dt.to_date_int_val()));
@@ -101,8 +101,6 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
 
     auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
 
-    DateV2Value<DateTimeV2ValueType> utc_dt;
-
     return _utc_dt.check_range_and_set_time((uint16_t)utc_cs.year(), (uint8_t)utc_cs.month(),
                                             (uint8_t)utc_cs.day(), (uint8_t)utc_cs.hour(),
                                             (uint8_t)utc_cs.minute(), (uint8_t)utc_cs.second(),
@@ -112,7 +110,7 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
 bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
                                    const cctz::time_zone& local_time_zone, int dt_scale,
                                    int tz_scale) const {
-    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
     PROPAGATE_FALSE(vectorized::transform_date_scale(dt_scale, tz_scale, dt_value,
                                                      _utc_dt.to_date_int_val()));

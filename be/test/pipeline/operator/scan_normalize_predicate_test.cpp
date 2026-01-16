@@ -55,7 +55,8 @@ TEST_F(ScanNormalizePredicate, test1) {
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root =
             MockSlotRef::create_mock_context(0, std::make_shared<DataTypeInt64>());
-    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                conjunct_expr_root->root(), new_root);
     EXPECT_TRUE(st) << st.msg();
     std::cout << new_root->debug_string() << std::endl;
 }
@@ -83,7 +84,8 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts1) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                conjunct_expr_root->root(), new_root);
 
     EXPECT_EQ(new_root, nullptr);
     EXPECT_TRUE(local_state->_scan_dependency->ready());
@@ -112,7 +114,8 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts2) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                conjunct_expr_root->root(), new_root);
     EXPECT_EQ(new_root, nullptr);
     EXPECT_TRUE(local_state->_scan_dependency->ready());
     EXPECT_TRUE(local_state->_eos);
@@ -159,7 +162,8 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts4) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+    auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                conjunct_expr_root->root(), new_root);
     EXPECT_TRUE(st.ok());
     std::cout << st.msg() << std::endl;
 }
@@ -200,7 +204,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
@@ -258,7 +263,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
@@ -281,7 +287,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         std::cout << st.msg() << std::endl;
     }
@@ -342,7 +349,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot3) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
     EXPECT_TRUE(local_state->_scan_dependency->ready());
     EXPECT_TRUE(local_state->_eos);
@@ -380,7 +388,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot4) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -437,7 +446,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot5) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -500,7 +510,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -563,7 +574,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     EXPECT_TRUE(local_state->_scan_dependency->ready());
@@ -608,7 +620,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot8) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId];
@@ -660,7 +673,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot10) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 }
 
@@ -701,7 +715,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 }
 
@@ -745,7 +760,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId];
@@ -801,7 +817,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot13) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId];
@@ -857,7 +874,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot14) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId];
@@ -917,7 +935,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot15) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
     }
 
     auto& output_range = local_state->_slot_id_to_value_range[SlotId];
@@ -982,7 +1001,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1023,7 +1043,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -1065,7 +1086,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
     }
@@ -1091,7 +1113,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -1116,7 +1139,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
         auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [](auto&& arg) {
@@ -1154,7 +1178,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
         auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [](auto&& arg) {
@@ -1195,7 +1220,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1254,7 +1280,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1310,7 +1337,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1369,7 +1397,8 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1403,7 +1432,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     std::vector<std::string> test_values = {"0000-01-01 00:00:00", "2023-01-01 15:00:00",
                                             "9999-12-31 23:59:59"};
     std::vector<TimestampTzValue> test_tz_values;
-    std::vector<PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::ColumnItemType> test_tz_raw_values;
+    std::vector<PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType> test_tz_raw_values;
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
     TimezoneUtils::load_offsets_to_cache();
     vectorized::CastParameters params;
@@ -1412,7 +1441,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
         test_tz_values.push_back(tz);
-        test_tz_raw_values.push_back(tz.to_date_int_val());
+        test_tz_raw_values.push_back(tz);
     }
     const int SlotId = 0;
 
@@ -1435,8 +1464,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("eq");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1450,7 +1478,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1492,7 +1521,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -1521,8 +1551,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("ne");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1536,7 +1565,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
     }
@@ -1563,7 +1593,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
         EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
@@ -1592,7 +1623,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
         auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [](auto&& arg) {
@@ -1631,7 +1663,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(), new_root));
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                      conjunct_expr_root->root(), new_root));
         auto& output_range = local_state->_slot_id_to_value_range[SlotId];
         std::visit(
                 [](auto&& arg) {
@@ -1659,8 +1692,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("lt");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1674,7 +1706,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1719,8 +1752,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("le");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1734,7 +1766,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1776,8 +1809,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("gt");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1791,7 +1823,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 
@@ -1836,8 +1869,7 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                 std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeTimeStampTz>(test_scale));
         auto fn_eq = MockFnCall::create("ge");
         auto const_val = std::make_shared<MockLiteral>(
-                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>(
-                        {const_v.to_date_int_val()}));
+                ColumnHelper::create_column_with_name<DataTypeTimeStampTz>({const_v}));
 
         fn_eq->add_child(slot_ref);
         fn_eq->add_child(const_val);
@@ -1851,7 +1883,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
 
         vectorized::VExprSPtr new_root;
         auto conjunct_expr_root = ctx;
-        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(), new_root);
+        auto st = local_state->_normalize_predicate(conjunct_expr_root.get(),
+                                                    conjunct_expr_root->root(), new_root);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(new_root, nullptr);
 

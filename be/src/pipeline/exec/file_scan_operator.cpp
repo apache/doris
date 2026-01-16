@@ -32,6 +32,29 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
+PushDownType FileScanLocalState::_should_push_down_binary_predicate(
+        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+        StringRef* constant_val, const std::set<std::string> fn_name) const {
+    if (!fn_name.contains(fn_call->fn().name.function_name)) {
+        return PushDownType::UNACCEPTABLE;
+    }
+    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
+    const auto& children = fn_call->children();
+    DCHECK(children.size() == 2);
+    DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
+    if (children[1]->is_constant()) {
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
+        const auto* const_column =
+                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+        *constant_val = const_column->get_data_at(0);
+        return PushDownType::PARTIAL_ACCEPTABLE;
+    } else {
+        // only handle constant value
+        return PushDownType::UNACCEPTABLE;
+    }
+}
+
 int FileScanLocalState::max_scanners_concurrency(RuntimeState* state) const {
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
@@ -111,9 +134,13 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto calc_max_scanners = [&](int parallel_instance_num) -> int {
         int max_scanners = vectorized::ScannerScheduler::default_remote_scan_thread_num() /
                            parallel_instance_num;
-        if (should_run_serial()) {
-            max_scanners = 1;
-        }
+        // For external tables, each scanner is not bound to specific splits.
+        // Instead, when a scanner is scheduled, it dynamically fetches the next scan range
+        // from a unified split source for scanning.
+        // Therefore, the number of scanners only needs to match "max_scanners_concurrency"
+        // to ensure full-speed execution.
+        // For 32 core node, the default "max_scanners_concurrency" should be 16
+        max_scanners = std::min(max_scanners, max_scanners_concurrency(state));
         return max_scanners;
     };
 

@@ -66,7 +66,8 @@ template <PrimitiveType Type, PredicateType PT, int N>
 class InListPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
-    using T = typename PrimitiveTypeTraits<Type>::CppType;
+    using T = std::conditional_t<is_string_type(Type), StringRef,
+                                 typename PrimitiveTypeTraits<Type>::CppType>;
     using HybridSetType = std::conditional_t<
             N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE,
             std::conditional_t<
@@ -77,32 +78,10 @@ public:
                     std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
                     HybridSet<Type, DynamicContainer<T>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>>;
-    template <typename ConditionType, typename ConvertFunc>
-    InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
-                        const ConvertFunc& convert, bool is_opposite,
-                        const vectorized::DataTypePtr& data_type, vectorized::Arena& arena)
-            : ColumnPredicate(column_id, Type, is_opposite),
-              _min_value(type_limit<T>::max()),
-              _max_value(type_limit<T>::min()) {
-        _values = std::make_shared<HybridSetType>(false);
-        for (const auto& condition : conditions) {
-            T tmp;
-            if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
-                tmp = convert(data_type, condition, arena);
-            } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                                 Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
-                tmp = convert(data_type, condition);
-            } else {
-                tmp = convert(condition);
-            }
-            _values->insert(&tmp);
-            _update_min_max(tmp);
-        }
-    }
-
-    InListPredicateBase(uint32_t column_id, const std::shared_ptr<HybridSetBase>& hybrid_set,
-                        bool is_opposite, size_t char_length = 0)
-            : ColumnPredicate(column_id, Type, is_opposite),
+    InListPredicateBase(uint32_t column_id, std::string col_name,
+                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
+                        size_t char_length = 0)
+            : ColumnPredicate(column_id, col_name, Type, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
         CHECK(hybrid_set != nullptr);
@@ -278,16 +257,14 @@ public:
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         T min_value;
         T max_value;
-        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
-            min_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-            max_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        if constexpr (is_string_type(Type)) {
+            auto& tmp_min = min_field.template get<Type>();
+            auto& tmp_max = max_field.template get<Type>();
+            min_value = StringRef(tmp_min.data(), tmp_min.size());
+            max_value = StringRef(tmp_max.data(), tmp_max.size());
         } else {
-            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            min_value = min_field.template get<Type>();
+            max_value = max_field.template get<Type>();
         }
 
         if constexpr (PT == PredicateType::IN_LIST) {

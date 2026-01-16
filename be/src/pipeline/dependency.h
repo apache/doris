@@ -382,6 +382,9 @@ public:
     // Refresh the top limit heap with a new row
     void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
 
+    vectorized::Arena agg_arena_pool;
+    vectorized::Arena agg_profile_arena;
+
 private:
     vectorized::MutableColumns _get_keys_hash_table();
 
@@ -577,6 +580,7 @@ public:
     std::mutex buffer_mutex;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    vectorized::Arena agg_arena_pool;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -698,6 +702,8 @@ public:
     std::vector<vectorized::VExprContextSPtrs> probe_child_exprs_lists;
 
     std::atomic<bool> ready_for_read = false;
+
+    vectorized::Arena arena;
 
     /// called in setup_local_state
     Status hash_table_init();

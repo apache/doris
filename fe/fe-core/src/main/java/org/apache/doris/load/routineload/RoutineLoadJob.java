@@ -907,7 +907,7 @@ public abstract class RoutineLoadJob
             MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);
             MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(taskExecutionTime);
-            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(1L);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT.increase(1L);
         }
 
         // check error rate
@@ -1638,6 +1638,10 @@ public abstract class RoutineLoadJob
         this.cloudCluster = cloudCluster;
     }
 
+    public String getClusterInfo() {
+        return Strings.nullToEmpty(cloudCluster);
+    }
+
     // check the correctness of commit info
     protected abstract boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
                                                TransactionState txnState,
@@ -1691,6 +1695,7 @@ public abstract class RoutineLoadJob
             row.add(otherMsg);
             row.add(userIdentity.getQualifiedUser());
             row.add(comment);
+            row.add(getClusterInfo());
             return row;
         } finally {
             readUnlock();

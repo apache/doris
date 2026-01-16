@@ -601,7 +601,7 @@ struct ColumnStr<T>::less {
 
 template <typename T>
 void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                                   IColumn::Permutation& res) const {
+                                   HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = offsets.size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -609,9 +609,9 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), less<false>(*this));
+        sorter.sort(res.begin(), res.end(), less<false>(*this));
     } else {
-        pdqsort(res.begin(), res.end(), less<true>(*this));
+        sorter.sort(res.begin(), res.end(), less<true>(*this));
     }
 }
 
@@ -745,15 +745,15 @@ void ColumnStr<T>::insert(const Field& x) {
     StringRef s;
     if (x.get_type() == PrimitiveType::TYPE_JSONB) {
         // Handle JsonbField
-        const auto& real_field = vectorized::get<const JsonbField&>(x);
+        const auto& real_field = x.get<TYPE_JSONB>();
         s = StringRef(real_field.get_value(), real_field.get_size());
     } else {
         DCHECK(is_string_type(x.get_type()));
         // If `x.get_type()` is not String, such as UInt64, may get the error
         // `string column length is too large: total_length=13744632839234567870`
         // because `<String>(x).size() = 13744632839234567870`
-        s.data = vectorized::get<const String&>(x).data();
-        s.size = vectorized::get<const String&>(x).size();
+        s.data = x.get<TYPE_STRING>().data();
+        s.size = x.get<TYPE_STRING>().size();
     }
     const size_t old_size = chars.size();
     const size_t size_to_append = s.size;

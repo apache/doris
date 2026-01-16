@@ -53,9 +53,19 @@ int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) c
     if (scale == other.scale) {
         return a > b ? 1 : (a < b ? -1 : 0);
     }
-    return decimal_less<value_type>(b, a, other.scale, scale)
-                   ? 1
-                   : (decimal_less<value_type>(a, b, scale, other.scale) ? -1 : 0);
+    if constexpr (T == TYPE_DECIMALV2) {
+        return decimal_less<DecimalV2Value>(*(DecimalV2Value*)&b, *(DecimalV2Value*)&a, other.scale,
+                                            scale)
+                       ? 1
+                       : (decimal_less<DecimalV2Value>(*(DecimalV2Value*)&a, *(DecimalV2Value*)&b,
+                                                       scale, other.scale)
+                                  ? -1
+                                  : 0);
+    } else {
+        return decimal_less<value_type>(b, a, other.scale, scale)
+                       ? 1
+                       : (decimal_less<value_type>(a, b, scale, other.scale) ? -1 : 0);
+    }
 }
 
 template <PrimitiveType T>
@@ -282,22 +292,20 @@ void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
 
 template <PrimitiveType T>
 Field ColumnDecimal<T>::operator[](size_t n) const {
-    return Field::create_field<T>(DecimalField<value_type>(data[n], scale));
+    return Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)(&data[n]));
 }
 
 template <PrimitiveType T>
-void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
+void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int, HybridSorter& sorter,
                                        IColumn::Permutation& res) const {
-#if 1 /// TODO: perf test
     if (data.size() <= std::numeric_limits<UInt32>::max()) {
         PaddedPODArray<UInt32> tmp_res;
-        permutation(reverse, limit, tmp_res);
+        permutation(reverse, limit, sorter, tmp_res);
 
         res.resize(tmp_res.size());
         for (size_t i = 0; i < tmp_res.size(); ++i) res[i] = tmp_res[i];
         return;
     }
-#endif
 }
 
 template <PrimitiveType T>
@@ -523,22 +531,26 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 template <PrimitiveType T>
 void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
-    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
-    if (0 == null_count) {
-        return;
-    }
     for (size_t i = 0; i < s; ++i) {
         data[i] = null_map[i] ? value_type() : data[i];
     }
 }
 
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
-    return data[n].value / DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value / DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 template <PrimitiveType T>
-ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
-    return data[n].value % DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+typename ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return data[n].value() % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    } else {
+        return data[n].value % DataTypeDecimal<T>::get_scale_multiplier(scale);
+    }
 }
 
 template class ColumnDecimal<TYPE_DECIMAL32>;

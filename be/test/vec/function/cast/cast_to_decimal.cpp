@@ -100,10 +100,10 @@ TEST_F(FunctionCastToDecimalTest, test_from_bool) {
     from_bool_test_func<Decimal64>(18, 9);
     from_bool_test_func<Decimal64>(18, 17);
 
-    from_bool_test_func<Decimal128V2>(27, 9);
-    // from_bool_test_func<Decimal128V2, 27, 1>();
-    // from_bool_test_func<Decimal128V2, 27, 13>();
-    // from_bool_test_func<Decimal128V2, 27, 26>();
+    from_bool_test_func<DecimalV2Value>(27, 9);
+    // from_bool_test_func<DecimalV2Value, 27, 1>();
+    // from_bool_test_func<DecimalV2Value, 27, 13>();
+    // from_bool_test_func<DecimalV2Value, 27, 26>();
 
     from_bool_test_func<Decimal128V3>(38, 0);
     from_bool_test_func<Decimal128V3>(38, 1);
@@ -119,7 +119,7 @@ TEST_F(FunctionCastToDecimalTest, test_from_bool) {
 TEST_F(FunctionCastToDecimalTest, test_from_bool_overflow) {
     from_bool_overflow_test_func<Decimal32>();
     from_bool_overflow_test_func<Decimal64>();
-    from_bool_overflow_test_func<Decimal128V2>();
+    from_bool_overflow_test_func<DecimalV2Value>();
     from_bool_overflow_test_func<Decimal128V3>();
     from_bool_overflow_test_func<Decimal256>();
 }

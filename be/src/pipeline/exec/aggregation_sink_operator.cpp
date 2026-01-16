@@ -102,8 +102,8 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     }
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
-        _agg_data->without_key =
-                reinterpret_cast<vectorized::AggregateDataPtr>(_agg_profile_arena.aligned_alloc(
+        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
+                Base::_shared_state->agg_profile_arena.aligned_alloc(
                         p._total_size_of_aggregate_states, p._align_aggregate_states));
 
         if (p._is_merge) {
@@ -187,7 +187,7 @@ Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
                 block,
                 _agg_data->without_key + Base::_parent->template cast<AggSinkOperatorX>()
                                                  ._offsets_of_aggregate_states[i],
-                _agg_arena_pool));
+                Base::_shared_state->agg_arena_pool));
     }
     return Status::OK();
 }
@@ -207,7 +207,7 @@ size_t AggSinkLocalState::_memory_usage() const {
         return 0;
     }
     size_t usage = 0;
-    usage += _agg_arena_pool.size();
+    usage += Base::_shared_state->agg_arena_pool.size();
 
     if (Base::_shared_state->aggregate_data_container) {
         usage += Base::_shared_state->aggregate_data_container->memory_usage();
@@ -240,7 +240,7 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
                        },
                        [&](auto& agg_method) -> void {
                            auto& data = *agg_method.hash_table;
-                           int64_t memory_usage_arena = _agg_arena_pool.size();
+                           int64_t memory_usage_arena = Base::_shared_state->agg_arena_pool.size();
                            int64_t memory_usage_container =
                                    _shared_state->aggregate_data_container->memory_usage();
                            int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
@@ -321,8 +321,8 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(), column.get(), _agg_arena_pool,
-                                    rows);
+                                    _deserialize_buffer.data(), column.get(),
+                                    Base::_shared_state->agg_arena_pool, rows);
                 }
             } else {
                 RETURN_IF_ERROR(
@@ -330,7 +330,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                 block,
                                 Base::_parent->template cast<AggSinkOperatorX>()
                                         ._offsets_of_aggregate_states[i],
-                                _places.data(), _agg_arena_pool));
+                                _places.data(), Base::_shared_state->agg_arena_pool));
             }
         }
     } else {
@@ -375,15 +375,15 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                         _places.data(),
                                         Base::_parent->template cast<AggSinkOperatorX>()
                                                 ._offsets_of_aggregate_states[i],
-                                        _deserialize_buffer.data(), column.get(), _agg_arena_pool,
-                                        rows);
+                                        _deserialize_buffer.data(), column.get(),
+                                        Base::_shared_state->agg_arena_pool, rows);
                     }
                 } else {
                     RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_batch_add(
                             block,
                             Base::_parent->template cast<AggSinkOperatorX>()
                                     ._offsets_of_aggregate_states[i],
-                            _places.data(), _agg_arena_pool));
+                            _places.data(), Base::_shared_state->agg_arena_pool));
                 }
             }
         }
@@ -423,20 +423,20 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
                             _agg_data->without_key +
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                            *column, _agg_arena_pool);
+                            *column, Base::_shared_state->agg_arena_pool);
         } else {
             RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_single_add(
                     block,
                     _agg_data->without_key + Base::_parent->template cast<AggSinkOperatorX>()
                                                      ._offsets_of_aggregate_states[i],
-                    _agg_arena_pool));
+                    Base::_shared_state->agg_arena_pool));
         }
     }
     return Status::OK();
 }
 
 void AggSinkLocalState::_update_memusage_without_key() {
-    int64_t arena_memory_usage = _agg_arena_pool.size();
+    int64_t arena_memory_usage = Base::_shared_state->agg_arena_pool.size();
     COUNTER_SET(_memory_used_counter, arena_memory_usage);
     COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
@@ -487,7 +487,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                             block,
                             Base::_parent->template cast<AggSinkOperatorX>()
                                     ._offsets_of_aggregate_states[i],
-                            _places.data(), _agg_arena_pool));
+                            _places.data(), Base::_shared_state->agg_arena_pool));
         }
     } else {
         auto do_aggregate_evaluators = [&] {
@@ -496,7 +496,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                         block,
                         Base::_parent->template cast<AggSinkOperatorX>()
                                 ._offsets_of_aggregate_states[i],
-                        _places.data(), _agg_arena_pool));
+                        _places.data(), Base::_shared_state->agg_arena_pool));
             }
             return Status::OK();
         };
@@ -550,8 +550,8 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                            agg_method.init_serialized_keys(key_columns, num_rows);
 
                            auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                               HashMethodType::try_presis_key_and_origin(key, origin,
-                                                                         _agg_arena_pool);
+                               HashMethodType::try_presis_key_and_origin(
+                                       key, origin, Base::_shared_state->agg_arena_pool);
                                auto mapped =
                                        Base::_shared_state->aggregate_data_container->append_data(
                                                origin);
@@ -563,7 +563,7 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                            };
 
                            auto creator_for_null_key = [&](auto& mapped) {
-                               mapped = _agg_arena_pool.aligned_alloc(
+                               mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
                                        Base::_parent->template cast<AggSinkOperatorX>()
                                                ._total_size_of_aggregate_states,
                                        Base::_parent->template cast<AggSinkOperatorX>()
@@ -627,8 +627,8 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
 
                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                 try {
-                                    HashMethodType::try_presis_key_and_origin(key, origin,
-                                                                              _agg_arena_pool);
+                                    HashMethodType::try_presis_key_and_origin(
+                                            key, origin, Base::_shared_state->agg_arena_pool);
                                     _shared_state->refresh_top_limit(i, key_columns);
                                     auto mapped =
                                             _shared_state->aggregate_data_container->append_data(
@@ -647,7 +647,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                             };
 
                             auto creator_for_null_key = [&](auto& mapped) {
-                                mapped = _agg_arena_pool.aligned_alloc(
+                                mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
                                         Base::_parent->template cast<AggSinkOperatorX>()
                                                 ._total_size_of_aggregate_states,
                                         Base::_parent->template cast<AggSinkOperatorX>()
@@ -909,7 +909,7 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     auto& ss = *local_state.Base::_shared_state;
     RETURN_IF_ERROR(ss.reset_hash_table());
     local_state._serialize_key_arena_memory_usage->set((int64_t)0);
-    local_state._agg_arena_pool.clear(true);
+    local_state.Base::_shared_state->agg_arena_pool.clear(true);
     return Status::OK();
 }
 

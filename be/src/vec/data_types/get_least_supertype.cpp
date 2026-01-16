@@ -133,6 +133,9 @@ void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
             } else if (min_bit_width_of_integer <= 64) {
                 *type = std::make_shared<DataTypeInt64>();
                 return;
+            } else if (min_bit_width_of_integer <= 128) {
+                *type = std::make_shared<DataTypeInt128>();
+                return;
             } else {
                 VLOG_DEBUG << " because some of them are signed integers and some are unsigned "
                               "integers, but there is no signed integer type, that can exactly "

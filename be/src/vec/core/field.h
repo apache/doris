@@ -55,14 +55,6 @@ struct PackedInt128;
 
 namespace doris::vectorized {
 
-template <typename T>
-struct NearestFieldTypeImpl {
-    using Type = T; // for HLL or some origin types. see def. of storage
-};
-
-template <typename T>
-using NearestFieldType = typename NearestFieldTypeImpl<T>::Type;
-
 class Field;
 
 using FieldVector = std::vector<Field>;
@@ -183,69 +175,6 @@ bool decimal_less(T x, T y, UInt32 x_scale, UInt32 y_scale);
 template <typename T>
 bool decimal_less_or_equal(T x, T y, UInt32 x_scale, UInt32 y_scale);
 
-template <typename T>
-class DecimalField {
-public:
-    DecimalField(T value, UInt32 scale_) : dec(value), scale(scale_) {}
-    // Store the underlying data ignoring scale.
-    DecimalField(T value) : dec(value), scale(0) {}
-
-    operator T() const { return dec; }
-    T get_value() const { return dec; }
-    UInt32 get_scale() const { return scale; }
-
-    template <typename U>
-    bool operator<(const DecimalField<U>& r) const {
-        using MaxType = std::conditional_t<(sizeof(T) > sizeof(U)), T, U>;
-        return decimal_less<MaxType>(dec, r.get_value(), scale, r.get_scale());
-    }
-
-    template <typename U>
-    bool operator<=(const DecimalField<U>& r) const {
-        using MaxType = std::conditional_t<(sizeof(T) > sizeof(U)), T, U>;
-        return decimal_less_or_equal<MaxType>(dec, r.get_value(), scale, r.get_scale());
-    }
-
-    template <typename U>
-    bool operator==(const DecimalField<U>& r) const {
-        using MaxType = std::conditional_t<(sizeof(T) > sizeof(U)), T, U>;
-        return decimal_equal<MaxType>(dec, r.get_value(), scale, r.get_scale());
-    }
-
-    template <typename U>
-    bool operator>(const DecimalField<U>& r) const {
-        return r < *this;
-    }
-    template <typename U>
-    bool operator>=(const DecimalField<U>& r) const {
-        return r <= *this;
-    }
-    template <typename U>
-    bool operator!=(const DecimalField<U>& r) const {
-        return !(*this == r);
-    }
-
-    const DecimalField<T>& operator+=(const DecimalField<T>& r) {
-        if (scale != r.get_scale()) {
-            throw Exception(Status::FatalError("Add different decimal fields"));
-        }
-        dec += r.get_value();
-        return *this;
-    }
-
-    const DecimalField<T>& operator-=(const DecimalField<T>& r) {
-        if (scale != r.get_scale()) {
-            throw Exception(Status::FatalError("Sub different decimal fields"));
-        }
-        dec -= r.get_value();
-        return *this;
-    }
-
-private:
-    T dec;
-    UInt32 scale;
-};
-
 // StringViewField wraps a StringView and provides deep copy semantics.
 // Since StringView is a non-owning view (only contains pointer and length),
 // we need to store the actual data in a String to ensure the Field owns the data.
@@ -343,37 +272,26 @@ public:
     // set Types::Null explictly and avoid other types
     Field(PrimitiveType w) : type(w) {}
     template <PrimitiveType T>
-    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType& data) {
-        auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
-        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
+    static Field create_field(const typename PrimitiveTypeTraits<T>::CppType& data) {
+        auto f = Field(T);
+        f.template create_concrete<T>(data);
         return f;
     }
     template <PrimitiveType T>
-    static Field create_field(typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
-        auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
-        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(
-                std::forward<typename PrimitiveTypeTraits<T>::NearestFieldType>(data));
+    static Field create_field(typename PrimitiveTypeTraits<T>::CppType&& data) {
+        auto f = Field(T);
+        f.template create_concrete<T>(std::move(data));
         return f;
     }
 
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
       */
-    Field(const Field& rhs) { create(rhs); }
+    Field(const Field& rhs);
 
-    Field(Field&& rhs) { create(std::move(rhs)); }
+    Field(Field&& rhs);
 
-    Field& operator=(const Field& rhs) {
-        if (this != &rhs) {
-            if (type != rhs.type) {
-                destroy();
-                create(rhs);
-            } else {
-                assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
-            }
-        }
-        return *this;
-    }
+    Field& operator=(const Field& rhs);
 
     bool is_complex_field() const {
         return type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
@@ -402,17 +320,27 @@ public:
     // The template parameter T needs to be consistent with `which`.
     // If not, use NearestFieldType<> externally.
     // Maybe modify this in the future, reference: https://github.com/ClickHouse/ClickHouse/pull/22003
-    template <typename T>
-    T& get() {
-        using TWithoutRef = std::remove_reference_t<T>;
-        auto* MAY_ALIAS ptr = reinterpret_cast<TWithoutRef*>(&storage);
+    template <PrimitiveType T>
+    typename PrimitiveTypeTraits<T>::CppType& get() {
+        DCHECK(T == type ||
+               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
+               type == TYPE_NULL)
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
         return *ptr;
     }
 
-    template <typename T>
-    const T& get() const {
-        using TWithoutRef = std::remove_reference_t<T>;
-        const auto* MAY_ALIAS ptr = reinterpret_cast<const TWithoutRef*>(&storage);
+    template <PrimitiveType T>
+    const typename PrimitiveTypeTraits<T>::CppType& get() const {
+        // TODO(gabriel): Is it safe for null type?
+        DCHECK(T == type ||
+               ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)) ||
+               type == TYPE_NULL)
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        const auto* MAY_ALIAS ptr =
+                reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
         return *ptr;
     }
 
@@ -420,172 +348,29 @@ public:
         return operator<=>(rhs) == std::strong_ordering::equal;
     }
 
-    std::strong_ordering operator<=>(const Field& rhs) const {
-        if (type == PrimitiveType::TYPE_NULL || rhs == PrimitiveType::TYPE_NULL) {
-            return type <=> rhs.type;
-        }
-        if (type != rhs.type) {
-            throw Exception(Status::FatalError("lhs type not equal with rhs, lhs={}, rhs={}",
-                                               get_type_name(), rhs.get_type_name()));
-        }
-
-        switch (type) {
-        case PrimitiveType::TYPE_BITMAP:
-        case PrimitiveType::TYPE_HLL:
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-        case PrimitiveType::INVALID_TYPE:
-        case PrimitiveType::TYPE_JSONB:
-        case PrimitiveType::TYPE_NULL:
-        case PrimitiveType::TYPE_ARRAY:
-        case PrimitiveType::TYPE_MAP:
-        case PrimitiveType::TYPE_STRUCT:
-        case PrimitiveType::TYPE_VARIANT:
-            return std::strong_ordering::equal; //TODO: throw Exception?
-        case PrimitiveType::TYPE_DATETIMEV2:
-            return get<UInt64>() <=> rhs.get<UInt64>();
-        case PrimitiveType::TYPE_DATEV2:
-            return get<UInt32>() <=> rhs.get<UInt32>();
-        case PrimitiveType::TYPE_TIMESTAMPTZ:
-            return get<UInt64>() <=> rhs.get<UInt64>();
-        case PrimitiveType::TYPE_DATE:
-        case PrimitiveType::TYPE_DATETIME:
-        case PrimitiveType::TYPE_BIGINT:
-            return get<Int64>() <=> rhs.get<Int64>();
-        case PrimitiveType::TYPE_LARGEINT:
-            return get<Int128>() <=> rhs.get<Int128>();
-        case PrimitiveType::TYPE_IPV6:
-            return get<IPv6>() <=> rhs.get<IPv6>();
-        case PrimitiveType::TYPE_IPV4:
-            return get<IPv4>() <=> rhs.get<IPv4>();
-        case PrimitiveType::TYPE_TIMEV2:
-        case PrimitiveType::TYPE_DOUBLE:
-            return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
-                   : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
-                                                          : std::strong_ordering::greater;
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            return get<String>() <=> rhs.get<String>();
-        case PrimitiveType::TYPE_VARBINARY:
-            return get<StringViewField>() <=> rhs.get<StringViewField>();
-        case PrimitiveType::TYPE_DECIMAL32:
-            return get<Decimal32>() <=> rhs.get<Decimal32>();
-        case PrimitiveType::TYPE_DECIMAL64:
-            return get<Decimal64>() <=> rhs.get<Decimal64>();
-        case PrimitiveType::TYPE_DECIMALV2:
-            return get<Decimal128V2>() <=> rhs.get<Decimal128V2>();
-        case PrimitiveType::TYPE_DECIMAL128I:
-            return get<Decimal128V3>() <=> rhs.get<Decimal128V3>();
-        case PrimitiveType::TYPE_DECIMAL256:
-            return get<Decimal256>() <=> rhs.get<Decimal256>();
-        default:
-            throw Exception(Status::FatalError("lhs type not equal with rhs, lhs={}, rhs={}",
-                                               get_type_name(), rhs.get_type_name()));
-        }
-    }
-
-    template <typename F,
-              typename Field> /// Field template parameter may be const or non-const Field.
-    static void dispatch(F&& f, Field& field) {
-        switch (field.type) {
-        case PrimitiveType::TYPE_NULL:
-            f(field.template get<Null>());
-            return;
-        case PrimitiveType::TYPE_DATETIMEV2:
-        case PrimitiveType::TYPE_TIMESTAMPTZ:
-            f(field.template get<UInt64>());
-            return;
-        case PrimitiveType::TYPE_DATETIME:
-        case PrimitiveType::TYPE_DATE:
-        case PrimitiveType::TYPE_BIGINT:
-            f(field.template get<Int64>());
-            return;
-        case PrimitiveType::TYPE_LARGEINT:
-            f(field.template get<Int128>());
-            return;
-        case PrimitiveType::TYPE_IPV6:
-            f(field.template get<IPv6>());
-            return;
-        case PrimitiveType::TYPE_TIMEV2:
-        case PrimitiveType::TYPE_DOUBLE:
-            f(field.template get<Float64>());
-            return;
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            f(field.template get<String>());
-            return;
-        case PrimitiveType::TYPE_VARBINARY:
-            f(field.template get<StringViewField>());
-            return;
-        case PrimitiveType::TYPE_JSONB:
-            f(field.template get<JsonbField>());
-            return;
-        case PrimitiveType::TYPE_ARRAY:
-            f(field.template get<Array>());
-            return;
-        case PrimitiveType::TYPE_STRUCT:
-            f(field.template get<Tuple>());
-            return;
-        case PrimitiveType::TYPE_MAP:
-            f(field.template get<Map>());
-            return;
-        case PrimitiveType::TYPE_DECIMAL32:
-            f(field.template get<DecimalField<Decimal32>>());
-            return;
-        case PrimitiveType::TYPE_DECIMAL64:
-            f(field.template get<DecimalField<Decimal64>>());
-            return;
-        case PrimitiveType::TYPE_DECIMALV2:
-            f(field.template get<DecimalField<Decimal128V2>>());
-            return;
-        case PrimitiveType::TYPE_DECIMAL128I:
-            f(field.template get<DecimalField<Decimal128V3>>());
-            return;
-        case PrimitiveType::TYPE_DECIMAL256:
-            f(field.template get<DecimalField<Decimal256>>());
-            return;
-        case PrimitiveType::TYPE_VARIANT:
-            f(field.template get<VariantMap>());
-            return;
-        case PrimitiveType::TYPE_BITMAP:
-            f(field.template get<BitmapValue>());
-            return;
-        case PrimitiveType::TYPE_HLL:
-            f(field.template get<HyperLogLog>());
-            return;
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-            f(field.template get<QuantileState>());
-            return;
-        default:
-            throw Exception(
-                    Status::FatalError("type not supported, type={}", field.get_type_name()));
-        }
-    }
+    std::strong_ordering operator<=>(const Field& rhs) const;
 
     std::string_view as_string_view() const;
-    std::string to_string() const;
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, StringViewField, Array, Tuple,
-                         Map, VariantMap, DecimalField<Decimal32>, DecimalField<Decimal64>,
-                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
+                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Tuple, Map,
+                         VariantMap, Decimal32, Decimal64, DecimalV2Value, Decimal128V3, Decimal256,
+                         BitmapValue, HyperLogLog, QuantileState>
             storage;
 
     PrimitiveType type;
 
     /// Assuming there was no allocated state or it was deallocated (see destroy).
     template <PrimitiveType Type>
-    void create_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
+    void create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x);
     template <PrimitiveType Type>
-    void create_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
+    void create_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x);
     /// Assuming same types.
     template <PrimitiveType Type>
-    void assign_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
+    void assign_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x);
     template <PrimitiveType Type>
-    void assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
+    void assign_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x);
 
     void create(const Field& field);
     void create(Field&& field);
@@ -595,10 +380,14 @@ private:
 
     void destroy();
 
-    template <typename T>
+    template <PrimitiveType T>
     void destroy() {
-        T* MAY_ALIAS ptr = reinterpret_cast<T*>(&storage);
-        ptr->~T();
+        using TargetType = typename PrimitiveTypeTraits<T>::CppType;
+        DCHECK(T == type || ((type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING) &&
+                             (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING)))
+                << "Type mismatch: requested " << int(T) << ", actual " << get_type_name();
+        auto* MAY_ALIAS ptr = reinterpret_cast<TargetType*>(&storage);
+        ptr->~TargetType();
     }
 };
 
@@ -610,137 +399,6 @@ struct FieldWithDataType {
     int precision = -1;
     int scale = -1;
 };
-
-template <typename T>
-T get(const Field& field) {
-    return field.template get<T>();
-}
-
-template <typename T>
-T get(Field& field) {
-    return field.template get<T>();
-}
-
-/// char may be signed or unsigned, and behave identically to signed char or unsigned char,
-///  but they are always three different types.
-/// signedness of char is different in Linux on x86 and Linux on ARM.
-template <>
-struct NearestFieldTypeImpl<char> {
-    using Type = std::conditional_t<IsSignedV<char>, Int64, UInt64>;
-};
-template <>
-struct NearestFieldTypeImpl<signed char> {
-    using Type = Int64;
-};
-template <>
-struct NearestFieldTypeImpl<unsigned char> {
-    using Type = Int64;
-};
-
-template <>
-struct NearestFieldTypeImpl<UInt16> {
-    using Type = UInt64;
-};
-template <>
-struct NearestFieldTypeImpl<UInt32> {
-    using Type = UInt64;
-};
-
-template <>
-struct NearestFieldTypeImpl<Int16> {
-    using Type = Int64;
-};
-template <>
-struct NearestFieldTypeImpl<Int32> {
-    using Type = Int64;
-};
-
-/// long and long long are always different types that may behave identically or not.
-/// This is different on Linux and Mac.
-template <>
-struct NearestFieldTypeImpl<long> {
-    using Type = Int64;
-};
-
-template <>
-struct NearestFieldTypeImpl<Decimal32> {
-    using Type = DecimalField<Decimal32>;
-};
-template <>
-struct NearestFieldTypeImpl<Decimal64> {
-    using Type = DecimalField<Decimal64>;
-};
-template <>
-struct NearestFieldTypeImpl<Decimal128V2> {
-    using Type = DecimalField<Decimal128V2>;
-};
-template <>
-struct NearestFieldTypeImpl<Decimal128V3> {
-    using Type = DecimalField<Decimal128V3>;
-};
-template <>
-struct NearestFieldTypeImpl<Decimal256> {
-    using Type = DecimalField<Decimal256>;
-};
-template <>
-struct NearestFieldTypeImpl<DecimalField<Decimal32>> {
-    using Type = DecimalField<Decimal32>;
-};
-template <>
-struct NearestFieldTypeImpl<DecimalField<Decimal64>> {
-    using Type = DecimalField<Decimal64>;
-};
-template <>
-struct NearestFieldTypeImpl<DecimalField<Decimal128V2>> {
-    using Type = DecimalField<Decimal128V2>;
-};
-template <>
-struct NearestFieldTypeImpl<DecimalField<Decimal128V3>> {
-    using Type = DecimalField<Decimal128V3>;
-};
-template <>
-struct NearestFieldTypeImpl<DecimalField<Decimal256>> {
-    using Type = DecimalField<Decimal256>;
-};
-template <>
-struct NearestFieldTypeImpl<Float32> {
-    using Type = Float64;
-};
-template <>
-struct NearestFieldTypeImpl<const char*> {
-    using Type = String;
-};
-template <>
-struct NearestFieldTypeImpl<bool> {
-    using Type = UInt64;
-};
-
-template <>
-struct NearestFieldTypeImpl<std::string_view> {
-    using Type = String;
-};
-
-template <>
-struct NearestFieldTypeImpl<PackedInt128> {
-    using Type = Int128;
-};
-
-template <>
-struct NearestFieldTypeImpl<doris::StringView> {
-    using Type = StringViewField;
-};
-
-template <typename T>
-decltype(auto) cast_to_nearest_field_type(T&& x) {
-    using U = NearestFieldType<std::decay_t<T>>;
-    if constexpr (std::is_same_v<PackedInt128, std::decay_t<T>>) {
-        return U(x.value);
-    } else if constexpr (std::is_same_v<std::decay_t<T>, U>) {
-        return std::forward<T>(x);
-    } else {
-        return U(x);
-    }
-}
 
 } // namespace doris::vectorized
 

@@ -79,7 +79,6 @@ import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -456,12 +455,8 @@ public class PaimonUtil {
                     return null;
                 }
                 return value.toString();
-            case BINARY:
-            case VARBINARY:
-                if (value == null) {
-                    return null;
-                }
-                return new String((byte[]) value, StandardCharsets.UTF_8);
+            // case binary, varbinary should not supported, because if return string with utf8,
+            // the data maybe be corrupted
             case DATE:
                 if (value == null) {
                     return null;

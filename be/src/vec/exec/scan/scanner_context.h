@@ -67,10 +67,6 @@ public:
         DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
-    ScanTask(std::shared_ptr<ResourceContext> resource_ctx,
-             std::weak_ptr<ScannerDelegate> delegate_scanner)
-            : _resource_ctx(std::move(resource_ctx)), scanner(delegate_scanner) {}
-
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
         cached_blocks.clear();

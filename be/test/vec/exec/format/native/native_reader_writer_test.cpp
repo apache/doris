@@ -883,8 +883,7 @@ static Block create_all_types_test_block() {
         // DateV1 stores as int64 representing binary date
         VecDateTimeValue dt;
         dt.from_date_int64(20231215); // 2023-12-15
-        col->insert(Field::create_field<PrimitiveType::TYPE_DATE>(
-                binary_cast<VecDateTimeValue, Int64>(dt)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DATE>(dt));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_date"));
     }
 
@@ -895,8 +894,7 @@ static Block create_all_types_test_block() {
         MutableColumnPtr col = type->create_column();
         VecDateTimeValue dt;
         dt.from_date_int64(20231215103045LL); // 2023-12-15 10:30:45
-        col->insert(Field::create_field<PrimitiveType::TYPE_DATETIME>(
-                binary_cast<VecDateTimeValue, Int64>(dt)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DATETIME>(dt));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_datetime"));
     }
 
@@ -907,8 +905,7 @@ static Block create_all_types_test_block() {
         MutableColumnPtr col = type->create_column();
         DateV2Value<DateV2ValueType> dv2;
         dv2.from_date_int64(20231215);
-        col->insert(Field::create_field<PrimitiveType::TYPE_DATEV2>(
-                static_cast<UInt64>(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv2))));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DATEV2>(dv2));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_datev2"));
     }
 
@@ -919,8 +916,7 @@ static Block create_all_types_test_block() {
         MutableColumnPtr col = type->create_column();
         DateV2Value<DateTimeV2ValueType> dtv2;
         dtv2.from_date_int64(20231215103045LL);
-        col->insert(Field::create_field<PrimitiveType::TYPE_DATETIMEV2>(
-                binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv2)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DATETIMEV2>(dtv2));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_datetimev2"));
     }
 
@@ -969,9 +965,8 @@ static Block create_all_types_test_block() {
         DataTypePtr type = make_nullable(
                 DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, false, 27, 9));
         MutableColumnPtr col = type->create_column();
-        Decimal128V2 dec_val(static_cast<Int128>(123456789123456789LL));
-        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMALV2>(
-                DecimalField<Decimal128V2>(dec_val, 9)));
+        DecimalV2Value dec_val(static_cast<Int128>(123456789123456789LL));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMALV2>(dec_val));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_decimalv2"));
     }
 
@@ -981,8 +976,7 @@ static Block create_all_types_test_block() {
                 DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 9, 2));
         MutableColumnPtr col = type->create_column();
         Decimal32 dec_val(static_cast<Int32>(12345678));
-        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL32>(
-                DecimalField<Decimal32>(dec_val, 2)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL32>(dec_val));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_decimal32"));
     }
 
@@ -992,8 +986,7 @@ static Block create_all_types_test_block() {
                 DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64, false, 18, 4));
         MutableColumnPtr col = type->create_column();
         Decimal64 dec_val(static_cast<Int64>(123456789012345678LL));
-        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL64>(
-                DecimalField<Decimal64>(dec_val, 4)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL64>(dec_val));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_decimal64"));
     }
 
@@ -1003,8 +996,7 @@ static Block create_all_types_test_block() {
                 DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, false, 38, 6));
         MutableColumnPtr col = type->create_column();
         Decimal128V3 dec_val(static_cast<Int128>(123456789012345678LL) * 100);
-        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL128I>(
-                DecimalField<Decimal128V3>(dec_val, 6)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL128I>(dec_val));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_decimal128"));
     }
 
@@ -1015,8 +1007,7 @@ static Block create_all_types_test_block() {
         MutableColumnPtr col = type->create_column();
         wide::Int256 wide_val = wide::Int256(123456789012345678LL) * 10000000000LL;
         Decimal256 dec_val(wide_val);
-        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL256>(
-                DecimalField<Decimal256>(dec_val, 10)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_DECIMAL256>(dec_val));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_decimal256"));
     }
 
