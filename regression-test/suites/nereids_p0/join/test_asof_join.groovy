@@ -1198,4 +1198,28 @@ suite("test_asof_join", "nereids_p0") {
         ORDER BY l.id
     """
 
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= l.ts)
+        ON l.grp = r.grp
+        ORDER BY l.id
+        """
+        exception "MATCH_CONDITION must specify column from both table"
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts - l.ts >= 1)
+        ON l.grp = r.grp
+        ORDER BY l.id
+        """
+        exception "only allow date, datetime and timestamptz in MATCH_CONDITION"
+    }
+
 }

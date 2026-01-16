@@ -768,6 +768,12 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (conjunct instanceof ComparisonPredicate) {
                     if (conjunct.child(0).getDataType().isDateLikeType()
                             && conjunct.child(1).getDataType().isDateLikeType()) {
+                        Set<Slot> leftSlots = join.left().getOutputSet();
+                        Set<Slot> rightSlots = join.right().getOutputSet();
+                        Set<Slot> usedSlots = conjunct.getInputSlots();
+                        if (leftSlots.containsAll(usedSlots) || rightSlots.containsAll(usedSlots)) {
+                            throw new AnalysisException("MATCH_CONDITION must specify column from both table");
+                        }
                         isValid = true;
                     } else {
                         throw new AnalysisException("only allow date, datetime and timestamptz in MATCH_CONDITION");
