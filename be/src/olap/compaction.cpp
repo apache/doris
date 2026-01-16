@@ -430,7 +430,14 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     // Skip ordered data compaction if any rowset has inverted/ann index.
     for (auto& rowset : _input_rowsets) {
         const auto& meta = rowset->rowset_meta();
-        if (meta->tablet_schema()->has_inverted_index() || meta->tablet_schema()->has_ann_index()) {
+        const auto& schema = meta->tablet_schema();
+        if (!schema) {
+            // RowsetMeta should always carry a valid schema in production, but unit tests and
+            // some auxiliary paths may build rowsets with an empty schema. Ordered data compaction
+            // must be conservative here to avoid undefined behavior.
+            return false;
+        }
+        if (schema->has_inverted_index() || schema->has_ann_index()) {
             return false;
         }
     }
