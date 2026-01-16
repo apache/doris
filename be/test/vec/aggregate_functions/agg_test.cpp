@@ -214,13 +214,18 @@ TEST(AggTest, datetime_min_max_test) {
 
     // Insert DateTime values (stored as Int64)
     // Format: YYYYMMDDHHmmss as Int64
-    std::vector<int64_t> datetime_values = {
-            20230101120000LL, // 2023-01-01 12:00:00
-            20230615093000LL, // 2023-06-15 09:30:00
-            20220315180000LL, // 2022-03-15 18:00:00
-            20240801220000LL, // 2024-08-01 22:00:00
-            20230301060000LL  // 2023-03-01 06:00:00
-    };
+    VecDateTimeValue tmp;
+    std::vector<VecDateTimeValue> datetime_values;
+    tmp.from_date_int64(20230101120000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20230615093000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20220315180000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20240801220000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20230301060000LL);
+    datetime_values.push_back(tmp);
 
     for (auto val : datetime_values) {
         column_datetime->insert_data(reinterpret_cast<const char*>(&val), sizeof(int64_t));
@@ -246,7 +251,7 @@ TEST(AggTest, datetime_min_max_test) {
         // Get result by inserting into a column
         auto result_column = ColumnDateTime::create();
         agg_function->insert_result_into(place, *result_column);
-        auto result = binary_cast<VecDateTimeValue, int64_t>(result_column->get_element(0));
+        auto result = result_column->get_element(0).to_datetime_int64();
         EXPECT_EQ(result, 20220315180000LL); // Minimum datetime
         agg_function->destroy(place);
     }
@@ -271,7 +276,7 @@ TEST(AggTest, datetime_min_max_test) {
         // Get result by inserting into a column
         auto result_column = ColumnDateTime::create();
         agg_function->insert_result_into(place, *result_column);
-        auto result = binary_cast<VecDateTimeValue, int64_t>(result_column->get_element(0));
+        auto result = result_column->get_element(0).to_datetime_int64();
         EXPECT_EQ(result, 20240801220000LL); // Maximum datetime
         agg_function->destroy(place);
     }

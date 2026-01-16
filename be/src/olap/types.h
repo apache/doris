@@ -876,7 +876,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const uint8_t*>(src));
+        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const bool*>(src));
         return std::string(buf);
     }
     static void set_to_max(void* buf) { (*(uint8_t*)buf) = 1; }

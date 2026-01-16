@@ -1321,8 +1321,16 @@ struct UtcImpl {
                 col_to->insert_data(reinterpret_cast<char*>(&time), 0);
             }
         } else {
-            typename PrimitiveTypeTraits<ReturnType>::CppType invalid_val;
-            col_to->insert_data(reinterpret_cast<char*>(&invalid_val), 0);
+            if constexpr (ReturnType == TYPE_DATEV2) {
+                uint32_t invalid_val = 0;
+                col_to->insert_data(reinterpret_cast<char*>(&invalid_val), 0);
+            } else if constexpr (ReturnType == TYPE_DATETIMEV2) {
+                uint64_t invalid_val = 0;
+                col_to->insert_data(reinterpret_cast<char*>(&invalid_val), 0);
+            } else {
+                typename PrimitiveTypeTraits<ReturnType>::CppType invalid_val = 0;
+                col_to->insert_data(reinterpret_cast<char*>(&invalid_val), 0);
+            }
         }
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
