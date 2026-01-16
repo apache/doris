@@ -20,6 +20,8 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
@@ -164,6 +166,27 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
     private String icebergRestSocketTimeoutMs = "60000";
 
+    @ConnectorProperty(names = {"iceberg.rest.credentials-provider-type"},
+            required = false,
+            description = "The AWS credentials provider type for REST catalog authentication. "
+                    + "Options: DEFAULT, ENV, SYSTEM_PROPERTIES, WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE. "
+                    + "When explicit credentials (access-key-id/secret-access-key) are provided, they take precedence. "
+                    + "When no explicit credentials are provided, this determines how credentials are resolved.")
+    private String icebergRestCredentialsProviderType = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.assume-role.arn", "s3.role_arn"},
+            required = false,
+            description = "The IAM role ARN to assume for cross-account access. "
+                    + "When set, uses STS AssumeRole to get temporary credentials.")
+    private String icebergRestAssumeRoleArn = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.assume-role.external-id", "s3.external_id"},
+            required = false,
+            description = "The external ID for STS AssumeRole, used for cross-account access security.")
+    private String icebergRestAssumeRoleExternalId = "";
+
+    private AwsCredentialsProviderMode awsCredentialsProviderMode;
+
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
     }
@@ -192,8 +215,15 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         validateSecurityType();
+        initAwsCredentialsProviderMode();
         buildRules().validate();
         initIcebergRestCatalogProperties();
+    }
+
+    private void initAwsCredentialsProviderMode() {
+        if (Strings.isNotBlank(icebergRestCredentialsProviderType)) {
+            awsCredentialsProviderMode = AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
+        }
     }
 
     @Override
@@ -308,14 +338,33 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName.toLowerCase());
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
-            // Only set explicit credentials if provided; otherwise Iceberg will use
-            // AWS default credentials chain (env vars, instance profile, IRSA, etc.)
-            if (Strings.isNotBlank(icebergRestAccessKeyId)) {
+
+            // Priority order:
+            // 1. Explicit credentials (access-key-id + secret-access-key)
+            // 2. AssumeRole with role ARN
+            // 3. Configured credentials provider type
+
+            if (Strings.isNotBlank(icebergRestAccessKeyId) && Strings.isNotBlank(icebergRestSecretAccessKey)) {
                 icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
-            }
-            if (Strings.isNotBlank(icebergRestSecretAccessKey)) {
                 icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
+            } else if (Strings.isNotBlank(icebergRestAssumeRoleArn)) {
+                // Use AssumeRoleAwsClientFactory for cross-account access
+                icebergRestCatalogProperties.put("client.factory",
+                        "org.apache.iceberg.aws.AssumeRoleAwsClientFactory");
+                icebergRestCatalogProperties.put("client.assume-role.arn", icebergRestAssumeRoleArn);
+                icebergRestCatalogProperties.put("client.assume-role.region", icebergRestSigningRegion);
+                if (Strings.isNotBlank(icebergRestAssumeRoleExternalId)) {
+                    icebergRestCatalogProperties.put("client.assume-role.external-id",
+                            icebergRestAssumeRoleExternalId);
+                }
+            } else if (awsCredentialsProviderMode != null) {
+                // Use configured credentials provider when no explicit credentials
+                String providerClassName = AwsCredentialsProviderFactory.getV2ClassName(
+                        awsCredentialsProviderMode, false);
+                icebergRestCatalogProperties.put("rest.credentials-provider", providerClassName);
             }
+            // If none of the above is set, Iceberg will fail
+            // with a clear error message asking for credentials configuration
         }
     }
 
