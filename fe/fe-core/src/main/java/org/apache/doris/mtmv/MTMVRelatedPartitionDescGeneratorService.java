@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Interface for a series of processes to generate PartitionDesc
@@ -37,5 +38,6 @@ public interface MTMVRelatedPartitionDescGeneratorService {
      * @throws AnalysisException
      */
     void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult, List<Column> partitionColumns) throws AnalysisException;
+            RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
+               Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException;
 }
