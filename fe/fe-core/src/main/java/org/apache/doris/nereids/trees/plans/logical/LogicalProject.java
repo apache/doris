@@ -94,6 +94,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this.isDistinct = isDistinct;
         this.projectMap = new HashMap<>();
         for (NamedExpression namedExpression : projects) {
+            if (namedExpression.hasUnbound()) {
+                projectMap.clear();
+                break;
+            }
             if (namedExpression instanceof Alias) {
                 Alias alias = (Alias) namedExpression;
                 projectMap.put(alias.toSlot(), alias.child());
