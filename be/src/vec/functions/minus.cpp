@@ -33,15 +33,15 @@ struct MinusDecimalImpl {
     static constexpr auto name = "subtract";
     static constexpr PrimitiveType PTypeA = TypeA;
     static constexpr PrimitiveType PTypeB = TypeA;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
 
     template <PrimitiveType Result>
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
-    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
+    static inline typename PrimitiveTypeTraits<Result>::CppType::NativeType apply(ArgNativeTypeA a,
                                                                             ArgNativeTypeB b) {
-        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) - b);
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(a) - b);
     }
 
     static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
@@ -52,10 +52,10 @@ struct MinusDecimalImpl {
     template <PrimitiveType Result>
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
     static inline bool apply(ArgNativeTypeA a, ArgNativeTypeB b,
-                             typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
+                             typename PrimitiveTypeTraits<Result>::CppType::NativeType& c) {
         return common::sub_overflow(
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a),
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b), c);
+                static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(a),
+                static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(b), c);
     }
 };
 

@@ -42,7 +42,6 @@ public:
     static_assert(IsDatetime || T == PrimitiveType::TYPE_DATE,
                   "DataTypeDateSerDe can only be used for TYPE_DATE or TYPE_DATETIME");
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using NativeType = typename PrimitiveTypeTraits<T>::CppNativeType; // int64
     using CppType = typename PrimitiveTypeTraits<T>::CppType;          // VecDateTimeValue
     constexpr static std::string_view name() { return IsDatetime ? "DateTime" : "Date"; }
 

@@ -239,6 +239,48 @@ struct HashCRC32<wide::Int256> {
     }
 };
 
+template <>
+struct HashCRC32<doris::vectorized::Decimal256> {
+    size_t operator()(const doris::vectorized::Decimal256& value) const {
+        return HashCRC32<wide::Int256>()(value.value);
+    }
+};
+
+template <>
+struct HashCRC32<doris::vectorized::Decimal32> {
+    size_t operator()(const doris::vectorized::Decimal32& value) const {
+        return HashCRC32<int32_t>()(value.value);
+    }
+};
+
+template <>
+struct HashCRC32<doris::vectorized::Decimal64> {
+    size_t operator()(const doris::vectorized::Decimal64& value) const {
+        return HashCRC32<int64_t>()(value.value);
+    }
+};
+
+template <>
+struct HashCRC32<doris::vectorized::Decimal128V3> {
+    size_t operator()(const doris::vectorized::Decimal128V3& value) const {
+        return HashCRC32<__int128>()(value.value);
+    }
+};
+
+template <>
+struct HashCRC32<doris::vectorized::Decimal128V2> {
+    size_t operator()(const doris::vectorized::Decimal128V2& value) const {
+        return HashCRC32<__int128>()(value.value);
+    }
+};
+
+template <>
+struct HashCRC32<doris::DecimalV2Value> {
+    size_t operator()(const doris::DecimalV2Value& value) const {
+        return HashCRC32<__int128>()(value.value());
+    }
+};
+
 #include "common/compile_check_avoid_begin.h"
 
 template <>

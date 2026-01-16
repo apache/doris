@@ -53,7 +53,7 @@ struct AggregateFunctionUniqDistributeKeyData {
     using Key =
             std::conditional_t<is_string_key, UInt128,
                                std::conditional_t<T == TYPE_BOOLEAN, UInt8,
-                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>;
+                                                  typename PrimitiveTypeTraits<T>::CppType>>;
     using Hash = std::conditional_t<is_string_key, UInt128TrivialHash, HashCRC32<Key>>;
 
     using Set = flat_hash_set<Key, Hash>;
