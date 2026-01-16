@@ -56,7 +56,7 @@ template <PrimitiveType T>
 struct AggregateFunctionAvgData {
     using ResultType = typename PrimitiveTypeTraits<T>::CppType;
     static constexpr PrimitiveType ResultPType = T;
-    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
+    typename PrimitiveTypeTraits<T>::CppType sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -86,8 +86,7 @@ struct AggregateFunctionAvgData {
             return cal_ret;
         } else {
             if constexpr (T == TYPE_DECIMAL256) {
-                return static_cast<ResultT>(sum /
-                                            typename PrimitiveTypeTraits<T>::ColumnItemType(count));
+                return static_cast<ResultT>(sum / typename PrimitiveTypeTraits<T>::CppType(count));
             } else {
                 return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
             }
@@ -305,7 +304,9 @@ public:
         return std::make_shared<DataTypeFixedLengthObject>();
     }
 
-    bool supported_incremental_mode() const override { return true; }
+    bool supported_incremental_mode() const override {
+        return true;
+    }
 
     void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
                                            int64_t frame_start, int64_t frame_end,

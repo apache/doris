@@ -768,12 +768,6 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
             }
         }
     };
-<<<<<<< HEAD
-    test_func(dt_date_v2, *column_date_v2, USE_CONST_SERDE);
-    test_func(dt_date_v2, *column_date_v2, AGGREGATION_2_1_VERSION);
-
-=======
->>>>>>> 44818adc34b ([refactor](type) Remove ColumnItemType (#59890))
     test_func(dt_datetime_v2_0, *column_datetime_v2_0, USE_CONST_SERDE);
     test_func(dt_datetime_v2_0, *column_datetime_v2_0, AGGREGATION_2_1_VERSION);
     test_func(dt_datetime_v2_5, *column_datetime_v2_5, USE_CONST_SERDE);
