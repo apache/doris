@@ -459,7 +459,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         SourceRecords sourceRecords = null;
         String currentSplitId = null;
         Fetcher<SourceRecords, SourceSplitBase> currentReader = null;
-        LOG.info("Get a split: {}", split.splitId());
+        LOG.info("Get a split: {}", split.toString());
         if (split.isSnapshotSplit()) {
             currentReader = getSnapshotSplitReader(jobConfig);
         } else if (split.isStreamSplit()) {

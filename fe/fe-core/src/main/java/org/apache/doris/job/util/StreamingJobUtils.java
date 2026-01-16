@@ -329,7 +329,7 @@ public class StreamingJobUtils {
             createtblCmds.add(createtblCmd);
         }
         if (createtblCmds.isEmpty()) {
-            throw new JobException("Can not found match table in database " + database);
+            throw new JobException("Can not found match table in database  " + database);
         }
 
         if (!noPrimaryKeyTables.isEmpty()) {
