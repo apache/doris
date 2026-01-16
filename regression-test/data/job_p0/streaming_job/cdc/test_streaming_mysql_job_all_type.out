@@ -34,7 +34,7 @@ datetime	datetime	Yes	false	\N	NONE
 timestamp1	datetime	Yes	false	\N	NONE
 timestamp2	datetime(3)	Yes	false	\N	NONE
 timestamp3	datetime(6)	Yes	false	\N	NONE
-char	char(5)	Yes	false	\N	NONE
+char	char(15)	Yes	false	\N	NONE
 varchar	varchar(30)	Yes	false	\N	NONE
 text	text	Yes	false	\N	NONE
 blob	text	Yes	false	\N	NONE
