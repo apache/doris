@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_olap_rewrite_mtmv", "p0,external,hudi,external_docker,external_docker_hudi") {
+suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi") {
     String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
