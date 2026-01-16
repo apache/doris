@@ -76,20 +76,15 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         boolean toRight = false;
         boolean pushHere = false;
         if (context.getAggFunctions().isEmpty()) {
-            // example: select x from T group by x
-            // if no agg function, try to push to large child
-            Statistics leftStats = join.left().getStats();
-            if (leftStats == null) {
-                leftStats = join.left().accept(derive, new StatsDerive.DeriveContext());
-            }
-            Statistics rightStats = join.right().getStats();
-            if (rightStats == null) {
-                rightStats = join.right().accept(derive, new StatsDerive.DeriveContext());
-            }
-            if (leftStats.getRowCount() > rightStats.getRowCount()) {
+            // select t1.v from t1 join t2 on t1.id = t2.id group by t1.v, t2.v
+            // if no agg function, try to push agg to the child which contains all group keys
+            // TODO: consider t1.rows/(t1.id, t1.v).ndv and t2.rows/(t2.id, t2.v).ndv to determine push target
+            if (join.left().getOutputSet().containsAll(context.getGroupKeys())) {
                 toLeft = true;
-            } else {
+            } else if (join.right().getOutputSet().containsAll(context.getGroupKeys())) {
                 toRight = true;
+            } else {
+                pushHere = true;
             }
         } else {
             for (AggregateFunction aggFunc : context.getAggFunctions()) {
