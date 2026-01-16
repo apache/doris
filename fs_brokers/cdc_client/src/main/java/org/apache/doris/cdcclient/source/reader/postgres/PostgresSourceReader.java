@@ -200,7 +200,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
         }
 
-        Properties dbzProps = new Properties();
+        Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
         configFactory.debeziumProperties(dbzProps);
 

@@ -619,14 +619,8 @@ public class MySqlSourceReader implements SourceReader {
         jdbcProperteis.putAll(cu.getOriginalProperties());
         configFactory.jdbcProperties(jdbcProperteis);
 
-        // Properties dbzProps = new Properties();
-        // dbzProps.setProperty(
-        //         MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
-        //         String.valueOf(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
-        // configFactory.debeziumProperties(dbzProps);
-        //
-        // configFactory.heartbeatInterval(
-        //         Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+        Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
+        configFactory.debeziumProperties(dbzProps);
         if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
