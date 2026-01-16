@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,8 +38,7 @@ public class PushDownAggContext {
     public static final int BIG_JOIN_BUILD_SIZE = 400_000;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;
-    // using IdentityHashMap instead of HashMap is required by queries like tpc-ds q5
-    private final IdentityHashMap<AggregateFunction, Alias> aliasMap;
+    private final HashMap<AggregateFunction, Alias> aliasMap;
     private final Set<Slot> aggFunctionsInputSlots;
 
     // cascadesContext is used for normalizeAgg
@@ -57,7 +56,7 @@ public class PushDownAggContext {
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
 
-        IdentityHashMap<AggregateFunction, Alias> builtAliasMap = new IdentityHashMap<>();
+        HashMap<AggregateFunction, Alias> builtAliasMap = new HashMap<>();
         if (aliasMap == null) {
             for (AggregateFunction aggFunction : this.aggFunctions) {
                 builtAliasMap.put(aggFunction, new Alias(aggFunction, aggFunction.getName()));
@@ -84,7 +83,7 @@ public class PushDownAggContext {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext, true);
     }
 
-    public IdentityHashMap<AggregateFunction, Alias> getAliasMap() {
+    public HashMap<AggregateFunction, Alias> getAliasMap() {
         return aliasMap;
     }
 

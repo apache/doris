@@ -370,8 +370,11 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
              *          -> any(d, ...)
              */
             List<NamedExpression> newProjections = new ArrayList<>();
-            for (Alias alias : context.getAliasMap().values()) {
-                newProjections.add(alias.toSlot());
+            //for (Alias alias : context.getAliasMap().values()) {
+            //    newProjections.add(alias.toSlot());
+            //}
+            for (AggregateFunction aggFunc : context.getAggFunctions()) {
+                newProjections.add(context.getAliasMap().get(aggFunc).toSlot());
             }
             for (SlotReference slot : context.getGroupKeys()) {
                 boolean valid = false;
