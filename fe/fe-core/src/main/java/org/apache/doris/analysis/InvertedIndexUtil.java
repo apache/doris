@@ -386,6 +386,39 @@ public class InvertedIndexUtil {
                         "dict_compression can only be set when storage format is V3");
             }
         }
+
+        // Normalize analyzer and normalizer names to lowercase for case-insensitive matching
+        normalizeInvertedIndexProperties(properties);
+    }
+
+    /**
+     * Normalize analyzer and normalizer names in index properties to lowercase.
+     * This ensures case-insensitive matching between table creation and query time.
+     */
+    public static void normalizeInvertedIndexProperties(Map<String, String> properties) {
+        if (properties == null) {
+            return;
+        }
+
+        String analyzerName = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
+        if (analyzerName != null && !analyzerName.isEmpty()) {
+            properties.put(INVERTED_INDEX_ANALYZER_NAME_KEY, analyzerName.trim().toLowerCase());
+        }
+
+        String normalizerName = properties.get(INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        if (normalizerName != null && !normalizerName.isEmpty()) {
+            properties.put(INVERTED_INDEX_NORMALIZER_NAME_KEY, normalizerName.trim().toLowerCase());
+        }
+
+        // Also normalize parser name for consistency
+        String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+        if (parser != null && !parser.isEmpty()) {
+            properties.put(INVERTED_INDEX_PARSER_KEY, parser.trim().toLowerCase());
+        }
+        String parserAlias = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        if (parserAlias != null && !parserAlias.isEmpty()) {
+            properties.put(INVERTED_INDEX_PARSER_KEY_ALIAS, parserAlias.trim().toLowerCase());
+        }
     }
 
     private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {

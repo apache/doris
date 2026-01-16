@@ -54,6 +54,9 @@ private:
     bool is_builtin_normalizer(const std::string& name);
     AnalyzerPtr build_builtin_normalizer(const std::string& name);
 
+    // Normalize policy name to lowercase for case-insensitive lookup
+    static std::string normalize_name(const std::string& name);
+
     constexpr static auto PROP_TOKENIZER = "tokenizer";
     constexpr static auto PROP_CHAR_FILTER = "char_filter";
     constexpr static auto PROP_TOKEN_FILTER = "token_filter";

@@ -44,9 +44,19 @@ public abstract class Match extends BinaryOperator implements PropagateNullable 
         this(children, symbol, null);
     }
 
+    /**
+     * Constructor with analyzer parameter.
+     * @param children child expressions
+     * @param symbol the match operator symbol
+     * @param analyzer the analyzer name (will be normalized to lowercase)
+     */
     public Match(List<Expression> children, String symbol, String analyzer) {
         super(children, symbol);
-        this.analyzer = Optional.ofNullable(analyzer).map(String::trim).filter(s -> !s.isEmpty());
+        // Normalize analyzer name to lowercase for case-insensitive matching
+        this.analyzer = Optional.ofNullable(analyzer)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(String::toLowerCase);
     }
 
     /**
