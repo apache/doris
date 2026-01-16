@@ -72,11 +72,11 @@ public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                  io::IOContext* io_ctx);
+                  io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
-                  io::IOContext* io_ctx);
+                  io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~NewJsonReader() override = default;
 
     Status init_reader(const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
@@ -229,6 +229,7 @@ private:
     size_t _current_offset;
 
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
 
     RuntimeProfile::Counter* _read_timer = nullptr;
 
