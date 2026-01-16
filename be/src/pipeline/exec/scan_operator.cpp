@@ -541,7 +541,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
         opposite = true;
     }
 
-    if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
+    if (fn_expr->is_like_expr()) {
         doris::FunctionContext* fn_ctx = nullptr;
         StringRef val;
         PushDownType temp_pdt;
