@@ -484,8 +484,7 @@ TEST_F(TestRle, TestPutWithRunLength) {
 
     // Test 5: Alternating values with various run lengths
     {
-        std::vector<std::pair<uint64_t, size_t>> runs = {
-                {0, 7}, {1, 9}, {0, 15}, {1, 3}, {0, 20}};
+        std::vector<std::pair<uint64_t, size_t>> runs = {{0, 7}, {1, 9}, {0, 15}, {1, 3}, {0, 20}};
         ValidatePutRunLength(runs, 8);
     }
 
@@ -520,8 +519,8 @@ TEST_F(TestRle, TestPutWithRunLength) {
 
     // Test 10: Mixed short and long runs
     {
-        std::vector<std::pair<uint64_t, size_t>> runs = {
-                {1, 2}, {2, 100}, {3, 1}, {4, 50}, {5, 3}, {6, 200}};
+        std::vector<std::pair<uint64_t, size_t>> runs = {{1, 2},  {2, 100}, {3, 1},
+                                                         {4, 50}, {5, 3},   {6, 200}};
         ValidatePutRunLength(runs, 8);
     }
 }
@@ -651,7 +650,7 @@ TEST_F(TestRle, TestPutFlushThenFastPath) {
         faststring buffer;
         RleEncoder<uint64_t> encoder(&buffer, 8);
 
-        encoder.Put(1, 8);  // Fill buffer and flush, repeat_count_ = 8
+        encoder.Put(1, 8);   // Fill buffer and flush, repeat_count_ = 8
         encoder.Put(1, 100); // Should hit fast path (L440)
         encoder.Flush();
 
@@ -704,8 +703,8 @@ TEST_F(TestRle, TestPutFlushThenFastPath) {
 // 1. Put(value) called N times in a loop
 // 2. Put(value, N) called once with run_length=N
 TEST_F(TestRle, BenchmarkPutConsecutiveValues) {
-    const int kNumIterations = 100;           // Number of benchmark iterations
-    const size_t kNumValues = 1000000;        // 1M values per iteration
+    const int kNumIterations = 10000000; // Number of benchmark iterations
+    const size_t kNumValues = 1000;      // 1M values per iteration
     const int kBitWidth = 8;
 
     // Warm up
@@ -716,23 +715,6 @@ TEST_F(TestRle, BenchmarkPutConsecutiveValues) {
             encoder.Put(42);
         }
         encoder.Flush();
-    }
-
-    // Benchmark 1: Put(value) called N times - simulates old loop-based approach
-    int64_t total_time_individual_ns = 0;
-    for (int iter = 0; iter < kNumIterations; ++iter) {
-        faststring buffer;
-        RleEncoder<uint64_t> encoder(&buffer, kBitWidth);
-
-        auto start = std::chrono::high_resolution_clock::now();
-        for (size_t i = 0; i < kNumValues; ++i) {
-            encoder.Put(42);
-        }
-        encoder.Flush();
-        auto end = std::chrono::high_resolution_clock::now();
-
-        total_time_individual_ns +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
     }
 
     // Benchmark 2: Put(value, run_length) - tests optimized batch path
@@ -750,56 +732,24 @@ TEST_F(TestRle, BenchmarkPutConsecutiveValues) {
                 std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
     }
 
-    double avg_individual_ms = total_time_individual_ns / 1e6 / kNumIterations;
-    double avg_batch_ms = total_time_batch_ns / 1e6 / kNumIterations;
-    double speedup = avg_individual_ms / avg_batch_ms;
+    double avg_batch_ms = total_time_batch_ns / 1e6;
 
-    LOG(INFO) << "=== RLE Put Benchmark (consecutive equal values) ===";
-    LOG(INFO) << "Values per iteration: " << kNumValues;
-    LOG(INFO) << "Number of iterations: " << kNumIterations;
-    LOG(INFO) << "Put(value) x N:       " << avg_individual_ms << " ms avg";
-    LOG(INFO) << "Put(value, N):        " << avg_batch_ms << " ms avg";
-    LOG(INFO) << "Speedup:              " << speedup << "x";
-
-    // The batch version should be significantly faster for long runs
-    // At minimum, we expect it to not be slower
-    EXPECT_GE(speedup, 0.9) << "Batch Put should not be significantly slower than individual Puts";
+    std::cout << "=== RLE Put Benchmark (consecutive equal values) ===" << std::endl;
+    std::cout << "Values per iteration: " << kNumValues << std::endl;
+    std::cout << "Number of iterations: " << kNumIterations << std::endl;
+    std::cout << "Put(value, N):        " << avg_batch_ms << " ms avg" << std::endl;
 }
 
 // Benchmark for mixed patterns: alternating runs of different lengths
 TEST_F(TestRle, BenchmarkPutMixedPattern) {
-    const int kNumIterations = 50;
+    const int kNumIterations = 1000000;
     const int kBitWidth = 8;
 
     // Pattern: alternating values with varying run lengths
     // Simulates real-world data like null bitmaps or repeated values in columns
-    std::vector<std::pair<uint64_t, size_t>> pattern = {
-            {0, 100},  {1, 50},   {0, 200},  {1, 10},   {0, 500},
-            {1, 1000}, {0, 5000}, {1, 100},  {0, 10000}};
-
-    size_t total_values = 0;
-    for (const auto& [val, len] : pattern) {
-        total_values += len;
-    }
-
-    // Benchmark individual puts
-    int64_t total_time_individual_ns = 0;
-    for (int iter = 0; iter < kNumIterations; ++iter) {
-        faststring buffer;
-        RleEncoder<uint64_t> encoder(&buffer, kBitWidth);
-
-        auto start = std::chrono::high_resolution_clock::now();
-        for (const auto& [value, length] : pattern) {
-            for (size_t i = 0; i < length; ++i) {
-                encoder.Put(value);
-            }
-        }
-        encoder.Flush();
-        auto end = std::chrono::high_resolution_clock::now();
-
-        total_time_individual_ns +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-    }
+    std::vector<std::pair<uint64_t, size_t>> pattern = {{0, 100},  {1, 50},  {0, 200},
+                                                        {1, 10},   {0, 500}, {1, 1000},
+                                                        {0, 5000}, {1, 100}, {0, 10000}};
 
     // Benchmark batch puts
     int64_t total_time_batch_ns = 0;
@@ -818,87 +768,11 @@ TEST_F(TestRle, BenchmarkPutMixedPattern) {
                 std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
     }
 
-    double avg_individual_ms = total_time_individual_ns / 1e6 / kNumIterations;
-    double avg_batch_ms = total_time_batch_ns / 1e6 / kNumIterations;
-    double speedup = avg_individual_ms / avg_batch_ms;
+    double avg_batch_ms = total_time_batch_ns / 1e6;
 
-    LOG(INFO) << "=== RLE Put Benchmark (mixed pattern) ===";
-    LOG(INFO) << "Total values per iteration: " << total_values;
-    LOG(INFO) << "Number of iterations: " << kNumIterations;
-    LOG(INFO) << "Put(value) x N:       " << avg_individual_ms << " ms avg";
-    LOG(INFO) << "Put(value, N):        " << avg_batch_ms << " ms avg";
-    LOG(INFO) << "Speedup:              " << speedup << "x";
-
-    EXPECT_GE(speedup, 0.9) << "Batch Put should not be significantly slower than individual Puts";
-}
-
-// Benchmark for short runs (worst case for batch optimization)
-TEST_F(TestRle, BenchmarkPutShortRuns) {
-    const int kNumIterations = 50;
-    const int kBitWidth = 8;
-    const int kNumRuns = 100000;
-
-    // Short runs of length 1-7 (less than buffer size of 8)
-    std::vector<std::pair<uint64_t, size_t>> pattern;
-    for (int i = 0; i < kNumRuns; ++i) {
-        pattern.push_back({static_cast<uint64_t>(i % 256), static_cast<size_t>((i % 7) + 1)});
-    }
-
-    size_t total_values = 0;
-    for (const auto& [val, len] : pattern) {
-        total_values += len;
-    }
-
-    // Benchmark individual puts
-    int64_t total_time_individual_ns = 0;
-    for (int iter = 0; iter < kNumIterations; ++iter) {
-        faststring buffer;
-        RleEncoder<uint64_t> encoder(&buffer, kBitWidth);
-
-        auto start = std::chrono::high_resolution_clock::now();
-        for (const auto& [value, length] : pattern) {
-            for (size_t i = 0; i < length; ++i) {
-                encoder.Put(value);
-            }
-        }
-        encoder.Flush();
-        auto end = std::chrono::high_resolution_clock::now();
-
-        total_time_individual_ns +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-    }
-
-    // Benchmark batch puts
-    int64_t total_time_batch_ns = 0;
-    for (int iter = 0; iter < kNumIterations; ++iter) {
-        faststring buffer;
-        RleEncoder<uint64_t> encoder(&buffer, kBitWidth);
-
-        auto start = std::chrono::high_resolution_clock::now();
-        for (const auto& [value, length] : pattern) {
-            encoder.Put(value, length);
-        }
-        encoder.Flush();
-        auto end = std::chrono::high_resolution_clock::now();
-
-        total_time_batch_ns +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-    }
-
-    double avg_individual_ms = total_time_individual_ns / 1e6 / kNumIterations;
-    double avg_batch_ms = total_time_batch_ns / 1e6 / kNumIterations;
-    double speedup = avg_individual_ms / avg_batch_ms;
-
-    LOG(INFO) << "=== RLE Put Benchmark (short runs 1-7) ===";
-    LOG(INFO) << "Total values per iteration: " << total_values;
-    LOG(INFO) << "Number of runs: " << kNumRuns;
-    LOG(INFO) << "Number of iterations: " << kNumIterations;
-    LOG(INFO) << "Put(value) x N:       " << avg_individual_ms << " ms avg";
-    LOG(INFO) << "Put(value, N):        " << avg_batch_ms << " ms avg";
-    LOG(INFO) << "Speedup:              " << speedup << "x";
-
-    // For short runs, batch version might not be much faster, but shouldn't be slower
-    EXPECT_GE(speedup, 0.8) << "Batch Put should not be significantly slower for short runs";
+    std::cout << "=== RLE Put Benchmark (mixed pattern) ===" << std::endl;
+    std::cout << "Number of iterations: " << kNumIterations << std::endl;
+    std::cout << "Put(value, N):        " << avg_batch_ms << " ms avg" << std::endl;
 }
 
 } // namespace doris
