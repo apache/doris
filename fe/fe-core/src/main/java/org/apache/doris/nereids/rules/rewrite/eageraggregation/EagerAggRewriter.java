@@ -271,6 +271,17 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         List<Plan> newChildren = Lists.newArrayList();
         List<PushDownAggContext> childrenContext = new ArrayList<>();
+        /*
+            if any child can not push, do not push
+            example
+            agg(output=[sum(a),min(a)], groupkey=[b])
+              ->union(a, b)
+                 ->child1(a1, b1)
+                 ->child2(a2, b2)
+             if agg pushdown through child1, newChild1 output is (sum(a1), min(a1) b1)
+             but if agg can not pushdown through child2, the output of child2 is (a2, b2).
+             Output size of newChild1 and child2 are different
+         */
         boolean changed = false;
         for (int idx = 0; idx < union.children().size(); idx++) {
             Plan child = union.children().get(idx);
@@ -292,15 +303,26 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(), context.isPassThroughBigJoin());
             childrenContext.add(contextForChild);
-            Plan newChild = child.accept(this, contextForChild);
-            if (newChild != child) {
-                changed = true;
+            if (contextForChild.isValid()) {
+                Plan newChild = child.accept(this, contextForChild);
+                if (newChild != child) {
+                    newChildren.add(newChild);
+                    changed = true;
+                } else {
+                    changed = false;
+                    break;
+                }
+            } else {
+                // child(idx) cannot be rewritten, stop
+                break;
             }
-            // all children need align data type, even if it is not rewritten
-            newChild = alignUnionChildrenDataType(newChild, context);
-            newChildren.add(newChild);
         }
         if (changed) {
+            for (int idx = 0; idx < union.children().size(); idx++) {
+                // all children need align data type
+                Plan newChild = alignUnionChildrenDataType(newChildren.get(idx), context);
+                newChildren.set(idx, newChild);
+            }
             List<List<SlotReference>> newRegularChildrenOutputs = Lists.newArrayListWithExpectedSize(union.arity());
             for (int childIdx = 0; childIdx < union.arity(); childIdx++) {
                 newRegularChildrenOutputs.add(
@@ -319,7 +341,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 newOutput.add(alias.toSlot());
             }
             newOutput.addAll(context.getGroupKeys());
-
             LogicalUnion newUnion = (LogicalUnion) union
                     .withChildrenAndOutputs(newChildren, newOutput, newRegularChildrenOutputs);
             return newUnion;
@@ -347,6 +368,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         PushDownAggContext newContext = createContextFromProject(project, context);
+        if (!newContext.isValid()) {
+            return project;
+        }
         Plan newChild = project.child().accept(this, newContext);
         if (newChild != project.child()) {
             /*
