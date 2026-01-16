@@ -99,15 +99,14 @@ public abstract class BaseExecuteAction implements ExecuteAction {
 
     @Override
     public final ResultSet execute(TableIf table) throws UserException {
-        List<String> resultRow = executeAction(table);
-        if (resultSetMetaData == null || resultRow == null) {
+        List<List<String>> resultRows = executeAction(table);
+        if (resultSetMetaData == null || resultRows == null) {
             return null;
         }
-        Preconditions.checkState(resultSetMetaData.getColumnCount() == resultRow.size(),
-                "Result row size does not match metadata column count");
-        // the result should be just one row, so we wrap it in a list
-        List<List<String>> resultRows = Lists.newArrayList();
-        resultRows.add(resultRow);
+        for (List<String> row : resultRows) {
+            Preconditions.checkState(resultSetMetaData.getColumnCount() == row.size(),
+                    "Result row size does not match metadata column count");
+        }
         return new CommonResultSet(resultSetMetaData, resultRows);
     }
 
@@ -141,10 +140,10 @@ public abstract class BaseExecuteAction implements ExecuteAction {
      * Subclasses must implement this method to perform the actual action.
      *
      * @param table the table to operate on
-     * @return list of result if the action produces results, null otherwise
+     * @return list of result rows if the action produces results, null otherwise
      * @throws UserException if execution fails
      */
-    protected abstract List<String> executeAction(TableIf table) throws UserException;
+    protected abstract List<List<String>> executeAction(TableIf table) throws UserException;
 
     @Override
     public String getActionType() {

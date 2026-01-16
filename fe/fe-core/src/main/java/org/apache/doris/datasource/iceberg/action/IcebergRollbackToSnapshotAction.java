@@ -67,7 +67,7 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
         Long targetSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
 
@@ -80,18 +80,18 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
             Snapshot previousSnapshot = icebergTable.currentSnapshot();
             Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
             if (previousSnapshot != null && previousSnapshot.snapshotId() == targetSnapshotId) {
-                return Lists.newArrayList(
+                return Lists.newArrayList(Lists.newArrayList(
                         String.valueOf(previousSnapshotId),
                         String.valueOf(targetSnapshotId)
-                );
+                ));
             }
             icebergTable.manageSnapshots().rollbackTo(targetSnapshotId).commit();
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(
+            return Lists.newArrayList(Lists.newArrayList(
                     String.valueOf(previousSnapshotId),
                     String.valueOf(targetSnapshotId)
-            );
+            ));
 
         } catch (Exception e) {
             throw new UserException("Failed to rollback to snapshot " + targetSnapshotId + ": " + e.getMessage(), e);
