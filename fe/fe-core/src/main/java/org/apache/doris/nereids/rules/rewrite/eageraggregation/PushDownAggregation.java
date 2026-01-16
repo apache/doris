@@ -34,13 +34,10 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -63,6 +60,8 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -139,7 +138,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
 
-        HashMap<AggregateFunction, AggregateFunction> aggFunctions = Maps.newHashMap();
+        Set<AggregateFunction> aggFunctions = Sets.newHashSet();
         boolean hasSumIf = false;
         // TODO context.aliasMap 是否还需要使用identityMap？？？
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
@@ -159,32 +158,21 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                             return agg;
                         }
                         Sum sumTrue = new Sum(body.getTrueValue());
-                        if (aggFunctions.containsKey(sumTrue)) {
-                            funcs.add(aggFunctions.get(sumTrue));
-                        } else {
-                            aggFunctions.put(sumTrue, sumTrue);
-                            funcs.add(sumTrue);
-                        }
+                        aggFunctions.add(sumTrue);
+                        funcs.add(sumTrue);
                         if (!(body.getFalseValue() instanceof NullLiteral)) {
                             Sum sumFalse = new Sum(body.getFalseValue());
-                            if (aggFunctions.containsKey(sumFalse)) {
-                                funcs.add(aggFunctions.get(sumFalse));
-                            } else {
-                                aggFunctions.put(sumFalse, sumFalse);
-                                funcs.add(sumFalse);
-                            }
+                            aggFunctions.add(sumFalse);
+                            funcs.add(sumFalse);
                         }
                         groupKeys.addAll(body.getCondition().getInputSlots()
                                 .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));
                         hasSumIf = true;
                     } else {
-                        if (aggFunctions.containsKey(aggFunction)) {
-                            funcs.add(aggFunctions.get(aggFunction));
-                        } else {
-                            aggFunctions.put(aggFunction, aggFunction);
-                            funcs.add(aggFunction);
-                        }
+                        aggFunctions.add(aggFunction);
+                        funcs.add(aggFunction);
                     }
+
                 } else {
                     return agg;
                 }
@@ -195,7 +183,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             return agg;
         }
 
-        PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions.keySet()),
+        PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, null, context.getCascadesContext(), hasSumIf);
         try {
             Plan child = agg.child().accept(writer, pushDownContext);
@@ -252,7 +240,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         } catch (RuntimeException e) {
             String msg = "PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString();
-            LOG.info(msg);
+            LOG.info(msg, e);
             SessionVariable.throwRuntimeExceptionWhenFeDebug(msg);
         }
         return agg;
