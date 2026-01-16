@@ -104,7 +104,9 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             producer.flush()
 
             // wait for routine load task to finish
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job1, tableName1, 4)
+            // Initial: 5 rows, Kafka: 4 messages (3 updates + 1 insert), Expected: 6 rows
+            // waitForTaskFinish waits until rowCount > expectedMinRows, so pass 5
+            RoutineLoadTestUtils.waitForTaskFinish(runSql, job1, tableName1, 5)
 
             // verify flexible partial update results
             qt_select_after_flex_update1 "SELECT id, name, score, age FROM ${tableName1} ORDER BY id"
