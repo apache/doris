@@ -514,7 +514,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
-            exception "Flexible partial update does not support tables with variant columns"
+            exception "Flexible partial update can only support table without variant columns"
         }
 
         // Test 10: Error case - invalid unique_key_update_mode value
