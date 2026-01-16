@@ -66,6 +66,15 @@
 2	record2	200
 3	record3	300
 
+-- !expire_snapshots_result --
+0	0	0	0	0	0
+
+-- !after_expire_snapshots --
+1	data1
+2	data2
+3	data3
+4	data4
+
 -- !wap_before_publish --
 
 -- !wap_after_publish --
