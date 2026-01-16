@@ -1957,7 +1957,8 @@ public abstract class RoutineLoadJob
         // Process remaining properties
         jobProperties.forEach((k, v) -> {
             if (k.equals(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
-                // Backward compatibility: if unique_key_update_mode is not set, use partial_columns
+                // Backward compatibility: only use partial_columns if unique_key_update_mode is not set
+                // unique_key_update_mode takes precedence
                 if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
                     isPartialUpdate = Boolean.parseBoolean(v);
                     if (isPartialUpdate) {
@@ -2054,6 +2055,8 @@ public abstract class RoutineLoadJob
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+            // Backward compatibility: only use partial_columns if unique_key_update_mode is UPSERT (not explicitly set)
+            // unique_key_update_mode takes precedence
             this.isPartialUpdate = Boolean.parseBoolean(
                     jobProperties.remove(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
             if (this.isPartialUpdate && uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {

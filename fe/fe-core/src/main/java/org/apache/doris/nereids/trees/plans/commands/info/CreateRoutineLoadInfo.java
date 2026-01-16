@@ -627,17 +627,10 @@ public class CreateRoutineLoadInfo {
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));
 
         // check unique_key_update_mode
+        // Note: unique_key_update_mode takes precedence over partial_columns for backward compatibility
         if (jobProperties.containsKey(UNIQUE_KEY_UPDATE_MODE)) {
             String modeStr = jobProperties.get(UNIQUE_KEY_UPDATE_MODE);
-            TUniqueKeyUpdateMode mode = parseAndValidateUniqueKeyUpdateMode(modeStr);
-            // Check for conflicting settings: partial_columns=true with unique_key_update_mode=UPSERT
-            if (jobProperties.containsKey(PARTIAL_COLUMNS)
-                    && jobProperties.get(PARTIAL_COLUMNS).equalsIgnoreCase("true")
-                    && mode == TUniqueKeyUpdateMode.UPSERT) {
-                throw new AnalysisException("Cannot set both 'partial_columns=true' and "
-                        + "'unique_key_update_mode=UPSERT'. "
-                        + "Use unique_key_update_mode=UPDATE_FIXED_COLUMNS instead.");
-            }
+            parseAndValidateUniqueKeyUpdateMode(modeStr);
         }
 
         // check partial_update_new_key_behavior
