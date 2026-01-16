@@ -184,12 +184,14 @@ public class AsyncMaterializationContext extends MaterializationContext {
     /**
      * Calculate partition mappings and cache
      */
-    public Map<MTMVRelatedTableIf, Map<String, Set<String>>> calculatePartitionMappings() throws AnalysisException {
+    public Map<MTMVRelatedTableIf, Map<String, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
         if (partitionMultiFlatMap != null) {
             return partitionMultiFlatMap;
         }
         partitionMultiFlatMap = new HashMap<>();
-        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMultiMap = this.mtmv.calculatePartitionMappings();
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMultiMap
+                = this.mtmv.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
         for (Map.Entry<String, Map<MTMVRelatedTableIf, Set<String>>> entry : partitionMultiMap.entrySet()) {
             String partitionKey = entry.getKey();
             Map<MTMVRelatedTableIf, Set<String>> tableMap = entry.getValue();

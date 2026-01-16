@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -58,9 +59,10 @@ public class MTMVRefreshContext {
         return baseTableSnapshotCache;
     }
 
-    public static MTMVRefreshContext buildContext(MTMV mtmv) throws AnalysisException {
+    public static MTMVRefreshContext buildContext(MTMV mtmv,
+                                                  Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
         MTMVRefreshContext context = new MTMVRefreshContext(mtmv);
-        context.partitionMappings = mtmv.calculatePartitionMappings();
+        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions);
         context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv);
         return context;
     }

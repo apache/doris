@@ -49,7 +49,8 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult, List<Column> partitionColumns) throws AnalysisException {
+            RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
+                      Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return;
         }
@@ -58,7 +59,11 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
         for (Entry<MTMVRelatedTableIf, Map<String, PartitionItem>> entry : relatedPartitionItems.entrySet()) {
             int relatedColPos = mvPartitionInfo.getPctColPos(entry.getKey());
             Map<PartitionKeyDesc, Set<String>> onePctRes = Maps.newHashMap();
+            Set<String> queryUsedPartitions = queryUsedPartitionMap.get(entry.getKey().getFullQualifiers());
             for (Entry<String, PartitionItem> onePctEntry : entry.getValue().entrySet()) {
+                if (queryUsedPartitions != null && !queryUsedPartitions.contains(onePctEntry.getKey())) {
+                    continue;
+                }
                 PartitionKeyDesc partitionKeyDesc = onePctEntry.getValue().toPartitionKeyDesc(relatedColPos);
                 if (onePctRes.containsKey(partitionKeyDesc)) {
                     onePctRes.get(partitionKeyDesc).add(onePctEntry.getKey());

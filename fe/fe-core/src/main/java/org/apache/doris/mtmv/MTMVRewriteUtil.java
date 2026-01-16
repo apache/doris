@@ -75,7 +75,7 @@ public class MTMVRewriteUtil {
             }
             if (refreshContext == null) {
                 try {
-                    refreshContext = MTMVRefreshContext.buildContext(mtmv);
+                    refreshContext = MTMVRefreshContext.buildContext(mtmv, queryUsedPartitions);
                 } catch (AnalysisException e) {
                     LOG.warn("buildContext failed", e);
                     // After failure, one should quickly return to avoid repeated failures
