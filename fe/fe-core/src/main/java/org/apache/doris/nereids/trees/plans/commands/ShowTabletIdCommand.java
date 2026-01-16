@@ -30,13 +30,12 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.SlidingWindowAccessStats;
-import org.apache.doris.common.util.SlidingWindowAccessStatsFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -123,7 +122,7 @@ public class ShowTabletIdCommand extends ShowCommand {
 
         int tabletIdx = -1;
         // check real meta
-        SlidingWindowAccessStats.AccessStatsResult asr = SlidingWindowAccessStatsFactory.getTabletAccessStats()
+        TabletSlidingWindowAccessStats.AccessStatsResult asr = TabletSlidingWindowAccessStats.getInstance()
                 .getAccessInfo(tabletId);
         long accessCount = 0;
         long lastAccessTime = 0;

@@ -24,7 +24,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.SlidingWindowAccessStatsFactory;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -248,7 +247,7 @@ public class Tablet {
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
         return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> {
-            SlidingWindowAccessStatsFactory.recordTablet(getId());
+            TabletSlidingWindowAccessStats.recordTablet(getId());
             return rep.getBackendId();
         });
     }
@@ -264,7 +263,7 @@ public class Tablet {
         List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
-        SlidingWindowAccessStatsFactory.recordTablet(getId());
+        TabletSlidingWindowAccessStats.recordTablet(getId());
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {

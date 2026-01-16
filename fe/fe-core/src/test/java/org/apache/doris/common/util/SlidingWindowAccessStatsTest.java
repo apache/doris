@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +48,7 @@ public class SlidingWindowAccessStatsTest {
 
         CounterHarness(int numBuckets) throws Exception {
             Class<?> clazz = Class.forName(
-                    "org.apache.doris.common.util.SlidingWindowAccessStats$SlidingWindowCounter");
+                    "org.apache.doris.catalog.TabletSlidingWindowAccessStats$SlidingWindowCounter");
             Constructor<?> ctor = clazz.getDeclaredConstructor(int.class);
             ctor.setAccessible(true);
             this.counter = ctor.newInstance(numBuckets);
@@ -176,17 +178,17 @@ public class SlidingWindowAccessStatsTest {
 
     @Test
     public void testTopNComparatorOrdersByAccessCountThenLastAccessTimeDesc() throws Exception {
-        Field f = SlidingWindowAccessStats.class.getDeclaredField("TOPN_ACTIVE_COMPARATOR");
+        Field f = TabletSlidingWindowAccessStats.class.getDeclaredField("TOPN_ACTIVE_COMPARATOR");
         f.setAccessible(true);
         @SuppressWarnings("unchecked")
-        Comparator<SlidingWindowAccessStats.AccessStatsResult> cmp =
-                (Comparator<SlidingWindowAccessStats.AccessStatsResult>) f.get(null);
+        Comparator<TabletSlidingWindowAccessStats.AccessStatsResult> cmp =
+                (Comparator<TabletSlidingWindowAccessStats.AccessStatsResult>) f.get(null);
 
-        List<SlidingWindowAccessStats.AccessStatsResult> results = new ArrayList<>();
-        results.add(new SlidingWindowAccessStats.AccessStatsResult(1L, 1L, 200L));
-        results.add(new SlidingWindowAccessStats.AccessStatsResult(2L, 10L, 100L));
-        results.add(new SlidingWindowAccessStats.AccessStatsResult(3L, 10L, 300L));
-        results.add(new SlidingWindowAccessStats.AccessStatsResult(4L, 2L, 400L));
+        List<TabletSlidingWindowAccessStats.AccessStatsResult> results = new ArrayList<>();
+        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(1L, 1L, 200L));
+        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(2L, 10L, 100L));
+        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(3L, 10L, 300L));
+        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(4L, 2L, 400L));
 
         results.sort(cmp);
 

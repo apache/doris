@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.MasterDaemon;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,11 +41,10 @@ import java.util.zip.CRC32;
  * Sliding window access statistics utility class.
  * Supports tracking access statistics for different types of IDs (tablet, replica, backend, etc.)
  */
-public class SlidingWindowAccessStats {
-    private static final Logger LOG = LogManager.getLogger(SlidingWindowAccessStats.class);
+public class TabletSlidingWindowAccessStats {
+    private static final Logger LOG = LogManager.getLogger(TabletSlidingWindowAccessStats.class);
 
-    // ID type for this instance
-    private final AccessStatsIdType idType;
+    private static volatile TabletSlidingWindowAccessStats instance;
 
     // Sort active IDs by accessCount desc, then lastAccessTime desc
     private static final Comparator<AccessStatsResult> TOPN_ACTIVE_COMPARATOR =
@@ -194,8 +193,7 @@ public class SlidingWindowAccessStats {
     // Default cleanup interval: 5 minutes
     private static final long DEFAULT_CLEANUP_INTERVAL_SECOND = 300L;
 
-    SlidingWindowAccessStats(AccessStatsIdType idType) {
-        this.idType = idType;
+    TabletSlidingWindowAccessStats() {
         this.timeWindowMs = Config.sliding_window_time_window_second * 1000L;
         this.bucketSizeMs = DEFAULT_BUCKET_SIZE_SECOND * 1000L;
         this.numBuckets = (int) (Config.sliding_window_time_window_second / DEFAULT_BUCKET_SIZE_SECOND);
@@ -219,24 +217,17 @@ public class SlidingWindowAccessStats {
                     60L, TimeUnit.SECONDS,
                     new LinkedBlockingQueue<>(1000), // queue capacity
                     r -> {
-                        Thread t = new Thread(r, "sliding-window-access-stats-async-" + idType.name().toLowerCase());
+                        Thread t = new Thread(r, "sliding-window-access-stats-async-tablet-record");
                         t.setDaemon(true);
                         return t;
                     },
                     new ThreadPoolExecutor.DiscardPolicy() // discard when queue is full
             );
 
-            LOG.info("SlidingWindowAccessStats initialized for type {}: timeWindow={}ms, bucketSize={}ms, "
+            LOG.info("SlidingWindowAccessStats initialized for type tablet: timeWindow={}ms, bucketSize={}ms, "
                     + "numBuckets={}, shardSize={}, cleanupInterval={}ms",
-                    idType, timeWindowMs, bucketSizeMs, numBuckets, SHARD_SIZE, cleanupIntervalMs);
+                    timeWindowMs, bucketSizeMs, numBuckets, SHARD_SIZE, cleanupIntervalMs);
         }
-    }
-
-    /**
-     * Get the ID type for this instance
-     */
-    public AccessStatsIdType getIdType() {
-        return idType;
     }
 
     /**
@@ -270,13 +261,13 @@ public class SlidingWindowAccessStats {
                     recordAccess(id);
                 } catch (Exception e) {
                     // Log but don't propagate exception to avoid affecting caller
-                    LOG.warn("Failed to record access asynchronously for {} id={}", idType, id, e);
+                    LOG.warn("Failed to record access asynchronously for tablet id={}", id, e);
                 }
             });
         } catch (Exception e) {
             // If executor is shutdown or queue is full, silently ignore
             // Statistics can tolerate some loss
-            LOG.warn("Failed to submit async recordAccess task for {} id={}", idType, id, e);
+            LOG.warn("Failed to submit async recordAccess task for tablet id={}", id, e);
         }
     }
 
@@ -425,7 +416,7 @@ public class SlidingWindowAccessStats {
         }
 
         if (LOG.isDebugEnabled() && cleaned > 0) {
-            LOG.debug("Cleaned up {} expired access records for type {}", cleaned, idType);
+            LOG.debug("Cleaned up {} expired access records for type tablet", cleaned);
         }
     }
 
@@ -434,7 +425,7 @@ public class SlidingWindowAccessStats {
      */
     public String getStatsSummary() {
         if (!Config.enable_sliding_window_access_stats) {
-            return String.format("SlidingWindowAccessStats (type: %s) is disabled", idType);
+            return String.format("SlidingWindowAccessStats (type: tablet) is disabled");
         }
 
         long currentTime = System.currentTimeMillis();
@@ -451,10 +442,10 @@ public class SlidingWindowAccessStats {
         }
 
         return String.format(
-            "SlidingWindowAccessStats{type=%s, timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
+            "SlidingWindowAccessStats{type=tablet, timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "
                 + "shardSize=%d, activeIds=%d, "
                 + "totalAccess=%d, totalAccessCount=%d}",
-            idType, timeWindowMs / 1000, bucketSizeMs / 1000, numBuckets, SHARD_SIZE,
+            timeWindowMs / 1000, bucketSizeMs / 1000, numBuckets, SHARD_SIZE,
             activeIds, totalAccess, totalAccessCount.get());
     }
 
@@ -463,7 +454,7 @@ public class SlidingWindowAccessStats {
      */
     private class AccessStatsCleanupDaemon extends MasterDaemon {
         public AccessStatsCleanupDaemon() {
-            super("sliding-window-access-stats-cleanup-" + idType.name().toLowerCase(), cleanupIntervalMs);
+            super("sliding-window-access-stats-cleanup-tablet" +  cleanupIntervalMs);
         }
 
         @Override
@@ -475,12 +466,29 @@ public class SlidingWindowAccessStats {
             try {
                 cleanupExpiredRecords();
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("{} stat = {}, top 10 active = {}",
-                            idType, getStatsSummary(), getTopNActive(10));
+                    LOG.debug("tablet stat = {}, top 10 active = {}",
+                            getStatsSummary(), getTopNActive(10));
                 }
             } catch (Exception e) {
-                LOG.warn("Failed to cleanup expired access records for type {}", idType, e);
+                LOG.warn("Failed to cleanup expired access records for type tablet", e);
             }
         }
+    }
+
+    public static TabletSlidingWindowAccessStats getInstance() {
+        if (instance == null) {
+            synchronized (TabletSlidingWindowAccessStats.class) {
+                if (instance == null) {
+                    instance = new TabletSlidingWindowAccessStats();
+                }
+            }
+        }
+        return instance;
+    }
+
+    // async record tablet instance access
+    public static void recordTablet(long id) {
+        TabletSlidingWindowAccessStats sas = getInstance();
+        sas.recordAccessAsync(id);
     }
 }
