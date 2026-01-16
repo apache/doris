@@ -455,6 +455,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                             + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         String branchName = branchInfo.getBranchName();
+
+        if (branchName == null || branchName.trim().isEmpty()) {
+            throw new UserException("Branch name cannot be empty");
+        }
+
         boolean refExists = null != icebergTable.refs().get(branchName);
         boolean create = branchInfo.getCreate();
         boolean replace = branchInfo.getReplace();
@@ -535,6 +540,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         String tagName = tagInfo.getTagName();
+
+        if (tagName == null || tagName.trim().isEmpty()) {
+            throw new UserException("Tag name cannot be empty");
+        }
+
         boolean create = tagInfo.getCreate();
         boolean replace = tagInfo.getReplace();
         boolean ifNotExists = tagInfo.getIfNotExists();
