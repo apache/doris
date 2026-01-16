@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_rewrite_mtmv", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("disabled hudi test")
+        logger.info("disable hudi test")
         return
     }
     String suiteName = "test_hudi_rewrite_mtmv"
@@ -26,15 +26,27 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi,external_remote,external_remot
     String mvName = "${suiteName}_mv"
     String dbName = context.config.getDbNameByFile(context.file)
 
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
 
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
     String mvSql = "SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 group by par;";
 
     sql """drop catalog if exists ${catalogName}"""
-    sql """CREATE CATALOG if not exists ${catalogName} PROPERTIES (
-            ${props}
-        );"""
+    sql """
+        create catalog if not exists ${catalogName} properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
+        );
+    """
 
     sql """analyze table ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 with sync"""
     sql '''
@@ -136,7 +148,7 @@ modify column _hoodie_commit_time set stats (
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     sql """analyze table ${mvName} with sync"""
-    order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
+    order_qt_refresh_one_partition "SELECT par, num FROM ${mvName} "
 
     sql """alter table ${mvName} modify column par set stats ('row_count'='1');"""
 
@@ -155,7 +167,7 @@ modify column _hoodie_commit_time set stats (
     waitingMTMVTaskFinishedByMvName(mvName)
     sql """analyze table ${mvName} with sync"""
     sql """alter table ${mvName} modify column par set stats ('row_count'='2');"""
-    order_qt_refresh_auto "SELECT * FROM ${mvName} "
+    order_qt_refresh_auto "SELECT par, num FROM ${mvName} "
 
     mv_rewrite_success(mvSql, mvName)
     order_qt_refresh_all_partition_rewrite "${mvSql}"
@@ -165,3 +177,4 @@ modify column _hoodie_commit_time set stats (
     sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 }
+

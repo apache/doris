@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("disabled hudi test")
+        logger.info("disable hudi test")
         return
     }
     String suiteName = "test_hudi_olap_rewrite_mtmv"
@@ -43,15 +43,27 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
     sql """analyze table internal.`${dbName}`. ${tableName} with sync"""
     sql """alter table internal.`${dbName}`. ${tableName} modify column user_id set stats ('row_count'='1');"""
 
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
 
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-    String mvSql = "SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id;";
+    String mvSql = "SELECT a.id, a.age, a.par, b.user_id, b.num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id;";
 
     sql """drop catalog if exists ${catalogName}"""
-    sql """CREATE CATALOG if not exists ${catalogName} PROPERTIES (
-            ${props}
-        );"""
+    sql """
+        create catalog if not exists ${catalogName} properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
+        );
+    """
 
     sql """analyze table ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 with sync"""
     sql """alter table ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 modify column par set stats ('row_count'='10');"""
@@ -77,7 +89,7 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
+    order_qt_refresh_one_partition "SELECT id, age, par, user_id, num FROM ${mvName} "
 
     def explainOnePartition = sql """ explain  ${mvSql} """
     logger.info("explainOnePartition: " + explainOnePartition.toString())
@@ -87,14 +99,14 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
     mv_rewrite_success("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
-    mv_not_part_in("SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
+    mv_not_part_in("SELECT a.id, a.age, a.par, b.user_id, b.num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
 
     //refresh auto
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_auto "SELECT * FROM ${mvName} "
+    order_qt_refresh_auto "SELECT id, age, par, user_id, num FROM ${mvName} "
 
     def explainAllPartition = sql """ explain  ${mvSql}; """
     logger.info("explainAllPartition: " + explainAllPartition.toString())
@@ -106,3 +118,4 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi,external_remote,external_
     sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 }
+

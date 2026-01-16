@@ -155,7 +155,7 @@ public class CascadesContext implements ScheduleContext {
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, requireProperties);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable(),
@@ -362,7 +362,7 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public CascadesContext setJobContext(PhysicalProperties physicalProperties) {
-        this.currentJobContext = new JobContext(this, physicalProperties, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, physicalProperties);
         return this;
     }
 
