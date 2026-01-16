@@ -2314,7 +2314,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false, description = {
             "S3 list操作返回的最大文件数量，-1表示无限制。",
             "Max number of files to list from S3. -1 means no limitation."})
-    public static int max_s3_list_objects_count = 1000;
+    public static int max_s3_list_objects_count = 10000;
 
     /**
      * Max cache num of external table's schema
