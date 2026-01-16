@@ -232,18 +232,16 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             exception "Flexible partial update only supports JSON format"
         }
 
-        // Test 4: Success case - jsonpaths works with flexible partial update
-        def kafkaJsonTopic4 = "test_routine_load_flexible_partial_update_jsonpaths"
-        def tableName4 = "test_routine_load_flex_update_jsonpaths"
-        def job4 = "test_flex_partial_update_job_jsonpaths"
+        // Test 4: Error case - jsonpaths not supported with flexible partial update
+        def tableName4 = "test_routine_load_flex_update_jsonpaths_error"
+        def job4 = "test_flex_partial_update_job_jsonpaths_error"
 
         sql """ DROP TABLE IF EXISTS ${tableName4} force;"""
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName4} (
                 `id` int NOT NULL,
                 `name` varchar(65533) NULL,
-                `score` int NULL,
-                `age` int NULL
+                `score` int NULL
             ) ENGINE=OLAP
             UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
@@ -255,18 +253,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             );
         """
 
-        // insert initial data
-        sql """
-            INSERT INTO ${tableName4} VALUES
-            (1, 'alice', 100, 20),
-            (2, 'bob', 90, 21),
-            (3, 'charlie', 80, 22)
-        """
-
-        qt_select_initial4 "SELECT id, name, score, age FROM ${tableName4} ORDER BY id"
-
-        try {
-            // create routine load with jsonpaths and flexible partial update
+        test {
             sql """
                 CREATE ROUTINE LOAD ${job4} ON ${tableName4}
                 PROPERTIES
@@ -279,34 +266,11 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                 FROM KAFKA
                 (
                     "kafka_broker_list" = "${kafka_broker}",
-                    "kafka_topic" = "${kafkaJsonTopic4}",
+                    "kafka_topic" = "test_topic",
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
-
-            // send JSON data - jsonpaths extracts id, name, score (age is not in jsonpaths so remains unchanged)
-            def data4 = [
-                '{"id": 1, "name": "alice_updated", "score": 150}',
-                '{"id": 2, "name": "bob_updated", "score": 95}',
-                '{"id": 4, "name": "diana", "score": 70}'
-            ]
-
-            data4.each { line ->
-                logger.info("Sending to Kafka: ${line}")
-                def record = new ProducerRecord<>(kafkaJsonTopic4, null, line)
-                producer.send(record).get()
-            }
-            producer.flush()
-
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job4, tableName4, 3)
-
-            // verify flexible partial update with jsonpaths works
-            qt_select_after_flex_jsonpaths "SELECT id, name, score, age FROM ${tableName4} ORDER BY id"
-        } catch (Exception e) {
-            logger.error("Error during test: " + e.getMessage())
-            throw e
-        } finally {
-            sql "STOP ROUTINE LOAD FOR ${job4}"
+            exception "Flexible partial update does not support jsonpaths"
         }
 
         // Test 5: Error case - fuzzy_parse not supported
@@ -939,18 +903,17 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             sql "STOP ROUTINE LOAD FOR ${job15}"
         }
 
-        // Test 16: ALTER to flex mode succeeds with jsonpaths
-        def kafkaJsonTopic16 = "test_routine_load_alter_flex_jsonpaths"
-        def tableName16 = "test_routine_load_alter_flex_jsonpaths"
-        def job16 = "test_alter_flex_jsonpaths_job"
+        // Test 16: ALTER to flex mode fails with jsonpaths
+        def kafkaJsonTopic16 = "test_routine_load_alter_flex_jsonpaths_error"
+        def tableName16 = "test_routine_load_alter_flex_jsonpaths_error"
+        def job16 = "test_alter_flex_jsonpaths_error_job"
 
         sql """ DROP TABLE IF EXISTS ${tableName16} force;"""
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName16} (
                 `id` int NOT NULL,
                 `name` varchar(65533) NULL,
-                `score` int NULL,
-                `age` int NULL
+                `score` int NULL
             ) ENGINE=OLAP
             UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
@@ -961,15 +924,6 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                 "enable_unique_key_skip_bitmap_column" = "true"
             );
         """
-
-        // insert initial data
-        sql """
-            INSERT INTO ${tableName16} VALUES
-            (1, 'alice', 100, 20),
-            (2, 'bob', 90, 21)
-        """
-
-        qt_select_initial16 "SELECT id, name, score, age FROM ${tableName16} ORDER BY id"
 
         try {
             // create routine load with jsonpaths (UPSERT mode)
@@ -991,40 +945,17 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
 
             sql "PAUSE ROUTINE LOAD FOR ${job16}"
 
-            // alter to UPDATE_FLEXIBLE_COLUMNS mode - should succeed
-            sql """
-                ALTER ROUTINE LOAD FOR ${job16}
-                PROPERTIES
-                (
-                    "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
-                );
-            """
-
-            // verify the property was changed
-            def res = sql "SHOW ROUTINE LOAD FOR ${job16}"
-            def jobProperties = res[0][11].toString()
-            logger.info("Altered routine load job properties: ${jobProperties}")
-            assertTrue(jobProperties.contains("UPDATE_FLEXIBLE_COLUMNS"))
-
-            sql "RESUME ROUTINE LOAD FOR ${job16}"
-
-            // send JSON data
-            def data16 = [
-                '{"id": 1, "name": "alice_updated", "score": 150}',
-                '{"id": 3, "name": "charlie", "score": 80}'
-            ]
-
-            data16.each { line ->
-                logger.info("Sending to Kafka: ${line}")
-                def record = new ProducerRecord<>(kafkaJsonTopic16, null, line)
-                producer.send(record).get()
+            // alter to UPDATE_FLEXIBLE_COLUMNS mode - should fail because jsonpaths is set
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${job16}
+                    PROPERTIES
+                    (
+                        "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
+                    );
+                """
+                exception "Flexible partial update does not support jsonpaths"
             }
-            producer.flush()
-
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job16, tableName16, 2)
-
-            // verify flexible partial update with jsonpaths after ALTER
-            qt_select_after_alter_flex_jsonpaths "SELECT id, name, score, age FROM ${tableName16} ORDER BY id"
         } catch (Exception e) {
             logger.error("Error during test: " + e.getMessage())
             throw e

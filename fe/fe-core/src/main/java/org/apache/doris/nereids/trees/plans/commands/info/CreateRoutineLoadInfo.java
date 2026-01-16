@@ -463,6 +463,11 @@ public class CreateRoutineLoadInfo {
         if (Boolean.parseBoolean(jobProperties.getOrDefault(JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
             throw new AnalysisException("Flexible partial update does not support fuzzy_parse");
         }
+        // Cannot use jsonpaths
+        String jsonPaths = jobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
+        if (jsonPaths != null && !jsonPaths.isEmpty()) {
+            throw new AnalysisException("Flexible partial update does not support jsonpaths");
+        }
         // Cannot specify COLUMNS mapping
         if (loadPropertyMap != null && loadPropertyMap.values().stream()
                 .anyMatch(p -> p instanceof LoadColumnClause)) {

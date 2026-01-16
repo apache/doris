@@ -25,17 +25,6 @@
 3	1000	2000	3000	4000
 4	\N	9876	4444	1234
 
--- !select_initial4 --
-1	alice	100	20
-2	bob	90	21
-3	charlie	80	22
-
--- !select_after_flex_jsonpaths --
-1	alice_updated	150	20
-2	bob_updated	95	21
-3	charlie	80	22
-4	diana	70	\N
-
 -- !select_initial7 --
 1	alice	100	20
 2	bob	90	21
@@ -68,15 +57,6 @@
 2	bob	90	35
 3	charlie	80	22
 4	diana	\N	\N
-
--- !select_initial16 --
-1	alice	100	20
-2	bob	90	21
-
--- !select_after_alter_flex_jsonpaths --
-1	alice_updated	150	20
-2	bob	90	21
-3	charlie	80	\N
 
 -- !select_initial18 --
 1	alice	100	20
