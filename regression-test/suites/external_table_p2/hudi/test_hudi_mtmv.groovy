@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_mtmv", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("disabled hudi test")
+        logger.info("disable hudi test")
         return
     }
     String suiteName = "test_hudi_mtmv"
@@ -27,6 +27,12 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
     String dbName = context.config.getDbNameByFile(context.file)
     String otherDbName = "${suiteName}_otherdb"
     String tableName = "${suiteName}_table"
+
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
 
     sql """drop database if exists ${otherDbName}"""
     sql """create database ${otherDbName}"""
@@ -44,14 +50,20 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
         insert into ${otherDbName}.${tableName} values(1,2);
         """
 
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
-
     sql """drop catalog if exists ${catalogName}"""
-    sql """CREATE CATALOG if not exists ${catalogName} PROPERTIES (
-            ${props}
-        );"""
+    sql """
+        create catalog if not exists ${catalogName} properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
+        );
+    """
 
-    order_qt_base_table """ select * from ${catalogName}.hudi_mtmv_regression_test.hudi_table_1; """
+    order_qt_base_table """ select id, age, par from ${catalogName}.hudi_mtmv_regression_test.hudi_table_1; """
 
     sql """drop materialized view if exists ${mvName};"""
 
@@ -62,7 +74,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1;
+            SELECT id, age, par FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1;
         """
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -74,21 +86,29 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
+    order_qt_refresh_one_partition "SELECT id, age, par FROM ${mvName} "
 
     //refresh auto
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_auto "SELECT * FROM ${mvName} "
+    order_qt_refresh_auto "SELECT id, age, par FROM ${mvName} "
     order_qt_is_sync_before_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
    // rebuild catalog, should not Affects MTMV
     sql """drop catalog if exists ${catalogName}"""
-    sql """CREATE CATALOG if not exists ${catalogName} PROPERTIES (
-            ${props}
-        );"""
+    sql """
+        create catalog if not exists ${catalogName} properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
+        );
+    """
     order_qt_is_sync_after_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     // should refresh normal after catalog rebuild
@@ -96,7 +116,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             REFRESH MATERIALIZED VIEW ${mvName} complete
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} "
+    order_qt_refresh_complete_rebuild "SELECT id, age, par FROM ${mvName} "
 
     sql """drop materialized view if exists ${mvName};"""
 
@@ -117,7 +137,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_not_partition "SELECT * FROM ${mvName} "
+    order_qt_not_partition "SELECT id, age, par FROM ${mvName} "
     order_qt_not_partition_after "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """drop materialized view if exists ${mvName};"""
 
@@ -157,7 +177,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join internal.${otherDbName}.${tableName} b on a.id=b.user_id;
+            SELECT a.id, a.age, a.par, b.user_id, b.num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join internal.${otherDbName}.${tableName} b on a.id=b.user_id;
         """
     def showJoinPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showJoinPartitionsResult: " + showJoinPartitionsResult.toString())
@@ -168,7 +188,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_join_one_partition "SELECT * FROM ${mvName} "
+    order_qt_join_one_partition "SELECT id, age, par, user_id, num FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
@@ -178,7 +198,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_two_partitions;
+            SELECT id, name, value, create_date FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_two_partitions;
         """
     def showTwoPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showTwoPartitionsResult: " + showTwoPartitionsResult.toString())
@@ -189,7 +209,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_two_partition "SELECT * FROM ${mvName} "
+    order_qt_two_partition "SELECT id, name, value, create_date FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
@@ -200,7 +220,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             PROPERTIES ('replication_num' = '1','partition_sync_limit'='2','partition_date_format'='%Y-%m-%d',
                         'partition_sync_time_unit'='MONTH')
             AS
-            SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_two_partitions;
+            SELECT id, name, value, create_date FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_two_partitions;
         """
     def showLimitPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showLimitPartitionsResult: " + showLimitPartitionsResult.toString())
@@ -211,7 +231,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_limit_partition "SELECT * FROM ${mvName} "
+    order_qt_limit_partition "SELECT id, name, value, create_date FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
     // not allow date trunc
@@ -224,7 +244,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
                 PROPERTIES ('replication_num' = '1','partition_sync_limit'='2','partition_date_format'='%Y-%m-%d',
                             'partition_sync_time_unit'='MONTH')
                 AS
-                SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_two_partitions;
+                SELECT id, name, value, create_date FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_two_partitions;
             """
           exception "only support"
       }
@@ -236,7 +256,7 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_null_partition;
+            SELECT id, name, value, region FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_null_partition;
         """
     def showNullPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showNullPartitionsResult: " + showNullPartitionsResult.toString())
@@ -248,9 +268,10 @@ suite("test_hudi_mtmv", "p2,external,hudi,external_remote,external_remote_hudi")
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     // Will lose null data
-    order_qt_null_partition "SELECT * FROM ${mvName} "
+    order_qt_null_partition "SELECT id, name, value, region FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 
     sql """drop catalog if exists ${catalogName}"""
 
 }
+

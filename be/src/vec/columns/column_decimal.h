@@ -86,8 +86,7 @@ private:
 
 public:
     // value_type is decimal32/64/128/256 type
-    using value_type =
-            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
     using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 

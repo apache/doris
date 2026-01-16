@@ -60,9 +60,13 @@ struct AggregateFunctionUniqExactData {
     static constexpr bool is_string_key = is_string_type(T) || is_varbinary(T);
     using Key = std::conditional_t<
             is_string_key, UInt128,
-            std::conditional_t<T == TYPE_ARRAY, UInt64,
-                               std::conditional_t<T == TYPE_BOOLEAN, UInt8,
-                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>>;
+            std::conditional_t<
+                    T == TYPE_ARRAY, UInt64,
+                    std::conditional_t<
+                            T == TYPE_BOOLEAN, UInt8,
+                            std::conditional_t<is_date_type(T) || T == TYPE_TIMESTAMPTZ,
+                                               typename PrimitiveTypeTraits<T>::CppType,
+                                               typename PrimitiveTypeTraits<T>::CppNativeType>>>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
@@ -119,10 +123,9 @@ class AggregateFunctionUniq final
           VarargsExpression,
           NotNullableAggregateFunction {
 public:
-    using KeyType =
-            std::conditional_t<is_string_type(T) || is_varbinary(T), UInt128,
-                               std::conditional_t<T == TYPE_ARRAY, UInt64,
-                                                  typename PrimitiveTypeTraits<T>::ColumnItemType>>;
+    using KeyType = std::conditional_t<
+            is_string_type(T) || is_varbinary(T), UInt128,
+            std::conditional_t<T == TYPE_ARRAY, UInt64, typename PrimitiveTypeTraits<T>::CppType>>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
 
