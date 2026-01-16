@@ -80,6 +80,12 @@ bvar::Window<bvar::IntRecorder> g_packed_file_uploading_to_uploaded_ms_window(
         "packed_file_uploading_to_uploaded_ms", &g_packed_file_uploading_to_uploaded_ms_recorder,
         /*window_size=*/10);
 
+// Metrics for async small file cache write
+bvar::Adder<int64_t> g_packed_file_cache_async_write_count("packed_file_cache",
+                                                           "async_write_count");
+bvar::Adder<int64_t> g_packed_file_cache_async_write_bytes("packed_file_cache",
+                                                           "async_write_bytes");
+
 Status append_packed_info_trailer(FileWriter* writer, const std::string& packed_file_path,
                                   const cloud::PackedFileInfoPB& packed_file_info) {
     if (writer == nullptr) {
@@ -169,7 +175,9 @@ void do_write_to_file_cache(const std::string& small_file_path, const std::strin
 }
 
 // Async wrapper: submit cache write task to thread pool
-// Note: data is copied to ensure lifetime beyond async execution
+// The data is copied into the lambda capture to ensure its lifetime extends beyond
+// the async task execution. The original Slice may reference a buffer that gets
+// reused or freed before the async task runs.
 void write_small_file_to_cache_async(const std::string& small_file_path, const Slice& data,
                                      int64_t tablet_id) {
     if (!config::enable_file_cache || data.size == 0) {
@@ -179,6 +187,7 @@ void write_small_file_to_cache_async(const std::string& small_file_path, const S
     // Copy data since original buffer may be reused before async task executes
     // For small files (< 1MB), copy overhead is acceptable
     std::string data_copy(data.data, data.size);
+    size_t data_size = data.size;
 
     auto* thread_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
     if (thread_pool == nullptr) {
@@ -187,13 +196,24 @@ void write_small_file_to_cache_async(const std::string& small_file_path, const S
         return;
     }
 
+    // Track async write count and bytes
+    g_packed_file_cache_async_write_count << 1;
+    g_packed_file_cache_async_write_bytes << static_cast<int64_t>(data_size);
+
     Status st = thread_pool->submit_func(
-            [path = small_file_path, data = std::move(data_copy), tablet_id]() {
+            [path = small_file_path, data = std::move(data_copy), tablet_id, data_size]() {
                 do_write_to_file_cache(path, data, tablet_id);
+                // Decrement async write count after completion
+                g_packed_file_cache_async_write_count << -1;
+                g_packed_file_cache_async_write_bytes << -static_cast<int64_t>(data_size);
             });
 
     if (!st.ok()) {
-        LOG(WARNING) << "Failed to submit cache write task: " << st.msg();
+        // Revert metrics since task was not submitted
+        g_packed_file_cache_async_write_count << -1;
+        g_packed_file_cache_async_write_bytes << -static_cast<int64_t>(data_size);
+        LOG(WARNING) << "Failed to submit cache write task for " << small_file_path << ": "
+                     << st.msg();
         // Don't block on failure, cache write is best-effort
     }
 }
