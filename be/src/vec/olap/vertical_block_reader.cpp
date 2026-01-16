@@ -29,10 +29,13 @@
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_schema.h"
+#include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -257,6 +260,13 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
         break;
     }
+
+    // Use sparse optimization flag from ReaderParams (calculated in merger.cpp based on avg_row_bytes threshold)
+    _use_sparse_optimization = read_params.use_sparse_optimization;
+
+    // Save sample_info pointer for null count tracking
+    _sample_info = sample_info;
+
     return Status::OK();
 }
 
@@ -537,9 +547,166 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         _eof = *eof;
         return Status::OK();
     }
-    int target_block_row = 0;
+
+    // Value column processing - use batch optimization
     auto target_columns = block->mutate_columns();
-    size_t column_count = block->columns();
+    const size_t column_count = block->columns();
+
+    // Try to use batch optimization for value column compaction
+    // Only use batch optimization when sparse optimization is enabled
+    {
+        auto* mask_iter = dynamic_cast<VerticalMaskMergeIterator*>(_vcollect_iter.get());
+        if (mask_iter != nullptr && _use_sparse_optimization) {
+            // Step 1: Batch fetch row information
+            std::vector<RowBatch> batches;
+            size_t actual_rows = 0;
+
+            RETURN_IF_ERROR(mask_iter->unique_key_next_batch(&batches, _reader_context.batch_size,
+                                                             &actual_rows));
+
+            if (actual_rows == 0) {
+                *eof = true;
+                _eof = true;
+                return Status::OK();
+            }
+
+            const size_t base_offset = target_columns.empty() ? 0 : target_columns[0]->size();
+
+            // Step 3: Sparse optimization - pre-fill with NULL and pre-cast destination columns
+            // Pre-cast destination columns outside the loop to avoid repeated assert_cast
+            std::vector<ColumnNullable*> nullable_dst_cols(column_count, nullptr);
+            // Track which columns support in-place replacement (fixed-width types)
+            // Variable-length types (strings, arrays) need insert-based approach
+            std::vector<bool> supports_replace(column_count, false);
+
+            for (size_t col_idx = 0; col_idx < column_count; ++col_idx) {
+                auto& col = target_columns[col_idx];
+                if (col->is_nullable()) {
+                    auto* nullable_col =
+                            assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(col.get());
+                    nullable_dst_cols[col_idx] = nullable_col;
+                    supports_replace[col_idx] = nullable_col->support_replace_column_data_range();
+
+                    if (supports_replace[col_idx]) {
+                        // Fixed-width types: pre-fill with NULL for sparse optimization
+                        size_t old_size = nullable_col->size();
+                        size_t new_size = old_size + actual_rows;
+
+                        // Expand and fill null_map with all 1s (all NULL)
+                        nullable_col->get_null_map_column().get_data().resize_fill(new_size, 1);
+
+                        // Expand nested_column (data content doesn't matter since all NULL)
+                        nullable_col->get_nested_column().resize(new_size);
+                    } else {
+                        // Variable-length types: just reserve space, will use insert operations
+                        col->reserve(col->size() + actual_rows);
+                    }
+                } else {
+                    // Non-Nullable column, reserve space
+                    col->reserve(col->size() + actual_rows);
+                }
+            }
+
+            // Step 3: Batch process each batch
+            size_t dst_offset = base_offset;
+
+            for (const auto& batch : batches) {
+                Block* src_block = batch.block.get();
+                DCHECK(src_block != nullptr);
+                DCHECK(src_block->columns() == column_count);
+
+                // Pre-cast source columns for this batch (once per batch, not per column iteration)
+                // Use static_cast in inner loop after verifying type once
+                for (size_t col_idx = 0; col_idx < column_count; ++col_idx) {
+                    ColumnNullable* nullable_dst = nullable_dst_cols[col_idx];
+
+                    if (nullable_dst != nullptr && supports_replace[col_idx]) {
+                        // Sparse optimization path for fixed-width types - pre-filled with NULL
+                        const auto& src_col = src_block->get_by_position(col_idx).column;
+                        // Use static_cast here since we already verified dst is nullable,
+                        // and schema consistency guarantees src is also nullable
+                        const auto* nullable_src =
+                                static_cast<const ColumnNullable*>(src_col.get());
+                        const auto& null_map = nullable_src->get_null_map_data();
+
+                        // Use SIMD to count non-NULL values
+                        size_t non_null_count = simd::count_zero_num(
+                                reinterpret_cast<const int8_t*>(null_map.data() + batch.start_row),
+                                static_cast<size_t>(batch.count));
+
+                        // Track null count for sparse optimization threshold calculation
+                        if (_sample_info != nullptr) {
+                            _sample_info->null_count += (batch.count - non_null_count);
+                        }
+
+                        if (non_null_count == 0) {
+                            // All NULL, skip (already pre-filled)
+                        } else if (non_null_count == batch.count) {
+                            // All non-NULL, use batch copy
+                            nullable_dst->replace_column_data_range(*nullable_src, batch.start_row,
+                                                                    batch.count, dst_offset);
+                        } else {
+                            // Mixed case: use run-length encoding to batch replace non-NULL runs
+                            // This is more efficient than per-row replacement when non-NULLs are clustered
+                            size_t i = 0;
+                            while (i < batch.count) {
+                                // Skip NULL values (null_map == 1)
+                                while (i < batch.count && null_map[batch.start_row + i] != 0) {
+                                    i++;
+                                }
+                                if (i >= batch.count) break;
+
+                                // Found start of non-NULL run
+                                size_t run_start = i;
+                                while (i < batch.count && null_map[batch.start_row + i] == 0) {
+                                    i++;
+                                }
+                                size_t run_length = i - run_start;
+
+                                // Batch copy this non-NULL run
+                                nullable_dst->replace_column_data_range(
+                                        *nullable_src, batch.start_row + run_start, run_length,
+                                        dst_offset + run_start);
+                            }
+                        }
+                    } else if (nullable_dst != nullptr) {
+                        // Variable-length types (strings, arrays) - use insert-based approach
+                        const auto& src_col = src_block->get_by_position(col_idx).column;
+
+                        // Track null count for variable-length nullable columns
+                        if (_sample_info != nullptr) {
+                            const auto* nullable_src =
+                                    static_cast<const ColumnNullable*>(src_col.get());
+                            const auto& null_map = nullable_src->get_null_map_data();
+                            size_t non_null_count =
+                                    simd::count_zero_num(reinterpret_cast<const int8_t*>(
+                                                                 null_map.data() + batch.start_row),
+                                                         static_cast<size_t>(batch.count));
+                            _sample_info->null_count += (batch.count - non_null_count);
+                        }
+
+                        // Use insert_range_from for variable-length types
+                        // This properly handles variable-length data like strings
+                        target_columns[col_idx]->insert_range_from(*src_col, batch.start_row,
+                                                                   batch.count);
+                    } else {
+                        // Non-sparse optimization path / non-Nullable column
+                        const auto& src_col = src_block->get_by_position(col_idx).column;
+                        target_columns[col_idx]->insert_range_from(*src_col, batch.start_row,
+                                                                   batch.count);
+                    }
+                }
+
+                dst_offset += batch.count;
+            }
+
+            block->set_columns(std::move(target_columns));
+            return Status::OK();
+        }
+    }
+
+    // Fallback: original row-by-row processing
+    int target_block_row = 0;
     do {
         Status res = _vcollect_iter->unique_key_next_row(&_next_row);
         if (UNLIKELY(!res.ok())) {

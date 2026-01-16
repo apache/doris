@@ -185,6 +185,10 @@ public:
         bool is_key_column_group = false;
         std::vector<uint32_t> key_group_cluster_key_idxes;
 
+        // For sparse column compaction optimization
+        // When true, use optimized path for sparse wide tables
+        bool use_sparse_optimization = false;
+
         bool is_segcompaction = false;
 
         std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
