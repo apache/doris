@@ -80,7 +80,7 @@ class AggregateFunctionUniqDistributeKey final
           NullableAggregateFunction {
 public:
     using KeyType = std::conditional_t<is_string_type(T), UInt128,
-                                       typename PrimitiveTypeTraits<T>::ColumnItemType>;
+                                       typename PrimitiveTypeTraits<T>::CppType>;
     AggregateFunctionUniqDistributeKey(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>>(
                       argument_types_) {}

@@ -53,7 +53,6 @@ class DataTypeString;
 template <typename Transform>
 class FunctionDateOrDateTimeToString : public IFunction {
 public:
-    using NativeType = PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType;
     using DateType = PrimitiveTypeTraits<Transform::OpArgType>::CppType;
     static constexpr auto name = Transform::name;
     static constexpr bool has_variadic_argument =
@@ -177,7 +176,7 @@ public:
     }
 
 private:
-    static void vector(FunctionContext* context, const PaddedPODArray<NativeType>& ts,
+    static void vector(FunctionContext* context, const PaddedPODArray<DateType>& ts,
                        ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                        const NullMap* null_map = nullptr) {
         const auto len = ts.size();
@@ -200,8 +199,7 @@ private:
                 continue;
             }
 
-            const auto& t = ts[i];
-            const auto date_time_value = binary_cast<NativeType, DateType>(t);
+            const auto& date_time_value = ts[i];
             res_offsets[i] = cast_set<UInt32>(
                     Transform::execute(date_time_value, res_data, offset, names_ptr));
             DCHECK(date_time_value.is_valid_date());

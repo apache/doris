@@ -483,7 +483,7 @@ private:
 template <PrimitiveType DecimalPType>
 class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     FixedSizeToDecimal(int32_t type_length) : _type_length(type_length) {}
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
@@ -568,7 +568,7 @@ private:
 
 template <PrimitiveType DecimalPType>
 class StringToDecimal : public PhysicalToLogicalConverter {
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -601,7 +601,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
 
 template <PrimitiveType NumberType, PrimitiveType DecimalPType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);

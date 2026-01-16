@@ -215,19 +215,16 @@ template <typename A>
 struct AbsImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
     using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(A a) {
         if constexpr (IsDecimal128V2<A>) {
             return DecimalV2Value(a < A(0) ? A(-a) : a);
         } else if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
         } else if constexpr (IsIntegralV<A>) {
-            return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
-                                      ~a) +
-                                      1
+            return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(~a) + 1
                             : a;
         } else if constexpr (std::is_floating_point_v<A>) {
-            return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
-                    std::abs(a));
+            return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(std::abs(a));
         } else {
             static_assert(std::is_same_v<A, void>, "Unsupported type in AbsImpl");
         }
@@ -301,8 +298,8 @@ template <typename A>
 struct NegativeImpl {
     static constexpr PrimitiveType ResultType = ResultOfPosAndNegTive<A>::ResultType;
     using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
-    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType
-    apply(A a) {
+    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(
+            A a) {
         return -a;
     }
 };
@@ -330,8 +327,8 @@ template <typename A>
 struct PositiveImpl {
     static constexpr PrimitiveType ResultType = ResultOfPosAndNegTive<A>::ResultType;
     using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(a);
     }
 };
 
@@ -483,9 +480,9 @@ template <typename A>
 struct RadiansImpl {
     static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
     using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a / 180.0 *
-                                                                                     PiImpl::value);
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(a / 180.0 *
+                                                                              PiImpl::value);
     }
 };
 
@@ -499,9 +496,9 @@ template <typename A>
 struct DegreesImpl {
     static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
     using DataType = typename PrimitiveTypeTraits<ResultType>::DataType;
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a * 180.0 /
-                                                                                     PiImpl::value);
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(A a) {
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType>(a * 180.0 /
+                                                                              PiImpl::value);
     }
 };
 

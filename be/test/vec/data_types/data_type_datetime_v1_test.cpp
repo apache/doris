@@ -339,7 +339,8 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
 
         size_t count = 0;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        int64_t tmp = 1;
+        col_with_type->insert_many_vals(binary_cast<int64_t, VecDateTimeValue>(tmp), count);
         auto expected_data_size = sizeof(typename ColumnType::value_type) * count;
         // binary: const flag| row num | real saved num| data
         auto content_uncompressed_size =
@@ -364,7 +365,8 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
 
         count = 1;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        int64_t tmp1 = 1;
+        col_with_type->insert_many_vals(binary_cast<int64_t, VecDateTimeValue>(tmp1), count);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         if (be_exec_version >= USE_CONST_SERDE) {
@@ -390,7 +392,8 @@ TEST_F(DataTypeDateTimeV1Test, ser_deser) {
 
         count = SERIALIZED_MEM_SIZE_LIMIT + 1;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        int64_t tmp2 = 1;
+        col_with_type->insert_many_vals(binary_cast<int64_t, VecDateTimeValue>(tmp2), count);
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         if (be_exec_version >= USE_CONST_SERDE) {
@@ -486,8 +489,12 @@ TEST_F(DataTypeDateTimeV1Test, to_string) {
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(col_with_type->get_element(i));
                 StringRef rb(str.data(), str.size());
+                char buf[64];
+                col_with_type->get_element(i).to_string(buf);
+                std::cout << "==========1 " << rb << " " << buf << std::endl;
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
+                std::cout << "==========2 " << status.to_string() << std::endl;
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
             }
         }

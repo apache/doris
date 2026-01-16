@@ -118,7 +118,7 @@ class DataTypeDecimal final : public IDataType {
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
     static constexpr PrimitiveType PType = T;
 
     static constexpr bool is_parametric = true;
@@ -368,11 +368,10 @@ constexpr Decimal256::NativeType DataTypeDecimal<TYPE_DECIMAL256>::get_max_digit
 template <PrimitiveType T, PrimitiveType U>
 DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty,
                                 bool is_multiply, bool is_divide, bool is_plus_minus) {
-    constexpr PrimitiveType Type =
-            sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) >=
-                            sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType)
-                    ? T
-                    : U;
+    constexpr PrimitiveType Type = sizeof(typename PrimitiveTypeTraits<T>::CppType) >=
+                                                   sizeof(typename PrimitiveTypeTraits<U>::CppType)
+                                           ? T
+                                           : U;
     if constexpr (T == TYPE_DECIMALV2 && U == TYPE_DECIMALV2) {
         return std::make_shared<DataTypeDecimal<Type>>(max_decimal_precision<T>(), 9);
     } else {
@@ -469,7 +468,7 @@ constexpr bool IsDataTypeDecimalOrNumber =
 template <PrimitiveType T>
     requires(is_decimal(T))
 typename PrimitiveTypeTraits<T>::CppNativeType max_decimal_value(UInt32 precision) {
-    return type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::max().value /
+    return type_limit<typename PrimitiveTypeTraits<T>::CppType>::max().value /
            DataTypeDecimal<T>::get_scale_multiplier(
                    (UInt32)(max_decimal_precision<T>() - precision));
 }
@@ -477,7 +476,7 @@ typename PrimitiveTypeTraits<T>::CppNativeType max_decimal_value(UInt32 precisio
 template <PrimitiveType T>
     requires(is_decimal(T))
 typename PrimitiveTypeTraits<T>::CppNativeType min_decimal_value(UInt32 precision) {
-    return type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::min().value /
+    return type_limit<typename PrimitiveTypeTraits<T>::CppType>::min().value /
            DataTypeDecimal<T>::get_scale_multiplier(
                    (UInt32)(max_decimal_precision<T>() - precision));
 }

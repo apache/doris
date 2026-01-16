@@ -79,7 +79,7 @@ template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
 struct IntegerRoundingComputation {
     using T =
             std::conditional_t<is_decimal(Type), typename PrimitiveTypeTraits<Type>::CppNativeType,
-                               typename PrimitiveTypeTraits<Type>::ColumnItemType>;
+                               typename PrimitiveTypeTraits<Type>::CppType>;
     static const size_t data_count = 1;
 
     static size_t prepare(size_t scale) { return scale; }
@@ -144,7 +144,7 @@ struct IntegerRoundingComputation {
 template <PrimitiveType Type, RoundingMode rounding_mode, TieBreakingMode tie_breaking_mode>
 class DecimalRoundingImpl {
 private:
-    using T = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     using NativeType = typename T::NativeType;
     using Op = IntegerRoundingComputation<Type, rounding_mode, ScaleMode::Negative,
                                           tie_breaking_mode, NativeType>;
@@ -295,7 +295,7 @@ template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode>
 struct FloatRoundingImpl {
 private:
-    using T = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     static_assert(!is_decimal(Type));
 
     using Op = FloatRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode>;
@@ -343,7 +343,7 @@ template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode>
 struct IntegerRoundingImpl {
 private:
-    using T = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     using Op =
             IntegerRoundingComputation<Type, rounding_mode, scale_mode, tie_breaking_mode, size_t>;
     using Container = typename ColumnVector<Type>::Container;

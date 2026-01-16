@@ -159,12 +159,12 @@ suite("doc_date_functions_test") {
 
     test {
         sql """select date_format('2022-11-13 11:12:12',repeat('%l',52));"""
-        exception "Operation date_format of 142335814007783424, %l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l is invalid"
+        exception "Operation date_format of 2022-11-13 11:12:12, %l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l is invalid"
     }
 
     test {
         sql """select date_format('2023-11-13 23:00:00' ,repeat('%l',53));"""
-        exception "Operation date_format of 142406233473679360, %l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l is invalid"
+        exception "Operation date_format of 2023-11-13 23:00:00, %l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l is invalid"
     }
 
     test {
@@ -174,17 +174,17 @@ suite("doc_date_functions_test") {
 
     test {
         sql """select date_format('2022-11-13',repeat('%I',52));"""
-        exception "Operation date_format of 142335765945253888, %I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I is invalid"
+        exception "Operation date_format of 2022-11-13 00:00:00, %I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I is invalid"
     }
 
     test {
         sql """select date_format('2022-11-13',repeat('%M',15));"""
-        exception "Operation date_format of 142335765945253888, %M%M%M%M%M%M%M%M%M%M%M%M%M%M%M is invalid"
+        exception "Operation date_format of 2022-11-13 00:00:00, %M%M%M%M%M%M%M%M%M%M%M%M%M%M%M is invalid"
     }
 
     test {
         sql """select date_format('2022-11-13',repeat('%p',52));"""
-        exception "Operation date_format of 142335765945253888, %p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p is invalid"
+        exception "Operation date_format of 2022-11-13 00:00:00, %p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p is invalid"
     }
     
     // Special format specifier tests

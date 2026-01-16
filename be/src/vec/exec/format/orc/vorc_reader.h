@@ -407,7 +407,7 @@ private:
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
                                            const orc::ColumnVectorBatch* cvb, size_t num_values) {
-        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType;
+        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType;
         auto* data = dynamic_cast<const OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,

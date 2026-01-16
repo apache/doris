@@ -138,7 +138,7 @@ struct ColumnPartialSortingLess {
 template <PrimitiveType T>
 struct PermutationWithInlineValue {
     using ValueType = std::conditional_t<is_string_type(T), StringRef,
-                                         typename PrimitiveTypeTraits<T>::ColumnItemType>;
+                                         typename PrimitiveTypeTraits<T>::CppType>;
     ValueType inline_value;
     uint32_t row_id;
 };

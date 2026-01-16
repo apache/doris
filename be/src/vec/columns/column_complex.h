@@ -44,7 +44,7 @@ private:
 
 public:
     using Self = ColumnComplexType;
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
     using Container = std::vector<value_type>;
 
     size_t size() const override { return data.size(); }
