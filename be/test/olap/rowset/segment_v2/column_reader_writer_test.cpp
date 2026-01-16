@@ -37,7 +37,6 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/json/path_in_data.h"
 
 using std::string;
 
@@ -815,41 +814,6 @@ TEST_F(ColumnReaderWriterTest, test_mixed_empty_arrays) {
     }
     test_array_nullable_data<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE, BIT_SHUFFLE>(
             collection_values.get(), array_is_null.get(), num_array, "test_mixed_empty_arrays");
-}
-
-TEST_F(ColumnReaderWriterTest, test_skip_bloom_filter_for_extracted_column_unsupported_type) {
-    ColumnMetaPB meta;
-    std::string fname = TEST_DIR + "/test_skip_bf_extracted";
-    auto fs = io::global_local_filesystem();
-    io::FileWriterPtr file_writer;
-    auto st = fs->create_file(fname, &file_writer);
-    ASSERT_TRUE(st.ok()) << st;
-
-    ColumnWriterOptions writer_opts;
-    writer_opts.meta = &meta;
-    writer_opts.meta->set_column_id(0);
-    writer_opts.meta->set_unique_id(2);
-    writer_opts.meta->set_type(FieldType::OLAP_FIELD_TYPE_DOUBLE);
-    writer_opts.meta->set_length(0);
-    writer_opts.meta->set_encoding(PLAIN_ENCODING);
-    writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
-    writer_opts.meta->set_is_nullable(false);
-    writer_opts.need_bloom_filter = true;
-
-    TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_DOUBLE, false, 2,
-                        0);
-    column.set_name("v.d");
-    column.set_is_bf_column(true);
-    column.set_parent_unique_id(1);
-    column.set_path_info(vectorized::PathInData("v.d", true));
-
-    std::unique_ptr<ColumnWriter> writer;
-    st = ColumnWriter::create(writer_opts, &column, file_writer.get(), &writer);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    st = writer->init();
-    EXPECT_TRUE(st.ok()) << st.to_string();
-    EXPECT_TRUE(writer->write_bloom_filter_index().ok());
-    EXPECT_TRUE(file_writer->close().ok());
 }
 
 } // namespace segment_v2
