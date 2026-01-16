@@ -254,6 +254,7 @@ public:
     static std::string debug_string(const VExprContextSPtrs& ctxs);
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
+    bool is_like_expr() const { return _fn.name.function_name == "like"; }
 
     const TFunction& fn() const { return _fn; }
 
