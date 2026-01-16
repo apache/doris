@@ -32,8 +32,6 @@ import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
-import org.apache.doris.cloud.proto.Cloud.AbortTxnWithCoordinatorRequest;
-import org.apache.doris.cloud.proto.Cloud.AbortTxnWithCoordinatorResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
@@ -48,6 +46,8 @@ import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockResponse;
+import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorRequest;
+import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnRequest;
@@ -2132,46 +2132,67 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // do nothing in cloud mode
     }
 
-    @Override
-    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
-        AbortTxnWithCoordinatorRequest.Builder builder = AbortTxnWithCoordinatorRequest.newBuilder()
+    private List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, long beStartTime) {
+        List<Pair<Long, Long>> txnInfos = new ArrayList<>();
+        GetPrepareTxnByCoordinatorRequest.Builder builder = GetPrepareTxnByCoordinatorRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setIp(coordinateHost);
         builder.setId(coordinateBeId);
-        builder.setStartTime(beStartTime);
-        final AbortTxnWithCoordinatorRequest request = builder.build();
-        AbortTxnWithCoordinatorResponse response = null;
+        if (beStartTime > 0) {
+            builder.setStartTime(beStartTime);
+        }
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+
+        final GetPrepareTxnByCoordinatorRequest request = builder.build();
+        GetPrepareTxnByCoordinatorResponse response = null;
         try {
-            response = MetaServiceProxy
-                .getInstance().abortTxnWithCoordinator(request);
-            LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
-            if (DebugPointUtil.isEnable("FE.abortTxnWhenCoordinateBeRestart.slow")) {
-                LOG.info("debug point FE.abortTxnWhenCoordinateBeRestart.slow enabled, sleep 15s");
-                try {
-                    Thread.sleep(15 * 1000);
-                } catch (InterruptedException ie) {
-                    LOG.info("error ", ie);
+            response = MetaServiceProxy.getInstance().getPrepareTxnByCoordinator(request);
+            if (response.getStatus().getCode() == MetaServiceCode.OK) {
+                for (TxnInfoPB txnInfo : response.getTxnInfosList()) {
+                    txnInfos.add(Pair.of(txnInfo.getDbId(), txnInfo.getTxnId()));
                 }
+            } else {
+                LOG.warn("Get prepare txn by coordinator BE {} failed, code={}, msg={}",
+                        coordinateHost, response.getStatus().getCode(), response.getStatus().getMsg());
             }
         } catch (RpcException e) {
-            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            LOG.warn("Get prepare txn by coordinator BE {} failed, msg={}", coordinateHost, e.getMessage());
+        }
+        return txnInfos;
+    }
+
+    private void abortTransactionsByCoordinateBe(
+                List<Pair<Long, Long>> transactions, String coordinateHost, String reason) {
+        for (Pair<Long, Long> txnInfo : transactions) {
+            try {
+                abortTransaction(txnInfo.first, txnInfo.second, reason);
+            } catch (UserException e) {
+                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, beStartTime);
+        abortTransactionsByCoordinateBe(transactionIdByCoordinateBe, coordinateHost, "coordinate BE restart");
+        if (DebugPointUtil.isEnable("FE.abortTxnWhenCoordinateBeRestart.slow")) {
+            LOG.info("debug point FE.abortTxnWhenCoordinateBeRestart.slow enabled, sleep 15s");
+            try {
+                Thread.sleep(15 * 1000);
+            } catch (InterruptedException ie) {
+                LOG.info("error ", ie);
+            }
         }
     }
 
     @Override
     public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
-        AbortTxnWithCoordinatorRequest.Builder builder = AbortTxnWithCoordinatorRequest.newBuilder();
-        builder.setIp(coordinateHost);
-        builder.setId(coordinateBeId);
-        final AbortTxnWithCoordinatorRequest request = builder.build();
-        AbortTxnWithCoordinatorResponse response = null;
-        try {
-            response = MetaServiceProxy
-                .getInstance().abortTxnWithCoordinator(request);
-            LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
-        } catch (RpcException e) {
-            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
-        }
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, 0);
+        abortTransactionsByCoordinateBe(transactionIdByCoordinateBe, coordinateHost, "coordinate BE is down");
     }
 
     @Override
