@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <parquet/statistics.h>
+
 #include <array>
 #include <string>
 #include <unordered_map>
@@ -175,5 +177,8 @@ std::string decode_statistics_value(const FieldSchema* schema_field,
 
 void build_path_map(const FieldSchema& field, const std::string& prefix,
                     std::unordered_map<std::string, const FieldSchema*>* map);
+
+void merge_stats(const std::shared_ptr<::parquet::Statistics>& left,
+                 const std::shared_ptr<::parquet::Statistics>& right);
 
 } // namespace doris::vectorized::parquet_utils
