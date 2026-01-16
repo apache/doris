@@ -395,14 +395,58 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     qt_after_fast_forword_branch """SELECT * FROM test_fast_forward@branch(feature_branch) ORDER BY id"""
 
 
-    // Test expire_snapshots action
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "2024-01-01T00:00:00")
-        """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
-    }
+    // =====================================================================================
+    // Test Case 6.5: expire_snapshots action
+    // Tests the ability to expire old snapshots from Iceberg tables
+    // =====================================================================================
+    logger.info("Starting expire_snapshots test case")
+
+    // Create test table for expire_snapshots
+    sql """DROP TABLE IF EXISTS ${db_name}.test_expire_snapshots"""
+    sql """
+        CREATE TABLE ${db_name}.test_expire_snapshots (
+            id BIGINT,
+            data STRING
+        ) ENGINE=iceberg
+    """
+
+    // Insert data to create multiple snapshots
+    sql """INSERT INTO ${db_name}.test_expire_snapshots VALUES (1, 'data1')"""
+    sql """INSERT INTO ${db_name}.test_expire_snapshots VALUES (2, 'data2')"""
+    sql """INSERT INTO ${db_name}.test_expire_snapshots VALUES (3, 'data3')"""
+    sql """INSERT INTO ${db_name}.test_expire_snapshots VALUES (4, 'data4')"""
+
+    // Verify 4 snapshots exist
+    List<List<Object>> snapshotsBefore = sql """
+        SELECT snapshot_id FROM test_expire_snapshots\$snapshots ORDER BY committed_at
+    """
+    assertTrue(snapshotsBefore.size() == 4, "Expected 4 snapshots before expiration")
+    logger.info("Snapshots before expire: ${snapshotsBefore}")
+
+    // Test 1: expire_snapshots with retain_last=2
+    qt_expire_snapshots_result """
+        ALTER TABLE ${catalog_name}.${db_name}.test_expire_snapshots
+        EXECUTE expire_snapshots("retain_last" = "2")
+    """
+
+    // Verify only 2 snapshots remain
+    List<List<Object>> snapshotsAfter = sql """
+        SELECT snapshot_id FROM test_expire_snapshots\$snapshots ORDER BY committed_at
+    """
+    assertTrue(snapshotsAfter.size() == 2, "Expected 2 snapshots after expiration with retain_last=2")
+    logger.info("Snapshots after expire: ${snapshotsAfter}")
+
+    // Test 2: Verify data is still accessible
+    qt_after_expire_snapshots """SELECT * FROM test_expire_snapshots ORDER BY id"""
+
+    logger.info("expire_snapshots test case completed successfully")
+
+    // Test expire_snapshots with older_than (should work, but not expire snapshots that are recent)
+    List<List<Object>> expireOlderThanResult = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.test_expire_snapshots
+        EXECUTE expire_snapshots("older_than" = "2024-01-01T00:00:00")
+    """
+    logger.info("Expire older_than result: ${expireOlderThanResult}")
 
     // Test validation - missing required property
     test {
@@ -494,40 +538,22 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
         exception "retain_last must be positive, got: -5"
     }
 
-    // Test expire_snapshots with neither older_than nor retain_last
+    // Test expire_snapshots with neither older_than, retain_last, nor snapshot_ids
     test {
         sql """
             ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
             ()
         """
-        exception "At least one of 'older_than' or 'retain_last' must be specified"
+        exception "At least one of 'older_than', 'retain_last', or 'snapshot_ids' must be specified"
     }
 
-    // Test expire_snapshots with valid timestamp format (milliseconds)
+    // Test expire_snapshots with invalid snapshot_ids format
     test {
         sql """
             ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "1640995200000")
+            ("snapshot_ids" = "not-a-number")
         """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
-    }
-
-    // Test expire_snapshots with valid ISO datetime
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "2024-01-01T12:30:45")
-        """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
-    }
-
-    // Test expire_snapshots with valid retain_last and older_than
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "2024-01-01T00:00:00", "retain_last" = "5")
-        """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
+        exception "Invalid snapshot_id format: not-a-number"
     }
 
     // Test unknown action

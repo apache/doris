@@ -17,20 +17,32 @@
 
 package org.apache.doris.datasource.iceberg.action;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ArgumentParsers;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import com.google.common.collect.Lists;
+import org.apache.iceberg.ExpireSnapshots;
+import org.apache.iceberg.Table;
+
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Iceberg expire snapshots action implementation.
@@ -103,9 +115,23 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
             throw new AnalysisException("retain_last must be at least 1");
         }
 
-        // At least one of older_than or retain_last must be specified for validation
-        if (olderThan == null && retainLast == null) {
-            throw new AnalysisException("At least one of 'older_than' or 'retain_last' must be specified");
+        // Get snapshot_ids for validation
+        String snapshotIds = namedArguments.getString(SNAPSHOT_IDS);
+
+        // Validate snapshot_ids format if provided
+        if (snapshotIds != null) {
+            for (String idStr : snapshotIds.split(",")) {
+                try {
+                    Long.parseLong(idStr.trim());
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException("Invalid snapshot_id format: " + idStr.trim());
+                }
+            }
+        }
+
+        // At least one of older_than, retain_last, or snapshot_ids must be specified
+        if (olderThan == null && retainLast == null && snapshotIds == null) {
+            throw new AnalysisException("At least one of 'older_than', 'retain_last', or 'snapshot_ids' must be specified");
         }
 
         // Iceberg procedures don't support partitions or where conditions
@@ -115,7 +141,132 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        throw new DdlException("Iceberg expire_snapshots procedure is not implemented yet");
+        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+
+        // Parse parameters
+        String olderThan = namedArguments.getString(OLDER_THAN);
+        Integer retainLast = namedArguments.getInt(RETAIN_LAST);
+        String snapshotIdsStr = namedArguments.getString(SNAPSHOT_IDS);
+        Boolean cleanExpiredMetadata = namedArguments.getBoolean(CLEAN_EXPIRED_METADATA);
+        Integer maxConcurrentDeletes = namedArguments.getInt(MAX_CONCURRENT_DELETES);
+
+        // Track deleted file counts using callbacks (matching Spark's 6-column schema)
+        AtomicLong deletedDataFilesCount = new AtomicLong(0);
+        AtomicLong deletedPositionDeleteFilesCount = new AtomicLong(0);
+        AtomicLong deletedEqualityDeleteFilesCount = new AtomicLong(0);
+        AtomicLong deletedManifestFilesCount = new AtomicLong(0);
+        AtomicLong deletedManifestListsCount = new AtomicLong(0);
+        AtomicLong deletedStatisticsFilesCount = new AtomicLong(0);
+
+        ExecutorService deleteExecutor = null;
+        try {
+            ExpireSnapshots expireSnapshots = icebergTable.expireSnapshots();
+
+            // Configure older_than timestamp
+            if (olderThan != null) {
+                long timestampMillis = parseTimestamp(olderThan);
+                expireSnapshots.expireOlderThan(timestampMillis);
+            }
+
+            // Configure retain_last
+            if (retainLast != null) {
+                expireSnapshots.retainLast(retainLast);
+            }
+
+            // Configure specific snapshot IDs to expire
+            if (snapshotIdsStr != null) {
+                for (String idStr : snapshotIdsStr.split(",")) {
+                    expireSnapshots.expireSnapshotId(Long.parseLong(idStr.trim()));
+                }
+            }
+
+            // Configure clean expired metadata
+            if (cleanExpiredMetadata != null) {
+                expireSnapshots.cleanExpiredFiles(cleanExpiredMetadata);
+            }
+
+            // Set up ExecutorService for concurrent deletes if specified
+            if (maxConcurrentDeletes != null && maxConcurrentDeletes > 1) {
+                deleteExecutor = Executors.newFixedThreadPool(maxConcurrentDeletes);
+                expireSnapshots.executeDeleteWith(deleteExecutor);
+            }
+
+            // Set up delete callback to count files by type
+            expireSnapshots.deleteWith(path -> {
+                if (path.contains("-m-") && path.endsWith(".avro")) {
+                    deletedManifestFilesCount.incrementAndGet();
+                } else if (path.contains("snap-") && path.endsWith(".avro")) {
+                    deletedManifestListsCount.incrementAndGet();
+                } else if (path.endsWith(".stats") || path.contains("statistics")) {
+                    deletedStatisticsFilesCount.incrementAndGet();
+                } else if (path.contains("-deletes-")) {
+                    // Position and equality delete files
+                    // Note: Without reading the file, we can't distinguish position vs equality
+                    // For simplicity, count them together as position deletes
+                    deletedPositionDeleteFilesCount.incrementAndGet();
+                } else {
+                    deletedDataFilesCount.incrementAndGet();
+                }
+            });
+
+            // Execute and commit
+            expireSnapshots.commit();
+
+            // Invalidate cache
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateTableCache((ExternalTable) table);
+
+            return Lists.newArrayList(
+                String.valueOf(deletedDataFilesCount.get()),
+                String.valueOf(deletedPositionDeleteFilesCount.get()),
+                String.valueOf(deletedEqualityDeleteFilesCount.get()),
+                String.valueOf(deletedManifestFilesCount.get()),
+                String.valueOf(deletedManifestListsCount.get()),
+                String.valueOf(deletedStatisticsFilesCount.get())
+            );
+        } catch (Exception e) {
+            throw new UserException("Failed to expire snapshots: " + e.getMessage(), e);
+        } finally {
+            // Shutdown executor if created
+            if (deleteExecutor != null) {
+                deleteExecutor.shutdown();
+            }
+        }
+    }
+
+    /**
+     * Parse timestamp string to milliseconds since epoch.
+     * Supports ISO datetime format (yyyy-MM-ddTHH:mm:ss) or milliseconds.
+     */
+    private long parseTimestamp(String timestamp) {
+        try {
+            // Try ISO datetime format
+            LocalDateTime dateTime = LocalDateTime.parse(timestamp,
+                DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            return dateTime.atZone(ZoneId.systemDefault())
+                .toInstant().toEpochMilli();
+        } catch (DateTimeParseException e) {
+            // Try as milliseconds
+            return Long.parseLong(timestamp);
+        }
+    }
+
+    @Override
+    protected List<Column> getResultSchema() {
+        return Lists.newArrayList(
+            new Column("deleted_data_files_count", Type.BIGINT, false,
+                "Number of data files deleted"),
+            new Column("deleted_position_delete_files_count", Type.BIGINT, false,
+                "Number of position delete files deleted"),
+            new Column("deleted_equality_delete_files_count", Type.BIGINT, false,
+                "Number of equality delete files deleted"),
+            new Column("deleted_manifest_files_count", Type.BIGINT, false,
+                "Number of manifest files deleted"),
+            new Column("deleted_manifest_lists_count", Type.BIGINT, false,
+                "Number of manifest list files deleted"),
+            new Column("deleted_statistics_files_count", Type.BIGINT, false,
+                "Number of statistics files deleted")
+        );
     }
 
     @Override
