@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
@@ -27,6 +28,8 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
@@ -91,50 +94,82 @@ public class BrokerLoadPendingTask extends LoadTask {
                     fileStatusList.add(fileStatuses);
                 }
             } else {
-                for (BrokerFileGroup fileGroup : fileGroups) {
-                    long groupFileSize = 0;
-                    List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-                    for (String path : fileGroup.getFilePaths()) {
-                        BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+                // Set ConnectContext with session variables before parsing files
+                ConnectContext ctx = ConnectContext.get();
+                boolean needRestoreContext = false;
+                if (ctx == null && callback instanceof BrokerLoadJob) {
+                    BrokerLoadJob job = (BrokerLoadJob) callback;
+                    ctx = new ConnectContext();
+                    ctx.setThreadLocalInfo();
+                    ctx.setSessionVariable(new SessionVariable());
+                    needRestoreContext = true;
+
+                    // Restore max_s3_list_objects_count from sessionVariables
+                    if (job.sessionVariables != null
+                            && job.sessionVariables.containsKey(SessionVariable.MAX_S3_LIST_OBJECTS_COUNT)) {
+                        String maxCountStr = job.sessionVariables.get(SessionVariable.MAX_S3_LIST_OBJECTS_COUNT);
+                        try {
+                            ctx.getSessionVariable().maxS3ListObjectsCount = Integer.parseInt(maxCountStr);
+                        } catch (NumberFormatException e) {
+                            ctx.getSessionVariable().maxS3ListObjectsCount = Config.max_s3_list_objects_count;
+                        }
+                    } else {
+                        ctx.getSessionVariable().maxS3ListObjectsCount = Config.max_s3_list_objects_count;
                     }
-                    if (!fileStatuses.isEmpty()) {
-                        fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses);
-                        boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
-                        List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
-                        for (TBrokerFileStatus fstatus : fileStatuses) {
-                            if (fstatus.getSize() == 0 && isBinaryFileFormat) {
-                                // For parquet or orc file, if it is an empty file, ignore it.
-                                // Because we can not read an empty parquet or orc file.
-                                if (LOG.isDebugEnabled()) {
-                                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                            .add("empty file", fstatus).build());
-                                }
-                            } else {
-                                groupFileSize += fstatus.size;
-                                filteredFileStatuses.add(fstatus);
-                                if (LOG.isDebugEnabled()) {
-                                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                            .add("file_status", fstatus).build());
+                }
+
+                try {
+                    for (BrokerFileGroup fileGroup : fileGroups) {
+                        long groupFileSize = 0;
+                        List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+                        for (String path : fileGroup.getFilePaths()) {
+                            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+                        }
+                        if (!fileStatuses.isEmpty()) {
+                            fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses);
+                            boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
+                            List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
+                            for (TBrokerFileStatus fstatus : fileStatuses) {
+                                if (fstatus.getSize() == 0 && isBinaryFileFormat) {
+                                    // For parquet or orc file, if it is an empty file, ignore it.
+                                    // Because we can not read an empty parquet or orc file.
+                                    if (LOG.isDebugEnabled()) {
+                                        LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                                .add("empty file", fstatus).build());
+                                    }
+                                } else {
+                                    groupFileSize += fstatus.size;
+                                    filteredFileStatuses.add(fstatus);
+                                    if (LOG.isDebugEnabled()) {
+                                        LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                                .add("file_status", fstatus).build());
+                                    }
                                 }
                             }
+                            fileStatusList.add(filteredFileStatuses);
+                            tableTotalFileSize += groupFileSize;
+                            tableTotalFileNum += filteredFileStatuses.size();
+                            LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
+                                    filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
+                                    callback.getCallbackId(),
+                                    brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                                            ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
+                        } else {
+                            LOG.info("no file found in file group {} for table {}, job: {}, broker: {}",
+                                    groupNum, entry.getKey(), callback.getCallbackId(),
+                                    brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                                            ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
+                            throw new UserException("No source files found in the specified paths: "
+                                    + fileGroup.getFilePaths());
                         }
-                        fileStatusList.add(filteredFileStatuses);
-                        tableTotalFileSize += groupFileSize;
-                        tableTotalFileNum += filteredFileStatuses.size();
-                        LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
-                                filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
-                                callback.getCallbackId(),
-                                brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
-                                        ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
-                    } else {
-                        LOG.info("no file found in file group {} for table {}, job: {}, broker: {}",
-                                groupNum, entry.getKey(), callback.getCallbackId(),
-                                brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
-                                        ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
-                        throw new UserException("No source files found in the specified paths: "
-                                + fileGroup.getFilePaths());
+                        groupNum++;
                     }
-                    groupNum++;
+                } finally {
+                    // Clean up ConnectContext if we created it
+                    if (needRestoreContext && ctx != null) {
+                        ctx.clear();
+                        ConnectContext.remove();
+                    }
                 }
             }
 

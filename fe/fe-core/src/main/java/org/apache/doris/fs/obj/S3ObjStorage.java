@@ -18,6 +18,7 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
@@ -26,6 +27,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -568,6 +570,17 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         long startTime = System.nanoTime();
         String currentMaxFile = "";
         boolean hasLimits = fileSizeLimit > 0 || fileNumLimit > 0;
+
+        // Get max file count limit from session variable if available
+        ConnectContext ctx = ConnectContext.get();
+        int maxFileCount = (ctx != null && ctx.getSessionVariable() != null)
+                ? ctx.getSessionVariable().maxS3ListObjectsCount
+                : Config.max_s3_list_objects_count;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("globListInternal: maxFileCount={}, from session={}, remotePath={}",
+                    maxFileCount, ctx != null && ctx.getSessionVariable() != null, remotePath);
+        }
+
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             // Directory bucket check for limit scenario
@@ -650,6 +663,16 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         if (hasLimits && reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
                             reachLimit = true;
                             break;
+                        }
+
+                        // Check max file count limit from session variable or global config
+                        if (maxFileCount > 0 && result.size() >= maxFileCount) {
+                            LOG.warn("Reached max S3 list objects count limit: {}, current file count: {}, path: {}",
+                                    maxFileCount, result.size(), remotePath);
+                            return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
+                                    String.format("Too many files in directory %s (> %d). "
+                                            + "Please check if the directory is correct.",
+                                            remotePath, maxFileCount)));
                         }
 
                         objPath = objPath.getParent();

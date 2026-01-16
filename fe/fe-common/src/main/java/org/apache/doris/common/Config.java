@@ -2307,6 +2307,16 @@ public class Config extends ConfigBase {
     public static long max_external_file_cache_num = 10000;
 
     /**
+     * Max number of files to list from S3 in one request to avoid excessive FE memory consumption.
+     * This helps prevent issues when users misconfigure directories with too many files.
+     * -1 means no limitation.
+     */
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "S3 list操作返回的最大文件数量，-1表示无限制。",
+            "Max number of files to list from S3. -1 means no limitation."})
+    public static int max_s3_list_objects_count = 1000;
+
+    /**
      * Max cache num of external table's schema
      * Decrease this value if FE's memory is small
      */
