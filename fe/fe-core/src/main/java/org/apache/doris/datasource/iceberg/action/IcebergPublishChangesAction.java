@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -65,7 +66,7 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
+    protected List<List<String>> executeAction(TableIf table) throws UserException {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
         String targetWapId = namedArguments.getString(WAP_ID);
 
@@ -102,10 +103,10 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
             String previousSnapshotIdString = previousSnapshotId != null ? String.valueOf(previousSnapshotId) : "null";
             String currentSnapshotIdString = currentSnapshotId != null ? String.valueOf(currentSnapshotId) : "null";
 
-            return Lists.newArrayList(
+            return Collections.singletonList(Lists.newArrayList(
                     previousSnapshotIdString,
                     currentSnapshotIdString
-            );
+            ));
 
         } catch (Exception e) {
             throw new UserException("Failed to publish changes for wap.id " + targetWapId + ": " + e.getMessage(), e);
