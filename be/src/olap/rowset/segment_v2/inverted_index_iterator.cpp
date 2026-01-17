@@ -55,7 +55,12 @@ void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
 }
 
 Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
-    auto* i_param = std::get<InvertedIndexParam*>(param);
+    const auto* i_param_ptr = std::get_if<InvertedIndexParam*>(&param);
+    if (i_param_ptr == nullptr) {
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                "param does not hold InvertedIndexParam*");
+    }
+    auto* i_param = *i_param_ptr;
     if (i_param == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("i_param is null");
     }
@@ -71,7 +76,8 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     auto reader =
             DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type, analyzer_name));
     if (UNLIKELY(reader == nullptr)) {
-        throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "inverted index reader is null");
     }
     auto* runtime_state = _context->runtime_state;
     if (!i_param->skip_try && reader->type() == InvertedIndexReaderType::BKD) {

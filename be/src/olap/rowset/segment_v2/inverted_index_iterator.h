@@ -73,7 +73,13 @@ private:
         InvertedIndexReaderPtr reader;
     };
 
-    // Result of find_reader_candidates
+    // Result of find_reader_candidates.
+    // SAFETY: The pointers in 'candidates' are valid only within the scope of
+    // select_best_reader(). Do NOT store CandidateResult beyond this scope.
+    // This is safe because:
+    // 1. add_reader() is called only during initialization phase
+    // 2. read_from_index()/select_best_reader() is called only during query phase
+    // 3. These two phases never overlap
     struct CandidateResult {
         std::vector<const ReaderEntry*> candidates;
         bool used_fallback = false;
@@ -90,6 +96,10 @@ private:
     // Empty input returns INVERTED_INDEX_DEFAULT_ANALYZER_KEY.
     static std::string ensure_normalized_key(const std::string& analyzer_key);
 
+    // THREAD SAFETY: _reader_entries and _key_to_entries are populated during initialization
+    // phase (via add_reader) and only read during query phase (via read_from_index/select_best_reader).
+    // These two phases are guaranteed not to overlap, so no synchronization is needed.
+    // Do NOT call add_reader() after any read_from_index() call on the same iterator.
     std::vector<ReaderEntry> _reader_entries;
 
     // Index for O(1) lookup by analyzer_key. Maps normalized key to indices in _reader_entries.

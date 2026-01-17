@@ -98,7 +98,11 @@ Policys IndexPolicyMgr::get_index_policys() {
     return _policys; // Return copy to ensure thread safety after lock release
 }
 
-// TODO: Potential high-concurrency bottleneck
+// NOTE: This function holds a shared_lock while calling build_analyzer_from_policy/
+// build_normalizer_from_policy, which also access _name_to_id and _policys.
+// This is safe because std::shared_mutex allows the same thread to hold multiple
+// shared_locks (read locks are reentrant). The lock is held throughout to ensure
+// consistency when resolving nested policy references (e.g., tokenizer policies).
 AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
 

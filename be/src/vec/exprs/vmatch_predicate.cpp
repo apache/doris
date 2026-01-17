@@ -180,12 +180,12 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
     })
     ColumnNumbers arguments(_children.size());
     Block temp_block;
-    for (int i = 0; i < _children.size(); ++i) {
+    for (size_t i = 0; i < _children.size(); ++i) {
         ColumnPtr arg_column;
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
-        arguments[i] = i;
+        arguments[i] = static_cast<uint32_t>(i);
     }
     uint32_t num_columns_without_result = temp_block.columns();
     // prepare a column to save result
