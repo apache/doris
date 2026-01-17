@@ -113,7 +113,7 @@ struct InvertedIndexAnalyzerCtx {
 
     // Used for creating reader and tokenization
     CharFilterMap char_filter_map;
-    lucene::analysis::Analyzer* analyzer = nullptr;
+    std::shared_ptr<lucene::analysis::Analyzer> analyzer;
 
     // Helper method: returns true if tokenization should be performed
     // For PARSER_NONE (builtin "none" analyzer), no tokenization is performed.

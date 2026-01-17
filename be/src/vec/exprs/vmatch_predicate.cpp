@@ -82,7 +82,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _analyzer_ctx->analyzer_name = config.analyzer_name;
     _analyzer_ctx->parser_type = config.parser_type;
     _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
-    _analyzer_ctx->analyzer = _analyzer.get();
+    _analyzer_ctx->analyzer = _analyzer;
 }
 
 VMatchPredicate::~VMatchPredicate() = default;

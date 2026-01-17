@@ -207,7 +207,7 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
             analyzer_ctx->char_filter_map);
     reader->init(match_query_str.data(), (int)match_query_str.size(), true);
     query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            reader, analyzer_ctx->analyzer);
+            reader, analyzer_ctx->analyzer.get());
     return query_tokens;
 }
 
@@ -233,7 +233,7 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
 
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, analyzer_ctx->analyzer);
+                            reader, analyzer_ctx->analyzer.get());
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
@@ -245,7 +245,7 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
             reader->init(str_ref.data, (int)str_ref.size, true);
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, analyzer_ctx->analyzer);
+                            reader, analyzer_ctx->analyzer.get());
         }
     }
     return data_tokens;

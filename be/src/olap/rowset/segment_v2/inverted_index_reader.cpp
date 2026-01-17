@@ -321,7 +321,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                         analyzer_ctx->char_filter_map);
                 reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
                 query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        reader, analyzer_ctx->analyzer);
+                        reader, analyzer_ctx->analyzer.get());
             } else {
                 query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                         search_str, _index_meta.properties());
