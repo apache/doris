@@ -164,9 +164,15 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
             ExpireSnapshots expireSnapshots = icebergTable.expireSnapshots();
 
             // Configure older_than timestamp
+            // If retain_last is specified without older_than, use current time as the cutoff
+            // This is because Iceberg's retainLast only works in conjunction with expireOlderThan
             if (olderThan != null) {
                 long timestampMillis = parseTimestamp(olderThan);
                 expireSnapshots.expireOlderThan(timestampMillis);
+            } else if (retainLast != null && snapshotIdsStr == null) {
+                // When only retain_last is specified, expire all snapshots older than now
+                // but keep at least retain_last snapshots
+                expireSnapshots.expireOlderThan(System.currentTimeMillis());
             }
 
             // Configure retain_last
