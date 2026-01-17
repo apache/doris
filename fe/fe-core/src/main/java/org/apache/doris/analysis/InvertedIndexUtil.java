@@ -617,7 +617,9 @@ public class InvertedIndexUtil {
     }
 
     /**
-     * Resolve token_filter list to identity (handles comma-separated list).
+     * Resolve token filter list to identity string.
+     * IMPORTANT: Order is preserved because filter order is semantically significant.
+     * For example, "lowercase,stemmer" produces different results than "stemmer,lowercase".
      */
     private static String resolveTokenFilterIdentity(String filterList) {
         if (Strings.isNullOrEmpty(filterList)) {
@@ -626,8 +628,8 @@ public class InvertedIndexUtil {
 
         StringBuilder sb = new StringBuilder();
         String[] filters = filterList.split(",\\s*");
-        // Sort filter names for consistent ordering
-        Arrays.sort(filters);
+        // DO NOT sort - filter order is semantically significant
+        // e.g., lowercase→stemmer vs stemmer→lowercase produce different results
 
         for (int i = 0; i < filters.length; i++) {
             String filter = filters[i].trim();
@@ -645,7 +647,8 @@ public class InvertedIndexUtil {
     }
 
     /**
-     * Resolve char_filter list to identity (handles comma-separated list).
+     * Resolve char filter list to identity string.
+     * IMPORTANT: Order is preserved because filter order is semantically significant.
      */
     private static String resolveCharFilterIdentity(String filterList) {
         if (Strings.isNullOrEmpty(filterList)) {
@@ -654,8 +657,7 @@ public class InvertedIndexUtil {
 
         StringBuilder sb = new StringBuilder();
         String[] filters = filterList.split(",\\s*");
-        // Sort filter names for consistent ordering
-        Arrays.sort(filters);
+        // DO NOT sort - filter order is semantically significant
 
         for (int i = 0; i < filters.length; i++) {
             String filter = filters[i].trim();
