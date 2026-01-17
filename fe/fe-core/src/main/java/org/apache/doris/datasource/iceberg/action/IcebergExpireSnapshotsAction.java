@@ -131,7 +131,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
         // At least one of older_than, retain_last, or snapshot_ids must be specified
         if (olderThan == null && retainLast == null && snapshotIds == null) {
-            throw new AnalysisException("At least one of 'older_than', 'retain_last', or 'snapshot_ids' must be specified");
+            throw new AnalysisException("At least one of 'older_than', 'retain_last', or "
+                    + "'snapshot_ids' must be specified");
         }
 
         // Iceberg procedures don't support partitions or where conditions
@@ -242,7 +243,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
         try {
             // Try ISO datetime format
             LocalDateTime dateTime = LocalDateTime.parse(timestamp,
-                DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                    DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             return dateTime.atZone(ZoneId.systemDefault())
                 .toInstant().toEpochMilli();
         } catch (DateTimeParseException e) {
