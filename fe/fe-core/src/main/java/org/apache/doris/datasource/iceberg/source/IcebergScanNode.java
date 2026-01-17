@@ -77,6 +77,7 @@ import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -85,6 +86,10 @@ import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
+import org.apache.iceberg.mapping.MappedField;
+import org.apache.iceberg.mapping.MappedFields;
+import org.apache.iceberg.mapping.NameMapping;
+import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
@@ -201,7 +206,40 @@ public class IcebergScanNode extends FileQueryScanNode {
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         super.doInitialize();
-        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
+    }
+
+    /**
+     * Extract name mapping from Iceberg table properties.
+     * Returns a map from field ID to list of mapped names.
+     */
+    private Map<Integer, List<String>> extractNameMapping() {
+        Map<Integer, List<String>> result = new HashMap<>();
+        try {
+            String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
+            if (nameMappingJson != null && !nameMappingJson.isEmpty()) {
+                NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
+                if (mapping != null) {
+                    // Extract mappings from NameMapping
+                    // NameMapping contains field mappings, we need to convert them to our format
+                    extractMappingsFromNameMapping(mapping.asMappedFields(), result);
+                }
+            }
+        } catch (Exception e) {
+            // If name mapping parsing fails, continue without it
+            LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
+        }
+        return result;
+    }
+
+    private void extractMappingsFromNameMapping(MappedFields mappingFields, Map<Integer, List<String>> result) {
+        if (mappingFields == null) {
+            return;
+        }
+        for (MappedField mappedField : mappingFields.fields()) {
+            result.put(mappedField.id(), new ArrayList<>(mappedField.names()));
+            extractMappingsFromNameMapping(mappedField.nestedMapping(), result);
+        }
+
     }
 
     @Override
@@ -278,7 +316,18 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
+    public void createScanRangeLocations() throws UserException {
+        super.createScanRangeLocations();
+        // Extract name mapping from Iceberg table properties
+        Map<Integer, List<String>> nameMapping = extractNameMapping();
+
+        // Use new initSchemaInfo method that only includes needed columns based on slots and pruned type
+        ExternalUtil.initSchemaInfo(params, -1L, desc.getSlots(), nameMapping);
+    }
+
+    @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+
         try {
             return preExecutionAuthenticator.execute(() -> doGetSplits(numBackends));
         } catch (Exception e) {
@@ -807,6 +856,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             if (delete.content() == FileContent.POSITION_DELETES) {
                 filters.add(IcebergDeleteFileFilter.createPositionDelete(delete));
             } else if (delete.content() == FileContent.EQUALITY_DELETES) {
+                // spitTask.schema().findField()
                 filters.add(IcebergDeleteFileFilter.createEqualityDelete(
                         delete.path().toString(), delete.equalityFieldIds(),
                         delete.fileSizeInBytes(), delete.format()));

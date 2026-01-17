@@ -118,9 +118,8 @@ protected:
 
     Status _position_delete_base(const std::string data_file_path,
                                  const std::vector<TIcebergDeleteFileDesc>& delete_files);
-    Status _equality_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
-    virtual std::unique_ptr<GenericReader> _create_equality_reader(
-            const TFileRangeDesc& delete_desc) = 0;
+    virtual Status _process_equality_delete(
+            const std::vector<TIcebergDeleteFileDesc>& delete_files) = 0;
     void _generate_equality_delete_block(Block* block,
                                          const std::vector<std::string>& equality_delete_col_names,
                                          const std::vector<DataTypePtr>& equality_delete_col_types);
@@ -134,9 +133,6 @@ protected:
     IcebergProfile _iceberg_profile;
     // _iceberg_delete_rows from kv_cache
     const std::vector<int64_t>* _iceberg_delete_rows = nullptr;
-    std::vector<std::string> _expand_col_names;
-    std::vector<ColumnWithTypeAndName> _expand_columns;
-    std::vector<std::string> _all_required_col_names;
 
     // Pointer to external column name to block index mapping (from FileScanner)
     // Used to dynamically add expand columns for equality delete
@@ -160,9 +156,22 @@ protected:
     void _gen_position_delete_file_range(Block& block, DeleteFile* const position_delete,
                                          size_t read_rows, bool file_path_column_dictionary_coded);
 
-    // equality delete
-    Block _equality_delete_block;
-    std::unique_ptr<EqualityDeleteBase> _equality_delete_impl;
+    // read table colummn + extra equality delete columns
+    std::vector<std::string> _all_required_col_names;
+
+    // extra equality delete name and type
+    std::vector<std::string> _expand_col_names;
+    std::vector<ColumnWithTypeAndName> _expand_columns;
+
+    // all ids that need read for eq delete (from all qe delte file.)
+    std::set<int> _equality_delete_col_ids;
+    // eq delete column ids -> location of _equality_delete_blocks / _equality_delete_impls
+    std::map<std::vector<int>, int> _equality_delete_block_map;
+    std::vector<Block> _equality_delete_blocks;
+    std::vector<std::unique_ptr<EqualityDeleteBase>> _equality_delete_impls;
+
+    // id -> block column name.
+    std::unordered_map<int, std::string> _id_to_block_column_name;
 };
 
 class IcebergParquetReader final : public IcebergTableReader {
@@ -191,20 +200,15 @@ public:
         parquet_reader->set_delete_rows(_iceberg_delete_rows);
     }
 
-protected:
-    std::unique_ptr<GenericReader> _create_equality_reader(
-            const TFileRangeDesc& delete_desc) final {
-        return ParquetReader::create_unique(_profile, _params, delete_desc,
-                                            READ_DELETE_FILE_BATCH_SIZE, &_state->timezone_obj(),
-                                            _io_ctx, _state, _meta_cache);
-    }
-
 private:
     static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
                                              const TupleDescriptor* tuple_descriptor);
 
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
                                       DeleteFile* position_delete) final;
+    Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
+
+    const FieldDescriptor* _data_file_field_desc = nullptr;
 };
 class IcebergOrcReader final : public IcebergTableReader {
 public:
@@ -234,20 +238,15 @@ public:
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
-protected:
-    std::unique_ptr<GenericReader> _create_equality_reader(
-            const TFileRangeDesc& delete_desc) override {
-        return OrcReader::create_unique(_profile, _state, _params, delete_desc,
-                                        READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx,
-                                        _meta_cache);
-    }
-
 private:
+    Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
+
     static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
                                              const TupleDescriptor* tuple_descriptor);
 
 private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;
+    const orc::Type* _data_file_type_desc = nullptr;
 };
 
 } // namespace vectorized

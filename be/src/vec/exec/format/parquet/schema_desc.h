@@ -134,7 +134,7 @@ public:
      * Get the column(the first level schema element, maybe nested field) by index.
      * @param index Column index in _fields
      */
-    const FieldSchema* get_column(int index) const { return &_fields[index]; }
+    const FieldSchema* get_column(size_t index) const { return &_fields[index]; }
 
     /**
      * Get the column(the first level schema element, maybe nested field) by name.
