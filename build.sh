@@ -889,6 +889,12 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/index_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
+    # Copy Paimon C++ shared libraries if PAIMON_HOME is set
+    if [[ -n "${PAIMON_HOME}" ]] && [[ -d "${PAIMON_HOME}/lib64" ]]; then
+        echo "Copying Paimon C++ libraries from ${PAIMON_HOME}/lib64 to ${DORIS_OUTPUT}/be/lib/"
+        cp -r -p "${PAIMON_HOME}"/lib64/libpaimon*.so "${DORIS_OUTPUT}/be/lib/" 2>/dev/null || true
+    fi
+
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
     cp -r -p "${DORIS_HOME}/tools/FlameGraph"/* "${DORIS_OUTPUT}/be/tools/FlameGraph"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
