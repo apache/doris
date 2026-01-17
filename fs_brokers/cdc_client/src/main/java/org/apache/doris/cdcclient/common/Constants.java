@@ -19,6 +19,11 @@ package org.apache.doris.cdcclient.common;
 
 public class Constants {
     public static final String DORIS_DELETE_SIGN = "__DORIS_DELETE_SIGN__";
-    public static final long DEBEZIUM_HEARTBEAT_INTERVAL_MS = 10000L;
     public static final long POLL_SPLIT_RECORDS_TIMEOUTS = 15000L;
+
+    // Debezium default properties
+    public static final long DEBEZIUM_HEARTBEAT_INTERVAL_MS = 10000L;
+    public static final String DEBEZIUM_MAX_QUEUE_SIZE = "162580";
+    public static final String DEBEZIUM_MAX_BATCH_SIZE = "40960";
+    public static final String DEBEZIUM_POLL_INTERVAL_MS = "50";
 }

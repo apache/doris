@@ -111,12 +111,16 @@ public class PipelineCoordinator {
                         lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
                         recordResponse.setMeta(lastMeta);
                     }
-                    if (count >= fetchRecord.getFetchSize()) {
-                        return recordResponse;
-                    }
                 }
             }
         } finally {
+            // The LSN in the commit is the current offset, which is the offset from the last
+            // successful write.
+            // Therefore, even if a subsequent write fails, it will not affect the commit.
+            sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
+
+            // This must be called after commitSourceOffset; otherwise,
+            // PG's confirmed lsn will not proceed.
             sourceReader.finishSplitRecords();
         }
 
@@ -140,7 +144,6 @@ public class PipelineCoordinator {
             throw new RuntimeException("split state is null");
         }
 
-        sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
         return recordResponse;
     }
 
@@ -222,9 +225,21 @@ public class PipelineCoordinator {
                 }
             }
         } finally {
+            if (readResult != null) {
+                // The LSN in the commit is the current offset, which is the offset from the last
+                // successful write.
+                // Therefore, even if a subsequent write fails, it will not affect the commit.
+                sourceReader.commitSourceOffset(
+                        writeRecordRequest.getJobId(), readResult.getSplit());
+            }
+
+            // This must be called after commitSourceOffset; otherwise,
+            // PG's confirmed lsn will not proceed.
+            // This operation must be performed before batchStreamLoad.commitOffset;
+            // otherwise, fe might issue the next task for this job.
             sourceReader.finishSplitRecords();
         }
-
+        // get offset from split state
         try {
             if (readResult.getSplitState() != null) {
                 // Set meta information for hw
@@ -251,9 +266,6 @@ public class PipelineCoordinator {
 
             // request fe api
             batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
-
-            // commit source offset if need
-            sourceReader.commitSourceOffset(writeRecordRequest.getJobId(), readResult.getSplit());
         } finally {
             batchStreamLoad.resetTaskId();
         }
