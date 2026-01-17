@@ -174,7 +174,12 @@ public class StmtExecutionAction extends RestBaseController {
                 }
                 return ResponseEntityBuilder.ok(resultSet.getResult());
             } catch (InterruptedException | ExecutionException e) {
-                LOG.warn("failed to execute stmt", e);
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                if (cause instanceof java.sql.SQLSyntaxErrorException) {
+                    LOG.warn("failed to execute stmt: {}", cause.getMessage());
+                } else {
+                    LOG.warn("failed to execute stmt", e);
+                }
                 return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
             }
         } else {
