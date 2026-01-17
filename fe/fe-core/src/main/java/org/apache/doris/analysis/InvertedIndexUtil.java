@@ -81,6 +81,9 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
 
+    // Default analyzer key constant - matches BE's INVERTED_INDEX_DEFAULT_ANALYZER_KEY
+    public static final String INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         if (properties == null) {
             return INVERTED_INDEX_PARSER_NONE;
@@ -93,7 +96,10 @@ public class InvertedIndexUtil {
     }
 
     public static String getInvertedIndexParserMode(Map<String, String> properties) {
-        String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
+        if (properties == null) {
+            return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+        }
+        String mode = properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
         if (parser == null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
@@ -399,25 +405,21 @@ public class InvertedIndexUtil {
         if (properties == null) {
             return;
         }
-
-        String analyzerName = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
-        if (analyzerName != null && !analyzerName.isEmpty()) {
-            properties.put(INVERTED_INDEX_ANALYZER_NAME_KEY, analyzerName.trim().toLowerCase());
-        }
-
-        String normalizerName = properties.get(INVERTED_INDEX_NORMALIZER_NAME_KEY);
-        if (normalizerName != null && !normalizerName.isEmpty()) {
-            properties.put(INVERTED_INDEX_NORMALIZER_NAME_KEY, normalizerName.trim().toLowerCase());
-        }
-
+        normalizePropertyIfPresent(properties, INVERTED_INDEX_ANALYZER_NAME_KEY);
+        normalizePropertyIfPresent(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY);
         // Also normalize parser name for consistency
-        String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
-        if (parser != null && !parser.isEmpty()) {
-            properties.put(INVERTED_INDEX_PARSER_KEY, parser.trim().toLowerCase());
-        }
-        String parserAlias = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
-        if (parserAlias != null && !parserAlias.isEmpty()) {
-            properties.put(INVERTED_INDEX_PARSER_KEY_ALIAS, parserAlias.trim().toLowerCase());
+        normalizePropertyIfPresent(properties, INVERTED_INDEX_PARSER_KEY);
+        normalizePropertyIfPresent(properties, INVERTED_INDEX_PARSER_KEY_ALIAS);
+    }
+
+    /**
+     * Helper method to normalize a property value to lowercase if present.
+     * Trims whitespace and converts to lowercase.
+     */
+    private static void normalizePropertyIfPresent(Map<String, String> properties, String key) {
+        String value = properties.get(key);
+        if (value != null && !value.isEmpty()) {
+            properties.put(key, value.trim().toLowerCase());
         }
     }
 
@@ -462,17 +464,17 @@ public class InvertedIndexUtil {
         Set<String> analyzerKeys = new HashSet<>();
         for (IndexDefinition indexDef : indexDefs) {
             String key = buildAnalyzerIdentity(indexDef.getProperties());
-            if (analyzerKeys.contains(key)) {
+            // HashSet.add() returns false if element already exists
+            if (!analyzerKeys.add(key)) {
                 return false;
             }
-            analyzerKeys.add(key);
         }
         return true;
     }
 
     public static String buildAnalyzerIdentity(Map<String, String> properties) {
         if (properties == null || properties.isEmpty()) {
-            return "__default__";
+            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
         }
 
         String preferredAnalyzer = getPreferredAnalyzer(properties);
@@ -483,7 +485,7 @@ public class InvertedIndexUtil {
 
         String parser = getInvertedIndexParser(properties);
         if (Strings.isNullOrEmpty(parser) || INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
-            return "__default__";
+            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
         }
         return parser;
     }
@@ -498,7 +500,7 @@ public class InvertedIndexUtil {
      */
     private static String resolveAnalyzerIdentity(String analyzerName) {
         if (Strings.isNullOrEmpty(analyzerName)) {
-            return "__default__";
+            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
         }
 
         // Check if it's a built-in analyzer
@@ -513,7 +515,14 @@ public class InvertedIndexUtil {
 
         // For custom analyzer/normalizer, get underlying config from IndexPolicyMgr
         try {
-            IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(analyzerName);
+            Env env = Env.getCurrentEnv();
+            if (env == null || env.getIndexPolicyMgr() == null) {
+                // Env not initialized - this can happen during early startup or tests
+                LOG.debug("Env or IndexPolicyMgr not available, using name '{}' as identity", analyzerName);
+                return analyzerName;
+            }
+
+            IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(analyzerName);
             if (policy == null) {
                 // Policy not found - this is expected for custom analyzers not yet registered
                 LOG.debug("Analyzer/normalizer policy not found for '{}', using name as identity", analyzerName);
@@ -528,8 +537,9 @@ public class InvertedIndexUtil {
 
             // Build identity from underlying config using sorted keys for consistent ordering
             return buildIdentityFromPolicyProperties(policy.getType(), policyProps);
-        } catch (Exception e) {
-            // Log the error at WARN level since silent failure could cause identity conflicts
+        } catch (RuntimeException e) {
+            // Catch RuntimeException specifically rather than generic Exception
+            // Log at WARN level since failure could cause incorrect identity calculation
             LOG.warn("Failed to resolve analyzer identity for '{}', using name as identity. "
                     + "This may cause incorrect duplicate detection. Error: {}",
                     analyzerName, e.getMessage());
@@ -583,7 +593,12 @@ public class InvertedIndexUtil {
 
         // For custom component, get its properties
         try {
-            IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(name);
+            Env env = Env.getCurrentEnv();
+            if (env == null || env.getIndexPolicyMgr() == null) {
+                return name;
+            }
+
+            IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
             if (policy == null || policy.getType() != expectedType) {
                 return name;
             }
@@ -596,7 +611,7 @@ public class InvertedIndexUtil {
             // Build identity from sorted properties
             TreeMap<String, String> sortedProps = new TreeMap<>(props);
             return sortedProps.toString();
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             return name;
         }
     }
@@ -661,7 +676,7 @@ public class InvertedIndexUtil {
         String normalizedAnalyzer = Strings.isNullOrEmpty(analyzer) ? "" : analyzer.trim();
 
         if (Strings.isNullOrEmpty(normalizedAnalyzer)) {
-            return "__default__".equals(buildAnalyzerIdentity(properties));
+            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY.equals(buildAnalyzerIdentity(properties));
         }
 
         String preferredAnalyzer = getPreferredAnalyzer(properties);

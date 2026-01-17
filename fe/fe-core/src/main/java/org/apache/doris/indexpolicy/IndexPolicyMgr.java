@@ -449,6 +449,16 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         LOG.info("Drop index policy success: {}", indexPolicyName);
     }
 
+    /**
+     * Check if an analyzer is used by any inverted index.
+     *
+     * <p><b>PERFORMANCE WARNING:</b> This method performs a full scan of all databases,
+     * tables, and indexes. In large-scale clusters with many tables, this can be slow.
+     * Consider maintaining a reverse index (analyzer -> tables) if this becomes a bottleneck.
+     *
+     * @param analyzerName the analyzer name to check
+     * @throws DdlException if the analyzer is in use by any index
+     */
     private void checkAnalyzerNotUsedByIndex(String analyzerName) throws DdlException {
         String normalizedName = normalizeKey(analyzerName);
         List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
@@ -473,6 +483,16 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    /**
+     * Check if a normalizer is used by any inverted index.
+     *
+     * <p><b>PERFORMANCE WARNING:</b> This method performs a full scan of all databases,
+     * tables, and indexes. In large-scale clusters with many tables, this can be slow.
+     * Consider maintaining a reverse index (normalizer -> tables) if this becomes a bottleneck.
+     *
+     * @param normalizerName the normalizer name to check
+     * @throws DdlException if the normalizer is in use by any index
+     */
     private void checkNormalizerNotUsedByIndex(String normalizerName) throws DdlException {
         String normalizedName = normalizeKey(normalizerName);
         List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
