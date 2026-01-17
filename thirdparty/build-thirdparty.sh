@@ -431,15 +431,16 @@ build_protobuf() {
     cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
-        ldflags="-L${TP_LIB_DIR}"
+        ldflags="-L${TP_LIB_DIR} -pthread"
     else
-        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create"
+        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create -pthread"
     fi
 
     mkdir -p cmake/build
     cd cmake/build
 
-    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
+    CFLAGS="-O2 -I${TP_INCLUDE_DIR} -pthread" \
+        CXXFLAGS="-O2 -I${TP_INCLUDE_DIR} -pthread" \
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_BUILD_TYPE=Release \

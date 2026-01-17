@@ -146,13 +146,15 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
-if (DEFINED ENV{ENABLE_PAIMON_CPP})
-    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}")
-endif()
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" OFF)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
-if (NOT PAIMON_HOME AND DEFINED ENV{PAIMON_HOME})
-    set(PAIMON_HOME "$ENV{PAIMON_HOME}")
+
+# Allow env to override when reconfiguring (avoid picking /usr/local).
+if (DEFINED ENV{ENABLE_PAIMON_CPP})
+    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -558,8 +560,8 @@ if (ENABLE_PAIMON_CPP)
     if (NOT PAIMON_HOME)
         message(FATAL_ERROR "ENABLE_PAIMON_CPP=ON but PAIMON_HOME is not set")
     endif()
-    set(Paimon_DIR "${PAIMON_HOME}/lib/cmake/Paimon")
-    find_package(Paimon CONFIG REQUIRED)
+    set(Paimon_DIR "${PAIMON_HOME}/lib/cmake/Paimon" CACHE PATH "" FORCE)
+    find_package(Paimon CONFIG REQUIRED NO_DEFAULT_PATH)
     include_directories("${PAIMON_HOME}/include")
     set(PAIMON_CPP_TARGETS
         paimon_static
@@ -600,6 +602,13 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        absl::cord
+        absl::cord_internal
+        absl::cordz_functions
+        absl::cordz_info
+        absl::cordz_update_scope
+        absl::cordz_update_tracker
+        absl::crc_cord_state
         absl::flags
         absl::random_random
         absl::spinlock_wait
