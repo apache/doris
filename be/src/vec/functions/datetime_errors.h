@@ -40,10 +40,9 @@ inline std::string datelike_to_string(DateValueType value) {
 
 // Specialization for TimestampTzValue: output UTC time for error messages
 template <>
-inline std::string datelike_to_string<TimestampTzValue, UInt64>(UInt64 native) {
-    TimestampTzValue value(native);
+inline std::string datelike_to_string<TimestampTzValue>(TimestampTzValue native) {
     // Use UTC timezone for error messages
-    return value.to_string(cctz::utc_time_zone());
+    return native.to_string(cctz::utc_time_zone());
 }
 
 // Throw for operations with one datelike argument

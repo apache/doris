@@ -1847,7 +1847,7 @@ public:
             const auto& arg2 = right_data[index_check_const(i, cols_info[1].is_const)];
 
             if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
-                DateV2Value<DateTimeV2ValueType> dtv1 = arg1;
+                DateV2Value<DateTimeV2ValueType> dtv1(arg1.to_date_int_val());
                 auto tv2 = static_cast<TimeValue::TimeType>(arg2);
                 TimeInterval interval(TimeUnit::MICROSECOND, tv2, IsNegative);
                 bool out_range = dtv1.template date_add_interval<TimeUnit::MICROSECOND>(interval);

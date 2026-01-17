@@ -236,6 +236,15 @@ public class SearchSignature {
         return Pair.of(nonStrictMatched, dateToDateV2Count);
     }
 
+    /**
+     * Matches function signature with given arguments using the specified type predicate.
+     *
+     * @return Pair containing:
+     *         - Boolean: whether the signature can successfully match the arguments
+     *         - Pair - Integer, Integer:
+     *           - First integer: count of string literal coercions performed during matching
+     *           - Second integer: priority score for datetime and timestamptz type preferences
+     */
     private Pair<Boolean, Pair<Integer, Integer>> doMatchTypes(FunctionSignature sig, List<Expression> arguments,
             BiFunction<DataType, DataType, Boolean> typePredicate) {
         int stringLiteralCoersionCount = 0;

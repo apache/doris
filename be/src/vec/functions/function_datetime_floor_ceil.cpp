@@ -195,8 +195,7 @@ public:
                                         result_null_map, context);
                 } else {
                     // time_round(datetime, const(origin))
-                    vector_const_anchor(sources->get_data(),
-                                        (*argument_columns[1])[0].get<PType>().to_date_int_val(),
+                    vector_const_anchor(sources->get_data(), (*argument_columns[1])[0].get<PType>(),
                                         col_to->get_data(), result_null_map, context);
                 }
             } else {
@@ -241,9 +240,13 @@ public:
                 const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
                 // time_round(datetime, period, const(origin))
                 vector_vector_const(sources->get_data(), arg1_column->get_data(),
-                                    (*argument_columns[2])[0].get<PType>().to_date_int_val(),
-                                    col_to->get_data(), result_null_map, context);
+                                    (*argument_columns[2])[0].get<PType>(), col_to->get_data(),
+                                    result_null_map, context);
             } else {
+                const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
+                const auto arg2_column =
+                        check_and_get_column<ColumnVector<PType>>(*argument_columns[2]);
+                DCHECK(arg1_column != nullptr);
                 DCHECK(arg2_column != nullptr);
                 // time_round(datetime, period, origin)
                 vector_vector_vector(sources->get_data(), arg1_column->get_data(),

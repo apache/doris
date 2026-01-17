@@ -53,6 +53,8 @@ public:
 
     TimestampTzValue() : _utc_dt(MIN_DATETIME_V2) {}
 
+    TimestampTzValue(const DateV2Value<DateTimeV2ValueType>& dt) : _utc_dt(dt) {}
+
     // Returns an integer value for storage in a column
     underlying_value to_date_int_val() const { return _utc_dt.to_date_int_val(); }
 
