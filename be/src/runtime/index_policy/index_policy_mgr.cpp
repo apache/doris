@@ -93,9 +93,9 @@ void IndexPolicyMgr::apply_policy_changes(const std::vector<TIndexPolicy>& polic
               << "Total policies: " << _policys.size();
 }
 
-const Policys& IndexPolicyMgr::get_index_policys() {
+Policys IndexPolicyMgr::get_index_policys() {
     std::shared_lock<std::shared_mutex> r_lock(_mutex);
-    return _policys;
+    return _policys; // Return copy to ensure thread safety after lock release
 }
 
 // TODO: Potential high-concurrency bottleneck

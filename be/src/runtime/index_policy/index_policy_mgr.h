@@ -38,7 +38,7 @@ public:
     void apply_policy_changes(const std::vector<TIndexPolicy>& policies_to_update,
                               const std::vector<int64_t>& policies_to_delete);
 
-    const Policys& get_index_policys();
+    Policys get_index_policys();
     AnalyzerPtr get_policy_by_name(const std::string& name);
 
 private:
