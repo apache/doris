@@ -104,7 +104,7 @@ public final class AnalyzerSelector {
          */
         public String effectiveAnalyzerName(boolean hasIndex, String fallbackParser) {
             if (!hasIndex && !explicit) {
-                return "__default__";
+                return InvertedIndexUtil.INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
             }
             return Strings.isNullOrEmpty(analyzer) ? fallbackParser : analyzer;
         }
