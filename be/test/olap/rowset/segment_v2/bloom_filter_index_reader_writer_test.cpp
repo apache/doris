@@ -40,6 +40,7 @@
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/types.h"
 #include "olap/uint24.h"
+#include "testutil/datetime_ut_util.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -478,15 +479,15 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_timestamptz) {
     size_t num = 1024 * 3;
-    uint64_t base_dt = make_datetime(2025, 11, 14, 14, 37, 30, 999998);
+    auto base_dt = make_timestamptz(2025, 11, 14, 14, 37, 30, 999998);
     std::vector<uint64_t> val(num);
     for (size_t i = 0; i < num; ++i) {
-        val[i] = base_dt + i * 100000;
+        val[i] = base_dt.to_date_int_val() + i * 100000;
     }
 
     {
         std::string file_name = "bloom_filter_timestamptz";
-        uint64_t not_exist_value = base_dt - 1;
+        auto not_exist_value = base_dt.to_date_int_val() - 1;
         auto st = test_bloom_filter_index_reader_writer_template<
                 FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(file_name, val.data(), num, 1,
                                                         &not_exist_value);
@@ -497,7 +498,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_timestamptz) {
     {
         std::cout << "test timestamptz primary key bloom filter index\n";
         std::string file_name = "bloom_filter_timestamptz_pk";
-        uint64_t not_exist_value = base_dt - 1;
+        auto not_exist_value = base_dt.to_date_int_val() - 1;
         auto st = test_bloom_filter_index_reader_writer_template<
                 FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(file_name, val.data(), num, 1,
                                                         &not_exist_value, false, true);

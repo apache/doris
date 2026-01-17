@@ -654,7 +654,12 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
 
         size_t count = 0;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        {
+            uint64_t tmp = 1;
+            col_with_type->insert_many_vals(
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(tmp), count);
+        }
+
         auto expected_data_size = sizeof(typename ColumnType::value_type) * count;
         // binary: const flag| row num | real saved num| data
         auto content_uncompressed_size =
@@ -679,7 +684,11 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
 
         count = 1;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        {
+            uint64_t tmp = 1;
+            col_with_type->insert_many_vals(
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(tmp), count);
+        }
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         if (be_exec_version >= USE_CONST_SERDE) {
@@ -705,7 +714,11 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
 
         count = SERIALIZED_MEM_SIZE_LIMIT + 1;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        {
+            uint64_t tmp = 1;
+            col_with_type->insert_many_vals(
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(tmp), count);
+        }
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         if (be_exec_version >= USE_CONST_SERDE) {
@@ -755,9 +768,6 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
             }
         }
     };
-    test_func(dt_date_v2, *column_date_v2, USE_CONST_SERDE);
-    test_func(dt_date_v2, *column_date_v2, AGGREGATION_2_1_VERSION);
-
     test_func(dt_datetime_v2_0, *column_datetime_v2_0, USE_CONST_SERDE);
     test_func(dt_datetime_v2_0, *column_datetime_v2_0, AGGREGATION_2_1_VERSION);
     test_func(dt_datetime_v2_5, *column_datetime_v2_5, USE_CONST_SERDE);

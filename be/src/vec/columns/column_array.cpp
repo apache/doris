@@ -646,7 +646,7 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
     auto& res_elems = assert_cast<ColumnVector<T>&>(*dst_data).get_data();
     auto& res_offsets = dst_offset->get_data();
 
-    filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, IColumn::Offset64>(
+    filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, IColumn::Offset64>(
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*src_data).get_data(),
             src_offsets->get_data(), res_elems, res_offsets, filt, result_size_hint);
 
@@ -655,7 +655,7 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
 
 template <PrimitiveType T>
 size_t filter_number_inplace(const Filter& filter, IColumn& src_data, ColumnOffsets& src_offsets) {
-    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, Offset64>(
+    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, Offset64>(
             assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(src_data).get_data(),
             src_offsets.get_data(), filter);
 }

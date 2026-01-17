@@ -54,9 +54,9 @@ class ColumnVector;
 
 template <PrimitiveType T>
 struct AggregateFunctionAvgData {
-    using ResultType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ResultType = typename PrimitiveTypeTraits<T>::CppType;
     static constexpr PrimitiveType ResultPType = T;
-    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
+    typename PrimitiveTypeTraits<T>::CppType sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -86,8 +86,7 @@ struct AggregateFunctionAvgData {
             return cal_ret;
         } else {
             if constexpr (T == TYPE_DECIMAL256) {
-                return static_cast<ResultT>(sum /
-                                            typename PrimitiveTypeTraits<T>::ColumnItemType(count));
+                return static_cast<ResultT>(sum / typename PrimitiveTypeTraits<T>::CppType(count));
             } else {
                 return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
             }
@@ -121,7 +120,7 @@ class AggregateFunctionAvg<T, TResult, Data> final
           UnaryExpression,
           NullableAggregateFunction {
 public:
-    using ResultType = typename PrimitiveTypeTraits<TResult>::ColumnItemType;
+    using ResultType = typename PrimitiveTypeTraits<TResult>::CppType;
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;

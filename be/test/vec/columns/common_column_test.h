@@ -1126,9 +1126,8 @@ public:
         auto option = DataTypeSerDe::FormatOptions();
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
-            const typename PrimitiveTypeTraits<T>::ColumnItemType* rd =
-                    (typename PrimitiveTypeTraits<T>::ColumnItemType*)source_column->get_raw_data()
-                            .data;
+            const typename PrimitiveTypeTraits<T>::CppType* rd =
+                    (typename PrimitiveTypeTraits<T>::CppType*)source_column->get_raw_data().data;
             for (size_t j = 0; j < source_column->size(); j++) {
                 Field f;
                 source_column->get(j, f);
@@ -2789,30 +2788,81 @@ auto assert_column_vector_insert_indices_from_callback = [](auto x,
 };
 
 template <PrimitiveType PType>
-auto assert_column_vector_insert_range_of_integer_callback =
-        [](auto x, const MutableColumnPtr& source_column) {
-            using T = decltype(x);
-            auto target_column = source_column->clone();
-            auto src_size = source_column->size();
-            auto* col_vec_target = assert_cast<ColumnVector<PType>*>(target_column.get());
-            auto* col_vec_src = assert_cast<ColumnVector<PType>*>(source_column.get());
-            if constexpr (std::is_same_v<T, Float32> || std::is_same_v<T, Float64>) {
-                typename PrimitiveTypeTraits<PType>::ColumnItemType begin {0};
-                typename PrimitiveTypeTraits<PType>::ColumnItemType end {11};
-                EXPECT_THROW(col_vec_target->insert_range_of_integer(begin, end), Exception);
+auto assert_column_vector_insert_range_of_integer_callback = [](auto x, const MutableColumnPtr&
+                                                                                source_column) {
+    using T = decltype(x);
+    auto target_column = source_column->clone();
+    auto src_size = source_column->size();
+    auto* col_vec_target = assert_cast<ColumnVector<PType>*>(target_column.get());
+    auto* col_vec_src = assert_cast<ColumnVector<PType>*>(source_column.get());
+    if constexpr (std::is_same_v<T, Float32> || std::is_same_v<T, Float64> || is_date_type(PType) ||
+                  PType == TYPE_TIMESTAMPTZ) {
+        typename PrimitiveTypeTraits<PType>::CppType begin;
+        typename PrimitiveTypeTraits<PType>::CppType end;
+        if constexpr (PType == TYPE_DATE || PType == TYPE_DATETIME) {
+            int64_t tmp = 0;
+            begin = binary_cast<int64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+            tmp = 11;
+            end = binary_cast<int64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+        } else if constexpr (PType == TYPE_DATEV2) {
+            uint32_t tmp = 0;
+            begin = binary_cast<uint32_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+            tmp = 11;
+            end = binary_cast<uint32_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+        } else if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+            uint64_t tmp = 0;
+            begin = binary_cast<uint64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+            tmp = 11;
+            end = binary_cast<uint64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+        } else {
+            begin = 0;
+            end = 11;
+        }
+        EXPECT_THROW(col_vec_target->insert_range_of_integer(begin, end), Exception);
+    } else {
+        typename PrimitiveTypeTraits<PType>::CppType begin;
+        typename PrimitiveTypeTraits<PType>::CppType end;
+        if constexpr (PType == TYPE_DATE || PType == TYPE_DATETIME) {
+            int64_t tmp = 0;
+            begin = binary_cast<int64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+            tmp = 11;
+            end = binary_cast<int64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+        } else if constexpr (PType == TYPE_DATEV2) {
+            uint32_t tmp = 0;
+            begin = binary_cast<uint32_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+            tmp = 11;
+            end = binary_cast<uint32_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+        } else if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+            uint64_t tmp = 0;
+            begin = binary_cast<uint64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+            tmp = 11;
+            end = binary_cast<uint64_t, typename PrimitiveTypeTraits<PType>::CppType>(tmp);
+        } else {
+            begin = 0;
+            end = 11;
+        }
+        col_vec_target->insert_range_of_integer(begin, end);
+        size_t j = 0;
+        for (; j < src_size; ++j) {
+            EXPECT_EQ(col_vec_target->get_element(j), col_vec_src->get_element(j));
+        }
+        for (size_t k = 0; j < col_vec_target->size(); ++j, ++k) {
+            if constexpr (PType == TYPE_DATE || PType == TYPE_DATETIME) {
+                auto v = binary_cast<VecDateTimeValue, int64_t>(col_vec_target->get_element(j));
+                auto begin_t = binary_cast<VecDateTimeValue, int64_t>(begin);
+                EXPECT_EQ(v, begin_t + k);
+            } else if constexpr (PType == TYPE_DATEV2) {
+                EXPECT_EQ(col_vec_target->get_element(j).to_date_int_val(),
+                          begin.to_date_int_val() + k);
+            } else if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+                EXPECT_EQ(col_vec_target->get_element(j).to_date_int_val(),
+                          begin.to_date_int_val() + k);
             } else {
-                T begin {0};
-                T end {11};
-                col_vec_target->insert_range_of_integer(begin, end);
-                size_t j = 0;
-                for (; j < src_size; ++j) {
-                    EXPECT_EQ(col_vec_target->get_element(j), col_vec_src->get_element(j));
-                }
-                for (size_t k = 0; j < col_vec_target->size(); ++j, ++k) {
-                    EXPECT_EQ(col_vec_target->get_element(j), begin + k);
-                }
+                EXPECT_EQ(col_vec_target->get_element(j), begin + k);
             }
-        };
+        }
+    }
+};
 template <PrimitiveType PType>
 auto assert_column_vector_insert_many_fix_len_data_callback = [](auto x, const MutableColumnPtr&
                                                                                  source_column) {
@@ -3003,7 +3053,9 @@ auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumnPtr&
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
     for (size_t i = 0; i != src_size; ++i) {
-        EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        if constexpr (PType == TYPE_BOOLEAN) {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        }
     }
 };
 template <PrimitiveType PType>
@@ -3015,7 +3067,7 @@ auto assert_column_vector_get_int64_callback = [](auto x, const MutableColumnPtr
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
     for (size_t i = 0; i != src_size; ++i) {
-        if constexpr (!IsDecimalNumber<T>) {
+        if constexpr (!IsDecimalNumber<T> && !is_date_type(PType) && PType != TYPE_TIMESTAMPTZ) {
             EXPECT_EQ(col_vec_src->get_int(i), (Int64)data[i]);
         }
     }

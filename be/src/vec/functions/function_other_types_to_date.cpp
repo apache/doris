@@ -35,7 +35,6 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
-#include "util/binary_cast.hpp"
 #include "util/time_lut.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -182,11 +181,11 @@ struct StrToDate {
 
 private:
     template <PrimitiveType PType>
-    static void execute_impl(
-            FunctionContext* context, const ColumnString::Chars& ldata,
-            const ColumnString::Offsets& loffsets, const ColumnString::Chars& rdata,
-            const ColumnString::Offsets& roffsets, NullMap& result_null_map,
-            PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res) {
+    static void execute_impl(FunctionContext* context, const ColumnString::Chars& ldata,
+                             const ColumnString::Offsets& loffsets,
+                             const ColumnString::Chars& rdata,
+                             const ColumnString::Offsets& roffsets, NullMap& result_null_map,
+                             PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppType>& res) {
         size_t size = loffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
@@ -209,7 +208,7 @@ private:
     static void execute_impl_const_right(
             FunctionContext* context, const ColumnString::Chars& ldata,
             const ColumnString::Offsets& loffsets, const StringRef& rdata, NullMap& result_null_map,
-            PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res) {
+            PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppType>& res) {
         size_t size = loffsets.size();
         res.resize(size);
         const StringRef format_str = rewrite_specific_format(rdata.data, rdata.size);
@@ -230,7 +229,7 @@ private:
     static void _execute_inner_loop(
             const char* l_raw_str, size_t l_str_size, const char* r_raw_str, size_t r_str_size,
             NullMap& result_null_map, FunctionContext* context,
-            PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppNativeType>& res, size_t index) {
+            PaddedPODArray<typename PrimitiveTypeTraits<PType>::CppType>& res, size_t index) {
         auto& ts_val =
                 *reinterpret_cast<typename PrimitiveTypeTraits<PType>::CppType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size))
@@ -243,7 +242,6 @@ private:
 struct MakeDateImpl {
     static constexpr auto name = "makedate";
     using DateValueType = PrimitiveTypeTraits<PrimitiveType::TYPE_DATEV2>::CppType;
-    using NativeType = PrimitiveTypeTraits<PrimitiveType::TYPE_DATEV2>::CppNativeType;
 
     static bool is_variadic() { return false; }
 
@@ -320,7 +318,7 @@ struct MakeDateImpl {
 private:
     static void execute_impl(const PaddedPODArray<Int32>& year_data,
                              const PaddedPODArray<Int32>& dayofyear_data,
-                             const NullMap& result_null_map, PaddedPODArray<NativeType>& res) {
+                             const NullMap& result_null_map, PaddedPODArray<DateValueType>& res) {
         auto len = year_data.size();
         res.resize(len);
 
@@ -340,7 +338,7 @@ private:
 
     static void execute_impl_right_const(const PaddedPODArray<Int32>& year_data, Int32 dayofyear,
                                          const NullMap& result_null_map,
-                                         PaddedPODArray<NativeType>& res) {
+                                         PaddedPODArray<DateValueType>& res) {
         auto len = year_data.size();
         res.resize(len);
 
@@ -358,7 +356,7 @@ private:
     }
 
     static void _execute_inner_loop(const int& year, const int& dayofyear,
-                                    PaddedPODArray<NativeType>& res, size_t index) {
+                                    PaddedPODArray<DateValueType>& res, size_t index) {
         auto& res_val = *reinterpret_cast<DateValueType*>(&res[index]);
         res_val.unchecked_set_time(year, 1, 1, 0, 0, 0, 0);
         TimeInterval interval(DAY, dayofyear - 1, false);
@@ -371,7 +369,6 @@ private:
 struct MakeTimeImpl {
     static constexpr auto name = "maketime";
     using DateValueType = PrimitiveTypeTraits<PrimitiveType::TYPE_TIMEV2>::CppType;
-    using NativeType = PrimitiveTypeTraits<PrimitiveType::TYPE_TIMEV2>::CppNativeType;
     static bool is_variadic() { return false; }
     static size_t get_number_of_arguments() { return 3; }
     static DataTypes get_variadic_argument_types() { return {}; }
@@ -461,10 +458,9 @@ struct DateTruncState {
 template <PrimitiveType PType, bool DateArgIsFirst>
 struct DateTrunc {
     static constexpr auto name = "date_trunc";
-    using DateType = PrimitiveTypeTraits<PType>::DataType;
-    using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
-    using DateValueType = PrimitiveTypeTraits<PType>::CppType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
+    using DateType = typename PrimitiveTypeTraits<PType>::DataType;
+    using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
 
     static bool is_variadic() { return true; }
 
@@ -544,11 +540,11 @@ private:
         auto& data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
         auto& res = static_cast<ColumnType*>(result_column->assume_mutable().get())->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto dt = binary_cast<NativeType, DateValueType>(data[i]);
+            auto dt = data[i];
             // datetime_trunc only raise only when dt invalid which is impossible. so we dont throw error better.
             // then we can use default implementation for nulls with no worry of invalid nested value.
             dt.template datetime_trunc<Unit>();
-            res[i] = binary_cast<DateValueType, NativeType>(dt);
+            res[i] = dt;
         }
     }
 };
@@ -597,12 +593,12 @@ public:
         ColumnPtr res_column;
         if (block.get_by_position(result).type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
             res_column = ColumnDate::create(input_rows_count);
-            _execute<VecDateTimeValue, Int64>(
+            _execute<VecDateTimeValue>(
                     input_rows_count, data_col->get_data(), result_null_map,
                     static_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
         } else {
             res_column = ColumnDateV2::create(input_rows_count);
-            _execute<DateV2Value<DateV2ValueType>, UInt32>(
+            _execute<DateV2Value<DateV2ValueType>>(
                     input_rows_count, data_col->get_data(), result_null_map,
                     static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
         }
@@ -619,9 +615,9 @@ public:
     }
 
 private:
-    template <typename DateValueType, typename ReturnType>
+    template <typename DateValueType>
     void _execute(size_t input_rows_count, const PaddedPODArray<Int32>& data_col,
-                  const NullMap& result_null_map, PaddedPODArray<ReturnType>& res_data) const {
+                  const NullMap& result_null_map, PaddedPODArray<DateValueType>& res_data) const {
         for (int i = 0; i < input_rows_count; i++) {
             // Skip processing if result should be null (determined upfront)
             if (result_null_map[i]) {
@@ -630,13 +626,13 @@ private:
 
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 const auto& cur_data = data_col[i];
-                auto& ts_value = *reinterpret_cast<DateValueType*>(&res_data[i]);
+                auto& ts_value = res_data[i];
                 if (!ts_value.from_date_daynr(cur_data)) {
                     throw_out_of_bound_int(name, cur_data);
                 }
             } else {
                 const auto& cur_data = data_col[i];
-                auto& ts_value = *reinterpret_cast<DateValueType*>(&res_data[i]);
+                auto& ts_value = res_data[i];
                 if (!ts_value.get_date_from_daynr(cur_data)) {
                     throw_out_of_bound_int(name, cur_data);
                 }
@@ -1029,14 +1025,13 @@ public:
 template <PrimitiveType PType>
 struct LastDayImpl {
     static constexpr auto name = "last_day";
-    using DateType = PrimitiveTypeTraits<PType>::DataType;
-    using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
-    using DateValueType = PrimitiveTypeTraits<PType>::CppType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
+    using DateType = typename PrimitiveTypeTraits<PType>::DataType;
+    using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
 
     constexpr static PrimitiveType ResultPType = PrimitiveType::TYPE_DATEV2;
     using ResultColumnType = PrimitiveTypeTraits<ResultPType>::ColumnType;
-    using ResultNativeType = PrimitiveTypeTraits<ResultPType>::CppNativeType;
+    using ResultDateValueType = PrimitiveTypeTraits<ResultPType>::CppType;
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
@@ -1062,15 +1057,15 @@ struct LastDayImpl {
     }
 
     static void execute_straight(size_t input_rows_count,
-                                 const PaddedPODArray<NativeType>& data_col,
-                                 PaddedPODArray<ResultNativeType>& res_data,
+                                 const PaddedPODArray<DateValueType>& data_col,
+                                 PaddedPODArray<ResultDateValueType>& res_data,
                                  const NullMap& null_map) {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (null_map[i]) {
                 continue;
             }
             const auto& cur_data = data_col[i];
-            auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
+            auto ts_value = cur_data;
             if (!ts_value.is_valid_date()) {
                 throw_out_of_bound_one_date<DateValueType>("last_day", cur_data);
             }
@@ -1078,12 +1073,11 @@ struct LastDayImpl {
             // day is definitely legal
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
-                res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
+                res_data[i] = ts_value;
             } else { // datetimev2
                 ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
-                UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
-                DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
+                DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
             }
         }
     }
@@ -1106,14 +1100,13 @@ struct LastDayImpl {
 template <PrimitiveType PType>
 struct ToMondayImpl {
     static constexpr auto name = "to_monday";
-    using DateType = PrimitiveTypeTraits<PType>::DataType;
-    using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
-    using DateValueType = PrimitiveTypeTraits<PType>::CppType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
+    using DateType = typename PrimitiveTypeTraits<PType>::DataType;
+    using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
 
     constexpr static PrimitiveType ResultPType = PrimitiveType::TYPE_DATEV2;
     using ResultColumnType = PrimitiveTypeTraits<ResultPType>::ColumnType;
-    using ResultNativeType = PrimitiveTypeTraits<ResultPType>::CppNativeType;
+    using ResultDateValueType = PrimitiveTypeTraits<ResultPType>::CppType;
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
@@ -1139,22 +1132,22 @@ struct ToMondayImpl {
     }
 
     static void execute_straight(size_t input_rows_count,
-                                 const PaddedPODArray<NativeType>& data_col,
-                                 PaddedPODArray<ResultNativeType>& res_data,
+                                 const PaddedPODArray<DateValueType>& data_col,
+                                 PaddedPODArray<ResultDateValueType>& res_data,
                                  const NullMap& null_map) {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (null_map[i]) {
                 continue;
             }
             const auto& cur_data = data_col[i];
-            auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
+            auto ts_value = cur_data;
             if (!ts_value.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_one_date<DateValueType>("to_monday", cur_data);
             }
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
                     ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(1);
-                    res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
+                    res_data[i] = ts_value;
                     continue;
                 }
 
@@ -1163,12 +1156,11 @@ struct ToMondayImpl {
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
-                res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
+                res_data[i] = ts_value;
             } else { // datetimev2
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
                     ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
-                    UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
-                    DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
+                    DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
                     continue;
                 }
                 // day_of_week, from 1(Mon) to 7(Sun)
@@ -1178,8 +1170,7 @@ struct ToMondayImpl {
                 ts_value.template date_add_interval<DAY>(interval);
                 ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
                                             0, 0);
-                UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
-                DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
+                DataTypeDateTimeV2::cast_to_date_v2(ts_value, res_data[i]);
             }
         }
     }
