@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "util/debug_points.h"
 
@@ -102,7 +103,7 @@ const std::string INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
 
 // Normalize an analyzer name to a standardized key format (lowercase, trimmed).
 // Used for consistent lookup in multi-analyzer index scenarios.
-std::string normalize_analyzer_key(const std::string& analyzer);
+std::string normalize_analyzer_key(std::string_view analyzer);
 
 // Runtime context for analyzer
 // Contains only the fields needed at runtime

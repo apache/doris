@@ -178,11 +178,11 @@ std::string get_analyzer_name_from_properties(
     return "";
 }
 
-std::string normalize_analyzer_key(const std::string& analyzer) {
+std::string normalize_analyzer_key(std::string_view analyzer) {
     if (analyzer.empty()) {
         return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
     }
-    auto normalized = to_lower(analyzer);
+    auto normalized = to_lower(std::string(analyzer));
     if (normalized == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
         return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
     }
