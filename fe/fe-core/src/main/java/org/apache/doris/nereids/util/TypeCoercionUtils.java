@@ -705,7 +705,7 @@ public class TypeCoercionUtils {
         if (boundFunction instanceof CreateMap) {
             return processCreateMap((CreateMap) boundFunction);
         }
-
+        
         // type coercion
         return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
     }
