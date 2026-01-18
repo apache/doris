@@ -20,6 +20,7 @@
 #include <limits>
 
 #include "vec/core/extended_types.h"
+#include "vec/core/types.h"
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
 // Supported decimal number format:
@@ -78,17 +79,11 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
         --len;
     }
     int int_part_count = 0;
-    std::vector<unsigned char> digits;
-    if (len > 0) {
-        digits.resize(len);
-    }
-    int total_digit_count = 0;
     int i = 0;
     for (; i != len; ++i) {
         const char& c = s[i];
         if (LIKELY('0' <= c && c <= '9')) {
             found_value = true;
-            digits[total_digit_count++] = c - '0';
             if (!found_dot) {
                 ++int_part_count;
             }
@@ -109,6 +104,7 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
     }
     // parse exponent if any
     int64_t exponent = 0;
+    auto end_digit_index = i;
     if (i != len) {
         bool negative_exponent = false;
         if (s[i] == 'e' || s[i] == 'E') {
@@ -160,51 +156,69 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
     // whose max value is std::numeric_limits<int32_t>::max() - 4,
     // so int_part_count will be in range of int32_t,
     // and int_part_count + exponent will be in range of int64_t
-    int64_t tmp_actual_int_part_count = int_part_count + exponent;
-    if (tmp_actual_int_part_count > std::numeric_limits<int>::max() ||
-        tmp_actual_int_part_count < std::numeric_limits<int>::min()) {
-        *result = StringParser::PARSE_OVERFLOW;
+    int64_t tmp_result_int_part_digit_count = int_part_count + exponent;
+    if (tmp_result_int_part_digit_count > std::numeric_limits<int>::max() ||
+        tmp_result_int_part_digit_count < std::numeric_limits<int>::min()) {
+        *result = is_negative ? StringParser::PARSE_UNDERFLOW : StringParser::PARSE_OVERFLOW;
         return 0;
     }
-    int actual_int_part_count = tmp_actual_int_part_count;
+    int result_int_part_digit_count = tmp_result_int_part_digit_count;
     int actual_frac_part_count = 0;
     int digit_index = 0;
-    if (actual_int_part_count >= 0) {
-        int max_index = std::min(actual_int_part_count, total_digit_count);
+    if (result_int_part_digit_count >= 0) {
+        int max_index = std::min(found_dot ? (result_int_part_digit_count +
+                                              ((int_part_count > 0 && exponent > 0) ? 1 : 0))
+                                           : result_int_part_digit_count,
+                                 end_digit_index);
+        max_index = (max_index == std::numeric_limits<int>::min() ? end_digit_index : max_index);
         // skip zero number
-        for (; digit_index != max_index && digits[digit_index] == 0; ++digit_index) {
+        for (; digit_index != max_index && s[digit_index] == '0'; ++digit_index) {
         }
         // test 0.00, .00, 0.{00...}e2147483647
         // 0.00000e2147483647
-        if (max_index - digit_index > type_precision - type_scale) {
+        if (digit_index != max_index &&
+            (result_int_part_digit_count - digit_index > type_precision - type_scale)) {
             *result = is_negative ? StringParser::PARSE_UNDERFLOW : StringParser::PARSE_OVERFLOW;
             return 0;
         }
         // get int part number
         for (; digit_index != max_index; ++digit_index) {
-            int_part_number = int_part_number * 10 + digits[digit_index];
+            if (UNLIKELY(s[digit_index] == '.')) {
+                continue;
+            }
+            int_part_number = int_part_number * 10 + (s[digit_index] - '0');
         }
-        if (digit_index != actual_int_part_count) {
-            int_part_number *= get_scale_multiplier<T>(actual_int_part_count - digit_index);
+        auto total_significant_digit_count = i - ((found_dot && int_part_count > 0) ? 1 : 0);
+        if (result_int_part_digit_count > total_significant_digit_count) {
+            int_part_number *= get_scale_multiplier<T>(result_int_part_digit_count -
+                                                       total_significant_digit_count);
         }
     } else {
         // leading zeros of fraction part
-        actual_frac_part_count = -actual_int_part_count;
+        actual_frac_part_count = -result_int_part_digit_count;
     }
     // get fraction part number
-    for (; digit_index != total_digit_count && actual_frac_part_count < type_scale;
-         ++digit_index, ++actual_frac_part_count) {
-        frac_part_number = frac_part_number * 10 + digits[digit_index];
+    for (; digit_index != end_digit_index && actual_frac_part_count < type_scale; ++digit_index) {
+        if (UNLIKELY(s[digit_index] == '.')) {
+            continue;
+        }
+        frac_part_number = frac_part_number * 10 + (s[digit_index] - '0');
+        ++actual_frac_part_count;
     }
     auto type_scale_multiplier = get_scale_multiplier<T>(type_scale);
     // there are still extra fraction digits left, check rounding
-    if (digit_index != total_digit_count) {
-        // example: test 1.5 -> decimal(1, 0)
-        if (digits[digit_index] >= 5) {
-            ++frac_part_number;
-            if (frac_part_number == type_scale_multiplier) {
-                frac_part_number = 0;
-                ++int_part_number;
+    if (digit_index != end_digit_index) {
+        if (UNLIKELY(s[digit_index] == '.')) {
+            ++digit_index;
+        }
+        if (digit_index != end_digit_index) {
+            // example: test 1.5 -> decimal(1, 0)
+            if (s[digit_index] >= '5') {
+                ++frac_part_number;
+                if (frac_part_number == type_scale_multiplier) {
+                    frac_part_number = 0;
+                    ++int_part_number;
+                }
             }
         }
     } else {
@@ -221,6 +235,7 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
     *result = StringParser::PARSE_SUCCESS;
     return is_negative ? T(-value) : T(value);
 }
+
 template vectorized::Int32 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL32>(
         const char* __restrict s, size_t len, int type_precision, int type_scale,
         ParseResult* result);
