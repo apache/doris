@@ -49,7 +49,7 @@ Status SimpleEqualityDelete::filter_data_block(
         const std::unordered_map<int, std::string>& id_to_block_column_name,
         IColumn::Filter& filter) {
     SCOPED_TIMER(equality_delete_time);
-    DCHECK(_delete_col_ids.size() == 0);
+    DCHECK(_delete_col_ids.size() == 1);
     auto column_field_id = _delete_col_ids[0];
 
     auto column_and_type = data_block->get_by_position(

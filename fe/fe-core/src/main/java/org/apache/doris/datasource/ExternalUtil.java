@@ -62,6 +62,7 @@ public class ExternalUtil {
             TFieldPtr keyPtr = new TFieldPtr();
             keyPtr.setFieldPtr(getExternalSchema(column.getChildren().get(0)));
             mapField.setKeyField(keyPtr);
+
             TFieldPtr valuePtr = new TFieldPtr();
             valuePtr.setFieldPtr(getExternalSchema(column.getChildren().get(1)));
             mapField.setValueField(valuePtr);
@@ -197,11 +198,11 @@ public class ExternalUtil {
             TFieldPtr keyPtr = new TFieldPtr();
             keyPtr.setFieldPtr(getExternalSchema(
                     dorisMapType.getKeyType(), dorisColumn.getChildren().get(0), nameMapping));
-
             mapField.setKeyField(keyPtr);
+
             TFieldPtr valuePtr = new TFieldPtr();
             valuePtr.setFieldPtr(getExternalSchema(
-                    dorisMapType.getKeyType(), dorisColumn.getChildren().get(1), nameMapping));
+                    dorisMapType.getValueType(), dorisColumn.getChildren().get(1), nameMapping));
             mapField.setValueField(valuePtr);
             nestedField.setMapField(mapField);
             root.setNestedField(nestedField);

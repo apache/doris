@@ -478,6 +478,7 @@ Status IcebergParquetReader::init_reader(
                                                       field_node);
 
                     _id_to_block_column_name.emplace(data_file_column_id, table_field->name);
+                    id_to_table_field.erase(data_file_column_id);
                 } else if (_equality_delete_col_ids.contains(data_file_column_id)) {
                     // Columns that need to be read for equality delete.
                     const static std::string EQ_DELETE_PRE = "__equality_delete_column__";
@@ -500,6 +501,9 @@ Status IcebergParquetReader::init_reader(
                     _all_required_col_names.emplace_back(table_column_name);
                     column_ids.insert(data_file_field->get_column_id());
                 }
+            }
+            for (const auto& [id, table_field] : id_to_table_field) {
+                table_info_node_ptr->add_not_exist_children(table_field->name);
             }
         } else {
             if (!_equality_delete_col_ids.empty()) [[unlikely]] {
@@ -727,6 +731,7 @@ Status IcebergOrcReader::init_reader(
                                                       field_node);
 
                     _id_to_block_column_name.emplace(data_file_column_id, table_field->name);
+                    id_to_table_field.erase(data_file_column_id);
                 } else if (_equality_delete_col_ids.contains(data_file_column_id)) {
                     // Columns that need to be read for equality delete.
                     const static std::string EQ_DELETE_PRE = "__equality_delete_column__";
@@ -750,6 +755,9 @@ Status IcebergOrcReader::init_reader(
                     _all_required_col_names.emplace_back(table_column_name);
                     column_ids.insert(data_file_field->getColumnId());
                 }
+            }
+            for (const auto& [id, table_field] : id_to_table_field) {
+                table_info_node_ptr->add_not_exist_children(table_field->name);
             }
         } else {
             if (!_equality_delete_col_ids.empty()) [[unlikely]] {
@@ -1205,9 +1213,9 @@ Status IcebergOrcReader::_process_equality_delete(
                                 delete_field_id, delete_file_field->getKind(),
                                 data_file_field->getKind());
                     }
-                    std::string filed_lower_name = to_lower(delete_file_field->getFieldName(idx));
+                    std::string filed_lower_name = to_lower(delete_field_desc->getFieldName(idx));
                     eq_file_node->add_children(
-                            filed_lower_name, delete_file_field->getFieldName(idx),
+                            filed_lower_name, delete_field_desc->getFieldName(idx),
                             std::make_shared<TableSchemaChangeHelper::ScalarNode>());
 
                     delete_col_ids.emplace_back(delete_field_id);
