@@ -106,6 +106,11 @@ private:
                                                                  InvertedIndexQueryType query_type,
                                                                  const std::string& analyzer_key);
 
+    // Select best reader for numeric columns.
+    // Handles BKD priority for range queries.
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_for_numeric(
+            const AnalyzerMatchResult& match, InvertedIndexQueryType query_type);
+
     // THREAD SAFETY: _reader_entries and _key_to_entries are populated during initialization
     // phase (via add_reader) and only read during query phase (via read_from_index/select_best_reader).
     // These two phases are guaranteed not to overlap, so no synchronization is needed.

@@ -230,6 +230,38 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_text(
     return match.candidates.front()->reader;
 }
 
+Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_numeric(
+        const AnalyzerMatchResult& match, InvertedIndexQueryType query_type) {
+    if (match.empty()) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+                "No available inverted index readers for numeric column."));
+    }
+
+    // RANGE queries prefer BKD
+    if (is_range_query(query_type)) {
+        for (const auto* entry : match.candidates) {
+            if (entry->type == InvertedIndexReaderType::BKD) {
+                return entry->reader;
+            }
+        }
+    }
+
+    // Fallback priority: BKD > STRING_TYPE > others
+    for (const auto* entry : match.candidates) {
+        if (entry->type == InvertedIndexReaderType::BKD) {
+            return entry->reader;
+        }
+    }
+    for (const auto* entry : match.candidates) {
+        if (entry->type == InvertedIndexReaderType::STRING_TYPE) {
+            return entry->reader;
+        }
+    }
+
+    // Last resort: first available
+    return match.candidates.front()->reader;
+}
+
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         const vectorized::DataTypePtr& column_type, InvertedIndexQueryType query_type,
         const std::string& analyzer_key) {
