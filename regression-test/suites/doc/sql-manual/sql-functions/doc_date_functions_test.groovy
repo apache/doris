@@ -1399,6 +1399,39 @@ suite("doc_date_functions_test") {
     qt_maketime_test_1 """SELECT MAKETIME(hour,minute,sec) FROM maketime_test ORDER BY id;"""
     qt_maketime_test_2 """SELECT MAKETIME(hour, minute, 25) FROM maketime_test ORDER BY id;"""
 
+    //102. TIMESTAMP with two args Function test
+    sql """DROP TABLE IF EXISTS test_timestamp"""
+    sql """CREATE TABLE test_timestamp (
+            id INT,
+            dt DATE,
+            dttm DATETIME,
+        ) PROPERTIES ( 'replication_num' = '1' );"""
+    sql """INSERT INTO test_timestamp VALUES
+            (1, '2025-11-01', '2025-11-01 12:13:14'),
+            (2, '2025-1-1', '2025-1-1 23:59:59'),
+            (3, '2025-1-31', '2025-1-31 23:59:59'),
+            (4, '2025-12-31', '2025-12-31 23:59:59'),
+            (5, NULL, NULL);"""
+    qt_timestamp_two_args_1 """ SELECT 
+                                    TIMESTAMP(dt, '65:43:21') AS date_cross_day,
+                                    TIMESTAMP(dttm, '1:23:45') AS dttm_cross_day,
+                                    TIMESTAMP(dt, NULL) AS all_null_1,
+                                    TIMESTAMP(dttm, NULL) AS all_null_2
+                                FROM test_timestamp;"""
+    qt_timestamp_two_args_2 """SELECT TIMESTAMP('12:13:14', '11:45:14');"""
+    qt_timestamp_two_args_3 """SELECT TIMESTAMP('2026-01-05 11:45:14+05:30', '02:15:30');"""
+
+    explain {
+        sql """SELECT TIMESTAMP(dt, '65:43:21') FROM test_timestamp;"""
+        contains "add_time"
+    }
+    
+    test {
+        sql """SELECT TIMESTAMP('9999-12-31', '65:43:21');"""
+        exception "is invalid";
+    }
+    
+
     // Test constant folding for YEARWEEK function
     testFoldConst("SELECT YEARWEEK('2021-01-01') AS yearweek_mode0")
     testFoldConst("SELECT YEARWEEK('2020-07-01', 1) AS yearweek_mode1")
@@ -2296,6 +2329,20 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT YEARS_DIFF('2020-12-25', NULL)")
     testFoldConst("SELECT YEARS_SUB(NULL, 1)")
     testFoldConst("SELECT YEARS_SUB('2020-02-02', NULL)")
+
+    // TIMESTAMP with two args
+    testFoldConst("SELECT TIMESTAMP('2025-11-01', '65:43:21')")
+    testFoldConst("SELECT TIMESTAMP('2025-11-01 12:13:14', '1:23:45')")
+    testFoldConst("SELECT TIMESTAMP('2025-1-1', '23:59:59')")
+    testFoldConst("SELECT TIMESTAMP('2025-1-1 23:59:59', '1:23:45')")
+    testFoldConst("SELECT TIMESTAMP('2025-1-31', '23:59:59')")
+    testFoldConst("SELECT TIMESTAMP('2025-1-31 23:59:59', '1:23:45')")
+    testFoldConst("SELECT TIMESTAMP('2025-12-31', '23:59:59')")
+    testFoldConst("SELECT TIMESTAMP('2025-12-31 23:59:59', '1:23:45')")
+    testFoldConst("SELECT TIMESTAMP(NULL, '1:23:45')")
+    testFoldConst("SELECT TIMESTAMP('2025-11-01', NULL)")
+    testFoldConst("SELECT TIMESTAMP('12:13:14', '11:45:14');")
+    testFoldConst("SELECT TIMESTAMP('2026-01-05 11:45:14+05:30', '02:15:30');")
 
     // // Invalid parameter tests for error conditions
     // testFoldConst("SELECT DAY_CEIL('2023-07-13', -5)")
