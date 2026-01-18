@@ -253,13 +253,35 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc intersect(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
-        List<ValueDesc> resultValues = Lists.newArrayList();
+        if (collector.hasIsNullValue) {
+            if (!collector.rangeValues.isEmpty()
+                    || !collector.discreteValues.isEmpty()
+                    || !collector.notDiscreteValues.isEmpty()) {
+                // TA is null and TA > 1
+                // => TA is null and (null)
+                // => TA is null and null
+                // => EmptyValue(TA)
+                collector.rangeValues.clear();
+                collector.discreteValues.clear();
+                collector.notDiscreteValues.clear();
+                collector.add(new EmptyValue(context, reference));
+            }
+        }
 
+        List<ValueDesc> resultValues = Lists.newArrayList();
         // merge all the range values
         Range<ComparableLiteral> mergeRangeValue = null;
         if (!collector.hasEmptyValue && !collector.rangeValues.isEmpty()) {
             RangeValue mergeRangeValueDesc = null;
             for (RangeValue rangeValue : collector.rangeValues) {
+                // RangeAll(TA) and IsNotNull(TA)
+                // = (TA is not null or null) and (TA is not null)
+                // = TA is not null
+                // = IsNotNull(TA)
+                if (rangeValue.isRangeAll() && collector.hasIsNotNullValue()) {
+                    // skip this RangeAll
+                    continue;
+                }
                 if (mergeRangeValueDesc == null) {
                     mergeRangeValueDesc = rangeValue;
                 } else {
@@ -337,24 +359,22 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             }
             resultValues.add(new EmptyValue(context, reference));
         }
-
-        // RangeAll = (a is not null or null), only a is not nullable, then RangeAll equals IsNotNull
-        // process is null and is not null
-        // for non-nullable a: EmptyValue(a) = a is null and null
-        boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && reference.nullable();
-        boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent()
-                || collector.isGenerateNotNullValueOpt.isPresent()
-                || (!reference.nullable() && mergeRangeValue != null
-                    && !mergeRangeValue.hasLowerBound() && !mergeRangeValue.hasUpperBound());
-        if (hasIsNullValue && hasIsNotNullValue) {
-            return new UnknownValue(context, BooleanLiteral.FALSE);
+        if (collector.hasIsNullValue) {
+            if (collector.hasIsNotNullValue()) {
+                return new UnknownValue(context, BooleanLiteral.FALSE);
+            }
+            // nullable's EmptyValue have contains IsNull, no need to add
+            if (!collector.hasEmptyValue) {
+                resultValues.add(new IsNullValue(context, reference));
+            }
         }
-        // nullable's EmptyValue have contains IsNull, no need to add
-        if (!collector.hasEmptyValue && collector.hasIsNullValue) {
-            resultValues.add(new IsNullValue(context, reference));
+        if (collector.hasIsNotNullValue()) {
+            if (collector.hasEmptyValue) {
+                return new UnknownValue(context, BooleanLiteral.FALSE);
+            }
+            collector.isNotNullValueOpt.ifPresent(resultValues::add);
+            collector.isGenerateNotNullValueOpt.ifPresent(resultValues::add);
         }
-        collector.isNotNullValueOpt.ifPresent(resultValues::add);
-        collector.isGenerateNotNullValueOpt.ifPresent(resultValues::add);
         Optional<ValueDesc> shortCutResult = mergeCompoundValues(context, reference, resultValues, collector, true);
         if (shortCutResult.isPresent()) {
             return shortCutResult.get();
@@ -371,6 +391,21 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
     }
 
     private ValueDesc union(ExpressionRewriteContext context, Expression reference, ValueDescCollector collector) {
+        if (collector.hasIsNotNullValue()) {
+            if (!collector.rangeValues.isEmpty()
+                    || !collector.discreteValues.isEmpty()
+                    || !collector.notDiscreteValues.isEmpty()) {
+                // TA is not null or TA > 1
+                // => TA is not null or (null)
+                // => TA is not null or null
+                // => RangeAll(TA)
+                collector.rangeValues.clear();
+                collector.discreteValues.clear();
+                collector.notDiscreteValues.clear();
+                collector.add(new RangeValue(context, reference, Range.all()));
+            }
+        }
+
         List<ValueDesc> resultValues = Lists.newArrayListWithExpectedSize(collector.size() + 3);
         // Since in-predicate's options is a list, the discrete values need to kept options' order.
         // If not keep options' order, the result in-predicate's option list will not equals to
@@ -429,17 +464,25 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             }
         }
 
-        boolean hasIsNullValue = collector.hasIsNullValue || collector.hasEmptyValue && !reference.nullable();
-        boolean hasIsNotNullValue = collector.isNotNullValueOpt.isPresent()
-                || collector.isGenerateNotNullValueOpt.isPresent() || hasRangeAll;
-        if (hasIsNullValue && hasIsNotNullValue) {
-            return new UnknownValue(context, BooleanLiteral.TRUE);
-        } else if (collector.hasIsNullValue) {
+        if (collector.hasIsNullValue) {
+            if (collector.hasIsNotNullValue() || hasRangeAll) {
+                return new UnknownValue(context, BooleanLiteral.TRUE);
+            }
             resultValues.add(new IsNullValue(context, reference));
-        } else {
-            collector.isNotNullValueOpt.ifPresent(resultValues::add);
-            collector.isGenerateNotNullValueOpt.ifPresent(resultValues::add);
         }
+        if (collector.hasIsNotNullValue()) {
+            if (collector.hasEmptyValue) {
+                // EmptyValue(TA) or TA is not null
+                // = TA is null and null or TA is not null
+                // = TA is not null or null
+                // = RangeAll(TA)
+                resultValues.add(new RangeValue(context, reference, Range.all()));
+            } else {
+                collector.isNotNullValueOpt.ifPresent(resultValues::add);
+                collector.isGenerateNotNullValueOpt.ifPresent(resultValues::add);
+            }
+        }
+
         Optional<ValueDesc> shortCutResult = mergeCompoundValues(context, reference, resultValues, collector, false);
         if (shortCutResult.isPresent()) {
             return shortCutResult.get();
@@ -483,7 +526,6 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 ImmutableList.Builder<ValueDesc> newSourceValuesBuilder
                         = ImmutableList.builderWithExpectedSize(compoundValue.sourceValues.size());
                 boolean skipWholeCompoundValue = false;
-                boolean hasNullableSkipSourceValues = false;
                 for (ValueDesc innerValue : compoundValue.sourceValues) {
                     IntersectType intersectType = IntersectType.OTHERS;
                     UnionType unionType = UnionType.OTHERS;
@@ -491,18 +533,17 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                         if (isAnd) {
                             skipWholeCompoundValue = skipWholeCompoundValue || innerValue.containsAll(outerValue);
                             IntersectType type = outerValue.getIntersectType(innerValue);
-                            if (type == IntersectType.EMPTY_VALUE
-                                    && intersectType != IntersectType.FALSE
-                                    && outerValue.nullable()) {
+                            if (type == IntersectType.EMPTY_VALUE && intersectType != IntersectType.FALSE) {
                                 intersectType = type;
-                            }
-                            if (type == IntersectType.FALSE) {
+                            } else if (type == IntersectType.FALSE) {
                                 intersectType = type;
                             }
                         } else {
                             skipWholeCompoundValue = skipWholeCompoundValue || outerValue.containsAll(innerValue);
                             UnionType type = outerValue.getUnionType(innerValue);
-                            if (type == UnionType.TRUE) {
+                            if (type == UnionType.RANGE_ALL && unionType != UnionType.TRUE) {
+                                unionType = type;
+                            } else if (type == UnionType.TRUE) {
                                 unionType = type;
                             }
                         }
@@ -513,33 +554,27 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     if (isAnd) {
                         if (intersectType == IntersectType.OTHERS) {
                             newSourceValuesBuilder.add(innerValue);
-                        } else {
-                            hasNullableSkipSourceValues = hasNullableSkipSourceValues
-                                    || intersectType == IntersectType.EMPTY_VALUE;
+                        } else if (intersectType == IntersectType.EMPTY_VALUE) {
+                            newSourceValuesBuilder.add(new EmptyValue(context, reference));
                         }
                     } else {
                         if (unionType == UnionType.OTHERS) {
                             newSourceValuesBuilder.add(innerValue);
-                        } else {
-                            hasNullableSkipSourceValues = hasNullableSkipSourceValues
-                                    || unionType == UnionType.RANGE_ALL;
+                        } else if (unionType == UnionType.RANGE_ALL) {
+                            newSourceValuesBuilder.add(new RangeValue(context, reference, Range.all()));
                         }
                     }
                 }
                 if (!skipWholeCompoundValue) {
                     List<ValueDesc> newSourceValues = newSourceValuesBuilder.build();
                     if (newSourceValues.isEmpty()) {
-                        if (isAnd) {
-                            if (!hasNullableSkipSourceValues) {
-                                return Optional.of(new UnknownValue(context, BooleanLiteral.FALSE));
-                            }
-                            resultValues.add(new EmptyValue(context, reference));
-                        } else {
-                            if (!hasNullableSkipSourceValues) {
-                                return Optional.of(new UnknownValue(context, BooleanLiteral.TRUE));
-                            }
-                            resultValues.add(new RangeValue(context, reference, Range.all()));
-                        }
+                        // when isAnd = true,  A and (B or C or D)
+                        // if A and B = FALSE, A and C = FALSE, A and D = FALSE, then newSourceValues is empty
+                        // then A and (B or C or D) = FALSE
+                        // when isAnd = false,  A or (B and C and D)
+                        // if A or B = TRUE, A or C = TRUE, A or D = TRUE, then newSourceValues is empty
+                        // then A or (B and C and D) = TRUE
+                        return Optional.of(new UnknownValue(context, BooleanLiteral.of(!isAnd)));
                     } else if (newSourceValues.size() == 1) {
                         resultValues.add(newSourceValues.get(0));
                     } else {
@@ -592,6 +627,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         int size() {
             return rangeValues.size() + discreteValues.size() + compoundValues.size() + unknownValues.size();
+        }
+
+        boolean hasIsNotNullValue() {
+            return isNotNullValueOpt.isPresent() || isGenerateNotNullValueOpt.isPresent();
         }
 
         @Override

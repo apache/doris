@@ -108,13 +108,11 @@ private:
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
 
-                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType
-                                        left_tmp;
+                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType left_tmp;
                                 auto left_src =
                                         column_left_ptr->template get_value<Impl::ArgAPType>();
                                 std::memcpy(&left_tmp, &left_src, sizeof(left_src));
-                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType
-                                        right_tmp;
+                                typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType right_tmp;
                                 auto right_src =
                                         column_right_ptr->template get_value<Impl::ArgBPType>();
                                 std::memcpy(&right_tmp, &right_src, sizeof(right_src));
@@ -134,13 +132,11 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                typename PrimitiveTypeTraits<Impl::ArgAPType>::ColumnItemType
-                                        left_tmp;
+                                typename PrimitiveTypeTraits<Impl::ArgAPType>::CppType left_tmp;
                                 auto left_src =
                                         column_left_ptr->template get_value<Impl::ArgAPType>();
                                 std::memcpy(&left_tmp, &left_src, sizeof(left_src));
-                                typename PrimitiveTypeTraits<Impl::ArgBPType>::ColumnItemType
-                                        right_tmp;
+                                typename PrimitiveTypeTraits<Impl::ArgBPType>::CppType right_tmp;
                                 auto right_src =
                                         column_right_ptr->template get_value<Impl::ArgBPType>();
                                 std::memcpy(&right_tmp, &right_src, sizeof(right_src));
@@ -156,10 +152,10 @@ private:
                 }
             }
         } else {
-            typename PrimitiveTypeTraits<Impl::ArgAPType>::ColumnItemType left_tmp;
+            typename PrimitiveTypeTraits<Impl::ArgAPType>::CppType left_tmp;
             auto left_src = column_left_ptr->template get_value<Impl::ArgAPType>();
             std::memcpy(&left_tmp, &left_src, sizeof(left_src));
-            typename PrimitiveTypeTraits<Impl::ArgBPType>::ColumnItemType right_tmp;
+            typename PrimitiveTypeTraits<Impl::ArgBPType>::CppType right_tmp;
             auto right_src = column_right_ptr->template get_value<Impl::ArgBPType>();
             std::memcpy(&right_tmp, &right_src, sizeof(right_src));
             column_result = Impl::constant_constant(left_tmp, right_tmp);
@@ -182,7 +178,7 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                typename PrimitiveTypeTraits<Impl::ArgBPType>::ColumnItemType tmp;
+                                typename PrimitiveTypeTraits<Impl::ArgBPType>::CppType tmp;
                                 auto src = column_right_ptr->template get_value<Impl::ArgBPType>();
                                 std::memcpy(&tmp, &src, sizeof(src));
                                 res = Impl::vector_constant(column_left->get_ptr(), tmp,
@@ -234,7 +230,7 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                typename PrimitiveTypeTraits<Impl::ArgAPType>::ColumnItemType tmp;
+                                typename PrimitiveTypeTraits<Impl::ArgAPType>::CppType tmp;
                                 auto src = column_left_ptr->template get_value<Impl::ArgAPType>();
                                 std::memcpy(&tmp, &src, sizeof(src));
                                 res = Impl::constant_vector(tmp, column_right->get_ptr(),
@@ -253,7 +249,7 @@ private:
                             remove_nullable(res_data_type).get(), [&](const auto& type_result) {
                                 auto max_and_multiplier = Impl::get_max_and_multiplier(
                                         type_left, type_right, type_result);
-                                typename PrimitiveTypeTraits<Impl::ArgAPType>::ColumnItemType tmp;
+                                typename PrimitiveTypeTraits<Impl::ArgAPType>::CppType tmp;
                                 auto src = column_left_ptr->template get_value<Impl::ArgAPType>();
                                 std::memcpy(&tmp, &src, sizeof(src));
                                 res = Impl::constant_vector(tmp, column_right->get_ptr(),
@@ -322,8 +318,8 @@ private:
 static const DecimalV2Value one(1, 0);
 
 struct DivideFloatingImpl {
-    using ArgA = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppNativeType;
-    using ArgB = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppNativeType;
+    using ArgA = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType;
     static constexpr PrimitiveType ArgAPType = TYPE_DOUBLE;
     static constexpr PrimitiveType ArgBPType = TYPE_DOUBLE;
     using ColumnType = typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnType;
@@ -413,12 +409,12 @@ struct DivideDecimalImpl {
     static_assert(is_decimal(TypeA) && is_decimal(TypeB));
     static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
                   (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
-    using ArgA = typename PrimitiveTypeTraits<TypeA>::ColumnItemType;
-    using ArgB = typename PrimitiveTypeTraits<TypeB>::ColumnItemType;
+    using ArgA = typename PrimitiveTypeTraits<TypeA>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<TypeB>::CppType;
     static constexpr PrimitiveType ArgAPType = TypeA;
     static constexpr PrimitiveType ArgBPType = TypeB;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
     using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
     using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
@@ -438,11 +434,10 @@ struct DivideDecimalImpl {
 
     template <PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType impl(ArgNativeTypeA a,
-                                                                               ArgNativeTypeB b,
-                                                                               UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType::NativeType impl(
+            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
         is_null = b == 0;
-        return static_cast<typename PrimitiveTypeTraits<ResultType>::CppNativeType>(a) /
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType::NativeType>(a) /
                (b + is_null);
     }
 
@@ -458,14 +453,12 @@ struct DivideDecimalImpl {
         auto null_map = ColumnUInt8::create(1, 0);
         if (check_overflow_for_decimal) {
             column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<true, ResultType>(a.value, b.value, null_map->get_element(0),
-                                                    max_result_number));
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<true, ResultType>(
+                            a.value, b.value, null_map->get_element(0), max_result_number));
         } else {
             column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<false, ResultType>(a.value, b.value, null_map->get_element(0),
-                                                     max_result_number));
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<false, ResultType>(
+                            a.value, b.value, null_map->get_element(0), max_result_number));
         }
 
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
@@ -483,14 +476,12 @@ struct DivideDecimalImpl {
         auto null_map = ColumnUInt8::create(1, 0);
         if (check_overflow_for_decimal) {
             column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<true, ResultType>(a.value(), b.value(), null_map->get_element(0),
-                                                    max_result_number));
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<true, ResultType>(
+                            a.value(), b.value(), null_map->get_element(0), max_result_number));
         } else {
             column_result->get_element(0) =
-                    typename PrimitiveTypeTraits<ResultType>::ColumnItemType(
-                            apply<false, ResultType>(a.value(), b.value(), null_map->get_element(0),
-                                                     max_result_number));
+                    typename PrimitiveTypeTraits<ResultType>::CppType(apply<false, ResultType>(
+                            a.value(), b.value(), null_map->get_element(0), max_result_number));
         }
 
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
@@ -675,7 +666,7 @@ struct DivideDecimalImpl {
 
     template <bool check_overflow_for_decimal, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
             ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
         if constexpr (TypeA == TYPE_DECIMALV2) {
@@ -715,7 +706,7 @@ struct DivideDecimalImpl {
                     }
                 }
             }
-            typename PrimitiveTypeTraits<ResultType>::CppNativeType result {};
+            typename PrimitiveTypeTraits<ResultType>::CppType::NativeType result {};
             memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
             return result;
         } else {

@@ -41,10 +41,8 @@ bool DataTypeDateTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-void DataTypeDateTime::cast_to_date_time(Int64& x) {
-    auto value = binary_cast<Int64, doris::VecDateTimeValue>(x);
-    value.to_datetime();
-    x = binary_cast<doris::VecDateTimeValue, Int64>(value);
+void DataTypeDateTime::cast_to_date_time(VecDateTimeValue& x) {
+    x.to_datetime();
 }
 
 MutableColumnPtr DataTypeDateTime::create_column() const {

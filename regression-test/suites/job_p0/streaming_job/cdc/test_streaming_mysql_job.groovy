@@ -146,7 +146,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             sql """DELETE FROM ${mysqlDb}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -163,7 +163,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             sql """INSERT INTO ${mysqlDb}.${table1} (name,age) VALUES ('Apache',40);"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """

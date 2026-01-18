@@ -9446,7 +9446,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.retainTime() != null) {
             DorisParser.TimeValueWithUnitContext time = ctx.retainTime().timeValueWithUnit();
             if (time != null) {
-                retainTime = Optional.of(visitTimeValueWithUnit(time));
+                long retainTimeMs = visitTimeValueWithUnit(time);
+                if (retainTimeMs <= 0) {
+                    throw new IllegalArgumentException(
+                        "RETAIN time value must be greater than 0, got: " + retainTimeMs + " ms");
+                }
+                retainTime = Optional.of(retainTimeMs);
             }
         }
 
@@ -9455,11 +9460,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.retentionSnapshot() != null) {
             DorisParser.RetentionSnapshotContext retentionSnapshotContext = ctx.retentionSnapshot();
             if (retentionSnapshotContext.minSnapshotsToKeep() != null) {
-                numSnapshots = Optional.of(
-                    Integer.parseInt(retentionSnapshotContext.minSnapshotsToKeep().value.getText()));
+                int snapshotsCount = Integer.parseInt(
+                        retentionSnapshotContext.minSnapshotsToKeep().value.getText());
+                if (snapshotsCount <= 0) {
+                    throw new IllegalArgumentException(
+                        "Snapshot count (SNAPSHOTS) value must be greater than 0, got: " + snapshotsCount);
+                }
+                numSnapshots = Optional.of(snapshotsCount);
             }
             if (retentionSnapshotContext.timeValueWithUnit() != null) {
-                retention = Optional.of(visitTimeValueWithUnit(retentionSnapshotContext.timeValueWithUnit()));
+                long retentionMs = visitTimeValueWithUnit(retentionSnapshotContext.timeValueWithUnit());
+                if (retentionMs <= 0) {
+                    throw new IllegalArgumentException(
+                        "Retention time value must be greater than 0, got: " + retentionMs + " ms");
+                }
+                retention = Optional.of(retentionMs);
             }
         }
         return new BranchOptions(snapshotId, retainTime, numSnapshots, retention);
@@ -9497,7 +9512,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.retainTime() != null) {
             DorisParser.TimeValueWithUnitContext time = ctx.retainTime().timeValueWithUnit();
             if (time != null) {
-                retainTime = Optional.of(visitTimeValueWithUnit(time));
+                long retainTimeMs = visitTimeValueWithUnit(time);
+                if (retainTimeMs <= 0) {
+                    throw new IllegalArgumentException(
+                        "RETAIN time value must be greater than 0, got: " + retainTimeMs + " ms");
+                }
+                retainTime = Optional.of(retainTimeMs);
             }
         }
 
