@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,7 +40,9 @@ public class HoursSub extends ScalarFunction implements BinaryExpression, Explic
         PropagateNullable, DateAddSubMonotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(FunctionSignature
-            .ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE));
+            .ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD, IntegerType.INSTANCE)
+    );
 
     public HoursSub(Expression arg0, Expression arg1) {
         super("hours_sub", arg0, arg1);
