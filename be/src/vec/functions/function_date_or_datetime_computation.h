@@ -1846,8 +1846,8 @@ public:
             const auto& arg1 = left_data[index_check_const(i, cols_info[0].is_const)];
             const auto& arg2 = right_data[index_check_const(i, cols_info[1].is_const)];
 
-            if constexpr (PType == TYPE_DATETIMEV2) {
-                DateV2Value<DateTimeV2ValueType> dtv1 = arg1;
+            if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+                DateV2Value<DateTimeV2ValueType> dtv1(arg1.to_date_int_val());
                 auto tv2 = static_cast<TimeValue::TimeType>(arg2);
                 TimeInterval interval(TimeUnit::MICROSECOND, tv2, IsNegative);
                 bool out_range = dtv1.template date_add_interval<TimeUnit::MICROSECOND>(interval);
@@ -1869,7 +1869,9 @@ public:
 
 using AddTimeDatetimeImpl = AddTimeImplBase<TYPE_DATETIMEV2, false>;
 using AddTimeTimeImpl = AddTimeImplBase<TYPE_TIMEV2, false>;
+using AddTimeTimestamptzImpl = AddTimeImplBase<TYPE_TIMESTAMPTZ, false>;
 using SubTimeDatetimeImpl = AddTimeImplBase<TYPE_DATETIMEV2, true>;
 using SubTimeTimeImpl = AddTimeImplBase<TYPE_TIMEV2, true>;
+using SubTimeTimestamptzImpl = AddTimeImplBase<TYPE_TIMESTAMPTZ, true>;
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
