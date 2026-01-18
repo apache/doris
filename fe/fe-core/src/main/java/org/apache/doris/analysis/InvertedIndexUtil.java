@@ -17,12 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.invertedindex.AnalyzerIdentityBuilder;
+import org.apache.doris.analysis.invertedindex.AnalyzerKeyNormalizer;
+import org.apache.doris.analysis.invertedindex.InvertedIndexSqlGenerator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.indexpolicy.IndexPolicy;
-import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -37,7 +38,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 
 public class InvertedIndexUtil {
     private static final Logger LOG = LogManager.getLogger(InvertedIndexUtil.class);
@@ -402,25 +402,12 @@ public class InvertedIndexUtil {
      * This ensures case-insensitive matching between table creation and query time.
      */
     public static void normalizeInvertedIndexProperties(Map<String, String> properties) {
-        if (properties == null) {
-            return;
-        }
-        normalizePropertyIfPresent(properties, INVERTED_INDEX_ANALYZER_NAME_KEY);
-        normalizePropertyIfPresent(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY);
-        // Also normalize parser name for consistency
-        normalizePropertyIfPresent(properties, INVERTED_INDEX_PARSER_KEY);
-        normalizePropertyIfPresent(properties, INVERTED_INDEX_PARSER_KEY_ALIAS);
-    }
-
-    /**
-     * Helper method to normalize a property value to lowercase if present.
-     * Trims whitespace and converts to lowercase.
-     */
-    private static void normalizePropertyIfPresent(Map<String, String> properties, String key) {
-        String value = properties.get(key);
-        if (value != null && !value.isEmpty()) {
-            properties.put(key, value.trim().toLowerCase());
-        }
+        AnalyzerKeyNormalizer.normalizeInvertedIndexProperties(
+                properties,
+                INVERTED_INDEX_ANALYZER_NAME_KEY,
+                INVERTED_INDEX_NORMALIZER_NAME_KEY,
+                INVERTED_INDEX_PARSER_KEY,
+                INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
 
     private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
@@ -473,205 +460,15 @@ public class InvertedIndexUtil {
     }
 
     public static String buildAnalyzerIdentity(Map<String, String> properties) {
-        if (properties == null || properties.isEmpty()) {
-            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
-        }
-
         String preferredAnalyzer = getPreferredAnalyzer(properties);
-        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            // For custom analyzer/normalizer, resolve to underlying config to build identity
-            return resolveAnalyzerIdentity(preferredAnalyzer);
-        }
-
         String parser = getInvertedIndexParser(properties);
-        if (Strings.isNullOrEmpty(parser) || INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
-            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
-        }
-        return parser;
-    }
-
-    /**
-     * Resolve analyzer/normalizer name to its underlying configuration identity.
-     * Two analyzers with same underlying config (tokenizer + token_filter + char_filter)
-     * will have the same identity, even if they have different names.
-     *
-     * @param analyzerName the analyzer or normalizer name
-     * @return normalized identity string based on underlying configuration
-     */
-    private static String resolveAnalyzerIdentity(String analyzerName) {
-        if (Strings.isNullOrEmpty(analyzerName)) {
-            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
-        }
-
-        // Check if it's a built-in analyzer
-        if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)) {
-            return analyzerName;
-        }
-
-        // Check if it's a built-in normalizer
-        if (IndexPolicy.BUILTIN_NORMALIZERS.contains(analyzerName)) {
-            return "normalizer:" + analyzerName;
-        }
-
-        // For custom analyzer/normalizer, get underlying config from IndexPolicyMgr
-        try {
-            Env env = Env.getCurrentEnv();
-            if (env == null || env.getIndexPolicyMgr() == null) {
-                // Env not initialized - this can happen during early startup or tests
-                LOG.debug("Env or IndexPolicyMgr not available, using name '{}' as identity", analyzerName);
-                return analyzerName;
-            }
-
-            IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(analyzerName);
-            if (policy == null) {
-                // Policy not found - this is expected for custom analyzers not yet registered
-                LOG.debug("Analyzer/normalizer policy not found for '{}', using name as identity", analyzerName);
-                return analyzerName;
-            }
-
-            Map<String, String> policyProps = policy.getProperties();
-            if (policyProps == null || policyProps.isEmpty()) {
-                LOG.debug("Policy '{}' has no properties, using name as identity", analyzerName);
-                return analyzerName;
-            }
-
-            // Build identity from underlying config using sorted keys for consistent ordering
-            return buildIdentityFromPolicyProperties(policy.getType(), policyProps);
-        } catch (RuntimeException e) {
-            // Catch RuntimeException specifically rather than generic Exception
-            // Log at WARN level since failure could cause incorrect identity calculation
-            LOG.warn("Failed to resolve analyzer identity for '{}', using name as identity. "
-                    + "This may cause incorrect duplicate detection. Error: {}",
-                    analyzerName, e.getMessage());
-            return analyzerName;
-        }
-    }
-
-    /**
-     * Build identity string from policy properties.
-     * Uses TreeMap to ensure consistent key ordering.
-     */
-    private static String buildIdentityFromPolicyProperties(IndexPolicyTypeEnum type,
-            Map<String, String> properties) {
-        // Use TreeMap to sort keys for consistent identity
-        TreeMap<String, String> sortedProps = new TreeMap<>(properties);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(type.name()).append(":");
-
-        for (Map.Entry<String, String> entry : sortedProps.entrySet()) {
-            String key = entry.getKey();
-            String value = entry.getValue();
-
-            // For tokenizer, token_filter, char_filter - resolve recursively if needed
-            if (IndexPolicy.PROP_TOKENIZER.equals(key)) {
-                sb.append("tokenizer=").append(resolveComponentIdentity(value, IndexPolicyTypeEnum.TOKENIZER));
-            } else if (IndexPolicy.PROP_TOKEN_FILTER.equals(key)) {
-                sb.append("token_filter=").append(resolveTokenFilterIdentity(value));
-            } else if (IndexPolicy.PROP_CHAR_FILTER.equals(key)) {
-                sb.append("char_filter=").append(resolveCharFilterIdentity(value));
-            }
-            sb.append(";");
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * Resolve a component (tokenizer) to its identity.
-     */
-    private static String resolveComponentIdentity(String name, IndexPolicyTypeEnum expectedType) {
-        if (Strings.isNullOrEmpty(name)) {
-            return "";
-        }
-
-        // Check if it's a built-in component
-        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                && IndexPolicy.BUILTIN_TOKENIZERS.contains(name)) {
-            return name;
-        }
-
-        // For custom component, get its properties
-        try {
-            Env env = Env.getCurrentEnv();
-            if (env == null || env.getIndexPolicyMgr() == null) {
-                return name;
-            }
-
-            IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
-            if (policy == null || policy.getType() != expectedType) {
-                return name;
-            }
-
-            Map<String, String> props = policy.getProperties();
-            if (props == null || props.isEmpty()) {
-                return name;
-            }
-
-            // Build identity from sorted properties
-            TreeMap<String, String> sortedProps = new TreeMap<>(props);
-            return sortedProps.toString();
-        } catch (RuntimeException e) {
-            return name;
-        }
-    }
-
-    /**
-     * Resolve token filter list to identity string.
-     * IMPORTANT: Order is preserved because filter order is semantically significant.
-     * For example, "lowercase,stemmer" produces different results than "stemmer,lowercase".
-     */
-    private static String resolveTokenFilterIdentity(String filterList) {
-        if (Strings.isNullOrEmpty(filterList)) {
-            return "";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        String[] filters = filterList.split(",\\s*");
-        // DO NOT sort - filter order is semantically significant
-        // e.g., lowercase→stemmer vs stemmer→lowercase produce different results
-
-        for (int i = 0; i < filters.length; i++) {
-            String filter = filters[i].trim();
-            if (i > 0) {
-                sb.append(",");
-            }
-
-            if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(filter)) {
-                sb.append(filter);
-            } else {
-                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.TOKEN_FILTER));
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Resolve char filter list to identity string.
-     * IMPORTANT: Order is preserved because filter order is semantically significant.
-     */
-    private static String resolveCharFilterIdentity(String filterList) {
-        if (Strings.isNullOrEmpty(filterList)) {
-            return "";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        String[] filters = filterList.split(",\\s*");
-        // DO NOT sort - filter order is semantically significant
-
-        for (int i = 0; i < filters.length; i++) {
-            String filter = filters[i].trim();
-            if (i > 0) {
-                sb.append(",");
-            }
-
-            if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(filter)) {
-                sb.append(filter);
-            } else {
-                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.CHAR_FILTER));
-            }
-        }
-        return sb.toString();
+        return AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                properties,
+                preferredAnalyzer,
+                parser,
+                INVERTED_INDEX_DEFAULT_ANALYZER_KEY,
+                INVERTED_INDEX_PARSER_NONE,
+                LOG);
     }
 
     public static boolean isAnalyzerMatched(Map<String, String> properties, String analyzer) {
@@ -700,16 +497,6 @@ public class InvertedIndexUtil {
      * Otherwise returns " USING ANALYZER <analyzer>" with proper quoting.
      */
     public static String buildAnalyzerSqlFragment(String analyzer) {
-        if (Strings.isNullOrEmpty(analyzer)) {
-            return "";
-        }
-        String trimmed = analyzer.trim();
-        if (trimmed.isEmpty()) {
-            return "";
-        }
-        if (trimmed.matches("[A-Za-z_][A-Za-z0-9_]*")) {
-            return " USING ANALYZER " + trimmed;
-        }
-        return " USING ANALYZER '" + trimmed.replace("'", "''") + "'";
+        return InvertedIndexSqlGenerator.buildAnalyzerSqlFragment(analyzer);
     }
 }
