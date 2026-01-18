@@ -38,6 +38,14 @@ struct InvertedIndexParam {
     const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
 };
 
+// Entry representing an inverted index reader with its type and analyzer key.
+// Used by InvertedIndexIterator and AnalyzerKeyMatcher for reader selection.
+struct ReaderEntry {
+    InvertedIndexReaderType type;
+    std::string analyzer_key;
+    InvertedIndexReaderPtr reader;
+};
+
 class InvertedIndexIterator : public IndexIterator {
 public:
     InvertedIndexIterator();
@@ -66,12 +74,6 @@ private:
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
-
-    struct ReaderEntry {
-        InvertedIndexReaderType type;
-        std::string analyzer_key;
-        InvertedIndexReaderPtr reader;
-    };
 
     // Result of find_reader_candidates.
     // SAFETY: The pointers in 'candidates' are valid only within the scope of
