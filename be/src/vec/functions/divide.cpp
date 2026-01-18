@@ -318,8 +318,8 @@ private:
 static const DecimalV2Value one(1, 0);
 
 struct DivideFloatingImpl {
-    using ArgA = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppNativeType;
-    using ArgB = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppNativeType;
+    using ArgA = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType;
     static constexpr PrimitiveType ArgAPType = TYPE_DOUBLE;
     static constexpr PrimitiveType ArgBPType = TYPE_DOUBLE;
     using ColumnType = typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnType;
@@ -413,8 +413,8 @@ struct DivideDecimalImpl {
     using ArgB = typename PrimitiveTypeTraits<TypeB>::CppType;
     static constexpr PrimitiveType ArgAPType = TypeA;
     static constexpr PrimitiveType ArgBPType = TypeB;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
     using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
     using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
@@ -434,11 +434,10 @@ struct DivideDecimalImpl {
 
     template <PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType impl(ArgNativeTypeA a,
-                                                                               ArgNativeTypeB b,
-                                                                               UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType::NativeType impl(
+            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
         is_null = b == 0;
-        return static_cast<typename PrimitiveTypeTraits<ResultType>::CppNativeType>(a) /
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType::NativeType>(a) /
                (b + is_null);
     }
 
@@ -667,7 +666,7 @@ struct DivideDecimalImpl {
 
     template <bool check_overflow_for_decimal, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
             ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
         if constexpr (TypeA == TYPE_DECIMALV2) {
@@ -707,7 +706,7 @@ struct DivideDecimalImpl {
                     }
                 }
             }
-            typename PrimitiveTypeTraits<ResultType>::CppNativeType result {};
+            typename PrimitiveTypeTraits<ResultType>::CppType::NativeType result {};
             memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
             return result;
         } else {

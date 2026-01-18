@@ -60,13 +60,9 @@ struct AggregateFunctionUniqExactData {
     static constexpr bool is_string_key = is_string_type(T) || is_varbinary(T);
     using Key = std::conditional_t<
             is_string_key, UInt128,
-            std::conditional_t<
-                    T == TYPE_ARRAY, UInt64,
-                    std::conditional_t<
-                            T == TYPE_BOOLEAN, UInt8,
-                            std::conditional_t<is_date_type(T) || T == TYPE_TIMESTAMPTZ,
-                                               typename PrimitiveTypeTraits<T>::CppType,
-                                               typename PrimitiveTypeTraits<T>::CppNativeType>>>>;
+            std::conditional_t<T == TYPE_ARRAY, UInt64,
+                               std::conditional_t<T == TYPE_BOOLEAN, UInt8,
+                                                  typename PrimitiveTypeTraits<T>::CppType>>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
@@ -101,11 +97,6 @@ struct OneAdder {
             data.set.insert(Data::get_key(value));
         } else if constexpr (T == TYPE_ARRAY) {
             data.set.insert(Data::get_key(column, row_num));
-        } else if constexpr (is_decimal(T)) {
-            data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                        TypeCheckOnRelease::DISABLE>(column)
-                                    .get_data()[row_num]
-                                    .value);
         } else {
             data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                         TypeCheckOnRelease::DISABLE>(column)

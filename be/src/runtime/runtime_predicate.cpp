@@ -165,7 +165,6 @@ StringRef RuntimePredicate::_get_string_ref(const Field& field, const PrimitiveT
         return StringRef((char*)&v, sizeof(v));
     }
     case doris::PrimitiveType::TYPE_VARBINARY: {
-        // For VARBINARY type, use StringViewField to store binary data
         const auto& v = field.get<TYPE_VARBINARY>();
         auto length = v.size();
         char* buffer = _predicate_arena.alloc(length);

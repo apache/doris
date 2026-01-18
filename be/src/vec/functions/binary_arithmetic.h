@@ -326,7 +326,7 @@ struct PlusMinusDecimalImpl {
 
     template <bool check_overflow, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
             ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
             const DataTypeB& type_right, const DataTypeDecimal<ResultType>& type_result,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
@@ -347,7 +347,7 @@ struct PlusMinusDecimalImpl {
                 return Impl::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
             }
         } else {
-            typename PrimitiveTypeTraits<ResultType>::CppNativeType res;
+            typename PrimitiveTypeTraits<ResultType>::CppType::NativeType res;
             if constexpr (check_overflow) {
                 // TODO handle overflow gracefully
                 if (UNLIKELY(Impl::template apply<ResultType>(a, b, res))) {
