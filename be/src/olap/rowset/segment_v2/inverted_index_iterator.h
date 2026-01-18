@@ -76,25 +76,6 @@ private:
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
 
-    // Result of find_reader_candidates.
-    // SAFETY: The pointers in 'candidates' are valid only within the scope of
-    // select_best_reader(). Do NOT store CandidateResult beyond this scope.
-    // This is safe because:
-    // 1. add_reader() is called only during initialization phase
-    // 2. read_from_index()/select_best_reader() is called only during query phase
-    // 3. These two phases never overlap
-    struct CandidateResult {
-        std::vector<const ReaderEntry*> candidates;
-        bool used_fallback = false;
-    };
-
-    // Find candidate readers with fallback strategy:
-    // 1. Exact match on analyzer_key
-    // 2. Fallback to default analyzer key
-    // 3. Fallback to all readers
-    // NOTE: analyzer_key is assumed to be already normalized (lowercase).
-    [[nodiscard]] CandidateResult find_reader_candidates(const std::string& normalized_key) const;
-
     // Normalize and validate analyzer_key, returning normalized form.
     // Empty input returns INVERTED_INDEX_DEFAULT_ANALYZER_KEY.
     static std::string ensure_normalized_key(const std::string& analyzer_key);
