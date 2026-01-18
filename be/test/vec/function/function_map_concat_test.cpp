@@ -266,12 +266,15 @@ TEST(FunctionMapConcatTest, TestComplexTypes) {
         InputTypeSet input_types = {PrimitiveType::TYPE_MAP,       PrimitiveType::TYPE_STRING,
                                     PrimitiveType::TYPE_DECIMALV2, PrimitiveType::TYPE_MAP,
                                     PrimitiveType::TYPE_STRING,    PrimitiveType::TYPE_DECIMALV2};
-        DataSet data_set = {{TestArray({TestArray({std::string("key1"), ut_type::DECIMALV2(1.5),
-                                                   std::string("key2"), ut_type::DECIMALV2(2.7)}),
-                                        TestArray({std::string("key3"), ut_type::DECIMALV2(3.9)})}),
-                             TestArray({std::string("key1"), ut_type::DECIMALV2(1.5),
-                                        std::string("key2"), ut_type::DECIMALV2(2.7),
-                                        std::string("key3"), ut_type::DECIMALV2(3.9)})}};
+        DataSet data_set = {
+                {TestArray(
+                         {TestArray({std::string("key1"), ut_type::DECIMALV2VALUEFROMDOUBLE(1.5),
+                                     std::string("key2"), ut_type::DECIMALV2VALUEFROMDOUBLE(2.7)}),
+                          TestArray(
+                                  {std::string("key3"), ut_type::DECIMALV2VALUEFROMDOUBLE(3.9)})}),
+                 TestArray({std::string("key1"), ut_type::DECIMALV2VALUEFROMDOUBLE(1.5),
+                            std::string("key2"), ut_type::DECIMALV2VALUEFROMDOUBLE(2.7),
+                            std::string("key3"), ut_type::DECIMALV2VALUEFROMDOUBLE(3.9)})}};
 
         check_function_all_arg_comb<DataTypeMap, true>(func_name, input_types, data_set);
     }
