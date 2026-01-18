@@ -72,6 +72,11 @@ struct ProcessHashTableProbe {
     // find the one that best satisfies the inequality condition (closest match)
     Status do_asof_join_conjuncts(vectorized::Block* output_block);
 
+    // Binary search helper for ASOF JOIN
+    ssize_t find_best_match_binary_search(const struct AsofMatchContext& ctx,
+                                          const std::vector<size_t>& valid_indices,
+                                          size_t probe_row) const;
+
     Status finalize_block_with_filter(vectorized::Block* output_block, size_t filter_column_id,
                                       size_t column_to_keep);
 
