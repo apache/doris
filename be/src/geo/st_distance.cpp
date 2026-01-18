@@ -129,7 +129,6 @@ double GeoPoint::Distance(const GeoShape* rhs) const {
         return std::max(0.0, dist_to_center - circle_radius);
     }
     case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi = static_cast<const GeoMultiPolygon*>(rhs);
         return rhs->Distance(this);  // Delegate to MultiPolygon's implementation
     }
     default:
@@ -168,15 +167,12 @@ double GeoLine::Distance(const GeoShape* rhs) const {
         return min_distance;
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = static_cast<const GeoPolygon*>(rhs);
         return rhs->Distance(this);  // Delegate to Polygon's implementation
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = static_cast<const GeoCircle*>(rhs);
         return rhs->Distance(this);  // Delegate to Circle's implementation
     }
     case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi = static_cast<const GeoMultiPolygon*>(rhs);
         return rhs->Distance(this);  // Delegate to MultiPolygon's implementation
     }
     default:
@@ -240,11 +236,9 @@ double GeoPolygon::Distance(const GeoShape* rhs) const {
         return min_distance;
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = static_cast<const GeoCircle*>(rhs);
         return rhs->Distance(this);  // Delegate to Circle's implementation
     }
     case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi = static_cast<const GeoMultiPolygon*>(rhs);
         return rhs->Distance(this);  // Delegate to MultiPolygon's implementation
     }
     default:
@@ -332,7 +326,6 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
         return std::max(0.0, dist_centers - circle_radius - other_radius);
     }
     case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi = static_cast<const GeoMultiPolygon*>(rhs);
         return rhs->Distance(this);  // Delegate to MultiPolygon's implementation
     }
     default:

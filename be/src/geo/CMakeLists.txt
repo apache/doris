@@ -21,7 +21,11 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 
-add_library(GeoType STATIC geo_types.cpp)
+add_library(GeoType STATIC 
+    geo_types.cpp
+    st_length.cpp
+    st_distance.cpp
+)
 
 add_library(Geo STATIC
     geo_common.cpp
