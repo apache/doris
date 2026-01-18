@@ -427,6 +427,15 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         return false;
     }
 
+    // Ordered data compaction links segment/index files directly. For tablets with inverted/ann
+    // index, the extra index files make link-file compaction unsafe (some rowsets may have
+    // different index artifacts), so skip it conservatively.
+    if (const auto tablet_schema = _tablet->tablet_schema(); tablet_schema != nullptr) {
+        if (!tablet_schema->inverted_indexes().empty() || tablet_schema->has_ann_index()) {
+            return false;
+        }
+    }
+
     // Skip ordered data compaction if any rowset has inverted/ann index.
     for (auto& rowset : _input_rowsets) {
         const auto& meta = rowset->rowset_meta();
@@ -437,7 +446,8 @@ bool CompactionMixin::handle_ordered_data_compaction() {
             // must be conservative here to avoid undefined behavior.
             return false;
         }
-        if (schema->has_inverted_index() || schema->has_ann_index()) {
+        if (!schema->inverted_indexes().empty() || schema->has_inverted_index() ||
+            schema->has_ann_index()) {
             return false;
         }
     }
