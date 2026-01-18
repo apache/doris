@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/analyzer_key_matcher.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
@@ -97,6 +98,13 @@ private:
     // Normalize and validate analyzer_key, returning normalized form.
     // Empty input returns INVERTED_INDEX_DEFAULT_ANALYZER_KEY.
     static std::string ensure_normalized_key(const std::string& analyzer_key);
+
+    // Select best reader for text (string) columns.
+    // Handles FULLTEXT vs STRING_TYPE priority based on query type.
+    // Returns BYPASS error if explicit analyzer not found.
+    [[nodiscard]] Result<InvertedIndexReaderPtr> select_for_text(const AnalyzerMatchResult& match,
+                                                                 InvertedIndexQueryType query_type,
+                                                                 const std::string& analyzer_key);
 
     // THREAD SAFETY: _reader_entries and _key_to_entries are populated during initialization
     // phase (via add_reader) and only read during query phase (via read_from_index/select_best_reader).

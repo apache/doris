@@ -192,6 +192,44 @@ InvertedIndexIterator::CandidateResult InvertedIndexIterator::find_reader_candid
     return result;
 }
 
+Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_text(
+        const AnalyzerMatchResult& match, InvertedIndexQueryType query_type,
+        const std::string& analyzer_key) {
+    // Bypass: explicit analyzer specified but not found
+    if (match.empty() && AnalyzerKeyMatcher::is_explicit(analyzer_key)) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                "No inverted index reader found for analyzer '{}'. "
+                "The index for this analyzer may not be built yet.",
+                analyzer_key));
+    }
+
+    if (match.empty()) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+                "No available inverted index readers for text column."));
+    }
+
+    // MATCH queries prefer FULLTEXT
+    if (is_match_query(query_type)) {
+        for (const auto* entry : match.candidates) {
+            if (entry->type == InvertedIndexReaderType::FULLTEXT) {
+                return entry->reader;
+            }
+        }
+    }
+
+    // EQUAL/WILDCARD/REGEXP queries prefer STRING_TYPE
+    if (is_equal_query(query_type)) {
+        for (const auto* entry : match.candidates) {
+            if (entry->type == InvertedIndexReaderType::STRING_TYPE) {
+                return entry->reader;
+            }
+        }
+    }
+
+    // Default: return first candidate
+    return match.candidates.front()->reader;
+}
+
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         const vectorized::DataTypePtr& column_type, InvertedIndexQueryType query_type,
         const std::string& analyzer_key) {
