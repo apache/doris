@@ -100,16 +100,16 @@ public class ExternalUtil {
      * @param slots List of SlotDescriptors that are actually needed
      * @param nameMapping NameMapping from Iceberg table properties (can be null and empty.)
      */
-    public static void initSchemaInfo(TFileScanRangeParams params, Long schemaId,
+    public static void initSchemaInfoForPrunedColumn(TFileScanRangeParams params, Long schemaId,
             List<SlotDescriptor> slots, Map<Integer, List<String>> nameMapping) {
         params.setCurrentSchemaId(schemaId);
         TSchema tSchema = new TSchema();
         tSchema.setSchemaId(schemaId);
-        tSchema.setRootField(getExternalSchema(slots, nameMapping));
+        tSchema.setRootField(getExternalSchemaForPrunedColumn(slots, nameMapping));
         params.addToHistorySchemaInfo(tSchema);
     }
 
-    private static TStructField getExternalSchema(List<SlotDescriptor> slots,
+    private static TStructField getExternalSchemaForPrunedColumn(List<SlotDescriptor> slots,
             Map<Integer, List<String>> nameMapping) {
         TStructField structField = new TStructField();
         for (SlotDescriptor slot : slots) {
@@ -121,6 +121,26 @@ public class ExternalUtil {
             TFieldPtr fieldPtr = new TFieldPtr();
             TField field = getExternalSchema(slot.getType(), slot.getColumn(), nameMapping);
             fieldPtr.setFieldPtr(field);
+            structField.addToFields(fieldPtr);
+        }
+        return structField;
+    }
+
+    public static void initSchemaInfoForAllColumn(TFileScanRangeParams params, Long schemaId,
+            List<Column> columns, Map<Integer, List<String>> nameMapping) {
+        params.setCurrentSchemaId(schemaId);
+        TSchema tSchema = new TSchema();
+        tSchema.setSchemaId(schemaId);
+        tSchema.setRootField(getExternalSchemaForAllColumn(columns, nameMapping));
+        params.addToHistorySchemaInfo(tSchema);
+    }
+
+    private static TStructField getExternalSchemaForAllColumn(List<Column> columns,
+            Map<Integer, List<String>> nameMapping) {
+        TStructField structField = new TStructField();
+        for (Column child : columns) {
+            TFieldPtr fieldPtr = new TFieldPtr();
+            fieldPtr.setFieldPtr(getExternalSchema(child.getType(), child, nameMapping));
             structField.addToFields(fieldPtr);
         }
         return structField;

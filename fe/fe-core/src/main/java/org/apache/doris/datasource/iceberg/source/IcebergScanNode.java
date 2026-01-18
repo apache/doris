@@ -18,9 +18,11 @@
 package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -321,8 +323,20 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Extract name mapping from Iceberg table properties
         Map<Integer, List<String>> nameMapping = extractNameMapping();
 
-        // Use new initSchemaInfo method that only includes needed columns based on slots and pruned type
-        ExternalUtil.initSchemaInfo(params, -1L, desc.getSlots(), nameMapping);
+        boolean haveTopnLazyMatCol = false;
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String colName = slot.getColumn().getName();
+            if (colName.startsWith(Column.GLOBAL_ROWID_COL)) {
+                haveTopnLazyMatCol = true;
+                break;
+            }
+        }
+        if (haveTopnLazyMatCol) {
+            ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(), nameMapping);
+        } else {
+            // Use new initSchemaInfo method that only includes needed columns based on slots and pruned type
+            ExternalUtil.initSchemaInfoForPrunedColumn(params, -1L, desc.getSlots(), nameMapping);
+        }
     }
 
     @Override

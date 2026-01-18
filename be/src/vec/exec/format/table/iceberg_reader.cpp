@@ -437,6 +437,8 @@ Status IcebergParquetReader::init_reader(
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(
                 tuple_descriptor, *_data_file_field_desc, table_info_node_ptr));
     } else {
+        std::set<std::string> read_col_name_set(file_col_names.begin(), file_col_names.end());
+
         bool exist_field_id = true;
         for (int idx = 0; idx < _data_file_field_desc->size(); idx++) {
             if (_data_file_field_desc->get_column(idx)->field_id == -1) {
@@ -455,6 +457,10 @@ Status IcebergParquetReader::init_reader(
             std::unordered_map<int, std::shared_ptr<schema::external::TField>> id_to_table_field;
             for (const auto& table_field : table_schema.fields) {
                 auto field = table_field.field_ptr;
+                DCHECK(field->__isset.name);
+                if (!read_col_name_set.contains(field->name)) {
+                    continue;
+                }
                 id_to_table_field.emplace(field->id, field);
             }
 
@@ -507,7 +513,12 @@ Status IcebergParquetReader::init_reader(
             }
 
             for (const auto& table_field : table_schema.fields) {
+                DCHECK(table_field.__isset.field_ptr);
+                DCHECK(table_field.field_ptr->__isset.name);
                 const auto& table_column_name = table_field.field_ptr->name;
+                if (!read_col_name_set.contains(table_column_name)) {
+                    continue;
+                }
                 if (table_field.field_ptr->__isset.name_mapping ||
                     table_field.field_ptr->name_mapping.size() == 0) {
                     return Status::DataQualityError(
@@ -672,6 +683,8 @@ Status IcebergOrcReader::init_reader(
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(tuple_descriptor, _data_file_type_desc,
                                                         table_info_node_ptr));
     } else {
+        std::set<std::string> read_col_name_set(file_col_names.begin(), file_col_names.end());
+
         bool exist_field_id = true;
         for (size_t idx = 0; idx < _data_file_type_desc->getSubtypeCount(); idx++) {
             if (!_data_file_type_desc->getSubtype(idx)->hasAttributeKey(ICEBERG_ORC_ATTRIBUTE)) {
@@ -689,6 +702,11 @@ Status IcebergOrcReader::init_reader(
             std::unordered_map<int, std::shared_ptr<schema::external::TField>> id_to_table_field;
             for (const auto& table_field : table_schema.fields) {
                 auto field = table_field.field_ptr;
+                DCHECK(field->__isset.name);
+                if (!read_col_name_set.contains(field->name)) {
+                    continue;
+                }
+
                 id_to_table_field.emplace(field->id, field);
             }
 
@@ -746,7 +764,12 @@ Status IcebergOrcReader::init_reader(
             }
 
             for (const auto& table_field : table_schema.fields) {
+                DCHECK(table_field.__isset.field_ptr);
+                DCHECK(table_field.field_ptr->__isset.name);
                 const auto& table_column_name = table_field.field_ptr->name;
+                if (!read_col_name_set.contains(table_column_name)) {
+                    continue;
+                }
                 if (table_field.field_ptr->__isset.name_mapping ||
                     table_field.field_ptr->name_mapping.size() == 0) {
                     return Status::DataQualityError(
