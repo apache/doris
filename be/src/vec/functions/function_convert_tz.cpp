@@ -67,7 +67,6 @@ class FunctionConvertTZ : public IFunction {
     constexpr static PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
     using DateValueType = PrimitiveTypeTraits<PType>::CppType;
     using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
 
 public:
     static constexpr auto name = "convert_tz";
