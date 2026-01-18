@@ -46,7 +46,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /*
- * Repository of a partition's related infos
+ * Repository of a partition's related infos. should modify only under table's lock.
  */
 public class PartitionInfo {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
@@ -137,6 +137,7 @@ public class PartitionInfo {
         return sb.toString();
     }
 
+    // need read lock of table
     public Map<Long, PartitionItem> getIdToItem(boolean isTemp) {
         if (isTemp) {
             return idToTempItem;
@@ -196,6 +197,7 @@ public class PartitionInfo {
         }
     }
 
+    // need write lock of table
     public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,
                                                       long partitionId, boolean isTemp) throws DdlException {
         Preconditions.checkArgument(desc.isAnalyzed());

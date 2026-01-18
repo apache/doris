@@ -51,7 +51,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         super.registerTable(tableIf);
         HMSExternalTable table = getTableNullable(tableIf.getName());
         if (table != null) {
-            table.setEventUpdateTime(tableIf.getUpdateTime());
+            table.setUpdateTime(tableIf.getUpdateTime());
         }
         return true;
     }

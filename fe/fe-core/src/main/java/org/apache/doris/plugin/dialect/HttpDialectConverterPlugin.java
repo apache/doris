@@ -103,6 +103,15 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
         if (Strings.isNullOrEmpty(targetURL)) {
             return null;
         }
+        // TODO: support multiple URLs load balancing, here we just use the first one
+        String[] urlArray = targetURL.split(",");
+        for (String url : urlArray) {
+            String trimmedUrl = url.trim();
+            if (!trimmedUrl.isEmpty()) {
+                targetURL = trimmedUrl;
+                break;
+            }
+        }
         return HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect(),
                 sessionVariable.getSqlConvertorFeatures(), sessionVariable.getSqlConvertorConfig());
     }

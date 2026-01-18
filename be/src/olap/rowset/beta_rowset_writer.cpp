@@ -29,8 +29,10 @@
 #include <mutex>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -97,6 +99,9 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    std::vector<uint32_t> num_segment_rows;
+    spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
+    rowset_meta.set_num_segment_rows(num_segment_rows);
 }
 
 } // namespace
@@ -206,13 +211,21 @@ Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_w
     return Status::OK();
 }
 
-Status InvertedIndexFileCollection::close() {
+Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->close());
+        RETURN_IF_ERROR(writer->begin_close());
         _total_size += writer->get_index_file_total_size();
     }
 
+    return Status::OK();
+}
+
+Status InvertedIndexFileCollection::finish_close() {
+    std::lock_guard lock(_lock);
+    for (auto&& [id, writer] : _inverted_index_file_writers) {
+        RETURN_IF_ERROR(writer->finish_close());
+    }
     return Status::OK();
 }
 
@@ -272,6 +285,9 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -280,10 +296,6 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
-
-    if (_calc_delete_bitmap_token != nullptr) {
-        _calc_delete_bitmap_token->cancel();
-    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -769,6 +781,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+    rowset->get_num_segment_rows(&_segment_num_rows);
     _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
 
     // TODO update zonemap
@@ -948,6 +961,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
+    std::vector<uint32_t> segment_rows;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
@@ -955,14 +969,23 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+            // segcompaction don't modify _segment_num_rows, so we need to get segment rows from _segid_statistics_map for load
+            segment_rows.push_back(cast_set<uint32_t>(itr.second.row_num));
         }
     }
+    if (segment_rows.empty()) {
+        // vertical compaction and linked schema change will not record segment statistics,
+        // it will record segment rows in _segment_num_rows
+        RETURN_IF_ERROR(get_segment_num_rows(&segment_rows));
+    }
+
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
     }
     if (_segments_key_bounds_truncated.has_value()) {
         rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
     }
+    rowset_meta->set_num_segment_rows(segment_rows);
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
     // for mow table with cluster keys, the overlap is used for cluster keys,
@@ -982,6 +1005,13 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
                     "segments_encoded_key_bounds_size "
                     "is: {}, _num_seg is: {}",
                     segments_encoded_key_bounds_size, segment_num);
+        }
+        if (segment_rows.size() != segment_num) {
+            return Status::InternalError(
+                    "segment_rows size should equal to _num_seg, segment_rows size is: {}, "
+                    "_num_seg is {}, tablet={}, rowset={}, txn={}",
+                    segment_rows.size(), segment_num, _context.tablet_id,
+                    _context.rowset_id.to_string(), _context.txn_id);
         }
     }
 
@@ -1097,7 +1127,8 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
     if (auto& idx_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
         idx_file_writer != nullptr) {
-        RETURN_IF_ERROR(idx_file_writer->close());
+        RETURN_IF_ERROR(idx_file_writer->begin_close());
+        RETURN_IF_ERROR(idx_file_writer->finish_close());
     }
     _segcompaction_worker->get_inverted_index_file_writer().reset(index_file_writer.release());
     return Status::OK();

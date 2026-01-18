@@ -122,6 +122,11 @@ public class CloudEnv extends Env {
 
     @Override
     public void initialize(String[] args) throws Exception {
+        if (clusterSnapshotFile != null && Strings.isNullOrEmpty(Config.cloud_unique_id)) {
+            throw new UserException("cloud_unique_id must be specified in fe.conf "
+                    + "when load from cluster snapshot in cloud mode");
+        }
+
         if (Strings.isNullOrEmpty(Config.cloud_unique_id) && Config.cluster_id == -1) {
             throw new UserException("cluster_id must be specified in fe.conf if deployed "
                                     + "in cloud mode, because FE should known to which it belongs");

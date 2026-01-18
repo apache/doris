@@ -20,16 +20,18 @@ package org.apache.doris.nereids.trees.expressions.functions.generator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -42,13 +44,15 @@ import java.util.List;
  * pose column: 0, 1, 2
  * value column: 'a', 'b', 'c'
  */
-public class PosExplode extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
+public class PosExplode extends TableGeneratingFunction implements
+        CustomSignature, ComputePrecision, AlwaysNotNullable {
+    public static final String POS_COLUMN = "pos";
 
     /**
      * constructor with one or more arguments.
      */
-    public PosExplode(Expression[] args) {
-        super("posexplode", args);
+    public PosExplode(Expression arg, Expression... others) {
+        super("posexplode", ExpressionUtils.mergeArguments(arg, others));
     }
 
     /** constructor for withChildren and reuse signature */
@@ -61,7 +65,7 @@ public class PosExplode extends TableGeneratingFunction implements CustomSignatu
      */
     @Override
     public PosExplode withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(!children.isEmpty());
         return new PosExplode(getFunctionParams(children));
     }
 
@@ -84,11 +88,11 @@ public class PosExplode extends TableGeneratingFunction implements CustomSignatu
     public FunctionSignature customSignature() {
         List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
-        structFields.add(new StructField("pos", IntegerType.INSTANCE, false, ""));
+        structFields.add(new StructField(POS_COLUMN, IntegerType.INSTANCE, false, ""));
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i).getDataType().isArrayType()) {
                 structFields.add(
-                    new StructField("col" + (i + 1),
+                    new StructField(StructLiteral.COL_PREFIX + (i + 1),
                         ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
                 arguments.add(children.get(i).getDataType());
             } else {

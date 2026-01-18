@@ -41,7 +41,7 @@ public class LessThanEqual extends ComparisonPredicate implements PropagateNulla
     }
 
     public LessThanEqual(Expression left, Expression right, boolean inferred) {
-        super(ImmutableList.of(left, right), "<=", inferred);
+        this(ImmutableList.of(left, right), inferred);
     }
 
     private LessThanEqual(List<Expression> children) {

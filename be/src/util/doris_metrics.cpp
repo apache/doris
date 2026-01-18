@@ -441,8 +441,8 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
     }
 }
 
-void DorisMetrics::init_jvm_metrics(JNIEnv* env) {
-    _jvm_metrics.reset(new JvmMetrics(&_metric_registry, env));
+void DorisMetrics::init_jvm_metrics() {
+    _jvm_metrics.reset(new JvmMetrics(&_metric_registry));
 }
 
 void DorisMetrics::_update() {

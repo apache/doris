@@ -33,7 +33,6 @@
 #include "common/be_mock_util.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
@@ -154,6 +153,10 @@ public:
     // Therefore we need a function like this to return the actual type produced by execution.
     virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
 
+    virtual Status execute_filter(VExprContext* context, const Block* block,
+                                  uint8_t* __restrict result_filter_data, size_t rows,
+                                  bool accept_null, bool* can_filter_all) const;
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
@@ -196,7 +199,7 @@ public:
 
     virtual bool is_literal() const { return false; }
 
-    MOCK_FUNCTION TExprNodeType::type node_type() const { return _node_type; }
+    virtual TExprNodeType::type node_type() const { return _node_type; }
 
     TExprOpcode::type op() const { return _opcode; }
 
@@ -211,12 +214,6 @@ public:
                                    [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
     virtual bool is_topn_filter() const { return false; }
-
-    virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
-        for (auto child : _children) {
-            child->do_judge_selectivity(filter_rows, input_rows);
-        }
-    }
 
     static Status create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx);
 
@@ -254,6 +251,7 @@ public:
     static std::string debug_string(const VExprContextSPtrs& ctxs);
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
+    bool is_like_expr() const { return _fn.name.function_name == "like"; }
 
     const TFunction& fn() const { return _fn; }
 

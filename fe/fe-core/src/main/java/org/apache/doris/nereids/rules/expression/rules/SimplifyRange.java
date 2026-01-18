@@ -72,7 +72,7 @@ import java.util.Set;
  *    1. a > 1 => RangeValueDesc((1...+∞)), a > 2 => RangeValueDesc((2...+∞))
  *    2. (1...+∞) intersect (2...+∞) => (2...+∞)
  * 2. for `Or` expression (similar to `And`).
- * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
+ * 3. a > 10 and (a < 10 or a > 20 ) => a > 20
  */
 public class SimplifyRange implements ExpressionPatternRuleFactory, ValueDescVisitor<Expression, Void> {
     public static final SimplifyRange INSTANCE = new SimplifyRange();

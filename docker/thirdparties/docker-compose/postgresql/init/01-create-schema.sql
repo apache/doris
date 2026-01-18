@@ -17,3 +17,4 @@
 
 create schema doris_test;
 create schema catalog_pg_test;
+create schema cdc_test;

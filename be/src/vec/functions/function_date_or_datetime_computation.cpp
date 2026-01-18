@@ -119,10 +119,10 @@ using FunctionDatetimeSubQuarters =
 using FunctionDatetimeSubYears =
         FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATETIMEV2>>;
 
-using FunctionAddTimeDatetime = FunctionAddTime<TYPE_DATETIMEV2, AddTimeImpl>;
-using FunctionAddTimeTime = FunctionAddTime<TYPE_TIMEV2, AddTimeImpl>;
-using FunctionSubTimeDatetime = FunctionAddTime<TYPE_DATETIMEV2, SubTimeImpl>;
-using FunctionSubTimeTime = FunctionAddTime<TYPE_TIMEV2, SubTimeImpl>;
+using FunctionAddTimeDatetime = FunctionNeedsToHandleNull<AddTimeDatetimeImpl, TYPE_DATETIMEV2>;
+using FunctionAddTimeTime = FunctionNeedsToHandleNull<AddTimeTimeImpl, TYPE_TIMEV2>;
+using FunctionSubTimeDatetime = FunctionNeedsToHandleNull<SubTimeDatetimeImpl, TYPE_DATETIMEV2>;
+using FunctionSubTimeTime = FunctionNeedsToHandleNull<SubTimeTimeImpl, TYPE_TIMEV2>;
 
 #define FUNCTION_TIME_DIFF(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 

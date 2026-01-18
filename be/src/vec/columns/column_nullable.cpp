@@ -280,7 +280,7 @@ size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
 }
 
 void ColumnNullable::serialize(StringRef* keys, size_t num_rows) const {
-    const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
+    const bool has_null = simd::contain_one(get_null_map_data().data(), num_rows);
     const auto* __restrict null_map =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     _nested_column->serialize_with_nullable(keys, num_rows, has_null, null_map);
@@ -466,9 +466,9 @@ void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int
 }
 
 void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direction_hint,
-                                     Permutation& res) const {
+                                     HybridSorter& sorter, Permutation& res) const {
     /// Cannot pass limit because of unknown amount of NULLs.
-    get_nested_column().get_permutation(reverse, 0, null_direction_hint, res);
+    get_nested_column().get_permutation(reverse, 0, null_direction_hint, sorter, res);
 
     if ((null_direction_hint > 0) != reverse) {
         /// Shift all NULL values to the end.
@@ -598,11 +598,11 @@ void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 bool ColumnNullable::only_null() const {
-    return !simd::contain_byte(get_null_map_data().data(), size(), 0);
+    return !simd::contain_zero(get_null_map_data().data(), size());
 }
 
 bool ColumnNullable::has_null(size_t begin, size_t end) const {
-    return simd::contain_byte(get_null_map_data().data() + begin, end - begin, 1);
+    return simd::contain_one(get_null_map_data().data() + begin, end - begin);
 }
 
 bool ColumnNullable::has_null() const {

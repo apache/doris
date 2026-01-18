@@ -19,17 +19,18 @@
 
 #include <glog/logging.h>
 
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
-                       ObjectPool* pool, std::vector<bool>& is_asc_order,
+HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit,
+                       int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        bool have_runtime_predicate)
-        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
           _heap_size(limit + offset),
           _state(MergeSorterState::create_unique(row_desc, offset)),
           _have_runtime_predicate(have_runtime_predicate) {}
@@ -57,7 +58,7 @@ Status HeapSorter::append_block(Block* block) {
         for (auto& d : rev_desc) {
             d.direction *= -1;
         }
-        sort_block(*tmp_block, *sorted_block, rev_desc, 0 /*limit*/);
+        sort_block(*tmp_block, *sorted_block, rev_desc, _hybrid_sorter, 0 /*limit*/);
         _queue_row_num += sorted_block->rows();
         _data_size += sorted_block->allocated_bytes();
         _queue.push(MergeSortCursor(MergeSortCursorImpl::create_shared(sorted_block, rev_desc)));
@@ -76,8 +77,8 @@ Status HeapSorter::append_block(Block* block) {
         if (!current->impl->is_last(current_rows)) {
             _queue.next(current_rows);
         } else {
-            _queue.remove_top();
             _data_size -= current->impl->block->allocated_bytes();
+            _queue.remove_top();
         }
         _queue_row_num -= current_rows;
     }

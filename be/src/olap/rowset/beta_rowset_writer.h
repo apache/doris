@@ -91,7 +91,10 @@ public:
 
     // Close all file writers
     // If the inverted index file writer is not closed, an error will be thrown during destruction
-    Status close();
+    Status begin_close();
+
+    // Wait for all inverted index file writers to be closed
+    Status finish_close();
 
     // Get inverted index file info in segment id order.
     // `seg_id_offset` is the offset of the segment id relative to the subscript of `_inverted_index_file_writers`,
@@ -214,9 +217,11 @@ protected:
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
     Status _close_inverted_index_file_writers() {
-        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.begin_close(),
                                        "failed to close index file when build new rowset");
         this->_total_index_size += _idx_files.get_total_index_size();
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.finish_close(),
+                                       "failed to wait close index file when build new rowset");
         return Status::OK();
     }
 

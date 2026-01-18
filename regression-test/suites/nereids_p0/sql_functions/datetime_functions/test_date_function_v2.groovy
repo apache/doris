@@ -175,7 +175,7 @@ suite("test_date_function_v2") {
 
     test{
         sql("select add_time('9999-12-29 00:00:00', '122:35:22.123456');")
-        exception "datetime value is out of range in function add_time"
+        exception "Operation add_time of"
     }
 
     qt_sql_subtime1("select sub_time('2023-10-14 00:00:00', '22:35:22');")
@@ -193,7 +193,7 @@ suite("test_date_function_v2") {
 
     test{
         sql("select sub_time('0000-01-01 00:00:00', '122:35:22.123456');")
-        exception "datetime value is out of range in function sub_time"
+        exception "Operation sub_time of"
     }
 
     //test computetimearithmetic regular

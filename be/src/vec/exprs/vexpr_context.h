@@ -30,10 +30,10 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_range_search_runtime.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "runtime_filter/runtime_filter_selectivity.h"
 #include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -194,6 +194,7 @@ public:
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
     [[nodiscard]] Status execute(const Block* block, ColumnPtr& result_column);
+    [[nodiscard]] Status execute(const Block* block, ColumnWithTypeAndName& result_data);
     [[nodiscard]] DataTypePtr execute_type(const Block* block);
     [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
@@ -233,6 +234,9 @@ public:
 
     bool all_expr_inverted_index_evaluated();
 
+    Status execute_filter(const Block* block, uint8_t* __restrict result_filter_data, size_t rows,
+                          bool accept_null, bool* can_filter_all);
+
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block);
 
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
@@ -268,6 +272,8 @@ public:
         DCHECK(_last_result_column_id != -1);
         return _last_result_column_id;
     }
+
+    RuntimeFilterSelectivity& get_runtime_filter_selectivity() { return *_rf_selectivity; }
 
     FunctionContext::FunctionStateScope get_function_state_scope() const {
         return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
@@ -360,5 +366,8 @@ private:
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;
     bool _suitable_for_ann_index = true;
+
+    std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
+            std::make_unique<RuntimeFilterSelectivity>();
 };
 } // namespace doris::vectorized

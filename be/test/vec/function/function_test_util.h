@@ -215,6 +215,14 @@ inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
 inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y, int scale) {
     return Decimal256::from_int_frac(x, y, scale);
 };
+inline auto DECIMALV2VALUE = [](int128_t x, int128_t y, int scale) {
+    return DecimalV2Value(Decimal128V2::from_int_frac(x, y, 9).value);
+};
+inline auto DECIMALV2VALUEFROMDOUBLE = [](double value) {
+    DecimalV2Value decimal_value;
+    decimal_value.assign_from_double(value);
+    return DecimalV2Value(binary_cast<DecimalV2Value, Int128>(decimal_value));
+};
 
 using DATETIME = std::string;
 
@@ -255,13 +263,13 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else if constexpr (std::is_same_v<ReturnType, DataTypeTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_TIMEV2,
                                                             false, precision, scale);
-    } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeDateTime>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIME,
                                                             false);
-    } else if (std::is_same_v<ReturnType, DateV2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDateV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATEV2,
                                                             false);
-    } else if (std::is_same_v<ReturnType, DateTimeV2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDateTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
                                                             false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimalV2>) {
