@@ -102,8 +102,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected FileSplitter fileSplitter;
 
+    // The data cache function only works for queries on Hive, Iceberg, Hudi, and Paimon tables.
+    // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
     private static final Set<String> CACHEABLE_CATALOGS = new HashSet<>(
-            Arrays.asList("hms", "iceberg", "paimon", "lakesoul")
+            Arrays.asList("hms", "iceberg", "hudi", "paimon")
     );
 
     /**

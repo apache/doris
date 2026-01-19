@@ -36,7 +36,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -446,12 +445,12 @@ public class FileCacheAdmissionManager {
                     catalogRules.add(rulePattern.getCatalog());
                     break;
                 case DATABASE:
-                    databaseRules.computeIfAbsent(rulePattern.getDatabase(), k -> ConcurrentHashMap.newKeySet())
+                    databaseRules.computeIfAbsent(rulePattern.getDatabase(), k -> new HashSet<>())
                             .add(rulePattern.getCatalog());
                     break;
                 case TABLE:
                     String catalogDatabase = rulePattern.getCatalog() + "." + rulePattern.getDatabase();
-                    tableRules.computeIfAbsent(rulePattern.getTable(), k -> ConcurrentHashMap.newKeySet())
+                    tableRules.computeIfAbsent(rulePattern.getTable(), k -> new HashSet<>())
                             .add(catalogDatabase);
                     break;
                 case PARTITION:
@@ -463,6 +462,7 @@ public class FileCacheAdmissionManager {
         }
     }
 
+    // Thread-safe rule management supporting concurrent reads and writes.
     public static class ConcurrentRuleManager {
         // Characters in ASCII order: A-Z, then other symbols, then a-z
         private static final int PARTITION_COUNT = 58;
@@ -479,7 +479,7 @@ public class FileCacheAdmissionManager {
             commonCollection = new RuleCollection();
 
             for (int i = 0; i < PARTITION_COUNT; i++) {
-                maps.add(new ConcurrentHashMap<>());
+                maps.add(new HashMap<>());
             }
         }
 
@@ -583,35 +583,6 @@ public class FileCacheAdmissionManager {
         return admissionResult;
     }
 
-    public void loadOnStartup() {
-        LOG.info("Loading file cache admission rules...");
-        loadRules();
-
-        LOG.info("Starting file cache admission rules refreshing task");
-        watcher = new ConfigWatcher(Config.file_cache_admission_control_json_dir);
-        watcher.setOnCreateConsumer(filePath -> {
-            String fileName = filePath.toString();
-            if (fileName.endsWith(".json")) {
-                loadRules();
-            }
-        });
-        watcher.setOnDeleteConsumer(filePath -> {
-            String fileName = filePath.toString();
-            if (fileName.endsWith(".json")) {
-                loadRules();
-            }
-        });
-        watcher.setOnModifyConsumer(filePath -> {
-            String fileName = filePath.toString();
-            if (fileName.endsWith(".json")) {
-                loadRules();
-            }
-        });
-        watcher.start();
-
-        LOG.info("Started file cache admission rules refreshing task");
-    }
-
     public void loadRules(String filePath) {
         if (filePath == null || filePath.isEmpty()) {
             LOG.warn("File cache admission JSON file path is not configured, admission control will be disabled.");
@@ -667,6 +638,10 @@ public class FileCacheAdmissionManager {
 
             List<AdmissionRule> allRules = new ArrayList<>();
 
+            // Duplicate rule handling: only rules with `enabled=true` are stored.
+            // A rule is considered duplicate if its `userIdentity`, `catalog`, `database`, `table`,
+            // `partitionPattern`, and 'ruleType' all match another rule, regardless of their `enabled` flag.
+            // Duplicate enabled rules are automatically deduplicated during processing.
             for (File jsonFile : jsonFiles) {
                 List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(jsonFile.getPath());
                 LOG.info("{} rules loaded successfully from JSON file: {}", loadedRules.size(),
@@ -685,5 +660,36 @@ public class FileCacheAdmissionManager {
             LOG.error("Failed to load file cache admission rules from directory: {}",
                     Config.file_cache_admission_control_json_dir, e);
         }
+    }
+
+    // Reloads all JSON rules and replaces the ConcurrentRuleManager
+    // when any .json file is created, modified, or deleted.
+    public void loadOnStartup() {
+        LOG.info("Loading file cache admission rules...");
+        loadRules();
+
+        LOG.info("Starting file cache admission rules refreshing task");
+        watcher = new ConfigWatcher(Config.file_cache_admission_control_json_dir);
+        watcher.setOnCreateConsumer(filePath -> {
+            String fileName = filePath.toString();
+            if (fileName.endsWith(".json")) {
+                loadRules();
+            }
+        });
+        watcher.setOnDeleteConsumer(filePath -> {
+            String fileName = filePath.toString();
+            if (fileName.endsWith(".json")) {
+                loadRules();
+            }
+        });
+        watcher.setOnModifyConsumer(filePath -> {
+            String fileName = filePath.toString();
+            if (fileName.endsWith(".json")) {
+                loadRules();
+            }
+        });
+        watcher.start();
+
+        LOG.info("Started file cache admission rules refreshing task");
     }
 }
