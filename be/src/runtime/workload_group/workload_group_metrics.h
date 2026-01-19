@@ -35,6 +35,7 @@ using IntCounter = AtomicCounter<int64_t>;
 template <typename T>
 class AtomicGauge;
 using IntGuage = AtomicGauge<int64_t>;
+using UIntGauge = AtomicGauge<uint64_t>;
 
 class MetricEntity;
 struct MetricPrototype;
@@ -62,6 +63,17 @@ public:
     int64_t get_remote_scan_bytes_per_second();
 
     int64_t get_memory_used();
+
+    std::shared_ptr<MetricEntity> get_entity() { 
+        return _entity; 
+    }
+
+    UIntGauge* workload_group_local_scan_thread_pool_queue_size = nullptr;
+    UIntGauge* workload_group_local_scan_thread_pool_thread_num = nullptr;
+    UIntGauge* workload_group_remote_scan_thread_pool_queue_size = nullptr;
+    UIntGauge* workload_group_remote_scan_thread_pool_thread_num = nullptr;
+    UIntGauge* workload_group_memtable_flush_thread_pool_queue_size = nullptr;
+    UIntGauge* workload_group_memtable_flush_thread_pool_active_thread_num = nullptr;
 
 private:
     IntCounter* workload_group_cpu_time_sec {nullptr};           // used for metric

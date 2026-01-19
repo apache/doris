@@ -57,6 +57,13 @@ const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 95;
 // This is a invalid value, and should ignore this value during usage
 const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(workload_group_local_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(workload_group_local_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(workload_group_remote_scan_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(workload_group_remote_scan_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(workload_group_memtable_flush_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(workload_group_memtable_flush_thread_pool_active_thread_num, MetricUnit::NOUNIT);
+
 WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info)
         : _id(wg_info.id),
           _name(wg_info.name),
@@ -564,6 +571,10 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                 vectorized::ScannerScheduler::default_min_active_scan_threads());
         if (ret.ok()) {
             _scan_task_sched = std::move(scan_scheduler);
+            REGISTER_ENTITY_HOOK_METRIC(_wg_metrics->get_entity(), _wg_metrics, workload_group_local_scan_thread_pool_queue_size,
+                            [this](){ return _scan_task_sched->get_queue_size();});
+            REGISTER_ENTITY_HOOK_METRIC(_wg_metrics->get_entity(), _wg_metrics, workload_group_local_scan_thread_pool_thread_num,
+                            [this](){ return _scan_task_sched->get_active_threads();});
         } else {
             upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] scan scheduler start failed, gid=" << wg_id;
@@ -588,6 +599,10 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                 vectorized::ScannerScheduler::default_min_active_file_scan_threads());
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
+            REGISTER_ENTITY_HOOK_METRIC(_wg_metrics->get_entity(), _wg_metrics, workload_group_remote_scan_thread_pool_queue_size,
+                            [this](){ return _remote_scan_task_sched->get_queue_size();});
+            REGISTER_ENTITY_HOOK_METRIC(_wg_metrics->get_entity(), _wg_metrics, workload_group_remote_scan_thread_pool_thread_num,
+                            [this](){ return _remote_scan_task_sched->get_active_threads();});
         } else {
             upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] remote scan scheduler start failed, gid="
@@ -605,6 +620,10 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                            .build(&thread_pool);
         if (ret.ok()) {
             _memtable_flush_pool = std::move(thread_pool);
+            REGISTER_ENTITY_HOOK_METRIC(_wg_metrics->get_entity(), _wg_metrics, workload_group_memtable_flush_thread_pool_queue_size,
+                            [this](){ return _memtable_flush_pool->get_queue_size();});
+            REGISTER_ENTITY_HOOK_METRIC(_wg_metrics->get_entity(), _wg_metrics, workload_group_memtable_flush_thread_pool_active_thread_num,
+                            [this](){ return _memtable_flush_pool->num_active_threads();});
             LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << wg_id
                       << ", max thread num=" << max_flush_thread_num
                       << ", min thread num=" << min_flush_thread_num;

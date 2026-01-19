@@ -43,7 +43,6 @@ WorkloadGroupMetrics::WorkloadGroupMetrics(WorkloadGroup* wg) {
     std::string wg_id_prefix = "workload_group_" + std::to_string(wg->id());
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
             wg_id_prefix, {{"workload_group", wg->name()}, {"id", std::to_string(wg->id())}});
-
     INT_COUNTER_METRIC_REGISTER(_entity, workload_group_cpu_time_sec);
     INT_GAUGE_METRIC_REGISTER(_entity, workload_group_mem_used_bytes);
     INT_COUNTER_METRIC_REGISTER(_entity, workload_group_remote_scan_bytes);
