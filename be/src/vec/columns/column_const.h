@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 #include <sys/types.h>
 
+#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
