@@ -27,12 +27,12 @@
 #include "paimon/memory/memory_pool.h"
 #include "paimon/read_context.h"
 #include "paimon/table/source/table_read.h"
-#include "vec/exec/format/table/paimon_doris_file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/url_coding.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/exec/format/table/paimon_doris_file_system.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
