@@ -198,6 +198,9 @@ public abstract class RoutineLoadTaskInfo {
 
     abstract TRoutineLoadTask createRoutineLoadTask() throws UserException;
 
+    public void updateAdaptiveTimeout(RoutineLoadJob routineLoadJob) {
+    }
+
     // begin the txn of this task
     // return true if begin successfully, return false if begin failed.
     // throw exception if unrecoverable errors happen.
