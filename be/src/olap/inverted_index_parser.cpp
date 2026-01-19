@@ -186,7 +186,12 @@ std::string normalize_analyzer_key(std::string_view analyzer) {
     if (normalized == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
         return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
     }
-    // Keep "none" as distinct from __default__ - user explicitly requested no tokenization
+    // "none" means no tokenization requested - treat as default so it matches
+    // indexes created without a parser (which also have __default__ key).
+    // This allows MATCH queries without USING ANALYZER to work with STRING_TYPE indexes.
+    if (normalized == INVERTED_INDEX_PARSER_NONE) {
+        return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+    }
     return normalized;
 }
 
