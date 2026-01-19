@@ -3050,6 +3050,9 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enablePhraseQuerySequentialOpt = true;
 
+    @VariableMgr.VarAttr(name = "enable_adjust_conjunct_order_by_cost", needForward = true)
+    public boolean enableAdjustConjunctOrderByCost = true;
+
     @VariableMgr.VarAttr(name = REQUIRE_SEQUENCE_IN_INSERT, needForward = true, description = {
             "该变量用于控制，使用了 sequence 列的 unique key 表，insert into 操作是否要求必须提供每一行的 sequence 列的值",
             "This variable controls whether the INSERT INTO operation on unique key tables with a sequence"
@@ -5008,6 +5011,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
+        tResult.setEnableAdjustConjunctOrderByCost(enableAdjustConjunctOrderByCost);
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);

@@ -641,5 +641,18 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     return Status::OK();
 }
 
+double VectorizedFnCall::execute_cost() const {
+    double cost = 0.0;
+    if (_function != nullptr) {
+        cost += _function->execute_cost();
+    }
+    for (const auto& child : _children) {
+        if (child != nullptr) {
+            cost += child->execute_cost();
+        }
+    }
+    return cost;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

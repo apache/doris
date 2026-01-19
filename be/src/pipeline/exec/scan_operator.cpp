@@ -170,6 +170,12 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     RETURN_IF_ERROR(_process_conjuncts(state));
 
+    if (state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    };
+
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
     if (_scanner_ctx) {

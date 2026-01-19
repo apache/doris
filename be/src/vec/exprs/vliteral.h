@@ -55,6 +55,7 @@ public:
     std::string debug_string() const override;
 
     MOCK_FUNCTION std::string value() const;
+    double execute_cost() const override { return 0.0; }
 
     const ColumnPtr& get_column_ptr() const { return _column_ptr; }
     const DataTypePtr& get_data_type() const { return _data_type; }

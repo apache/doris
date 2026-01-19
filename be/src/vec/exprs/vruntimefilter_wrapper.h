@@ -63,6 +63,8 @@ public:
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
 
+    double execute_cost() const override { return _impl->execute_cost(); }
+
     Status execute_filter(VExprContext* context, const Block* block,
                           uint8_t* __restrict result_filter_data, size_t rows, bool accept_null,
                           bool* can_filter_all) const override;
