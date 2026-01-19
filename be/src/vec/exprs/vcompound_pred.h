@@ -330,6 +330,14 @@ public:
         return Status::OK();
     }
 
+    double execute_cost() const override {
+        double cost = 0.3;
+        for (const auto& child : _children) {
+            cost += child->execute_cost();
+        }
+        return cost;
+    }
+
 private:
     static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL

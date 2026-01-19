@@ -299,6 +299,14 @@ public:
         return expr;
     }
 
+    virtual double execute_cost() const {
+        double cost = 1.0;
+        for (const auto& child : _children) {
+            cost += child->execute_cost();
+        }
+        return cost;
+    }
+
     // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
     virtual VExprSPtr get_impl() const { return {}; }
 

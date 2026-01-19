@@ -272,6 +272,8 @@ public:
 
     FunctionComparison() = default;
 
+    double execute_cost() const override { return 0.5; }
+
 private:
     template <PrimitiveType PT>
     Status execute_num_type(Block& block, uint32_t result, const ColumnPtr& col_left_ptr,

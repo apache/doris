@@ -27,6 +27,7 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
@@ -668,6 +669,18 @@ Status VectorizedFnCall::evaluate_ann_range_search(
 
     ann_index_stats = *stats;
     return Status::OK();
+}
+
+double VectorizedFnCall::execute_cost() const {
+    if (!_function) {
+        throw Exception(
+                Status::InternalError("Function is null in expression: {}", this->debug_string()));
+    }
+    double cost = _function->execute_cost();
+    for (const auto& child : _children) {
+        cost += child->execute_cost();
+    }
+    return cost;
 }
 
 #include "common/compile_check_end.h"
