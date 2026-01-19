@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "util/rle_encoding.h"
+#include "util/simd/expand.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
@@ -116,12 +117,20 @@ protected:
     Status _decode_dict_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector,
                                bool is_dict_filter) {
         DCHECK(doris_column->is_column_dictionary() || is_dict_filter);
-        size_t dict_index = 0;
-        ColumnSelectVector::DataReadType read_type;
         PaddedPODArray<Int32>& column_data =
                 doris_column->is_column_dictionary()
                         ? assert_cast<ColumnDictI32&>(*doris_column).get_data()
                         : assert_cast<ColumnInt32&>(*doris_column).get_data();
+
+        // Try SIMD optimized path when no filter and has nulls
+        if constexpr (!has_filter) {
+            if (select_vector.num_nulls() > 0) {
+                return _decode_dict_values_simd(doris_column, select_vector, column_data);
+            }
+        }
+
+        size_t dict_index = 0;
+        ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
@@ -143,6 +152,31 @@ protected:
             }
             }
         }
+        return Status::OK();
+    }
+
+    // SIMD optimized decoding for dictionary values with nulls
+    Status _decode_dict_values_simd(MutableColumnPtr& doris_column,
+                                    ColumnSelectVector& select_vector,
+                                    PaddedPODArray<Int32>& column_data) {
+        const size_t num_values = select_vector.num_values();
+
+        // Get null_map directly from ColumnSelectVector (already built during init)
+        const uint8_t* null_map = select_vector.get_null_map_data();
+        if (null_map == nullptr) {
+            return Status::InternalError("null_map is null");
+        }
+
+        // Resize column_data to hold all values (including nulls as defaults)
+        size_t start_idx = column_data.size();
+        column_data.resize(start_idx + num_values);
+
+        // _indexes already contains the dict indices for non-null values (as int32)
+        // Use SIMD expand_load to scatter values to destination
+        int32_t* dst_data = column_data.data() + start_idx;
+        simd::Expand::expand_load(dst_data, reinterpret_cast<const int32_t*>(_indexes.data()),
+                                  null_map, num_values);
+
         return Status::OK();
     }
 

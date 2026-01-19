@@ -194,7 +194,11 @@ Status ColumnSelectVector::init(const std::vector<uint16_t>& run_length_null_map
         if (null_map != nullptr) {
             NullMap& map_data_column = *null_map;
             auto null_map_index = map_data_column.size();
+            // Save the start index for SIMD optimization
+            _null_map_start_index = null_map_index;
             map_data_column.resize(null_map_index + num_values);
+            // Save pointer to null_map data for SIMD optimization
+            _null_map_data = map_data_column.data() + _null_map_start_index;
 
             for (auto& run_length : run_length_null_map) {
                 if (is_null) {

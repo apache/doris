@@ -680,6 +680,14 @@ public:
     // Returns the number of consumed values or 0 if an error occurred.
     uint32_t GetBatch(T* values, uint32_t batch_num);
 
+    // Consume 'batch_num' indices, translate each index to its dictionary value and
+    // copy the dictionary values to 'values'. Returns the number of consumed values
+    // or 0/-1 if an error occurred (0 indicates truncated input, -1 indicates index
+    // out of dict range).
+    template <typename TV>
+    uint32_t GetBatchWithDict(const TV* dictionary, int32_t dictionary_length, TV* values,
+                              int32_t batch_num);
+
 private:
     // Called when both 'literal_count_' and 'repeat_count_' have been exhausted.
     // Sets either 'literal_count_' or 'repeat_count_' to the size of the next literal
@@ -865,6 +873,73 @@ uint32_t RleBatchDecoder<T>::GetBatch(T* values, uint32_t batch_num) {
         num_consumed += num_literals_to_set;
     }
     return num_consumed;
+}
+
+// Helpers to validate index ranges for dictionary lookups.
+template <typename T>
+static inline bool IndexInRange(T idx, int32_t dictionary_length) {
+    return idx >= 0 && idx < dictionary_length;
+}
+
+template <typename T>
+static inline bool IndicesInRange(const T* values, int32_t length, int32_t dictionary_length) {
+    T min_index = std::numeric_limits<T>::max();
+    T max_index = std::numeric_limits<T>::min();
+    for (int x = 0; x < length; x++) {
+        min_index = std::min(values[x], min_index);
+        max_index = std::max(values[x], max_index);
+    }
+
+    return IndexInRange(min_index, dictionary_length) && IndexInRange(max_index, dictionary_length);
+}
+
+// Batch decode and translate indices to dictionary values. Similar to GetBatch but
+// performs a bounds check and writes dictionary[dictionary_index] to the output.
+template <typename T>
+template <typename TV>
+uint32_t RleBatchDecoder<T>::GetBatchWithDict(const TV* dictionary, int32_t dictionary_length,
+                                              TV* values, int32_t batch_num) {
+    DCHECK_GE(bit_width_, 0);
+    int32_t num_consumed = 0;
+    while (num_consumed < batch_num) {
+        // Handle repeated runs.
+        int32_t num_repeats = NextNumRepeats();
+        if (num_repeats > 0) {
+            int32_t num_repeats_to_set = std::min(num_repeats, batch_num - num_consumed);
+            T repeated_index = GetRepeatedValue(num_repeats_to_set);
+            if (UNLIKELY(!IndexInRange(repeated_index, dictionary_length))) {
+                return static_cast<uint32_t>(-1);
+            }
+            TV value = dictionary[repeated_index];
+            for (int i = 0; i < num_repeats_to_set; ++i) {
+                values[num_consumed + i] = value;
+            }
+            num_consumed += num_repeats_to_set;
+            continue;
+        }
+
+        // Handle literal runs.
+        int32_t num_literals = NextNumLiterals();
+        if (num_literals == 0) {
+            break;
+        }
+        const int kBufferSize = 1024;
+        T indices[kBufferSize];
+
+        int32_t num_literals_to_set = std::min(num_literals, batch_num - num_consumed);
+        num_literals_to_set = std::min(num_literals_to_set, kBufferSize);
+        if (!GetLiteralValues(num_literals_to_set, indices)) {
+            return 0;
+        }
+        if (UNLIKELY(!IndicesInRange(indices, num_literals_to_set, dictionary_length))) {
+            return static_cast<uint32_t>(-1);
+        }
+        for (int i = 0; i < num_literals_to_set; ++i) {
+            values[num_consumed + i] = dictionary[indices[i]];
+        }
+        num_consumed += num_literals_to_set;
+    }
+    return static_cast<uint32_t>(num_consumed);
 }
 #include "common/compile_check_end.h"
 } // namespace doris

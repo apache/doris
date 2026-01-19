@@ -23,6 +23,7 @@
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_string.hpp"
+#include "benchmark_expand.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"

@@ -102,6 +102,18 @@ public:
 
     bool has_filter() const { return _has_filter; }
 
+    // Get the run-length null map for SIMD optimization.
+    // Only valid when has_filter() returns false.
+    const std::vector<uint16_t>* get_run_length_null_map() const {
+        return _has_filter ? nullptr : _run_length_null_map;
+    }
+
+    // Get the null map data pointer and start index for SIMD optimization.
+    // Returns the pointer to null_map data at the start position for this batch.
+    // Only valid when null_map was provided during init().
+    const uint8_t* get_null_map_data() const { return _null_map_data; }
+    size_t get_null_map_start_index() const { return _null_map_start_index; }
+
     template <bool has_filter>
     size_t get_next_run(DataReadType* data_read_type) {
         DCHECK_EQ(_has_filter, has_filter);
@@ -137,12 +149,15 @@ public:
 private:
     std::vector<DataReadType> _data_map;
     // the length of non-null values and null values are arranged in turn.
-    const std::vector<uint16_t>* _run_length_null_map;
-    bool _has_filter;
-    size_t _num_values;
-    size_t _num_nulls;
-    size_t _num_filtered;
-    size_t _read_index;
+    const std::vector<uint16_t>* _run_length_null_map = nullptr;
+    bool _has_filter = false;
+    size_t _num_values = 0;
+    size_t _num_nulls = 0;
+    size_t _num_filtered = 0;
+    size_t _read_index = 0;
+    // Pointer to null_map data for SIMD optimization (avoids rebuilding null_map)
+    const uint8_t* _null_map_data = nullptr;
+    size_t _null_map_start_index = 0;
 };
 
 enum class ColumnOrderName { UNDEFINED, TYPE_DEFINED_ORDER };
@@ -179,6 +194,11 @@ public:
     static Status parse(const std::string& created_by,
                         std::unique_ptr<ParsedVersion>* parsed_version);
 };
+
+// Runtime toggle for Cache Aware Dict Decoder optimization. When true, decoders
+// may choose a different decoding strategy based on whether the dictionary fits
+// in the CPU L2 cache.
+inline bool parquet_cache_aware_dict_decoder_enable = true;
 
 class SemanticVersion {
 public:

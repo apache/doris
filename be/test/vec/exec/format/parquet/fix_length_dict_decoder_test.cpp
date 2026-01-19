@@ -549,4 +549,51 @@ TEST_F(FixLengthDictDecoderTest, test_skip_value) {
     }
 }
 
+// NEW: Test cache-aware fast path for numeric fixed-length dict decoding
+TEST_F(FixLengthDictDecoderTest, test_cache_aware_decode_direct_int32) {
+    FixLengthDictDecoder<tparquet::Type::INT32> int_decoder;
+    int_decoder.set_type_length(sizeof(int32_t));
+
+    // Prepare dict {100, 200, 300}
+    std::vector<int32_t> dict_vals = {100, 200, 300};
+    int num_dict = dict_vals.size();
+    doris::DorisUniqueBufferPtr<uint8_t> dict_buf =
+            make_unique_buffer<uint8_t>(num_dict * sizeof(int32_t));
+    for (int i = 0; i < num_dict; ++i) {
+        memcpy(dict_buf.get() + i * sizeof(int32_t), &dict_vals[i], sizeof(int32_t));
+    }
+    ASSERT_TRUE(int_decoder.set_dict(dict_buf, num_dict * sizeof(int32_t), num_dict).ok());
+
+    // indices: 2,1,0,1
+    std::vector<uint32_t> idx = {2, 1, 0, 1};
+    // bit width = 2
+    faststring buf;
+    RleEncoder<uint32_t> enc(&buf, 2);
+    for (auto v : idx) enc.Put(v);
+    enc.Flush();
+    Slice data_slice(reinterpret_cast<char*>(buf.data()), buf.size());
+    ASSERT_TRUE(int_decoder.set_data(&data_slice).ok());
+
+    MutableColumnPtr column = ColumnInt32::create();
+    DataTypePtr data_type = std::make_shared<DataTypeInt32>();
+
+    // selection vector without filter and no nulls
+    size_t num_values = idx.size();
+    std::vector<uint16_t> run_length_null_map(1, num_values);
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_TRUE(int_decoder.decode_values(column, data_type, select_vector, false).ok());
+
+    ASSERT_EQ(column->size(), num_values);
+    auto* result = assert_cast<ColumnInt32*>(column.get());
+    EXPECT_EQ(result->get_data()[0], 300);
+    EXPECT_EQ(result->get_data()[1], 200);
+    EXPECT_EQ(result->get_data()[2], 100);
+    EXPECT_EQ(result->get_data()[3], 200);
+}
+
 } // namespace doris::vectorized
