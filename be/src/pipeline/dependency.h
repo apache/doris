@@ -623,7 +623,7 @@ struct HashJoinSharedState : public JoinSharedState {
     // which has a shared hash table in it.
     std::vector<std::shared_ptr<JoinDataVariants>> hash_table_variant_vector;
 
-    // wheather left semi join could directly return
+    // whether left semi join could directly return
     // if runtime filters contains local in filter, we can make sure all input rows are matched
     // local filter will always be applied, and in filter could guarantee precise filtering
     // ATTN: we should disable always_true logic for in filter when we set this flag
