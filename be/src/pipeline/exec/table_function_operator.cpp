@@ -392,8 +392,8 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
             for (size_t i = 0; i < handled_child_row_count; ++i) {
                 auto start_row_idx = child_row_to_output_rows_indices[i];
                 auto end_row_idx = child_row_to_output_rows_indices[i + 1];
-                if (simd::contain_byte((uint8_t*)filter.data() + start_row_idx,
-                                       end_row_idx - start_row_idx, 1)) {
+                if (simd::contain_one((uint8_t*)filter.data() + start_row_idx,
+                                      end_row_idx - start_row_idx)) {
                     _child_rows_has_output[handled_row_indices[i]] = true;
                 }
             }
