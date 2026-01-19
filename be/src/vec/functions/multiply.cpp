@@ -51,8 +51,8 @@ struct MultiplyIntegralImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
-    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(
-            Arg a, Arg b) {
+    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<Type>::CppType apply(Arg a,
+                                                                                          Arg b) {
         return a * b;
     }
 
@@ -116,8 +116,8 @@ struct MultiplyDecimalImpl {
     using ArgB = typename PrimitiveTypeTraits<TypeB>::CppType;
     static constexpr PrimitiveType ArgAPType = TypeA;
     static constexpr PrimitiveType ArgBPType = TypeB;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
     using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
     using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
@@ -130,10 +130,10 @@ struct MultiplyDecimalImpl {
 
     template <PrimitiveType Result>
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
-    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
-                                                                            ArgNativeTypeB b) {
-        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) * b);
+    static inline typename PrimitiveTypeTraits<Result>::CppType::NativeType apply(
+            ArgNativeTypeA a, ArgNativeTypeB b) {
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(a) * b);
     }
 
     template <PrimitiveType Result = TYPE_DECIMALV2>
@@ -145,10 +145,10 @@ struct MultiplyDecimalImpl {
     template <PrimitiveType Result>
         requires(is_decimal(Result))
     static inline bool apply(ArgNativeTypeA a, ArgNativeTypeB b,
-                             typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
+                             typename PrimitiveTypeTraits<Result>::CppType::NativeType& c) {
         return common::mul_overflow(
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a),
-                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b), c);
+                static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(a),
+                static_cast<typename PrimitiveTypeTraits<Result>::CppType::NativeType>(b), c);
     }
 
     template <PrimitiveType ResultType>
@@ -427,12 +427,12 @@ struct MultiplyDecimalImpl {
 
     template <bool need_adjust_scale, bool check_overflow, PrimitiveType ResultType>
         requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
             ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
             const DataTypeB& type_right, const DataTypeDecimal<ResultType>& type_result,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
             const typename PrimitiveTypeTraits<ResultType>::CppType& scale_diff_multiplier) {
-        typename PrimitiveTypeTraits<ResultType>::CppNativeType res;
+        typename PrimitiveTypeTraits<ResultType>::CppType::NativeType res;
         if constexpr (check_overflow) {
             // TODO handle overflow gracefully
             if (UNLIKELY(apply<ResultType>(a, b, res))) {
@@ -509,7 +509,7 @@ struct MultiplyDecimalImpl {
 
     template <bool need_adjust_scale, bool check_overflow, PrimitiveType ResultType>
         requires(ResultType == TYPE_DECIMALV2)
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
             ArgNativeTypeA a, ArgNativeTypeB b, const DataTypeA& type_left,
             const DataTypeB& type_right, const DataTypeDecimal<ResultType>& type_result,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number,
