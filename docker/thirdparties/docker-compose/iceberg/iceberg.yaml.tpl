@@ -20,7 +20,7 @@ version: "3"
 services:
 
   spark-iceberg:
-    image: tabulario/spark-iceberg
+    image: tabulario/spark-iceberg:3.5.1_1.5.0
     container_name: doris--spark-iceberg
     hostname: doris--spark-iceberg
     depends_on:
