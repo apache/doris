@@ -230,7 +230,7 @@ struct ToIso8601Impl {
 template <>
 struct ToIso8601Impl<TYPE_TIMESTAMPTZ> {
     static constexpr PrimitiveType OpArgType = TYPE_TIMESTAMPTZ;
-    using ArgType = typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppNativeType;
+    using ArgType = typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType;
     static constexpr auto name = "to_iso8601";
     // Format: YYYY-MM-DDTHH:MM:SS.SSSSSS+HH:MM
     static constexpr auto max_size = 32;
