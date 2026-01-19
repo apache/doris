@@ -23,11 +23,11 @@
 #include <glog/logging.h>
 #include <sys/types.h>
 
-#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
