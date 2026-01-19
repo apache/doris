@@ -452,5 +452,9 @@ uint64_t VExprContext::get_digest(uint64_t seed) const {
     return _root->get_digest(seed);
 }
 
+double VExprContext::execute_cost() const {
+    return _root->execute_cost();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

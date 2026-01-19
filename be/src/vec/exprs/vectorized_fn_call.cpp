@@ -641,5 +641,9 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     return Status::OK();
 }
 
+double VectorizedFnCall::execute_cost() const {
+    return _function->execute_cost();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

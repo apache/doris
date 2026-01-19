@@ -178,6 +178,8 @@ public:
     [[nodiscard]] const std::string& expr_name() const;
     [[nodiscard]] bool is_blockable() const;
 
+    double execute_cost() const;
+
     VExprSPtr root() { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_index_context(std::shared_ptr<IndexExecContext> index_context) {

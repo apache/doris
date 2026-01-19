@@ -192,6 +192,9 @@ Status RowGroupReader::init(
                                  _lazy_read_ctx.missing_columns_conjuncts.end());
         RETURN_IF_ERROR(_rewrite_dict_predicates());
     }
+    std::ranges::sort(_filter_conjuncts, [](const VExprContextSPtr& a, const VExprContextSPtr& b) {
+        return a->execute_cost() < b->execute_cost();
+    });
     return Status::OK();
 }
 
