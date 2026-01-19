@@ -1376,30 +1376,16 @@ public class CreateTableInfo {
         return new KeysDesc(keysType, keys, clusterKeysColumnNames);
     }
 
-    private boolean hasAnalyzedInvertedIndexProperty(IndexDefinition indexDef) {
-        Map<String, String> properties = indexDef.getProperties();
-        if (properties == null || properties.isEmpty()) {
-            return false;
+    private void checkVariantFieldPatternInvertedIndex(String indexColName, String fieldPattern,
+            DataType fieldType, IndexDefinition indexDef) throws AnalysisException {
+        try {
+            InvertedIndexUtil.checkInvertedIndexParser(indexColName,
+                    fieldType.toCatalogDataType().getPrimitiveType(),
+                    indexDef.getProperties(), invertedIndexFileStorageFormat);
+        } catch (Exception ex) {
+            throw new AnalysisException("invalid INVERTED index: field pattern: " + fieldPattern
+                    + ", " + ex.getMessage(), ex);
         }
-        String analyzerName = properties.get(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY);
-        if (!Strings.isNullOrEmpty(analyzerName)) {
-            return true;
-        }
-        String normalizerName = properties.get(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY);
-        if (!Strings.isNullOrEmpty(normalizerName)) {
-            return true;
-        }
-        String parser = InvertedIndexUtil.getInvertedIndexParser(properties);
-        return !Strings.isNullOrEmpty(parser) && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equals(parser);
-    }
-
-    private boolean hasDictCompressionEnabled(IndexDefinition indexDef) {
-        Map<String, String> properties = indexDef.getProperties();
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-        String dictCompression = properties.get(InvertedIndexUtil.INVERTED_INDEX_DICT_COMPRESSION_KEY);
-        return "true".equalsIgnoreCase(dictCompression);
     }
 
     // 1. if the column is variant type, check it's field pattern is valid
@@ -1442,20 +1428,8 @@ public class CreateTableInfo {
                                             + fieldPattern + " is not supported for inverted index"
                                             + " of column: " + column.getName());
                                 }
-                                if (hasAnalyzedInvertedIndexProperty(indexDef)
-                                        && !field.getDataType().isStringLikeType()) {
-                                    throw new AnalysisException("field pattern: " + fieldPattern
-                                            + " is not supported for analyzed inverted index"
-                                            + " of column: " + column.getName()
-                                            + " with type " + field.getDataType());
-                                }
-                                if (hasDictCompressionEnabled(indexDef)
-                                        && !field.getDataType().isStringLikeType()) {
-                                    throw new AnalysisException("field pattern: " + fieldPattern
-                                            + " is not supported for dict compression"
-                                            + " in inverted index of column: " + column.getName()
-                                            + " with type " + field.getDataType());
-                                }
+                                checkVariantFieldPatternInvertedIndex(column.getName(), fieldPattern,
+                                        field.getDataType(), indexDef);
                                 fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
                                                                                                     .add(indexDef);
                                 fieldPatternToDataType.put(fieldPattern, field.getDataType());

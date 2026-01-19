@@ -35,7 +35,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("field pattern: settings.enabled* is not supported for analyzed inverted index")
+        exception("invalid INVERTED index: field pattern: settings.enabled*")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -55,7 +55,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("field pattern: settings.tags is not supported for analyzed inverted index")
+        exception("invalid INVERTED index: field pattern: settings.tags")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -75,7 +75,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("field pattern: metrics.count is not supported for analyzed inverted index")
+        exception("invalid INVERTED index: field pattern: metrics.count")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -95,7 +95,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("field pattern: metrics.score is not supported for dict compression")
+        exception("invalid INVERTED index: field pattern: metrics.score")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -115,7 +115,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("field pattern: metrics.price is not supported for analyzed inverted index")
+        exception("invalid INVERTED index: field pattern: metrics.price")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -135,6 +135,108 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception("field pattern: metrics.day is not supported for analyzed inverted index")
+        exception("invalid INVERTED index: field pattern: metrics.day")
+    }
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                `id` bigint NULL,
+                `var` variant<
+                    MATCH_NAME 'settings.tags_parser' : array<string>
+                > NULL,
+                INDEX idx_tags_parser (var) USING INVERTED PROPERTIES(
+                    "field_pattern" = "settings.tags_parser",
+                    "parser" = "english"
+                ) COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception("INVERTED index with parser: english is not supported for array column")
+    }
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                `id` bigint NULL,
+                `var` variant<
+                    MATCH_NAME 'labels.name' : string
+                > NULL,
+                INDEX idx_name (var) USING INVERTED PROPERTIES(
+                    "field_pattern" = "labels.name",
+                    "analyzer" = "unicode",
+                    "parser" = "english"
+                ) COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception("Cannot specify more than one of 'analyzer', 'parser', or 'normalizer' properties.")
+    }
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                `id` bigint NULL,
+                `var` variant<
+                    MATCH_NAME 'labels.desc' : string
+                > NULL,
+                INDEX idx_desc (var) USING INVERTED PROPERTIES(
+                    "field_pattern" = "labels.desc",
+                    "parser" = "unknown"
+                ) COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception("Invalid inverted index 'parser' value: unknown")
+    }
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                `id` bigint NULL,
+                `var` variant<
+                    MATCH_NAME 'labels.detail' : string
+                > NULL,
+                INDEX idx_detail (var) USING INVERTED PROPERTIES(
+                    "field_pattern" = "labels.detail",
+                    "parser" = "english",
+                    "parser_mode" = "fine_grained"
+                ) COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception("parser_mode is only available for chinese and ik parser")
+    }
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                `id` bigint NULL,
+                `var` variant<
+                    MATCH_NAME 'labels.code' : string
+                > NULL,
+                INDEX idx_code (var) USING INVERTED PROPERTIES(
+                    "field_pattern" = "labels.code",
+                    "dict_compression" = "maybe"
+                ) COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        """
+        exception("Invalid inverted index 'dict_compression' value: maybe")
     }
 }
