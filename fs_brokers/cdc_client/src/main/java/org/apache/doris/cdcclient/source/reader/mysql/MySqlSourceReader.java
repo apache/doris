@@ -108,8 +108,6 @@ public class MySqlSourceReader implements SourceReader {
     private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
             new FlinkJsonTableChangeSerializer();
     private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private SnapshotSplitReader snapshotReader;
-    private BinlogSplitReader binlogReader;
     private DebeziumReader<SourceRecords, MySqlSplit> currentReader;
     private Map<TableId, TableChanges.TableChange> tableSchemas;
     private SplitRecords currentSplitRecords;
@@ -180,7 +178,7 @@ public class MySqlSourceReader implements SourceReader {
         SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
         if (currentSplitRecords == null) {
             DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
-            if (currentReader == null || baseReq.isReload()) {
+            if (baseReq.isReload() || currentReader == null) {
                 LOG.info(
                         "No current reader or reload {}, create new split reader",
                         baseReq.isReload());
@@ -188,7 +186,7 @@ public class MySqlSourceReader implements SourceReader {
                 Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
                 split = splitFlag.f0;
                 // reset binlog reader
-                closeBinlogReader();
+                // closeBinlogReader();
                 currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
                 this.setCurrentSplitRecords(currentSplitRecords);
                 this.setCurrentSplit(split);
@@ -433,7 +431,7 @@ public class MySqlSourceReader implements SourceReader {
         SourceRecords sourceRecords = null;
         String currentSplitId = null;
         DebeziumReader<SourceRecords, MySqlSplit> currentReader = null;
-        LOG.info("Get a split: {}", split.splitId());
+        LOG.info("Get a split: {}", split.toString());
         if (split instanceof MySqlSnapshotSplit) {
             currentReader = getSnapshotSplitReader(jobConfig);
         } else if (split instanceof MySqlBinlogSplit) {
@@ -446,7 +444,7 @@ public class MySqlSourceReader implements SourceReader {
         sourceRecords =
                 pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
         if (currentReader instanceof SnapshotSplitReader) {
-            closeSnapshotReader();
+            closeCurrentReader();
         }
         return new SplitRecords(currentSplitId, sourceRecords.iterator());
     }
@@ -514,61 +512,33 @@ public class MySqlSourceReader implements SourceReader {
 
     private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
-        SnapshotSplitReader snapshotReader = this.getSnapshotReader();
-        if (snapshotReader == null) {
-            final MySqlConnection jdbcConnection =
-                    DebeziumUtils.createMySqlConnection(sourceConfig);
-            final BinaryLogClient binaryLogClient =
-                    DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
-            final StatefulTaskContext statefulTaskContext =
-                    new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
-            snapshotReader = new SnapshotSplitReader(statefulTaskContext, 0);
-            this.setSnapshotReader(snapshotReader);
-        }
+        final MySqlConnection jdbcConnection = DebeziumUtils.createMySqlConnection(sourceConfig);
+        final BinaryLogClient binaryLogClient =
+                DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
+        final StatefulTaskContext statefulTaskContext =
+                new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
+        SnapshotSplitReader snapshotReader = new SnapshotSplitReader(statefulTaskContext, 0);
         return snapshotReader;
     }
 
     private BinlogSplitReader getBinlogSplitReader(JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
-        BinlogSplitReader binlogReader = this.getBinlogReader();
-        if (binlogReader == null) {
-            final MySqlConnection jdbcConnection =
-                    DebeziumUtils.createMySqlConnection(sourceConfig);
-            final BinaryLogClient binaryLogClient =
-                    DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
-            final StatefulTaskContext statefulTaskContext =
-                    new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
-            binlogReader = new BinlogSplitReader(statefulTaskContext, 0);
-            this.setBinlogReader(binlogReader);
-        }
+        final MySqlConnection jdbcConnection = DebeziumUtils.createMySqlConnection(sourceConfig);
+        final BinaryLogClient binaryLogClient =
+                DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
+        final StatefulTaskContext statefulTaskContext =
+                new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
+        BinlogSplitReader binlogReader = new BinlogSplitReader(statefulTaskContext, 0);
         return binlogReader;
     }
 
-    private void closeSnapshotReader() {
-        SnapshotSplitReader reusedSnapshotReader = this.getSnapshotReader();
-        if (reusedSnapshotReader != null) {
-            LOG.info(
-                    "Close snapshot reader {}", reusedSnapshotReader.getClass().getCanonicalName());
-            reusedSnapshotReader.close();
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
-            if (reusedSnapshotReader == currentReader) {
-                this.setCurrentReader(null);
-            }
-            this.setSnapshotReader(null);
+    private void closeCurrentReader() {
+        DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
+        if (currentReader != null) {
+            LOG.info("Close current reader {}", currentReader.getClass().getCanonicalName());
+            currentReader.close();
         }
-    }
-
-    private void closeBinlogReader() {
-        BinlogSplitReader reusedBinlogReader = this.getBinlogReader();
-        if (reusedBinlogReader != null) {
-            LOG.info("Close binlog reader {}", reusedBinlogReader.getClass().getCanonicalName());
-            reusedBinlogReader.close();
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
-            if (reusedBinlogReader == currentReader) {
-                this.setCurrentReader(null);
-            }
-            this.setBinlogReader(null);
-        }
+        this.setCurrentReader(null);
     }
 
     private MySqlSourceConfig getSourceConfig(JobBaseConfig config) {
@@ -649,14 +619,8 @@ public class MySqlSourceReader implements SourceReader {
         jdbcProperteis.putAll(cu.getOriginalProperties());
         configFactory.jdbcProperties(jdbcProperteis);
 
-        // Properties dbzProps = new Properties();
-        // dbzProps.setProperty(
-        //         MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
-        //         String.valueOf(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
-        // configFactory.debeziumProperties(dbzProps);
-        //
-        // configFactory.heartbeatInterval(
-        //         Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+        Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
+        configFactory.debeziumProperties(dbzProps);
         if (cdcConfig.containsKey(DataSourceConfigKeys.SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SPLIT_SIZE)));
@@ -718,6 +682,8 @@ public class MySqlSourceReader implements SourceReader {
     @Override
     public void finishSplitRecords() {
         this.setCurrentSplitRecords(null);
+        // Close after each read, the binlog client will occupy the connection.
+        closeCurrentReader();
     }
 
     @Override
@@ -774,8 +740,7 @@ public class MySqlSourceReader implements SourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
-        closeSnapshotReader();
-        closeBinlogReader();
+        closeCurrentReader();
         currentReader = null;
         currentSplitRecords = null;
         if (tableSchemas != null) {

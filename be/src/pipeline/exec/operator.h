@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/be_mock_util.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
@@ -157,6 +158,10 @@ public:
     [[nodiscard]] virtual DataDistribution required_data_distribution(
             RuntimeState* /*state*/) const;
     [[nodiscard]] virtual bool require_shuffled_data_distribution(RuntimeState* /*state*/) const;
+
+    virtual Status reset(RuntimeState* state) {
+        return Status::InternalError("Reset is not implemented in operator: {}", get_name());
+    }
 
 protected:
     OperatorPtr _child = nullptr;
@@ -613,7 +618,7 @@ public:
     // For agg/sort/join sink.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
-    virtual bool need_rerun(RuntimeState* state) const { return false; }
+    virtual bool reset_to_rerun(RuntimeState* state, OperatorXBase* root) const { return false; }
 
     Status init(const TDataSink& tsink) override;
     [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,

@@ -126,12 +126,19 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
+
+    String hdfs_new_kerberos_properties = """
+                "fs.defaultFS" = "hdfs://${extHiveHmsHost}:8520",
+                "hdfs.authentication.type" = "kerberos",
+                "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
+    """
     String hms_kerberos_new_prop = """
                 "hive.metastore.uris" = "thrift://${extHiveHmsHost}:9583",
                 "hive.metastore.client.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hive.metastore.client.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
                 "hive.metastore.service.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
-                "hive.metastore.sasl.enabled " = "true",
+                "hive.metastore.authentication.type"="kerberos",
                 "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
@@ -182,6 +189,7 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     """
     testQuery(paimon_hms_catalog_properties + hdfs_warehouse_properties + hdfs_storage_properties, "hdfs", "hdfs_db")
     testQuery(paimon_hms_type_prop + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hdfs_kerberos", "hdfs_db")
+    testQuery(paimon_hms_type_prop + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_new_kerberos_properties, "hdfs_new_kerberos", "hdfs_db")
     testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "oss", "ali_db")
     testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "obs", "hw_db")
     testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "cos", "tx_db")
@@ -209,6 +217,7 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     """
     testQuery(paimon_hms_catalog_properties + paimon_fs_hdfs_support + hdfs_warehouse_properties + hdfs_storage_properties, "support_hdfs", "hdfs_db")
     testQuery(paimon_hms_type_prop + paimon_fs_hdfs_support + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "support_hdfs_kerberos", "hdfs_db")
+    testQuery(paimon_hms_type_prop + paimon_fs_hdfs_support + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_new_kerberos_properties, "support_hdfs_new_kerberos", "hdfs_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_oss_support + oss_warehouse_properties + oss_storage_properties, "support_oss", "ali_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_obs_support + obs_warehouse_properties + obs_storage_properties, "support_obs", "hw_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_cos_support + cos_warehouse_properties + cos_storage_properties, "support_cos", "tx_db")

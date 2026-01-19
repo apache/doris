@@ -222,6 +222,9 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
     size_t idx = 0;
+    bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
+                                        ? _state->query_options().enable_segment_cache
+                                        : true;
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         _all_read_sources[tablet_id] = _read_sources[idx];
@@ -233,7 +236,8 @@ Status ParallelScannerBuilder::_load() {
 
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_rows;
-            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, &_builder_stats));
+            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, enable_segment_cache,
+                                                              &_builder_stats));
             auto segment_count = rowset->num_segments();
             for (int64_t i = 0; i != segment_count; i++) {
                 _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);

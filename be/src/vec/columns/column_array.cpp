@@ -166,7 +166,7 @@ void ColumnArray::get(size_t n, Field& res) const {
                                size, n, max_array_size_as_field);
 
     res = Field::create_field<TYPE_ARRAY>(Array(size));
-    Array& res_arr = doris::vectorized::get<Array&>(res);
+    Array& res_arr = res.get<TYPE_ARRAY>();
 
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
 }
@@ -478,7 +478,7 @@ void ColumnArray::insert(const Field& x) {
         get_data().insert(Field::create_field<TYPE_NULL>(Null()));
         get_offsets().push_back(get_offsets().back() + 1);
     } else {
-        const auto& array = doris::vectorized::get<const Array&>(x);
+        const auto& array = x.get<TYPE_ARRAY>();
         size_t size = array.size();
         for (size_t i = 0; i < size; ++i) {
             get_data().insert(array[i]);
@@ -648,7 +648,7 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
     auto& res_elems = assert_cast<ColumnVector<T>&>(*dst_data).get_data();
     auto& res_offsets = dst_offset->get_data();
 
-    filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, IColumn::Offset64>(
+    filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, IColumn::Offset64>(
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*src_data).get_data(),
             src_offsets->get_data(), res_elems, res_offsets, filt, result_size_hint);
 
@@ -657,7 +657,7 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
 
 template <PrimitiveType T>
 size_t filter_number_inplace(const Filter& filter, IColumn& src_data, ColumnOffsets& src_offsets) {
-    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, Offset64>(
+    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, Offset64>(
             assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(src_data).get_data(),
             src_offsets.get_data(), filter);
 }

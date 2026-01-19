@@ -97,8 +97,10 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     }
 
     int arrived_rf_num = 0;
+    // No lock needed here because this is single-threaded execution without scanners
+    // and no concurrent access to _conjuncts
     RETURN_IF_ERROR(local_state._helper.try_append_late_arrival_runtime_filter(
-            state, &arrived_rf_num, local_state._conjuncts, _multi_cast_output_row_descriptor));
+            state, _multi_cast_output_row_descriptor, arrived_rf_num, local_state._conjuncts));
 
     if (!local_state._conjuncts.empty() && !output_block->empty()) {
         SCOPED_TIMER(local_state._filter_timer);

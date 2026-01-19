@@ -203,6 +203,16 @@ suite("test_parquet_nested_types", "p0,external,hive,external_docker,external_do
             ORDER BY id
         """
 
+        order_qt_test_parquet_lazy_read_struct_q1 """ select count(id),count(name),count(col),count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id = 1 """
+        order_qt_test_parquet_lazy_read_struct_q2 """ select count(id),count(name),count(col) ,count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id > 10 """
+        order_qt_test_parquet_lazy_read_struct_q3 """ select count(id),count(name),count(col), count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id < 1000 """
+        order_qt_test_parquet_lazy_read_struct_q4 """ select count(id),count(name),count(col), count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id %2 = 1 """
+        order_qt_test_parquet_lazy_read_struct_q5 """ select count(id),count(name),count(col),count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where id %3 = 1 """
+        order_qt_test_parquet_lazy_read_struct_q6 """ select count(id),count(name),count(col), count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where name = 'name_100' """
+        order_qt_test_parquet_lazy_read_struct_q7 """ select count(id),count(name),count(col),count(struct_element(col,"a")), count(struct_element(struct_element(col,"c"),"aa")) from test_parquet_lazy_read_struct where name != 'name_100' """
+
+
+
         sql """drop catalog ${catalog_name};"""
     }
 }

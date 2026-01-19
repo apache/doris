@@ -80,10 +80,13 @@ public:
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
-    enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
+    enum { DATA, POSITION_DELETE, EQUALITY_DELETE, DELETION_VECTOR };
     enum Fileformat { NONE, PARQUET, ORC, AVRO };
 
     virtual void set_delete_rows() = 0;
+
+    Status read_deletion_vector(const std::string& data_file_path,
+                                const TIcebergDeleteFileDesc& delete_file_desc);
 
 protected:
     struct IcebergProfile {
@@ -91,6 +94,7 @@ protected:
         RuntimeProfile::Counter* num_delete_rows;
         RuntimeProfile::Counter* delete_files_read_time;
         RuntimeProfile::Counter* delete_rows_sort_time;
+        RuntimeProfile::Counter* parse_delete_file_time;
     };
     using DeleteRows = std::vector<int64_t>;
     using DeleteFile = phmap::parallel_flat_hash_map<
@@ -103,8 +107,8 @@ protected:
      * Sorting by file_path allows filter pushdown by file in columnar storage formats.
      * Sorting by position allows filtering rows while scanning, to avoid keeping deletes in memory.
      */
-    void _sort_delete_rows(std::vector<std::vector<int64_t>*>& delete_rows_array,
-                           int64_t num_delete_rows);
+    static void _sort_delete_rows(const std::vector<std::vector<int64_t>*>& delete_rows_array,
+                                  int64_t num_delete_rows, std::vector<int64_t>& result);
 
     PositionDeleteRange _get_range(const ColumnDictI32& file_path_column);
 
@@ -128,7 +132,8 @@ protected:
     // owned by scan node
     ShardedKVCache* _kv_cache;
     IcebergProfile _iceberg_profile;
-    std::vector<int64_t> _iceberg_delete_rows;
+    // _iceberg_delete_rows from kv_cache
+    const std::vector<int64_t>* _iceberg_delete_rows = nullptr;
     std::vector<std::string> _expand_col_names;
     std::vector<ColumnWithTypeAndName> _expand_columns;
     std::vector<std::string> _all_required_col_names;
@@ -183,7 +188,7 @@ public:
 
     void set_delete_rows() final {
         auto* parquet_reader = (ParquetReader*)(_file_format_reader.get());
-        parquet_reader->set_delete_rows(&_iceberg_delete_rows);
+        parquet_reader->set_delete_rows(_iceberg_delete_rows);
     }
 
 protected:
@@ -217,7 +222,7 @@ public:
 
     void set_delete_rows() final {
         auto* orc_reader = (OrcReader*)_file_format_reader.get();
-        orc_reader->set_position_delete_rowids(&_iceberg_delete_rows);
+        orc_reader->set_position_delete_rowids(_iceberg_delete_rows);
     }
 
     Status init_reader(

@@ -811,6 +811,10 @@ private:
               _year(year) {}
 };
 
+static_assert(std::is_trivially_destructible_v<VecDateTimeValue>,
+              "VecDateTimeValue must be trivial destructible");
+static_assert(std::is_trivially_copyable_v<VecDateTimeValue>,
+              "VecDateTimeValue must be trivial copyable");
 inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
 inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
                                                               1, 1);
@@ -1471,6 +1475,15 @@ private:
                 uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
+
+static_assert(std::is_trivially_destructible_v<DateV2Value<DateV2ValueType>>,
+              "DateV2Value<DateV2ValueType> must be trivial destructible");
+static_assert(std::is_trivially_destructible_v<DateV2Value<DateTimeV2ValueType>>,
+              "DateV2Value<DateTimeV2ValueType> must be trivial destructible");
+static_assert(std::is_trivially_copyable_v<DateV2Value<DateV2ValueType>>,
+              "DateV2Value<DateV2ValueType> must be trivial copyable");
+static_assert(std::is_trivially_copyable_v<DateV2Value<DateTimeV2ValueType>>,
+              "DateV2Value<DateTimeV2ValueType> must be trivial copyable");
 
 template <typename T>
 inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
