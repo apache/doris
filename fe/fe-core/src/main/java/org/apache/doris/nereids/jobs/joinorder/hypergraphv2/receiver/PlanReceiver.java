@@ -142,8 +142,8 @@ public class PlanReceiver extends AbstractReceiver {
         }
 
         Memo memo = jobContext.getCascadesContext().getMemo();
-        GroupPlan leftPlan = new GroupPlan(planTable.get(left));
-        GroupPlan rightPlan = new GroupPlan(planTable.get(right));
+        GroupPlan leftPlan = planTable.get(left).getGroupPlan();
+        GroupPlan rightPlan = planTable.get(right).getGroupPlan();
 
         // First, we implement all possible physical plans
         // In this step, we don't generate logical expression because they are useless in DPhyp.
@@ -241,7 +241,7 @@ public class PlanReceiver extends AbstractReceiver {
 
     private void proposeAllDistributedPlans(GroupExpression groupExpression) {
         jobContext.getCascadesContext().pushJob(new OptimizeGroupExpressionJob(groupExpression,
-                new JobContext(jobContext.getCascadesContext(), PhysicalProperties.ANY, Double.MAX_VALUE)));
+                new JobContext(jobContext.getCascadesContext(), PhysicalProperties.ANY)));
         if (!groupExpression.isStatDerived()) {
             jobContext.getCascadesContext().pushJob(new DeriveStatsJob(groupExpression,
                     jobContext.getCascadesContext().getCurrentJobContext()));
@@ -258,7 +258,7 @@ public class PlanReceiver extends AbstractReceiver {
     public void addGroup(long bitmap, Group group) {
         Preconditions.checkArgument(LongBitmap.getCardinality(bitmap) == 1);
         usdEdges.put(bitmap, new BitSet());
-        Plan plan = proposeProject(new GroupPlan(group), new ArrayList<>(), bitmap, bitmap);
+        Plan plan = proposeProject(group.getGroupPlan(), new ArrayList<>(), bitmap, bitmap);
         if (!(plan instanceof GroupPlan)) {
             CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(plan, null, false, planTable);
             group = copyInResult.correspondingExpression.getOwnerGroup();
