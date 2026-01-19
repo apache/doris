@@ -308,6 +308,8 @@ protected:
 
     Status _get_topn_filters(RuntimeState* state);
 
+    // common push down exprs require FunctionContext and constant_str and it managed by _stale_expr_ctxs
+    vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
     atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
