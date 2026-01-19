@@ -48,9 +48,9 @@ struct AnalyzerMatchResult {
 // Stateless - all methods are static.
 //
 // Matching strategy:
-// 1. Exact match on normalized analyzer key
-// 2. If key is __default__, fallback to all available readers
-// 3. Otherwise, no candidates (caller decides whether to bypass)
+// 1. If key is __default__ (or empty), return all readers for query-type-based selection
+// 2. If key is explicit, try exact match
+// 3. If explicit key with no match, return empty (caller decides whether to bypass)
 class AnalyzerKeyMatcher {
 public:
     // Match analyzer key against reader entries.

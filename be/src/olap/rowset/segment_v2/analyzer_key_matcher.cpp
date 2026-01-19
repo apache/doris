@@ -30,10 +30,20 @@ AnalyzerMatchResult AnalyzerKeyMatcher::match(
         return result;
     }
 
-    // Convert string_view to string for map lookup
-    std::string key_str(analyzer_key);
+    // Step 1: If fallback is allowed (__default__ or empty), return all readers
+    // This allows query-type-based selection (e.g., FULLTEXT for MATCH queries,
+    // STRING_TYPE for EQUAL queries) rather than being constrained to a single index.
+    if (allows_fallback(analyzer_key)) {
+        result.candidates.reserve(entries.size());
+        for (const auto& entry : entries) {
+            result.candidates.push_back(&entry);
+        }
+        result.used_fallback = true;
+        return result;
+    }
 
-    // Step 1: Try exact match
+    // Step 2: Try exact match for explicit analyzer keys
+    std::string key_str(analyzer_key);
     auto it = key_index.find(key_str);
     if (it != key_index.end() && !it->second.empty()) {
         result.candidates.reserve(it->second.size());
@@ -42,18 +52,6 @@ AnalyzerMatchResult AnalyzerKeyMatcher::match(
                 result.candidates.push_back(&entries[idx]);
             }
         }
-        if (!result.candidates.empty()) {
-            return result;
-        }
-    }
-
-    // Step 2: If no exact match and fallback is allowed, return all readers
-    if (allows_fallback(analyzer_key)) {
-        result.candidates.reserve(entries.size());
-        for (const auto& entry : entries) {
-            result.candidates.push_back(&entry);
-        }
-        result.used_fallback = true;
     }
 
     // Step 3: If explicit key with no match, return empty (caller will bypass)

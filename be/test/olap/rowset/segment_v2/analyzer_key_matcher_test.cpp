@@ -61,16 +61,16 @@ TEST_F(AnalyzerKeyMatcherTest, ExactMatchEnglish) {
     EXPECT_FALSE(result.used_fallback);
 }
 
-// Test default key exact match (if present in entries)
-TEST_F(AnalyzerKeyMatcherTest, DefaultKeyExactMatch) {
+// Test default key returns all readers for query-type-based selection
+TEST_F(AnalyzerKeyMatcherTest, DefaultKeyReturnsAll) {
     auto result =
             AnalyzerKeyMatcher::match(INVERTED_INDEX_DEFAULT_ANALYZER_KEY, entries_, key_index_);
 
-    // Should match the __default__ entry exactly
+    // __default__ means "no specific analyzer requested", so return all readers
+    // to allow query-type-based selection (e.g., FULLTEXT for MATCH, STRING_TYPE for EQUAL)
     EXPECT_FALSE(result.empty());
-    EXPECT_EQ(result.size(), 1);
-    EXPECT_EQ(result.candidates[0]->analyzer_key, INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
-    EXPECT_FALSE(result.used_fallback);
+    EXPECT_EQ(result.size(), 3);
+    EXPECT_TRUE(result.used_fallback);
 }
 
 TEST_F(AnalyzerKeyMatcherTest, EmptyKeyFallbacksToAll) {
@@ -199,18 +199,19 @@ protected:
 };
 
 TEST_F(AnalyzerKeyMatcherNoneAnalyzerTest, NoneIsDistinctFromDefault) {
+    // "none" is an explicit analyzer key, should do exact match
     auto result_none = AnalyzerKeyMatcher::match(INVERTED_INDEX_PARSER_NONE, entries_, key_index_);
     EXPECT_FALSE(result_none.empty());
     EXPECT_EQ(result_none.size(), 1);
     EXPECT_EQ(result_none.candidates[0]->analyzer_key, INVERTED_INDEX_PARSER_NONE);
     EXPECT_FALSE(result_none.used_fallback);
 
+    // __default__ means "no specific analyzer", should return all readers
     auto result_default =
             AnalyzerKeyMatcher::match(INVERTED_INDEX_DEFAULT_ANALYZER_KEY, entries_, key_index_);
     EXPECT_FALSE(result_default.empty());
-    EXPECT_EQ(result_default.size(), 1);
-    EXPECT_EQ(result_default.candidates[0]->analyzer_key, INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
-    EXPECT_FALSE(result_default.used_fallback);
+    EXPECT_EQ(result_default.size(), 2); // Should return both entries
+    EXPECT_TRUE(result_default.used_fallback);
 }
 
 TEST_F(AnalyzerKeyMatcherNoneAnalyzerTest, NoneIsExplicit) {
