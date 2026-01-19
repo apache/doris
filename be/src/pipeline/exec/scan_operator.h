@@ -308,7 +308,9 @@ protected:
 
     Status _get_topn_filters(RuntimeState* state);
 
-    // common push down exprs require FunctionContext and constant_str and it managed by _stale_expr_ctxs
+    // Stores conjuncts that have been fully pushed down to the storage layer as predicate columns.
+    // These expr contexts are kept alive to prevent their FunctionContext and constant strings
+    // from being freed prematurely.
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
