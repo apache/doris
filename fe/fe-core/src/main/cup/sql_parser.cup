@@ -8354,6 +8354,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CHECK:id
     {: RESULT = id; :}
+    | KW_CIPHER:id
+    {: RESULT = id; :}
     | KW_COLUMNS:id
     {: RESULT = id; :}
     | KW_COMMENT:id
@@ -8486,6 +8488,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ISOLATION:id
     {: RESULT = id; :}
+    | KW_ISSUER:id
+    {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
     | KW_JOBS:id    
@@ -8533,6 +8537,8 @@ keyword ::=
     | KW_NEXT:id
     {: RESULT = id; :}
     | KW_NO:id
+    {: RESULT = id; :}
+    | KW_NONE:id
     {: RESULT = id; :}
     | KW_NULLS:id
     {: RESULT = id; :}
@@ -8610,6 +8616,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_RETENTION:id
     {: RESULT = id; :}
+    | KW_REQUIRE:id
+    {: RESULT = id; :}
     | KW_RETURNS:id
     {: RESULT = id; :}
     | KW_ROLLBACK:id
@@ -8647,6 +8655,8 @@ keyword ::=
     | KW_STRUCT:id
     {: RESULT = id; :}
     | KW_STRING:id
+    {: RESULT = id; :}
+    | KW_SUBJECT:id
     {: RESULT = id; :}
     | KW_TABLES:id
     {: RESULT = id; :}
@@ -8783,6 +8793,8 @@ keyword ::=
     | KW_SAMPLE:id
     {: RESULT = id; :}
     | KW_INCREMENTAL:id
+    {: RESULT = id; :}
+    | KW_SAN:id
     {: RESULT = id; :}
     | KW_PERIOD:id
     {: RESULT = id; :}
