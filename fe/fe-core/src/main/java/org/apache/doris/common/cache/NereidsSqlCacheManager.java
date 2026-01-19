@@ -282,7 +282,7 @@ public class NereidsSqlCacheManager {
         }
 
         try {
-             StmtExecutor.syncJournalIfNeeded(connectContext);
+            StmtExecutor.syncJournalIfNeeded(connectContext);
         } catch (Throwable t) {
             LOG.warn("syncJournalIfNeeded failed", t);
             return invalidateCache(key);
