@@ -163,6 +163,8 @@ public class InternalSchema {
         // execution info
         AUDIT_SCHEMA.add(new ColumnDef("query_time",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("queue_time_ms",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("cpu_time_ms",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("peak_memory_bytes",
