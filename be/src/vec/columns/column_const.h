@@ -289,6 +289,19 @@ public:
                         "Method replace_column_data is not supported for " + get_name());
     }
 
+    void replace_column_null_data(const uint8_t* __restrict null_map) override {
+        // For ColumnConst, the null_map has only 1 element (the const value's null status)
+        // If the const value is null, replace the nested data with default value
+        if (null_map[0]) {
+            data = std::move(*data).mutate();
+            data->replace_column_null_data(null_map);
+        }
+    }
+
+    bool support_replace_column_null_data() const override {
+        return data->support_replace_column_null_data();
+    }
+
     void finalize() override { data->finalize(); }
 
     void erase(size_t start, size_t length) override {
