@@ -223,7 +223,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<Column> columns = getColumns();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
-            columnNameMap.put(columns.get(i).getName(), i);
+            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
