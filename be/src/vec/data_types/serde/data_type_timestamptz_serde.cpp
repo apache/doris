@@ -183,23 +183,20 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     std::shared_ptr<arrow::TimestampType> timestamp_type =
             std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
-    static const auto& utc = cctz::utc_time_zone();
+    static const auto& UTC = cctz::utc_time_zone();
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
                                              array_builder->type()->name()));
         } else {
             int64_t timestamp = 0;
-            DateV2Value<DateTimeV2ValueType> datetime_val =
-                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                            col_data[i].to_date_int_val());
-            datetime_val.unix_timestamp(&timestamp, utc);
+            col_data[i].utc_dt().unix_timestamp(&timestamp, UTC);
 
             if (_scale > 3) {
-                uint32_t microsecond = datetime_val.microsecond();
+                uint32_t microsecond = col_data[i].utc_dt().microsecond();
                 timestamp = (timestamp * 1000000) + microsecond;
             } else if (_scale > 0) {
-                uint32_t millisecond = datetime_val.microsecond() / 1000;
+                uint32_t millisecond = col_data[i].utc_dt().microsecond() / 1000;
                 timestamp = (timestamp * 1000) + millisecond;
             }
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
@@ -225,15 +222,13 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
         }
 
         int64_t timestamp = 0;
-        DateV2Value<DateTimeV2ValueType> datetime_val =
-                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                        col_data[row_id].to_date_int_val());
-        if (!datetime_val.unix_timestamp(&timestamp, utc)) {
+        if (!col_data[row_id].utc_dt().unix_timestamp(&timestamp, utc)) {
             return Status::InternalError("get unix timestamp error.");
         }
 
         cur_batch->data[row_id] = timestamp;
-        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
+        cur_batch->nanoseconds[row_id] =
+                col_data[row_id].utc_dt().microsecond() * micro_to_nano_second;
     }
     cur_batch->numElements = end - start;
     return Status::OK();

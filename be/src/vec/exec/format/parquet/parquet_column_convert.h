@@ -688,15 +688,14 @@ struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
 
         const auto& src_data = assert_cast<const ColumnInt64*>(src_col.get())->get_data();
         auto& dest_data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
-        static const cctz::time_zone utc = cctz::utc_time_zone();
+        static const cctz::time_zone UTC = cctz::utc_time_zone();
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
             auto& num = dest_data[start_idx + i];
-            auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            value.from_unixtime(x / _convert_params->second_mask, utc);
-            value.set_microsecond((x % _convert_params->second_mask) *
-                                  (_convert_params->scale_to_nano_factor / 1000));
+            num.utc_dt().from_unixtime(x / _convert_params->second_mask, UTC);
+            num.utc_dt().set_microsecond((x % _convert_params->second_mask) *
+                                         (_convert_params->scale_to_nano_factor / 1000));
         }
         return Status::OK();
     }
