@@ -135,6 +135,7 @@ public:
         if (_has_remote_target) {
             return false;
         }
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         return _wrapper->detect_in_filter();
     }
 
