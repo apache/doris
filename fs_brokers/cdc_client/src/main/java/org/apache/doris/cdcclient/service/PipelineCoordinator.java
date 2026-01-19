@@ -247,6 +247,7 @@ public class PipelineCoordinator {
                     Map<String, String> offsetRes =
                             sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
                     offsetRes.put(SPLIT_ID, readResult.getSplit().splitId());
+                    LOG.info("snapshot split meta last offset to fe: {}", offsetRes);
                     metaResponse = offsetRes;
                 }
 
@@ -255,6 +256,7 @@ public class PipelineCoordinator {
                     Map<String, String> offsetRes =
                             sourceReader.extractBinlogStateOffset(readResult.getSplitState());
                     offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                    LOG.info("Binlog split meta last offset to fe: {}", offsetRes);
                     metaResponse = offsetRes;
                 }
             } else {
