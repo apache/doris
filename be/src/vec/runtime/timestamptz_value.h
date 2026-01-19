@@ -57,8 +57,6 @@ public:
 
     DateV2Value<DateTimeV2ValueType> utc_dt() const { return _utc_dt; }
 
-    DateV2Value<DateTimeV2ValueType> utc_dt() { return _utc_dt; }
-
     // Returns an integer value for storage in a column
     underlying_value to_date_int_val() const { return _utc_dt.to_date_int_val(); }
 

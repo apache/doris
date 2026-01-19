@@ -693,9 +693,10 @@ struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
             auto& num = dest_data[start_idx + i];
-            num.utc_dt().from_unixtime(x / _convert_params->second_mask, UTC);
-            num.utc_dt().set_microsecond((x % _convert_params->second_mask) *
-                                         (_convert_params->scale_to_nano_factor / 1000));
+            auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
+            value.from_unixtime(x / _convert_params->second_mask, UTC);
+            value.set_microsecond((x % _convert_params->second_mask) *
+                                  (_convert_params->scale_to_nano_factor / 1000));
         }
         return Status::OK();
     }
