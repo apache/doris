@@ -1095,7 +1095,8 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1', 'inverted_index_storage_format' = 'V3');";
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> createTable(invalidSql));
-        Assertions.assertTrue(ex.getMessage().contains("field pattern: metrics.score is not supported for dict compression"));
+        Assertions.assertTrue(ex.getMessage().contains("invalid INVERTED index: field pattern: metrics.score"));
+        Assertions.assertTrue(ex.getMessage().contains("dict_compression can only be set for StringType columns"));
 
         String validSql = "create table test.tbl_variant_dict_valid\n"
                 + "(k1 int, v variant<\n"
