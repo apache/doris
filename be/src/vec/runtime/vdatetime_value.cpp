@@ -1574,14 +1574,14 @@ bool VecDateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& tim
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    return unix_timestamp(timestamp, ctz);
+    unix_timestamp(timestamp, ctz);
+    return true;
 }
 
-bool VecDateTimeValue::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
+void VecDateTimeValue::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
     const auto tp =
             cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
     *timestamp = tp.time_since_epoch().count();
-    return true;
 }
 
 bool VecDateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
@@ -2778,11 +2778,12 @@ bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const std::string& timez
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    return unix_timestamp(timestamp, ctz);
+    unix_timestamp(timestamp, ctz);
+    return true;
 }
 
 template <typename T>
-bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
+void DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
     if constexpr (is_datetime) {
         const auto tp =
                 cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
@@ -2790,14 +2791,12 @@ bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& c
                                                  date_v2_value_.minute_, date_v2_value_.second_),
                               ctz);
         *timestamp = tp.time_since_epoch().count();
-        return true;
     } else {
         const auto tp =
                 cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
                                                  date_v2_value_.day_, 0, 0, 0),
                               ctz);
         *timestamp = tp.time_since_epoch().count();
-        return true;
     }
 }
 
@@ -2808,11 +2807,12 @@ bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    return unix_timestamp(timestamp, ctz);
+    unix_timestamp(timestamp, ctz);
+    return true;
 }
 
 template <typename T>
-bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
+void DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
                                     const cctz::time_zone& ctz) const {
     DCHECK(is_datetime) << "Function unix_timestamp with double_t timestamp only support "
                            "datetimev2 value type.";
@@ -2824,9 +2824,7 @@ bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
                               ctz);
         timestamp->first = tp.time_since_epoch().count();
         timestamp->second = date_v2_value_.microsecond_;
-    } else { // just make compiler happy
     }
-    return true;
 }
 
 template <typename T>
