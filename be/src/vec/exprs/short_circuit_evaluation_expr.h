@@ -83,4 +83,18 @@ private:
     inline static const std::string COALESCE_NAME = "coalesce";
 };
 
+class ShortCircuitCaseExpr final : public ShortCircuitExpr {
+public:
+    ENABLE_FACTORY_CREATOR(ShortCircuitCaseExpr);
+    ShortCircuitCaseExpr(const TExprNode& node);
+    ~ShortCircuitCaseExpr() override = default;
+    const std::string& expr_name() const override { return CASE_NAME; }
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
+
+private:
+    bool _has_else_expr;
+    inline static const std::string CASE_NAME = "case";
+};
+
 } // namespace doris::vectorized

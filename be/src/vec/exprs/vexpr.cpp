@@ -528,7 +528,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             if (!expr_node.__isset.case_expr) {
                 return Status::InternalError("Case expression not set in thrift node");
             }
-            expr = VCaseExpr::create_shared(expr_node);
+            expr = ShortCircuitCaseExpr::create_shared(expr_node);
             break;
         }
         case TExprNodeType::INFO_FUNC: {

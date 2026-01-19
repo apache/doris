@@ -17,6 +17,8 @@
 
 #include "short_circuit_evaluation_expr.h"
 
+#include <gen_cpp/Exprs_types.h>
+
 #include <optional>
 #include <sstream>
 #include <string>
@@ -300,6 +302,142 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
 
     // 最后剩下的null行
     columns_and_selectors.back().selector.swap(left_null_selector);
+
+    auto vec_exec = [&](const auto& type) -> bool {
+        using DataType = std::decay_t<decltype(type)>;
+        result_column = ScalarFillWithSelector<DataType::PType>::fill(_data_type,
+                                                                      columns_and_selectors, count);
+        return true;
+    };
+
+    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), vec_exec)) {
+        result_column = NonScalarFillWithSelector::fill(_data_type, columns_and_selectors, count);
+    }
+
+    return Status::OK();
+}
+
+ShortCircuitCaseExpr::ShortCircuitCaseExpr(const TExprNode& node)
+        : ShortCircuitExpr(node), _has_else_expr(node.case_expr.has_else_expr) {}
+
+void execute_case_when_selector(const ColumnPtr& when_column, const Selector* when_selector,
+                                size_t count, Selector& matched_selector,
+                                Selector& not_matched_selector) {
+    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(when_column.get())) {
+        const auto& null_map = column_nullable->get_null_map_data();
+        const auto& nested_column = column_nullable->get_nested_column_ptr();
+        const auto* column_uint8 = assert_cast<const ColumnBool*>(nested_column.get());
+        const auto& boolean_data = column_uint8->get_data();
+        if (when_selector == nullptr) {
+            for (size_t i = 0; i < count; ++i) {
+                if (null_map[i]) {
+                    not_matched_selector.push_back(i);
+                } else {
+                    if (boolean_data[i]) {
+                        matched_selector.push_back(i);
+                    } else {
+                        not_matched_selector.push_back(i);
+                    }
+                }
+            }
+        } else {
+            DCHECK_EQ(when_selector->size(), count);
+            for (size_t i = 0; i < when_selector->size(); ++i) {
+                auto result_index = (*when_selector)[i];
+                if (null_map[i]) {
+                    not_matched_selector.push_back(result_index);
+                } else {
+                    if (boolean_data[i]) {
+                        matched_selector.push_back(result_index);
+                    } else {
+                        not_matched_selector.push_back(result_index);
+                    }
+                }
+            }
+        }
+    } else {
+        const auto* column_uint8 = assert_cast<const ColumnBool*>(when_column.get());
+        const auto& boolean_data = column_uint8->get_data();
+        if (when_selector == nullptr) {
+            for (size_t i = 0; i < count; ++i) {
+                if (boolean_data[i]) {
+                    matched_selector.push_back(i);
+                } else {
+                    not_matched_selector.push_back(i);
+                }
+            }
+        } else {
+            DCHECK_EQ(when_selector->size(), count);
+            for (size_t i = 0; i < when_selector->size(); ++i) {
+                auto result_index = (*when_selector)[i];
+                if (boolean_data[i]) {
+                    matched_selector.push_back(result_index);
+                } else {
+                    not_matched_selector.push_back(result_index);
+                }
+            }
+        }
+    }
+}
+
+Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* block,
+                                            Selector* selector, size_t count,
+                                            ColumnPtr& result_column) const {
+    DCHECK(_open_finished || block == nullptr) << debug_string();
+    DCHECK(selector == nullptr || selector->size() == count);
+
+    std::vector<ColumnAndSelector> columns_and_selectors;     // 存储每个then列和对应的selector
+    columns_and_selectors.resize((_children.size()) / 2 + 1); //
+
+    Selector* current_selector = selector;
+    size_t current_count = count;
+
+    Selector left_not_matched_selector; // 用来存储还剩下的没有匹配的行
+
+    for (int i = 0; i < _children.size() - _has_else_expr; i += 2) {
+        ColumnPtr when_column_ptr;
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, current_selector,
+                                                     current_count, when_column_ptr));
+
+        when_column_ptr = when_column_ptr->convert_to_full_column_if_const();
+
+        DCHECK(current_selector == nullptr || current_selector->size() == when_column_ptr->size());
+
+        Selector not_matched_selector;
+
+        execute_case_when_selector(when_column_ptr, current_selector, current_count,
+                                   columns_and_selectors[i / 2].selector /*matched selector*/,
+                                   not_matched_selector /*not matched selector*/);
+
+        auto& then_column_ptr = columns_and_selectors[i / 2].column;
+
+        auto& then_selector = columns_and_selectors[i / 2].selector;
+
+        RETURN_IF_ERROR(_children[i + 1]->execute_column(context, block, &then_selector,
+                                                         then_selector.size(), then_column_ptr));
+
+        DCHECK_EQ(columns_and_selectors[i / 2].column->size(),
+                  columns_and_selectors[i / 2].selector.size());
+
+        left_not_matched_selector.swap(not_matched_selector);
+        // 下一个列需要处理的行，是当前的列的not matched行
+        current_selector = &left_not_matched_selector;
+        current_count = left_not_matched_selector.size();
+    }
+
+    // 处理else分支
+    if (_has_else_expr) {
+        DCHECK_EQ(columns_and_selectors.size(), (_children.size() + 1) / 2);
+
+        ColumnPtr else_column_ptr;
+        RETURN_IF_ERROR(_children.back()->execute_column(context, block, current_selector,
+                                                         current_count, else_column_ptr));
+        columns_and_selectors.back().column = else_column_ptr;
+        columns_and_selectors.back().selector.swap(left_not_matched_selector);
+    } else {
+        // 没有else分支，剩下的行全部是null
+        columns_and_selectors.back().selector.swap(left_not_matched_selector);
+    }
 
     auto vec_exec = [&](const auto& type) -> bool {
         using DataType = std::decay_t<decltype(type)>;
