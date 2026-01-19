@@ -115,6 +115,7 @@ services:
       - MINIO_DOMAIN=minio
     volumes:
       - ./data/input/minio_data:/data
+      - ./scripts/preinstalled_data/:/mnt/preinstalled_data
     networks:
       doris--iceberg:
         aliases:
@@ -145,6 +146,7 @@ services:
         /usr/bin/mc mb minio/warehouse;
         /usr/bin/mc policy set public minio/warehouse;
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
+        /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/
       fi
       "
 

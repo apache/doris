@@ -523,11 +523,12 @@ Status IcebergParquetReader::init_reader(
                 if (!read_col_name_set.contains(table_column_name)) {
                     continue;
                 }
-                if (table_field.field_ptr->__isset.name_mapping ||
+                if (!table_field.field_ptr->__isset.name_mapping ||
                     table_field.field_ptr->name_mapping.size() == 0) {
                     return Status::DataQualityError(
                             "name_mapping must be set when read missing field id data file.");
                 }
+                bool have_mapping = false;
                 for (const auto& mapped_name : table_field.field_ptr->name_mapping) {
                     if (file_column_idx_map.contains(mapped_name)) {
                         std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
@@ -537,9 +538,12 @@ Status IcebergParquetReader::init_reader(
                                 *table_field.field_ptr, *file_field, exist_field_id, field_node));
                         table_info_node_ptr->add_children(table_column_name, file_field->name,
                                                           field_node);
-                    } else {
-                        table_info_node_ptr->add_not_exist_children(table_column_name);
+                        have_mapping = true;
+                        break;
                     }
+                }
+                if (!have_mapping) {
+                    table_info_node_ptr->add_not_exist_children(table_column_name);
                 }
             }
         }
@@ -778,11 +782,12 @@ Status IcebergOrcReader::init_reader(
                 if (!read_col_name_set.contains(table_column_name)) {
                     continue;
                 }
-                if (table_field.field_ptr->__isset.name_mapping ||
+                if (!table_field.field_ptr->__isset.name_mapping ||
                     table_field.field_ptr->name_mapping.size() == 0) {
                     return Status::DataQualityError(
                             "name_mapping must be set when read missing field id data file.");
                 }
+                auto have_mapping = false;
                 for (const auto& mapped_name : table_field.field_ptr->name_mapping) {
                     if (file_column_idx_map.contains(mapped_name)) {
                         auto file_column_idx = file_column_idx_map.at(mapped_name);
@@ -794,9 +799,12 @@ Status IcebergOrcReader::init_reader(
                         table_info_node_ptr->add_children(
                                 table_column_name,
                                 _data_file_type_desc->getFieldName(file_column_idx), field_node);
-                    } else {
-                        table_info_node_ptr->add_not_exist_children(table_column_name);
+                        have_mapping = true;
+                        break;
                     }
+                }
+                if (!have_mapping) {
+                    table_info_node_ptr->add_not_exist_children(table_column_name);
                 }
             }
         }
