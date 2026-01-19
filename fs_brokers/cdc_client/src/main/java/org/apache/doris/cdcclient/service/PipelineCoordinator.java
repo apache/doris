@@ -281,7 +281,7 @@ public class PipelineCoordinator {
             Struct s = (Struct) element.value();
             Struct after = s.getStruct("after");
             if (after != null) {
-                tmp = String.valueOf(after.get("age"));
+                tmp = String.valueOf(after.get("l_comment"));
             } else {
                 tmp = "NPE";
             }
