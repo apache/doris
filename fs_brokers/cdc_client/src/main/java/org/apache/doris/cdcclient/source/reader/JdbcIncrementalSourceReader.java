@@ -279,7 +279,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     private Tuple2<SourceSplitBase, Boolean> createStreamSplit(
             Map<String, Object> meta, JobBaseConfig config) {
         BinlogSplit streamSplit = objectMapper.convertValue(meta, BinlogSplit.class);
-        LOG.info("Create stream split from offset: {}", streamSplit.toString());
+        LOG.info("Create stream split from offset: {}", streamSplit.getStartingOffset());
         List<FinishedSnapshotSplitInfo> finishedSnapshotSplitInfos = new ArrayList<>();
         Offset minOffsetFinishSplits = null;
         Offset maxOffsetFinishSplits = null;

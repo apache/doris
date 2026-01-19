@@ -99,6 +99,7 @@ public class PipelineCoordinator {
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
                 SourceRecord element = iterator.next();
+                testLog(element);
                 List<String> serializedRecords =
                         sourceReader.deserialize(fetchRecord.getConfig(), element);
                 if (!CollectionUtils.isEmpty(serializedRecords)) {
@@ -202,6 +203,7 @@ public class PipelineCoordinator {
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
             while (iterator != null && iterator.hasNext()) {
                 SourceRecord element = iterator.next();
+                testLog(element);
                 List<String> serializedRecords =
                         sourceReader.deserialize(writeRecordRequest.getConfig(), element);
 
@@ -271,6 +273,22 @@ public class PipelineCoordinator {
         } finally {
             batchStreamLoad.resetTaskId();
         }
+    }
+
+    private void testLog(SourceRecord element) {
+        String tmp = "";
+        try {
+            Struct s = (Struct) element.value();
+            Struct after = s.getStruct("after");
+            if (after != null) {
+                tmp = String.valueOf(after.get("age"));
+            } else {
+                tmp = "NPE";
+            }
+        } catch (Exception ex) {
+            LOG.warn("test log exception: {}", ex.getMessage());
+        }
+        LOG.info("Processing record offset: {}, comment is {}", element.sourceOffset(), tmp);
     }
 
     private DorisBatchStreamLoad getOrCreateBatchStreamLoad(Long jobId, String targetDb) {
