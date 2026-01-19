@@ -746,7 +746,7 @@ public class Memo {
 
         ImmutableList.Builder<Plan> groupPlanChildren = ImmutableList.builderWithExpectedSize(childrenGroups.size());
         for (Group childrenGroup : childrenGroups) {
-            groupPlanChildren.add(new GroupPlan(childrenGroup));
+            groupPlanChildren.add(childrenGroup.getGroupPlan());
         }
         return plan.withChildren(groupPlanChildren.build());
     }

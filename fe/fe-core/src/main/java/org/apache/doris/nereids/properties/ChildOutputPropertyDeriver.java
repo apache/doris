@@ -76,6 +76,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -101,7 +102,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     public PhysicalProperties getOutputProperties(ConnectContext connectContext, GroupExpression groupExpression) {
-        return groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
+        return groupExpression.getPlan().accept(this,
+                new PlanContext(connectContext, groupExpression, Collections.emptyList()));
     }
 
     @Override

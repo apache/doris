@@ -2391,6 +2391,8 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::abort_txn_after_mark_txn_commited");
+
         TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::txn_lazy_committer_submit",
                                          &txn_id);
         std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer_->submit(instance_id, txn_id);
@@ -3131,6 +3133,12 @@ void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request, 
         if (return_txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
             code = MetaServiceCode::TXN_ALREADY_VISIBLE;
             ss << "transaction [" << txn_id << "] is already VISIBLE, db_id=" << db_id;
+            msg = ss.str();
+            return;
+        }
+        if (return_txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+            code = MetaServiceCode::TXN_ALREADY_COMMITED;
+            ss << "transaction [" << txn_id << "] is already COMMITED, db_id=" << db_id;
             msg = ss.str();
             return;
         }
@@ -3894,6 +3902,91 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
             return;
         }
     }
+}
+
+void MetaServiceImpl::get_prepare_txn_by_coordinator(
+        ::google::protobuf::RpcController* controller,
+        const GetPrepareTxnByCoordinatorRequest* request,
+        GetPrepareTxnByCoordinatorResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_prepare_txn_by_coordinator, get);
+    if (!request->has_id() || !request->has_ip()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid coordinate id or coordinate ip.";
+        return;
+    }
+    // TODO: For auth
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "cannot find instance_id with cloud_unique_id="
+           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
+        msg = ss.str();
+        return;
+    }
+    RPC_RATE_LIMIT(get_prepare_txn_by_coordinator);
+    std::string begin_info_key = txn_info_key({instance_id, 0, 0});
+    std::string end_info_key = txn_info_key({instance_id, INT64_MAX, INT64_MAX});
+    LOG(INFO) << "begin_info_key:" << hex(begin_info_key) << " end_info_key:" << hex(end_info_key);
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        msg = "failed to create txn";
+        code = cast_as<ErrCategory::CREATE>(err);
+        return;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    int32_t result_count = 0;
+    int64_t total_iteration_cnt = 0;
+    bool has_start_time_filter = request->has_start_time();
+
+    do {
+        err = txn->get(begin_info_key, end_info_key, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get txn info. err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        while (it->has_next()) {
+            total_iteration_cnt++;
+            auto [k, v] = it->next();
+            VLOG_DEBUG << "check txn info txn_info_key=" << hex(k);
+            TxnInfoPB info_pb;
+            if (!info_pb.ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "malformed txn running info";
+                msg = ss.str();
+                ss << " key=" << hex(k);
+                LOG(WARNING) << ss.str();
+                return;
+            }
+            const auto& coordinate = info_pb.coordinator();
+            bool matches = info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
+                           coordinate.sourcetype() == TXN_SOURCE_TYPE_BE &&
+                           coordinate.ip() == request->ip() &&
+                           (coordinate.id() == 0 || coordinate.id() == request->id());
+            if (matches && has_start_time_filter) {
+                matches = coordinate.start_time() < request->start_time();
+            }
+
+            if (matches) {
+                TxnInfoPB* txn_info = response->add_txn_infos();
+                txn_info->CopyFrom(info_pb);
+                result_count++;
+            }
+
+            if (!it->has_next()) {
+                begin_info_key = k;
+            }
+        }
+        begin_info_key.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+
+    LOG(INFO) << "get_prepare_txn_by_coordinator: found " << result_count << " transactions"
+              << " total iteration count: " << total_iteration_cnt;
 }
 
 std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_key) {

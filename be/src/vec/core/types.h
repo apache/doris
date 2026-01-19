@@ -105,11 +105,6 @@ inline constexpr bool IsNumber<Int128> = true;
 template <>
 inline constexpr bool IsNumber<wide::Int256> = true;
 
-using Date = Int64;
-using DateTime = Int64;
-using DateV2 = UInt32;
-using DateTimeV2 = UInt64;
-
 template <typename T>
 inline constexpr T decimal_scale_multiplier(UInt32 scale);
 template <>
