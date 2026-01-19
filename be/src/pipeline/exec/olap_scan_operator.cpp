@@ -899,23 +899,23 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                 // For scope value range, all predicates of LT/LE/GT/GE type could be removed.
                                 // For fixed value range, all predicates of EQ/NE/IN_LIST/NOT_IN_LIST type could be removed.
                                 std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
-                                if (range.is_scope_value_range()) {
-                                    for (const auto& it : _slot_id_to_predicates[key]) {
-                                        if (it->type() == PredicateType::LT ||
-                                            it->type() == PredicateType::LE ||
-                                            it->type() == PredicateType::GT ||
-                                            it->type() == PredicateType::GE) {
-                                            continue;
-                                        } else {
-                                            new_predicates.push_back(it);
-                                        }
-                                    }
-                                } else if (range.is_fixed_value_range()) {
+                                if (range.is_fixed_value_range()) {
                                     for (const auto& it : _slot_id_to_predicates[key]) {
                                         if (it->type() == PredicateType::EQ ||
                                             it->type() == PredicateType::NE ||
                                             it->type() == PredicateType::IN_LIST ||
                                             it->type() == PredicateType::NOT_IN_LIST) {
+                                            continue;
+                                        } else {
+                                            new_predicates.push_back(it);
+                                        }
+                                    }
+                                } else if (range.is_scope_value_range()) {
+                                    for (const auto& it : _slot_id_to_predicates[key]) {
+                                        if (it->type() == PredicateType::LT ||
+                                            it->type() == PredicateType::LE ||
+                                            it->type() == PredicateType::GT ||
+                                            it->type() == PredicateType::GE) {
                                             continue;
                                         } else {
                                             new_predicates.push_back(it);
