@@ -648,6 +648,10 @@ public:
     bool has_doc_value_column(size_t n) const;
 
 private:
+    size_t dense_subcolumn_count() const;
+    bool sparse_has_data() const;
+    void recompute_path_counters();
+
     // May throw execption
     void try_insert(const Field& field);
 

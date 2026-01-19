@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <set>
 
 #include "common/cast_set.h"
 #include "runtime/define_primitive_type.h"
@@ -504,6 +505,17 @@ std::string convert_field_to_string(doris::vectorized::Field array) {
     return std::string(buffer.GetString());
 }
 
+static std::set<std::string> collect_sparse_paths(const ColumnVariant& variant) {
+    auto sparse_pair = variant.get_sparse_data_paths_and_values();
+    const auto* sparse_paths = sparse_pair.first;
+    std::set<std::string> paths;
+    for (size_t i = 0; i < sparse_paths->size(); ++i) {
+        const auto path_ref = sparse_paths->get_data_at(i);
+        paths.emplace(path_ref.data, path_ref.size);
+    }
+    return paths;
+}
+
 TEST_F(ColumnVariantTest, is_null_at) {
     auto v = VariantUtil::construct_dst_varint_column();
     PathInData path("v.f");
@@ -625,6 +637,63 @@ TEST_F(ColumnVariantTest, advanced_deserialize) {
                   convert_field_to_string(get_jsonb_field("array_str")));
         EXPECT_EQ(start, end);
     }
+}
+
+TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_increase) {
+    auto variant = VariantUtil::construct_advanced_varint_column();
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
+    ASSERT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
+    EXPECT_EQ(variant->subcolumns.size(), 6);
+
+    EXPECT_TRUE(variant->adjust_max_subcolumns_count(7).ok());
+    EXPECT_EQ(variant->max_subcolumns_count(), 7);
+    EXPECT_EQ(variant->subcolumns.size(), 8);
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("v.b.d")));
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("v.c.d")));
+    EXPECT_FALSE(variant->has_subcolumn(PathInData("v.d.d")));
+
+    auto sparse_paths = collect_sparse_paths(*variant);
+    EXPECT_EQ(sparse_paths.size(), 1);
+    EXPECT_TRUE(sparse_paths.count("v.d.d") > 0);
+}
+
+TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_decrease) {
+    auto variant = VariantUtil::construct_advanced_varint_column();
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
+    ASSERT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
+
+    EXPECT_TRUE(variant->adjust_max_subcolumns_count(3).ok());
+    EXPECT_EQ(variant->max_subcolumns_count(), 3);
+    EXPECT_EQ(variant->subcolumns.size(), 4);
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("v.a")));
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("v.b")));
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("v.c")));
+    EXPECT_FALSE(variant->has_subcolumn(PathInData("v.e")));
+    EXPECT_FALSE(variant->has_subcolumn(PathInData("v.f")));
+    EXPECT_FALSE(variant->has_subcolumn(PathInData("v.b.d")));
+
+    auto sparse_paths = collect_sparse_paths(*variant);
+    EXPECT_TRUE(sparse_paths.count("v.e") > 0);
+    EXPECT_TRUE(sparse_paths.count("v.f") > 0);
+    EXPECT_TRUE(sparse_paths.count("v.b.d") > 0);
+    EXPECT_TRUE(sparse_paths.count("v.c.d") > 0);
+    EXPECT_TRUE(sparse_paths.count("v.d.d") > 0);
+}
+
+TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_to_zero) {
+    auto variant = VariantUtil::construct_advanced_varint_column();
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
+    ASSERT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
+
+    EXPECT_TRUE(variant->adjust_max_subcolumns_count(0).ok());
+    EXPECT_EQ(variant->max_subcolumns_count(), 0);
+    EXPECT_EQ(variant->subcolumns.size(), 9);
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("v.d.d")));
+
+    auto sparse_paths = collect_sparse_paths(*variant);
+    EXPECT_TRUE(sparse_paths.empty());
+    const auto& offsets = variant->serialized_sparse_column_offsets();
+    EXPECT_EQ(offsets[variant->size() - 1], 0);
 }
 
 TEST_F(ColumnVariantTest, advanced_insert_range_from) {

@@ -2140,12 +2140,331 @@ void ColumnVariant::clear_subcolumns_data() {
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
+size_t ColumnVariant::dense_subcolumn_count() const {
+    if (subcolumns.empty()) {
+        return 0;
+    }
+    size_t total = subcolumns.size();
+    size_t excluded = 1 + typed_path_count + nested_path_count;
+    if (total <= excluded) {
+        return 0;
+    }
+    return total - excluded;
+}
+
+bool ColumnVariant::sparse_has_data() const {
+    if (num_rows == 0) {
+        return false;
+    }
+    const auto& offsets = serialized_sparse_column_offsets();
+    return offsets[num_rows - 1] != 0;
+}
+
+void ColumnVariant::recompute_path_counters() {
+    typed_path_count = 0;
+    nested_path_count = 0;
+    for (const auto& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
+        if (entry->path.get_is_typed()) {
+            ++typed_path_count;
+        }
+        if (entry->path.has_nested_part()) {
+            ++nested_path_count;
+        }
+    }
+}
+
 Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
     if (target_max < 0) {
         return Status::InvalidArgument("variant_max_subcolumns_count must be non-negative");
     }
-    // Stage 1: only update the limit; layout adjustment follows in later phases.
+    if (!is_finalized()) {
+        finalize(FinalizeMode::READ_MODE);
+    }
+    recompute_path_counters();
+    if (num_rows == 0) {
+        set_max_subcolumns_count(target_max);
+        return Status::OK();
+    }
+
+    const size_t current_dense = dense_subcolumn_count();
+    const bool has_sparse = sparse_has_data();
+    const size_t target_limit = target_max == 0 ? std::numeric_limits<size_t>::max()
+                                                : static_cast<size_t>(target_max);
+
+    if (target_max == 0 && !has_sparse) {
+        set_max_subcolumns_count(target_max);
+        return Status::OK();
+    }
+
+    if (target_limit == current_dense) {
+        set_max_subcolumns_count(target_max);
+        return Status::OK();
+    }
+
+    if (target_limit > current_dense) {
+        if (!has_sparse) {
+            set_max_subcolumns_count(target_max);
+            return Status::OK();
+        }
+
+        std::unordered_set<std::string_view> dense_paths;
+        dense_paths.reserve(subcolumns.size());
+        for (const auto& entry : subcolumns) {
+            if (entry->data.is_root) {
+                continue;
+            }
+            dense_paths.emplace(entry->path.get_path());
+        }
+
+        std::unordered_map<std::string, size_t> sparse_path_counts;
+        auto [sparse_paths, sparse_values] = get_sparse_data_paths_and_values();
+        sparse_path_counts.reserve(sparse_paths->size());
+        for (size_t i = 0; i < sparse_paths->size(); ++i) {
+            auto path_ref = sparse_paths->get_data_at(i);
+            std::string_view path_view(path_ref.data, path_ref.size);
+            if (dense_paths.find(path_view) != dense_paths.end()) {
+                continue;
+            }
+            ++sparse_path_counts[std::string(path_view)];
+        }
+
+        if (sparse_path_counts.empty()) {
+            set_max_subcolumns_count(target_max);
+            return Status::OK();
+        }
+
+        std::vector<std::pair<std::string, size_t>> sorted_sparse_paths;
+        sorted_sparse_paths.reserve(sparse_path_counts.size());
+        for (const auto& [path, count] : sparse_path_counts) {
+            sorted_sparse_paths.emplace_back(path, count);
+        }
+        std::sort(sorted_sparse_paths.begin(), sorted_sparse_paths.end(),
+                  [](const auto& a, const auto& b) {
+                      if (a.second != b.second) {
+                          return a.second > b.second;
+                      }
+                      return a.first < b.first;
+                  });
+
+        size_t materialize_count = 0;
+        if (target_max == 0) {
+            materialize_count = sorted_sparse_paths.size();
+        } else {
+            materialize_count = std::min<size_t>(target_limit - current_dense,
+                                                 sorted_sparse_paths.size());
+        }
+        if (materialize_count == 0) {
+            set_max_subcolumns_count(target_max);
+            return Status::OK();
+        }
+
+        std::vector<std::string> materialize_paths;
+        materialize_paths.reserve(materialize_count);
+        for (size_t i = 0; i < materialize_count; ++i) {
+            materialize_paths.emplace_back(sorted_sparse_paths[i].first);
+        }
+
+        std::unordered_set<std::string_view> materialize_set;
+        materialize_set.reserve(materialize_paths.size());
+        for (const auto& path : materialize_paths) {
+            materialize_set.emplace(path);
+        }
+
+        Subcolumns new_subcolumns;
+        auto* root = subcolumns.get_mutable_root();
+        if (root == nullptr) {
+            return Status::InternalError("variant root subcolumn is missing");
+        }
+        new_subcolumns.create_root(root->data);
+        for (const auto& entry : subcolumns) {
+            if (entry->data.is_root) {
+                continue;
+            }
+            if (!new_subcolumns.add(entry->path, entry->data)) {
+                return Status::InternalError("duplicate subcolumn {}", entry->path.get_path());
+            }
+        }
+
+        ColumnPtr sparse_column = serialized_sparse_column->get_ptr();
+        for (const auto& path : materialize_paths) {
+            Subcolumn subcolumn(0, is_nullable);
+            ColumnVariant::fill_path_column_from_sparse_data(
+                    subcolumn, nullptr, StringRef {path.data(), path.size()}, sparse_column, 0,
+                    num_rows);
+            subcolumn.finalize();
+            if (!new_subcolumns.add(PathInData(path), subcolumn)) {
+                return Status::InternalError("duplicate subcolumn {}", path);
+            }
+        }
+
+        auto new_sparse = ColumnMap::create(ColumnString::create(), ColumnString::create(),
+                                            ColumnArray::ColumnOffsets::create());
+        auto& new_map = assert_cast<ColumnMap&>(*new_sparse);
+        auto& new_offsets = new_map.get_offsets();
+        auto& new_keys = assert_cast<ColumnString&>(new_map.get_keys());
+        auto& new_values = assert_cast<ColumnString&>(new_map.get_values());
+
+        const auto& old_offsets = serialized_sparse_column_offsets();
+        const auto& old_keys = *sparse_paths;
+        const auto& old_values = *sparse_values;
+        new_offsets.reserve(num_rows);
+        for (size_t row = 0; row < num_rows; ++row) {
+            size_t offset = old_offsets[static_cast<ssize_t>(row) - 1];
+            size_t end = old_offsets[static_cast<ssize_t>(row)];
+            for (size_t i = offset; i != end; ++i) {
+                auto path_ref = old_keys.get_data_at(i);
+                std::string_view path_view(path_ref.data, path_ref.size);
+                if (materialize_set.find(path_view) != materialize_set.end()) {
+                    continue;
+                }
+                new_keys.insert_from(old_keys, i);
+                new_values.insert_from(old_values, i);
+            }
+            new_offsets.push_back(new_keys.size());
+        }
+
+        serialized_sparse_column = std::move(new_sparse);
+        std::swap(subcolumns, new_subcolumns);
+        _prev_positions.clear();
+        recompute_path_counters();
+        set_max_subcolumns_count(target_max);
+        ENABLE_CHECK_CONSISTENCY(this);
+        return Status::OK();
+    }
+
+    // target_limit < current_dense: demote dense subcolumns to sparse
+    std::unordered_map<std::string_view, size_t> non_null_sizes;
+    non_null_sizes.reserve(subcolumns.size());
+    for (const auto& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
+        if (entry->path.get_is_typed() || entry->path.has_nested_part()) {
+            continue;
+        }
+        size_t size = entry->data.get_non_null_value_size();
+        if (size == 0) {
+            continue;
+        }
+        non_null_sizes[entry->path.get_path()] = size;
+    }
+
+    std::vector<std::pair<std::string_view, size_t>> sorted_by_size(non_null_sizes.begin(),
+                                                                    non_null_sizes.end());
+    std::sort(sorted_by_size.begin(), sorted_by_size.end(),
+              [](const auto& a, const auto& b) {
+                  if (a.second != b.second) {
+                      return a.second > b.second;
+                  }
+                  return a.first < b.first;
+              });
+
+    size_t keep_dynamic = std::min<size_t>(target_limit, sorted_by_size.size());
+    std::unordered_set<std::string_view> selected_paths;
+    selected_paths.reserve(keep_dynamic);
+    for (size_t i = 0; i < keep_dynamic; ++i) {
+        selected_paths.emplace(sorted_by_size[i].first);
+    }
+
+    Subcolumns new_subcolumns;
+    auto* root = subcolumns.get_mutable_root();
+    if (root == nullptr) {
+        return Status::InternalError("variant root subcolumn is missing");
+    }
+    new_subcolumns.create_root(root->data);
+
+    std::vector<std::pair<std::string, Subcolumn>> demoted_subcolumns;
+    for (const auto& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
+        const auto& path = entry->path.get_path();
+        if (entry->path.get_is_typed() || entry->path.has_nested_part()) {
+            if (!new_subcolumns.add(entry->path, entry->data)) {
+                return Status::InternalError("duplicate subcolumn {}", path);
+            }
+            continue;
+        }
+        if (selected_paths.find(path) != selected_paths.end()) {
+            if (!new_subcolumns.add(entry->path, entry->data)) {
+                return Status::InternalError("duplicate subcolumn {}", path);
+            }
+            continue;
+        }
+        if (non_null_sizes.find(path) == non_null_sizes.end()) {
+            continue;
+        }
+        demoted_subcolumns.emplace_back(std::string(path), entry->data);
+    }
+
+    if (!demoted_subcolumns.empty()) {
+        std::sort(demoted_subcolumns.begin(), demoted_subcolumns.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+
+        auto new_sparse = ColumnMap::create(ColumnString::create(), ColumnString::create(),
+                                            ColumnArray::ColumnOffsets::create());
+        auto& new_map = assert_cast<ColumnMap&>(*new_sparse);
+        auto& new_offsets = new_map.get_offsets();
+        auto& new_keys = assert_cast<ColumnString&>(new_map.get_keys());
+        auto& new_values = assert_cast<ColumnString&>(new_map.get_values());
+
+        const auto& old_offsets = serialized_sparse_column_offsets();
+        const auto& [old_keys_ptr, old_values_ptr] = get_sparse_data_paths_and_values();
+        const auto& old_keys = *old_keys_ptr;
+        const auto& old_values = *old_values_ptr;
+        new_offsets.reserve(num_rows);
+        for (size_t row = 0; row < num_rows; ++row) {
+            size_t offset = old_offsets[static_cast<ssize_t>(row) - 1];
+            size_t end = old_offsets[static_cast<ssize_t>(row)];
+
+            size_t demoted_idx = 0;
+            while (offset < end || demoted_idx < demoted_subcolumns.size()) {
+                if (offset >= end) {
+                    auto& demoted = demoted_subcolumns[demoted_idx++];
+                    demoted.second.serialize_to_sparse_column(&new_keys, demoted.first, &new_values,
+                                                              row);
+                    continue;
+                }
+                if (demoted_idx >= demoted_subcolumns.size()) {
+                    new_keys.insert_from(old_keys, offset);
+                    new_values.insert_from(old_values, offset);
+                    ++offset;
+                    continue;
+                }
+
+                auto& demoted = demoted_subcolumns[demoted_idx];
+                const auto old_path_ref = old_keys.get_data_at(offset);
+                const std::string_view old_path_view(old_path_ref.data, old_path_ref.size);
+                const std::string_view demoted_path_view(demoted.first);
+                if (demoted_path_view < old_path_view) {
+                    demoted.second.serialize_to_sparse_column(&new_keys, demoted_path_view,
+                                                              &new_values, row);
+                    ++demoted_idx;
+                } else if (demoted_path_view > old_path_view) {
+                    new_keys.insert_from(old_keys, offset);
+                    new_values.insert_from(old_values, offset);
+                    ++offset;
+                } else {
+                    demoted.second.serialize_to_sparse_column(&new_keys, demoted_path_view,
+                                                              &new_values, row);
+                    ++demoted_idx;
+                    ++offset;
+                }
+            }
+            new_offsets.push_back(new_keys.size());
+        }
+
+        serialized_sparse_column = std::move(new_sparse);
+    }
+
+    std::swap(subcolumns, new_subcolumns);
+    _prev_positions.clear();
+    recompute_path_counters();
     set_max_subcolumns_count(target_max);
+    ENABLE_CHECK_CONSISTENCY(this);
     return Status::OK();
 }
 
