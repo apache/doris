@@ -302,7 +302,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
 
-    public static final String ENABLE_LEFT_SEMI_DIRECT_RETRUN_OPT = "enable_left_semi_direct_return_opt";
+    public static final String ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT = "enable_left_semi_direct_return_opt";
 
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
