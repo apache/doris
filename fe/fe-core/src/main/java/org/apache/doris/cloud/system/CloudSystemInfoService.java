@@ -34,14 +34,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -803,13 +800,12 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (Strings.isNullOrEmpty(cluster)) {
                 throw new AnalysisException("cluster name is empty");
             }
-            waitForAutoStart(cluster);
 
             List<Backend> backends =  getBackendsByClusterName(cluster);
             for (Backend be : backends) {
                 idToBackend.put(be.getId(), be);
             }
-        } catch (ComputeGroupException | DdlException e) {
+        } catch (ComputeGroupException e) {
             throw new AnalysisException(e.getMessage());
         }
 
@@ -1480,29 +1476,11 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
         // wait 5 mins
         int retryTimes = Config.auto_start_wait_to_resume_times < 0 ? 300 : Config.auto_start_wait_to_resume_times;
-        String finalClusterName = clusterName;
-        withTemporaryNereidsTimeout(() -> {
-            waitForClusterToResume(finalClusterName, retryTimes, clusterStatus);
-        });
-        return clusterName;
-    }
-
-    /**
-     * Wait for cluster to resume to NORMAL status with alive backends.
-     * @param clusterName the name of the cluster
-     * @param retryTimes maximum number of retry attempts
-     * @param initialClusterStatus the initial cluster status
-     * @throws DdlException if the cluster fails to resume within the retry limit
-     */
-    private void waitForClusterToResume(String clusterName, int retryTimes, String initialClusterStatus)
-            throws DdlException {
         int retryTime = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         boolean hasAutoStart = false;
         boolean existAliveBe = true;
-        String clusterStatus = initialClusterStatus;
-
         while ((!String.valueOf(Cloud.ClusterStatus.NORMAL).equals(clusterStatus) || !existAliveBe)
             && retryTime < retryTimes) {
             hasAutoStart = true;
@@ -1535,46 +1513,8 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (hasAutoStart) {
             LOG.info("auto start cluster {}, start cost {} ms", clusterName, stopWatch.getTime());
         }
+        return clusterName;
     }
-
-    /**
-     * Temporarily set nereids timeout and restore it after execution.
-     * @param runnable the code to execute with the temporary timeout
-     * @throws DdlException if the runnable throws DdlException
-     */
-    private void withTemporaryNereidsTimeout(RunnableWithException runnable) throws DdlException {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            runnable.run();
-            return;
-        }
-
-        SessionVariable sessionVariable = ctx.getSessionVariable();
-        if (!sessionVariable.enableNereidsTimeout) {
-            runnable.run();
-            return;
-        }
-
-        StmtExecutor executor = ctx.getExecutor();
-        if (executor == null) {
-            runnable.run();
-            return;
-        }
-
-        SummaryProfile profile = ctx.getExecutor().getSummaryProfile();
-        if (profile == null) {
-            runnable.run();
-            return;
-        }
-        profile.setWarmup(true);
-        runnable.run();
-    }
-
-    @FunctionalInterface
-    private interface RunnableWithException {
-        void run() throws DdlException;
-    }
-
 
     public void tryCreateInstance(String instanceId, String name, boolean sseEnabled) throws DdlException {
         Cloud.CreateInstanceRequest.Builder builder = Cloud.CreateInstanceRequest.newBuilder();

@@ -40,7 +40,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.StampedLock;
 import java.util.stream.Collectors;
 
@@ -68,25 +67,6 @@ public abstract class TabletInvertedIndex {
 
     protected long readLock() {
         return this.lock.readLock();
-    }
-
-    /**
-     * Try to acquire read lock with timeout to prevent deadlock.
-     * @param timeoutMs timeout in milliseconds
-     * @return stamp if lock acquired, 0 if timeout
-     */
-    private long readLockWithTimeout(long timeoutMs) {
-        try {
-            long stamp = this.lock.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS);
-            if (stamp == 0) {
-                LOG.warn("Failed to acquire read lock within {} ms, possible deadlock", timeoutMs);
-            }
-            return stamp;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("Interrupted while trying to acquire read lock", e);
-            return 0;
-        }
     }
 
     protected void readUnlock(long stamp) {

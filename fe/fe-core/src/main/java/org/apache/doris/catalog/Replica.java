@@ -175,7 +175,6 @@ public class Replica {
         return -1L;
     }
 
-    // just for ut
     public void setBackendId(long backendId) {
         if (backendId != -1) {
             throw new UnsupportedOperationException("setBackendId is not supported in Replica");
