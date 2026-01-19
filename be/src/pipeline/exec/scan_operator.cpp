@@ -291,7 +291,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     continue;
                 }
             } else { // All conjuncts are pushed down as predicate column
-                _stale_expr_ctxs.emplace_back(conjunct); // avoid function context and constant str being freed
+                _stale_expr_ctxs.emplace_back(
+                        conjunct); // avoid function context and constant str being freed
                 it = _conjuncts.erase(it);
                 continue;
             }
