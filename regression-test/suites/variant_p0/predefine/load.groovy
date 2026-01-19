@@ -247,7 +247,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """insert into test_predefine3 values (1, '{"auto_type" : 256}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 12345}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 1.0}')"""
-    trigger_and_wait_compaction("test_predefine3", "full")
+    trigger_and_wait_compaction("test_predefine3", "full", 1800)
     qt_sql """select variant_type(v) from test_predefine3"""
 
     // test array

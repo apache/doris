@@ -73,6 +73,24 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
+Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
+                                                              int& arrived_rf_num) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    std::unique_lock lock(_conjuncts_lock);
+    return _helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
+                                                          arrived_rf_num, _conjuncts);
+}
+
+Status ScanLocalStateBase::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    std::unique_lock lock(_conjuncts_lock);
+    scanner_conjuncts.resize(_conjuncts.size());
+    for (size_t i = 0; i != _conjuncts.size(); ++i) {
+        RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
+    }
+    return Status::OK();
+}
+
 int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
@@ -347,49 +365,63 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
         std::visit(
                 [&](auto& value_range) {
                     auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
-                    switch (expr->node_type()) {
-                    case TExprNodeType::IN_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_in_predicate(context, expr, slot,
-                                                        _slot_id_to_predicates[slot->id()],
-                                                        value_range, &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::BINARY_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_binary_predicate(context, expr, slot,
+                    {
+                        Defer attach_defer = [&]() {
+                            if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
+                                auto* rf_expr =
+                                        assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
+                                _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
+                                        rf_expr->filter_id(),
+                                        rf_expr->predicate_filtered_rows_counter(),
+                                        rf_expr->predicate_input_rows_counter(),
+                                        rf_expr->predicate_always_true_rows_counter());
+                            }
+                        };
+                        switch (expr->node_type()) {
+                        case TExprNodeType::IN_PRED:
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_in_predicate(context, expr, slot,
                                                             _slot_id_to_predicates[slot->id()],
                                                             value_range, &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::FUNCTION_CALL:
-                        if (expr->is_topn_filter()) {
-                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
-                                                        context, expr, slot,
+                                    status);
+                            break;
+                        case TExprNodeType::BINARY_PRED:
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_binary_predicate(context, expr, slot,
+                                                                _slot_id_to_predicates[slot->id()],
+                                                                value_range, &pdt),
+                                    status);
+                            break;
+                        case TExprNodeType::FUNCTION_CALL:
+                            if (expr->is_topn_filter()) {
+                                RETURN_IF_PUSH_DOWN(
+                                        _normalize_topn_filter(context, expr, slot,
+                                                               _slot_id_to_predicates[slot->id()],
+                                                               &pdt),
+                                        status);
+                            } else {
+                                RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
+                                                            context, expr, slot,
+                                                            _slot_id_to_predicates[slot->id()],
+                                                            value_range, &pdt),
+                                                    status);
+                            }
+                            break;
+                        case TExprNodeType::BITMAP_PRED:
+                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
+                                                        context, root, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
                                                 status);
-                        } else {
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_is_null_predicate(context, expr, slot,
-                                                                 _slot_id_to_predicates[slot->id()],
-                                                                 value_range, &pdt),
-                                    status);
-                        }
-                        break;
-                    case TExprNodeType::BITMAP_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_bitmap_filter(context, root, slot,
-                                                         _slot_id_to_predicates[slot->id()], &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::BLOOM_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_bloom_filter(context, root, slot,
+                            break;
+                        case TExprNodeType::BLOOM_PRED:
+                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
+                                                        context, root, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
-                                status);
-                        break;
-                    default:
-                        break;
+                                                status);
+                            break;
+                        default:
+                            break;
+                        }
                     }
                     // `node_type` of function filter is FUNCTION_CALL or COMPOUND_PRED
                     if (state()->enable_function_pushdown()) {
@@ -437,16 +469,11 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
     DCHECK(root->is_rf_wrapper());
     *pdt = _should_push_down_bloom_filter();
     if (*pdt != PushDownType::UNACCEPTABLE) {
-        auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
         pred = create_bloom_filter_predicate(
                 _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bloom_filter_func());
-        pred->attach_profile_counter(rf_expr->filter_id(),
-                                     rf_expr->predicate_filtered_rows_counter(),
-                                     rf_expr->predicate_input_rows_counter(),
-                                     rf_expr->predicate_always_true_rows_counter());
     }
     return Status::OK();
 }
@@ -492,16 +519,11 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
     if (*pdt != PushDownType::UNACCEPTABLE) {
         DCHECK(expr->get_num_children() == 1);
         DCHECK(root->is_rf_wrapper());
-        auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
         pred = create_bitmap_filter_predicate(
                 _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bitmap_filter_func());
-        pred->attach_profile_counter(rf_expr->filter_id(),
-                                     rf_expr->predicate_filtered_rows_counter(),
-                                     rf_expr->predicate_input_rows_counter(),
-                                     rf_expr->predicate_always_true_rows_counter());
     }
     return Status::OK();
 }
@@ -519,7 +541,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
         opposite = true;
     }
 
-    if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
+    if (fn_expr->is_like_expr()) {
         doris::FunctionContext* fn_ctx = nullptr;
         StringRef val;
         PushDownType temp_pdt;
@@ -969,14 +991,14 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
-                                                             p.output_row_descriptor(), scanners,
-                                                             p.limit(), _scan_dependency
+    _scanner_ctx.store(vectorized::ScannerContext::create_shared(
+            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            _scan_dependency
 #ifdef BE_TEST
-                                                             ,
-                                                             max_scanners_concurrency(state())
+            ,
+            max_scanners_concurrency(state())
 #endif
-    );
+                    ));
     return Status::OK();
 }
 

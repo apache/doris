@@ -160,7 +160,7 @@ public:
 
     RuntimeState* runtime_state() { return _state; }
 
-    bool is_open() { return _is_open; }
+    bool is_open() const { return _is_open; }
     void set_opened() { _is_open = true; }
 
     virtual doris::TabletStorageType get_storage_type() {
@@ -189,13 +189,6 @@ public:
     void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
 protected:
-    void _discard_conjuncts() {
-        for (auto& conjunct : _conjuncts) {
-            _stale_expr_ctxs.emplace_back(conjunct);
-        }
-        _conjuncts.clear();
-    }
-
     RuntimeState* _state = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
 

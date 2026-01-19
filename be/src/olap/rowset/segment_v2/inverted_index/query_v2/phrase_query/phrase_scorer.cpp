@@ -64,6 +64,13 @@ uint32_t PhraseScorer<TPostings>::advance() {
 template <typename TPostings>
 uint32_t PhraseScorer<TPostings>::seek(uint32_t target) {
     assert(target >= doc());
+    // If the target doc is the same as the current doc, return the current doc directly.
+    // This is important because phrase_match() reads position info from segment postings.
+    // SegmentPostings does not support reading position info multiple times for the same doc.
+    // If we call phrase_match() again for the same doc, it will read wrong position info.
+    if (target <= doc()) {
+        return doc();
+    }
     uint32_t doc = _intersection_docset->seek(target);
     if (doc == TERMINATED || phrase_match()) {
         return doc;

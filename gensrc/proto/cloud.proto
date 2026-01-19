@@ -1107,6 +1107,19 @@ message AbortTxnWithCoordinatorResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message GetPrepareTxnByCoordinatorRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
+    optional string request_ip = 5;
+}
+
+message GetPrepareTxnByCoordinatorResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated TxnInfoPB txn_infos = 2;
+}
+
 message CheckTxnConflictRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -1757,6 +1770,7 @@ enum MetaServiceCode {
     TABLET_NOT_FOUND = 2011;
     STALE_TABLET_CACHE = 2012;
     STALE_PREPARE_ROWSET = 2013;
+    TXN_ALREADY_COMMITED = 2014;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
@@ -2204,6 +2218,7 @@ service MetaService {
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
     rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
     rpc abort_txn_with_coordinator(AbortTxnWithCoordinatorRequest) returns (AbortTxnWithCoordinatorResponse);
+    rpc get_prepare_txn_by_coordinator(GetPrepareTxnByCoordinatorRequest) returns (GetPrepareTxnByCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);

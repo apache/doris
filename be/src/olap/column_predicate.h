@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime_filter/runtime_filter_selectivity.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
@@ -419,8 +420,8 @@ protected:
         if (!_always_true) {
             _judge_filter_rows += filter_rows;
             _judge_input_rows += input_rows;
-            vectorized::VRuntimeFilterWrapper::judge_selectivity(
-                    get_ignore_threshold(), _judge_filter_rows, _judge_input_rows, _always_true);
+            RuntimeFilterSelectivity::judge_selectivity(get_ignore_threshold(), _judge_filter_rows,
+                                                        _judge_input_rows, _always_true);
         }
     }
 

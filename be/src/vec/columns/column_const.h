@@ -281,7 +281,7 @@ public:
     template <PrimitiveType T>
     typename PrimitiveTypeTraits<T>::CppType get_value() const {
         // Here the cast is correct, relevant code is rather tricky.
-        return get_field().get<typename PrimitiveTypeTraits<T>::CppType>();
+        return get_field().get<T>();
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {

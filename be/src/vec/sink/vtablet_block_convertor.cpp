@@ -183,14 +183,14 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr
         return DecimalType(iter->second);
     }
 
-    typename DecimalType::NativeType value;
+    DecimalType value;
     if constexpr (IsMin) {
         value = vectorized::min_decimal_value<DecimalType::PType>(type->get_precision());
     } else {
         value = vectorized::max_decimal_value<DecimalType::PType>(type->get_precision());
     }
-    pmap->emplace(type->get_precision(), value);
-    return DecimalType(value);
+    pmap->emplace(type->get_precision(), value.value);
+    return value;
 }
 
 Status OlapTableBlockConvertor::_internal_validate_column(
@@ -365,7 +365,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                 if (dec_val.greater_than_scale(type->get_scale())) {
                     auto code =
                             dec_val.round(&dec_val, remove_nullable(type)->get_scale(), HALF_UP);
-                    column_decimal->get_data()[j] = dec_val.value();
+                    column_decimal->get_data()[j] = dec_val;
 
                     if (code != E_DEC_OK) {
                         fmt::format_to(error_msg, "round one decimal failed.value={}; ",

@@ -51,15 +51,18 @@ namespace doris::vectorized {
 #ifdef BE_TEST
 template <PrimitiveType T>
 std::string DataTypeNumberBase<T>::to_string(
-        const typename PrimitiveTypeTraits<T>::ColumnItemType& value) {
-    if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, int128_t>::value ||
-                  std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, uint128_t>::value ||
-                  std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
+        const typename PrimitiveTypeTraits<T>::CppType& value) {
+    if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value ||
+                  std::is_same<typename PrimitiveTypeTraits<T>::CppType, uint128_t>::value ||
+                  std::is_same<typename PrimitiveTypeTraits<T>::CppType, UInt128>::value) {
         return int128_to_string(value);
-    } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value) {
+    } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::CppType>::value) {
         return std::to_string(value);
-    } else if constexpr (std::numeric_limits<
-                                 typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
+    } else if constexpr (T == TYPE_DATETIME || T == TYPE_DATE) {
+        return std::to_string(binary_cast<doris::VecDateTimeValue, Int64>(value));
+    } else if constexpr (is_date_type(T) || T == TYPE_TIMESTAMPTZ) {
+        return std::to_string(value.to_date_int_val());
+    } else if constexpr (std::numeric_limits<typename PrimitiveTypeTraits<T>::CppType>::is_iec559) {
         return CastToString::from_number(value);
     }
 }
@@ -104,7 +107,7 @@ int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& 
                                                                  int be_exec_version) const {
     auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
     auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
-    auto mem_size = sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * real_need_copy_num;
+    auto mem_size = sizeof(typename PrimitiveTypeTraits<T>::CppType) * real_need_copy_num;
     if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
         return size + mem_size;
     } else {
@@ -123,7 +126,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
     buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
     // mem_size = real_need_copy_num * sizeof(T)
-    auto mem_size = real_need_copy_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
+    auto mem_size = real_need_copy_num * sizeof(typename PrimitiveTypeTraits<T>::CppType);
     const auto* origin_data =
             assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data_column)
                     .get_data()
@@ -152,7 +155,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
     // column data
-    auto mem_size = real_have_saved_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
+    auto mem_size = real_have_saved_num * sizeof(typename PrimitiveTypeTraits<T>::CppType);
     auto& container =
             assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(origin_column)->get_data();
     container.resize(real_have_saved_num);

@@ -8360,4 +8360,50 @@ TEST(CheckerTest, CheckCostTooMuchTime) {
     ASSERT_EQ(rowset_metas.size(), NUM_BATCH_SIZE * 2);
 }
 
+TEST(RecyclerTest, abort_job_for_related_rowset_when_tablet_recycled) {
+    // Test case: recycle_rowsets and recycle_tablet are running in parallel.
+    // When recycle_tablet finishes first, the tablet might be recycled before
+    // abort_job_for_related_rowset is called for the rowset.
+    // In this case, get_tablet_idx returns 1 (tablet not found), and we should
+    // return 0 (success) directly without further processing.
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("abort_job_for_related_rowset_when_tablet_recycled");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("abort_job_for_related_rowset_when_tablet_recycled");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    // Create a schema for the rowset
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+
+    constexpr int64_t index_id = 20001;
+    constexpr int64_t tablet_id = 20003;
+
+    // Create a rowset without creating the tablet index
+    // This simulates the case where the tablet has been recycled
+    auto rowset = create_rowset("abort_job_for_related_rowset_when_tablet_recycled", tablet_id,
+                                index_id, 1, schema);
+    rowset.set_job_id("test_job_id");
+
+    // Call abort_job_for_related_rowset with a rowset whose tablet has been recycled
+    int ret = recycler.abort_job_for_related_rowset(rowset);
+
+    // Should return 0 (success) because tablet is already recycled
+    ASSERT_EQ(ret, 0)
+            << "Should return 0 when tablet is already recycled (parallel recycle scenario)";
+}
+
 } // namespace doris::cloud
