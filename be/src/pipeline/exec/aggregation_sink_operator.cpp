@@ -734,8 +734,7 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_i
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _pool(pool),
           _limit(tnode.limit),
-          _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
-                          (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
+          _have_conjuncts(tnode.__isset.conjuncts && !tnode.conjuncts.empty()),
           _partition_exprs(
                   tnode.__isset.distribute_expr_lists &&
                                   (require_bucket_distribution ||
