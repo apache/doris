@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
-
-import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
+package org.apache.doris.catalog;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -31,12 +29,12 @@ import java.util.List;
 
 
 /**
- * Unit tests for CloudSlidingWindowAccessStats sliding window logic.
+ * Unit tests for TabletSlidingWindowAccessStatsTest sliding window logic.
  *
  * <p>We use reflection to test the private static inner class SlidingWindowCounter,
  * focusing on time-window counting, bucket expiration, cleanup and cache invalidation.
  */
-public class SlidingWindowAccessStatsTest {
+public class TabletSlidingWindowAccessStatsTest {
 
     private static class CounterHarness {
         private final Object counter;

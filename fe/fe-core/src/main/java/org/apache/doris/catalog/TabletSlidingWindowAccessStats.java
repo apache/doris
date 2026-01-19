@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,7 +37,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
-import java.util.zip.CRC32;
 
 /**
  * Sliding window access statistics utility class.
@@ -45,6 +46,8 @@ public class TabletSlidingWindowAccessStats {
     private static final Logger LOG = LogManager.getLogger(TabletSlidingWindowAccessStats.class);
 
     private static volatile TabletSlidingWindowAccessStats instance;
+
+    private static final HashFunction SHARD_HASH = Hashing.murmur3_128();
 
     // Sort active IDs by accessCount desc, then lastAccessTime desc
     private static final Comparator<AccessStatsResult> TOPN_ACTIVE_COMPARATOR =
@@ -181,6 +184,15 @@ public class TabletSlidingWindowAccessStats {
     // Access counter for monitoring
     private final AtomicLong totalAccessCount = new AtomicLong(0);
 
+    // Aggregated stats cache for metrics/observability
+    // - recentAccessCountInWindow: sum of accessCount of all active IDs in current time window
+    // - activeIdsInWindow: number of IDs that have recent activity in current time window
+    // These are computed on-demand with a TTL to avoid expensive full scans on every metric scrape.
+    private static final long AGGREGATE_REFRESH_INTERVAL_MS = 10_000L;
+    private final AtomicLong recentAccessCountInWindow = new AtomicLong(0);
+    private final AtomicLong activeIdsInWindow = new AtomicLong(0);
+    private final AtomicLong lastAggregateRefreshTimeMs = new AtomicLong(0);
+
     // Cleanup daemon
     private AccessStatsCleanupDaemon cleanupDaemon;
 
@@ -194,9 +206,9 @@ public class TabletSlidingWindowAccessStats {
     private static final long DEFAULT_CLEANUP_INTERVAL_SECOND = 300L;
 
     TabletSlidingWindowAccessStats() {
-        this.timeWindowMs = Config.sliding_window_time_window_second * 1000L;
+        this.timeWindowMs = Config.active_tablet_sliding_window_time_window_second * 1000L;
         this.bucketSizeMs = DEFAULT_BUCKET_SIZE_SECOND * 1000L;
-        this.numBuckets = (int) (Config.sliding_window_time_window_second / DEFAULT_BUCKET_SIZE_SECOND);
+        this.numBuckets = (int) (Config.active_tablet_sliding_window_time_window_second / DEFAULT_BUCKET_SIZE_SECOND);
         this.cleanupIntervalMs = DEFAULT_CLEANUP_INTERVAL_SECOND * 1000L;
 
         // Initialize shards
@@ -205,7 +217,7 @@ public class TabletSlidingWindowAccessStats {
         }
 
         // Start cleanup daemon and async executor if enabled
-        if (Config.enable_sliding_window_access_stats) {
+        if (Config.enable_active_tablet_sliding_window_access_stats) {
             this.cleanupDaemon = new AccessStatsCleanupDaemon();
             this.cleanupDaemon.start();
             // Initialize async executor for recordAccess
@@ -232,17 +244,67 @@ public class TabletSlidingWindowAccessStats {
 
     /**
      * Get shard index for a given ID
-     * Uses CRC32 hash function to ensure better distribution when IDs are sequential or have patterns.
-     * CRC32 processes the full 64-bit long value to avoid information loss.
      */
     private int getShardIndex(long id) {
-        // Use CRC32 to hash the full 64-bit ID, then take modulo
-        // This ensures better distribution even when IDs are sequential and preserves all 64 bits
-        CRC32 crc = new CRC32();
-        crc.update((int) (id >>> 32));  // Update with high 32 bits
-        crc.update((int) id);            // Update with low 32 bits
-        long hashValue = crc.getValue();
-        return (int) (hashValue % SHARD_SIZE);
+        int hash = SHARD_HASH.hashLong(id).asInt();
+        return Math.floorMod(hash, SHARD_SIZE);
+    }
+
+    private void refreshAggregatesIfNeeded(long currentTimeMs) {
+        long last = lastAggregateRefreshTimeMs.get();
+        if (currentTimeMs - last < AGGREGATE_REFRESH_INTERVAL_MS) {
+            return;
+        }
+        if (!lastAggregateRefreshTimeMs.compareAndSet(last, currentTimeMs)) {
+            return;
+        }
+
+        int activeIds = 0;
+        long totalAccess = 0;
+        for (AccessStatsShard shard : shards) {
+            for (SlidingWindowCounter counter : shard.idCounters.values()) {
+                if (counter.hasRecentActivity(currentTimeMs, timeWindowMs)) {
+                    activeIds++;
+                    totalAccess += counter.getCount(currentTimeMs, timeWindowMs, bucketSizeMs, numBuckets);
+                }
+            }
+        }
+        activeIdsInWindow.set(activeIds);
+        recentAccessCountInWindow.set(totalAccess);
+    }
+
+    /**
+     * Get total access count within current time window across all IDs (cached).
+     */
+    public long getRecentAccessCountInWindow() {
+        if (!Config.enable_active_tablet_sliding_window_access_stats) {
+            return 0L;
+        }
+        long now = System.currentTimeMillis();
+        refreshAggregatesIfNeeded(now);
+        return recentAccessCountInWindow.get();
+    }
+
+    /**
+     * Get number of active IDs within current time window (cached).
+     */
+    public long getActiveIdsInWindow() {
+        if (!Config.enable_active_tablet_sliding_window_access_stats) {
+            return 0L;
+        }
+        long now = System.currentTimeMillis();
+        refreshAggregatesIfNeeded(now);
+        return activeIdsInWindow.get();
+    }
+
+    /**
+     * Get total access count since FE start (monotonic increasing while enabled).
+     */
+    public long getTotalAccessCount() {
+        if (!Config.enable_active_tablet_sliding_window_access_stats) {
+            return 0L;
+        }
+        return totalAccessCount.get();
     }
 
     /**
@@ -289,7 +351,7 @@ public class TabletSlidingWindowAccessStats {
      * Get access count for an ID within the time window
      */
     public AccessStatsResult getAccessInfo(long id) {
-        if (!Config.enable_sliding_window_access_stats) {
+        if (!Config.enable_active_tablet_sliding_window_access_stats) {
             return null;
         }
 
@@ -337,7 +399,7 @@ public class TabletSlidingWindowAccessStats {
      * Uses a min-heap (PriorityQueue) to maintain TopN efficiently without sorting all results.
      */
     public List<AccessStatsResult> getTopNActive(int topN) {
-        if (!Config.enable_sliding_window_access_stats) {
+        if (!Config.enable_active_tablet_sliding_window_access_stats) {
             return Collections.emptyList();
         }
 
@@ -394,7 +456,7 @@ public class TabletSlidingWindowAccessStats {
      * Clean up expired access records
      */
     private void cleanupExpiredRecords() {
-        if (!Config.enable_sliding_window_access_stats) {
+        if (!Config.enable_active_tablet_sliding_window_access_stats) {
             return;
         }
 
@@ -424,22 +486,14 @@ public class TabletSlidingWindowAccessStats {
      * Get statistics summary
      */
     public String getStatsSummary() {
-        if (!Config.enable_sliding_window_access_stats) {
-            return String.format("SlidingWindowAccessStats (type: tablet) is disabled");
+        if (!Config.enable_active_tablet_sliding_window_access_stats) {
+            return String.format("Active tablet sliding window access stats is disabled");
         }
 
         long currentTime = System.currentTimeMillis();
-        int activeIds = 0;
-        long totalAccess = 0;
-
-        for (AccessStatsShard shard : shards) {
-            for (SlidingWindowCounter counter : shard.idCounters.values()) {
-                if (counter.hasRecentActivity(currentTime, timeWindowMs)) {
-                    activeIds++;
-                    totalAccess += counter.getCount(currentTime, timeWindowMs, bucketSizeMs, numBuckets);
-                }
-            }
-        }
+        refreshAggregatesIfNeeded(currentTime);
+        int activeIds = (int) getActiveIdsInWindow();
+        long totalAccess = getRecentAccessCountInWindow();
 
         return String.format(
             "SlidingWindowAccessStats{type=tablet, timeWindow=%ds, bucketSize=%ds, numBuckets=%d, "

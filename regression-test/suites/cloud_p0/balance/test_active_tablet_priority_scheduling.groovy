@@ -17,6 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
+import groovy.json.JsonSlurper
 import java.nio.charset.StandardCharsets
 
 suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
@@ -30,6 +31,9 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
             'cloud_tablet_rebalancer_interval_second=1',
             // enable the feature under test
             'enable_cloud_active_tablet_priority_scheduling=true',
+            // enable active tablet sliding window access stats (for metrics & SHOW TABLET*)
+            'enable_active_tablet_sliding_window_access_stats=true',
+            'active_tablet_sliding_window_time_window_second=3600',
             // make the scheduling signal deterministic: only run table balance
             'enable_cloud_partition_balance=false',
             'enable_cloud_table_balance=true',
@@ -79,6 +83,23 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
     }
 
     docker(options) {
+        def getFeMetricValue = { String metricSuffix ->
+            def ret = null
+            String masterHttpAddress = getMasterIp() + ":" + getMasterPort("http")
+            httpTest {
+                endpoint masterHttpAddress
+                uri "/metrics?type=json"
+                op "get"
+                check { code, body ->
+                    def jsonSlurper = new JsonSlurper()
+                    def result = jsonSlurper.parseText(body)
+                    def entry = result.find { it.tags?.metric?.toString()?.endsWith(metricSuffix) }
+                    ret = entry ? entry.value : null
+                }
+            }
+            return ret
+        }
+
         def hotTbl = "hot_tbl_active_sched"
         def coldTbl = "cold_tbl_active_sched"
 
@@ -122,6 +143,18 @@ suite('test_active_tablet_priority_scheduling', 'cloud_p0, docker') {
 
         // give async access stats a short time window
         sleep(2 * 1000)
+
+        // Verify FE metrics: tablet_access_recent / tablet_access_total exist and are > 0 after access
+        awaitUntil(60) {
+            def recent = getFeMetricValue("tablet_access_recent")
+            def total = getFeMetricValue("tablet_access_total")
+            if (recent == null || total == null) {
+                return false
+            }
+            long recentL = recent.toString().toLong()
+            long totalL = total.toString().toLong()
+            return recentL > 0 && totalL > 0 && totalL >= recentL
+        }
 
         def hotTableId = getTableIdByName(hotTbl)
         def coldTableId = getTableIdByName(coldTbl)

@@ -103,12 +103,11 @@ public class CloudTabletRebalancerTest {
         Set<Long> activeIds = new HashSet<>();
         activeIds.add(100L);
 
-        Map<Long, List<Tablet>> cache = new HashMap<>();
         Set<Long> picked = new HashSet<>();
 
         Tablet pickedTablet = invokePrivate(r, "pickTabletPreferCold",
-                new Class<?>[] {long.class, Set.class, Set.class, Map.class, Set.class},
-                new Object[] {1L, tablets, activeIds, cache, picked});
+                new Class<?>[] {long.class, Set.class, Set.class, Set.class},
+                new Object[] {1L, tablets, activeIds, picked});
 
         Assertions.assertNotNull(pickedTablet);
         Assertions.assertEquals(200L, pickedTablet.getId(), "Should prefer cold tablet when available");
@@ -126,12 +125,11 @@ public class CloudTabletRebalancerTest {
 
         // active stats unavailable -> activeIds empty or cache null
         Set<Long> activeIds = new HashSet<>();
-        Map<Long, List<Tablet>> cache = null;
         Set<Long> picked = new HashSet<>();
 
         Tablet pickedTablet = invokePrivate(r, "pickTabletPreferCold",
-                new Class<?>[] {long.class, Set.class, Set.class, Map.class, Set.class},
-                new Object[] {1L, tablets, activeIds, cache, picked});
+                new Class<?>[] {long.class, Set.class, Set.class, Set.class},
+                new Object[] {1L, tablets, activeIds,  picked});
 
         Assertions.assertNotNull(pickedTablet);
         Assertions.assertEquals(300L, pickedTablet.getId());
