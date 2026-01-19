@@ -41,7 +41,7 @@ suite("test_parquet_join_runtime_filter", "p0,external,hive,external_docker,exte
 
 
     def extractFilteredGroupsValue = { String profileText ->
-        def values = (profileText =~ /FilteredGroups:\s*(\d+)/).collect { it[1].toLong() }
+        def values = (profileText =~ /RowGroupsFiltered:\s*(\d+)/).collect { it[1].toLong() }
         return values.sort { a, b -> b <=> a }
     }
 
@@ -76,7 +76,7 @@ suite("test_parquet_join_runtime_filter", "p0,external,hive,external_docker,exte
     if (!"true".equalsIgnoreCase(enabled)) {
         return;
     }
-    for (String hivePrefix : ["hive2"]) {
+    for (String hivePrefix : ["hive3"]) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "test_parquet_join_runtime_filter"
