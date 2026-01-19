@@ -240,6 +240,10 @@ public class VariantType extends PrimitiveType {
         return variantMaxSparseColumnStatisticsSize;
     }
 
+    public boolean getEnableTypedPathsToSparse() {
+        return enableTypedPathsToSparse;
+    }
+
     public int getVariantSparseHashShardCount() {
         return variantSparseHashShardCount;
     }

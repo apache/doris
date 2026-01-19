@@ -356,7 +356,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
         if (originalType.isVariantType() && targetType.isVariantType()) {
-            return originalType.equals(targetType);
+            return isVariantCastCompatible((VariantType) originalType, (VariantType) targetType);
         }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
@@ -427,6 +427,14 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
+    }
+
+    private static boolean isVariantCastCompatible(VariantType originalType, VariantType targetType) {
+        return originalType.getEnableTypedPathsToSparse() == targetType.getEnableTypedPathsToSparse()
+                && originalType.getVariantMaxSparseColumnStatisticsSize()
+                        == targetType.getVariantMaxSparseColumnStatisticsSize()
+                && originalType.getVariantSparseHashShardCount() == targetType.getVariantSparseHashShardCount()
+                && originalType.getPredefinedFields().equals(targetType.getPredefinedFields());
     }
 
     /**

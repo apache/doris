@@ -612,6 +612,8 @@ public:
     Status convert_typed_path_to_storage_type(
             const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths);
 
+    Status adjust_max_subcolumns_count(int32_t target_max);
+
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {
         _max_subcolumns_count = max_subcolumns_count;
     }

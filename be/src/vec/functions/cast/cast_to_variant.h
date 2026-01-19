@@ -133,12 +133,36 @@ struct CastToVariant {
     }
 };
 
+struct CastVariantAdjust {
+    static Status execute(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t /*input_rows_count*/, int32_t target_max,
+                          const NullMap::value_type* /*null_map*/ = nullptr) {
+        const auto& col_from = block.get_by_position(arguments[0]).column;
+        const auto& from_variant = assert_cast<const ColumnVariant&>(*col_from);
+        MutableColumnPtr cloned = from_variant.clone();
+        auto* adjusted_variant = assert_cast<ColumnVariant*>(cloned.get());
+        RETURN_IF_ERROR(adjusted_variant->adjust_max_subcolumns_count(target_max));
+        block.replace_by_position(result, std::move(cloned));
+        return Status::OK();
+    }
+};
+
 // create corresponding variant value to wrap from_type
 WrapperType create_cast_to_variant_wrapper(const DataTypePtr& from_type,
                                            const DataTypeVariant& to_type) {
     if (from_type->get_primitive_type() == TYPE_VARIANT) {
-        // variant_max_subcolumns_count is not equal
-        return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
+        const auto& from_variant = static_cast<const DataTypeVariant&>(*from_type);
+        if (from_variant.variant_max_subcolumns_count() == to_type.variant_max_subcolumns_count()) {
+            return create_identity_wrapper(from_type);
+        }
+        int32_t target_max = to_type.variant_max_subcolumns_count();
+        return [target_max](FunctionContext* context, Block& block,
+                            const ColumnNumbers& arguments, uint32_t result,
+                            size_t input_rows_count,
+                            const NullMap::value_type* null_map) -> Status {
+            return CastVariantAdjust::execute(context, block, arguments, result, input_rows_count,
+                                              target_max, null_map);
+        };
     }
     return &CastToVariant::execute;
 }

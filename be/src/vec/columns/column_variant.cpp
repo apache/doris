@@ -2126,6 +2126,29 @@ void ColumnVariant::clear() {
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
+void ColumnVariant::clear_subcolumns_data() {
+    for (auto& entry : subcolumns) {
+        for (auto& part : entry->data.data) {
+            DCHECK_EQ(part->use_count(), 1);
+            (*std::move(part)).clear();
+        }
+        entry->data.num_of_defaults_in_prefix = 0;
+        entry->data.num_rows = 0;
+    }
+    serialized_sparse_column->clear();
+    num_rows = 0;
+    ENABLE_CHECK_CONSISTENCY(this);
+}
+
+Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
+    if (target_max < 0) {
+        return Status::InvalidArgument("variant_max_subcolumns_count must be non-negative");
+    }
+    // Stage 1: only update the limit; layout adjustment follows in later phases.
+    set_max_subcolumns_count(target_max);
+    return Status::OK();
+}
+
 void ColumnVariant::create_root(const DataTypePtr& type, MutableColumnPtr&& column) {
     if (num_rows == 0) {
         num_rows = column->size();
