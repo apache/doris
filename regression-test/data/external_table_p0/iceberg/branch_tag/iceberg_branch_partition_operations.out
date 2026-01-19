@@ -13,22 +13,6 @@
 
 -- !main_no_new_partition --
 
--- !main_before_overwrite --
-1	a
-2	a
-9	a
-10	a
-
--- !b1_overwrite_partition --
-11	a
-12	a
-
--- !main_unchanged --
-1	a
-2	a
-9	a
-10	a
-
 -- !b1_multiple_partitions --
 a	2
 b	2
@@ -38,7 +22,7 @@ e	2
 f	2
 
 -- !main_partitions --
-a	4
+a	2
 b	2
 c	2
 
@@ -49,8 +33,6 @@ c	2
 4	b
 5	c
 6	c
-9	a
-10	a
 17	g
 18	g
 19	h

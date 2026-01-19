@@ -60,13 +60,16 @@ suite("iceberg_branch_partition_operations", "p0,external,doris,external_docker,
     qt_b1_new_partition """ select * from ${table_name}@branch(b1_partition) where par = 'd' order by id """ // Should have new partition
     qt_main_no_new_partition """ select * from ${table_name} where par = 'd' order by id """ // Main branch should not have new partition
 
+    /**
     // Test 1.3.3: Partition table branch overwrite
+    // TODO: Not supported in 4.0 version
     sql """ insert into ${table_name} values (9, 'a'), (10, 'a') """
     qt_main_before_overwrite """ select * from ${table_name} where par = 'a' order by id """
 
     sql """ insert overwrite table ${table_name}@branch(b1_partition) partition(par='a') select 11 union all select 12 """
     qt_b1_overwrite_partition """ select * from ${table_name}@branch(b1_partition) where par = 'a' order by id """ // Should only have 11, 12
     qt_main_unchanged """ select * from ${table_name} where par = 'a' order by id """ // Main branch unchanged
+    */
 
     // Test multiple partitions in branch
     sql """ insert into ${table_name}@branch(b1_partition) values (13, 'e'), (14, 'e') """
