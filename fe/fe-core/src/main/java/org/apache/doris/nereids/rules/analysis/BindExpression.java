@@ -856,19 +856,11 @@ public class BindExpression implements AnalysisRuleFactory {
             hashEqExprs.add(new EqualTo(usingLeftSlot, usingRightSlot));
         }
 
-        if (using.getJoinType().isAsofJoin()) {
-            return new LogicalJoin<>(
-                    using.getJoinType(),
-                    hashEqExprs.build(), ImmutableList.of(using.getMatchCondition().get()),
-                    using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
-                    using.children(), null);
-        } else {
-            return new LogicalJoin<>(
+        return new LogicalJoin<>(
                     using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
-                    hashEqExprs.build(), ImmutableList.of(),
+                    hashEqExprs.build(), using.getMatchCondition().map(ImmutableList::of).orElse(ImmutableList.of()),
                     using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
                     using.children(), null);
-        }
     }
 
     private Plan bindProject(MatchingContext<LogicalProject<Plan>> ctx) {
