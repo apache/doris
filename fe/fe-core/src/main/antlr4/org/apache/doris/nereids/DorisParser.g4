@@ -1882,6 +1882,7 @@ nonReserved
     | CHAR
     | CHARSET
     | CHECK
+    | CIPHER
     | CLUSTER
     | CLUSTERS
     | COLLATION
@@ -1992,6 +1993,7 @@ nonReserved
     | IS_NULL_PRED
     | ISNULL
     | ISOLATION
+    | ISSUER
     | JOB
     | JOBS
     | JSON
@@ -2038,6 +2040,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NONE
     | NON_NULLABLE
     | NORMALIZER
     | NULLS
@@ -2094,6 +2097,7 @@ nonReserved
     | RESUME
     | RETAIN
     | RETENTION
+    | REQUIRE
     | RETURNS
     | REWRITTEN
     | RIGHT_BRACE
@@ -2105,6 +2109,7 @@ nonReserved
     | ROUTINE
     | S3
     | SAMPLE
+    | SAN
     | SCHEDULE
     | SCHEDULER
     | SCHEMA
@@ -2133,6 +2138,7 @@ nonReserved
     | STRING
     | STRUCT
     | SUM
+    | SUBJECT
     | TABLES
     | TAG
     | TASK
