@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "vec/core/types.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris::vectorized {
 // Convert a native datelike value to printable string using DateValueType::to_string
@@ -35,6 +36,13 @@ inline std::string datelike_to_string(DateValueType value) {
     char* end = value.to_string(buf);
     // minus 1 to skip trailing '\0'
     return std::string(buf, end - 1);
+}
+
+// Specialization for TimestampTzValue: output UTC time for error messages
+template <>
+inline std::string datelike_to_string<TimestampTzValue>(TimestampTzValue native) {
+    // Use UTC timezone for error messages
+    return native.to_string(cctz::utc_time_zone());
 }
 
 // Throw for operations with one datelike argument

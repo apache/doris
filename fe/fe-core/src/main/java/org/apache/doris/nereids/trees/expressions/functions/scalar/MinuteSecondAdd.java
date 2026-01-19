@@ -19,14 +19,15 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -34,29 +35,31 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'minutes_add'.
+ * ScalarFunction 'minute_second_add'.
  */
-public class SecondsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        PropagateNullable, DateAddSubMonotonic {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(FunctionSignature
-            .ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD, BigIntType.INSTANCE),
-            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD, BigIntType.INSTANCE)
+public class MinuteSecondAdd extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature,
+        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD,
+            VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD,
+            VarcharType.SYSTEM_DEFAULT)
     );
 
-    public SecondsAdd(Expression arg0, Expression arg1) {
-        super("seconds_add", arg0, arg1);
+    public MinuteSecondAdd(Expression arg0, Expression arg1) {
+        super("minute_second_add", arg0, arg1);
     }
 
     /** constructor for withChildren and reuse signature */
-    private SecondsAdd(ScalarFunctionParams functionParams) {
+    private MinuteSecondAdd(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public SecondsAdd withChildren(List<Expression> children) {
+    public MinuteSecondAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new SecondsAdd(getFunctionParams(children));
+        return new MinuteSecondAdd(getFunctionParams(children));
     }
 
     @Override
@@ -66,11 +69,16 @@ public class SecondsAdd extends ScalarFunction implements BinaryExpression, Expl
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitSecondsAdd(this, context);
+        return visitor.visitMinuteSecondAdd(this, context);
     }
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new SecondsAdd(literal, child(1));
+        return new MinuteSecondAdd(literal, child(1));
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        return super.computeSignature(signature);
     }
 }
