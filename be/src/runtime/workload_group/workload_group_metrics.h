@@ -64,9 +64,7 @@ public:
 
     int64_t get_memory_used();
 
-    std::shared_ptr<MetricEntity> get_entity() { 
-        return _entity; 
-    }
+    std::shared_ptr<MetricEntity> get_entity() { return _entity; }
 
     UIntGauge* workload_group_local_scan_thread_pool_queue_size = nullptr;
     UIntGauge* workload_group_local_scan_thread_pool_thread_num = nullptr;
