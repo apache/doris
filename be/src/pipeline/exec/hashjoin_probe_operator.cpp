@@ -290,7 +290,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
 
     local_state._estimate_memory_usage += temp_block.allocated_bytes();
     // if left_semi_direct_return is true,
-    // here dose not increase the output rows count(just same as `_probe_block`'s rows count).
+    // here does not increase the output rows count(just same as `_probe_block`'s rows count).
     RETURN_IF_ERROR(local_state.filter_data_and_build_output(
             state, output_block, eos, &temp_block,
             !local_state._shared_state->left_semi_direct_return));
