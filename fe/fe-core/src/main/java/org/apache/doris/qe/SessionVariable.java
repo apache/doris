@@ -1375,7 +1375,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CONDITION_CACHE)
     public boolean enableConditionCache = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_LEFT_SEMI_DIRECT_RETRUN_OPT)
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT)
     public boolean enableLeftSemiDirectReturnOpt = true;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
