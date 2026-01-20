@@ -1383,6 +1383,16 @@ public class CreateTableInfo {
                                             + fieldPattern + " is not supported for inverted index"
                                             + " of column: " + column.getName());
                                 }
+
+                                // keep variant subcolumn checks aligned with ordinary column rules
+                                try {
+                                    InvertedIndexUtil.checkInvertedIndexParser(column.getName(),
+                                            field.getDataType().toCatalogDataType().getPrimitiveType(),
+                                            indexDef.getProperties(), invertedIndexFileStorageFormat);
+                                } catch (Exception ex) {
+                                    throw new AnalysisException("invalid INVERTED index: field pattern: "
+                                            + fieldPattern + ", " + ex.getMessage(), ex);
+                                }
                                 fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
                                                                                                     .add(indexDef);
                                 fieldPatternToDataType.put(fieldPattern, field.getDataType());
