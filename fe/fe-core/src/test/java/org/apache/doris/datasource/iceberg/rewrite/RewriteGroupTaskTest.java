@@ -25,10 +25,12 @@ import org.apache.doris.system.SystemInfoService;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
@@ -65,6 +67,8 @@ public class RewriteGroupTaskTest {
     @Mock
     private SystemInfoService mockSystemInfoService;
 
+    private MockedStatic<Env> mockedStaticEnv;
+
     private static final long MB = 1024 * 1024L;
     private static final long GB = 1024 * 1024 * 1024L;
 
@@ -77,9 +81,18 @@ public class RewriteGroupTaskTest {
         Mockito.when(mockSessionVariable.getParallelExecInstanceNum()).thenReturn(8);
 
         // Mock Env and SystemInfoService
-        Mockito.mockStatic(Env.class);
-        Mockito.when(Env.getCurrentEnv()).thenReturn(mockEnv);
-        Mockito.when(Env.getCurrentSystemInfo()).thenReturn(mockSystemInfoService);
+        mockedStaticEnv = Mockito.mockStatic(Env.class);
+        mockedStaticEnv.when(Env::getCurrentEnv).thenReturn(mockEnv);
+        mockedStaticEnv.when(Env::getCurrentSystemInfo).thenReturn(mockSystemInfoService);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        // Clean up static mock to avoid "already registered" errors
+        if (mockedStaticEnv != null) {
+            mockedStaticEnv.close();
+            mockedStaticEnv = null;
+        }
     }
 
     /**
@@ -315,9 +328,9 @@ public class RewriteGroupTaskTest {
         int parallelism = (int) getFieldValue(strategy, "parallelism");
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
-        // expectedFileCount = ceil(2GB / 512MB) = ceil(4.096) = 5
-        // optimalParallelism = min(5, 100, 100) = 5
-        Assertions.assertEquals(5, parallelism, "Parallelism should be limited by expected file count");
+        // expectedFileCount = ceil(2GB / 512MB) = ceil(4.0) = 4
+        // optimalParallelism = min(4, 100, 100) = 4
+        Assertions.assertEquals(4, parallelism, "Parallelism should be limited by expected file count");
         Assertions.assertFalse(useGather);
     }
 
@@ -405,9 +418,9 @@ public class RewriteGroupTaskTest {
         int parallelism = (int) getFieldValue(strategy, "parallelism");
         boolean useGather = (boolean) getFieldValue(strategy, "useGather");
 
-        // expectedFileCount = ceil(3GB / 512MB) = ceil(6.144) = 7
-        // optimalParallelism = min(7, 100, 8) = 7
-        Assertions.assertEquals(7, parallelism);
+        // expectedFileCount = ceil(3GB / 512MB) = ceil(6.0) = 6
+        // optimalParallelism = min(6, 100, 8) = 6
+        Assertions.assertEquals(6, parallelism);
         Assertions.assertFalse(useGather);
     }
 
