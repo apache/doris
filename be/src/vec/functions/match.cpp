@@ -203,6 +203,13 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
+    // If analyzer is nullptr (e.g., __default__ was specified, meaning use index's analyzer),
+    // but we're in the slow path without access to index properties, fall back to no tokenization.
+    if (analyzer_ctx->analyzer == nullptr) {
+        VLOG_DEBUG << "Analyzer is nullptr in slow path, falling back to no tokenization";
+        query_tokens.emplace_back(match_query_str);
+        return query_tokens;
+    }
     auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
             analyzer_ctx->char_filter_map);
     reader->init(match_query_str.data(), (int)match_query_str.size(), true);
@@ -223,7 +230,8 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-            if (!analyzer_ctx->should_tokenize()) {
+            if (!analyzer_ctx->should_tokenize() || analyzer_ctx->analyzer == nullptr) {
+                // Fall back to no tokenization if analyzer is nullptr
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
@@ -237,7 +245,8 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        if (!analyzer_ctx->should_tokenize()) {
+        if (!analyzer_ctx->should_tokenize() || analyzer_ctx->analyzer == nullptr) {
+            // Fall back to no tokenization if analyzer is nullptr
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(

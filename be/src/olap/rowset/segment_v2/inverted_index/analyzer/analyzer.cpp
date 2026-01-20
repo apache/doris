@@ -134,12 +134,19 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
     DCHECK(config != nullptr);
     const std::string& analyzer_name = config->analyzer_name;
 
-    // Handle empty analyzer name or "__default__" - use builtin analyzer based on parser_type.
-    // "__default__" is sent by FE when there's no index and no explicit analyzer specified,
-    // indicating we should use the default builtin behavior.
-    if (analyzer_name.empty() || analyzer_name == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+    // Handle empty analyzer name - use builtin analyzer based on parser_type.
+    if (analyzer_name.empty()) {
         return create_builtin_analyzer(config->parser_type, config->parser_mode, config->lower_case,
                                        config->stop_words);
+    }
+
+    // "__default__" means "use the index's configured analyzer".
+    // Return nullptr so that the caller (FullTextIndexReader::query) falls back to
+    // using _index_meta.properties() for tokenization. This ensures that custom
+    // analyzers configured on the index are used, rather than a builtin analyzer
+    // based on parser_type (which would be NONE for custom analyzers).
+    if (analyzer_name == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+        return nullptr;
     }
 
     if (is_builtin_analyzer(analyzer_name)) {

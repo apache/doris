@@ -99,19 +99,26 @@ public final class AnalyzerSelector {
 
         /**
          * Computes the effective analyzer name for BE execution.
-         * - If analyzer wasn't explicitly specified (no USING ANALYZER): use "__default__"
-         *   This lets BE choose the best available index for the query type.
+         * - If we have a specific analyzer name (custom or builtin), return that name.
+         *   This ensures BE can create/use the correct analyzer for both index path
+         *   and slow path (full scan).
+         * - If analyzer wasn't explicitly specified and no analyzer is configured on
+         *   the index: use "__default__" to let BE choose based on index properties.
          * - If explicit: use the user-specified analyzer (e.g., "none", "chinese")
          *   This tells BE to use the exact index with that analyzer key.
          */
         public String effectiveAnalyzerName(boolean hasIndex, String fallbackParser) {
-            // When no explicit analyzer is specified, return __default__ to let BE
-            // choose the best index. This distinguishes "no preference" from
-            // "USING ANALYZER none" which explicitly requests no-tokenization index.
+            // If we have a specific analyzer name (from index properties or explicit),
+            // return it so BE can create/use the correct analyzer.
+            if (!Strings.isNullOrEmpty(analyzer)) {
+                return analyzer;
+            }
+            // When no explicit analyzer is specified and no analyzer on index,
+            // return __default__ to let BE choose based on index properties.
             if (!explicit) {
                 return InvertedIndexUtil.INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
             }
-            return Strings.isNullOrEmpty(analyzer) ? fallbackParser : analyzer;
+            return Strings.isNullOrEmpty(fallbackParser) ? "" : fallbackParser;
         }
     }
 }
