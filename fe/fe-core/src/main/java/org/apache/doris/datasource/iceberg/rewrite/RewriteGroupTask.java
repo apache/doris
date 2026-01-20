@@ -234,6 +234,10 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         // Clone session variables from parent
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
 
+        // Calculate optimal parallelism and determine distribution strategy
+        RewriteStrategy strategy = calculateRewriteStrategy();
+        taskContext.getSessionVariable().setParallelFragmentExecInstanceNum(strategy.parallelism);
+
         // Set env and basic identities
         taskContext.setEnv(Env.getCurrentEnv());
         taskContext.setDatabase(connectContext.getDatabase());
@@ -252,7 +256,76 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         statementContext.setConnectContext(taskContext);
         taskContext.setStatementContext(statementContext);
 
+        // Set GATHER distribution flag if needed (for small data rewrite)
+        statementContext.setUseGatherForIcebergRewrite(strategy.useGather);
+
         return taskContext;
+    }
+
+    /**
+     * Calculate optimal rewrite strategy including parallelism and distribution mode.
+     *
+     * The core idea is to precisely control the number of output files:
+     * 1. Calculate expected file count based on data size and target file size
+     * 2. If expected file count is small (e.g., <= threshold), use GATHER to collect
+     *    data to a single node, ensuring minimal file output
+     * 3. Otherwise, limit parallelism to avoid too many writers
+     *
+     * @return RewriteStrategy containing parallelism and distribution settings
+     */
+    private RewriteStrategy calculateRewriteStrategy() {
+        // 1. Calculate expected output file count based on data size
+        long totalSize = group.getTotalSize();
+        int expectedFileCount = (int) Math.ceil((double) totalSize / targetFileSizeBytes);
+
+        // 2. Get available BE count
+        int availableBeCount = Env.getCurrentSystemInfo().getBackendsNumber(true);
+
+        // 3. Get default parallelism from session variable
+        int defaultParallelism = connectContext.getSessionVariable().getParallelFragmentExecInstanceNum();
+
+        // 4. Determine strategy based on expected file count
+        boolean useGather = false;
+        int optimalParallelism;
+
+        // Threshold for using GATHER distribution
+        // When expected files <= this threshold, collect all data to single node
+        final int gatherThreshold = 1;
+
+        if (expectedFileCount <= gatherThreshold) {
+            // Small data volume: use GATHER to write to single node
+            useGather = true;
+            optimalParallelism = 1;
+            LOG.info("[Rewrite Task] taskId: {}, using GATHER distribution for small data. "
+                            + "totalSize: {} bytes, expectedFileCount: {}",
+                    taskId, totalSize, expectedFileCount);
+        } else {
+            // Larger data volume: limit parallelism based on expected file count
+            optimalParallelism = Math.max(1,
+                    Math.min(expectedFileCount,
+                            Math.min(availableBeCount, defaultParallelism)));
+        }
+
+        LOG.info("[Rewrite Task] taskId: {}, totalSize: {} bytes, targetFileSize: {} bytes, "
+                        + "expectedFileCount: {}, availableBeCount: {}, defaultParallelism: {}, "
+                        + "optimalParallelism: {}, useGather: {}",
+                taskId, totalSize, targetFileSizeBytes, expectedFileCount,
+                availableBeCount, defaultParallelism, optimalParallelism, useGather);
+
+        return new RewriteStrategy(optimalParallelism, useGather);
+    }
+
+    /**
+     * Strategy for rewrite operation containing parallelism and distribution settings.
+     */
+    private static class RewriteStrategy {
+        final int parallelism;
+        final boolean useGather;
+
+        RewriteStrategy(int parallelism, boolean useGather) {
+            this.parallelism = parallelism;
+            this.useGather = useGather;
+        }
     }
 
     /**
