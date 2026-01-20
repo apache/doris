@@ -80,8 +80,8 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
             String sequenceCol, double maxFilterRatio, NereidsImportColumnDescs columnDescs,
             Expression precedingFilter, Expression whereExpr, Separator columnSeparator,
             Separator lineDelimiter, byte enclose, byte escape, int sendBatchParallelism,
-            boolean loadToSingleTablet, boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
-            boolean memtableOnSinkNode) {
+            boolean loadToSingleTablet, TUniqueKeyUpdateMode uniqueKeyUpdateMode,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy, boolean memtableOnSinkNode) {
         this.execMemLimit = execMemLimit;
         this.jobProperties = jobProperties;
         this.maxBatchIntervalS = maxBatchIntervalS;
@@ -99,9 +99,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.escape = escape;
         this.sendBatchParallelism = sendBatchParallelism;
         this.loadToSingleTablet = loadToSingleTablet;
-        if (isPartialUpdate) {
-            this.uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
-        }
+        this.uniquekeyUpdateMode = uniqueKeyUpdateMode;
         this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.memtableOnSinkNode = memtableOnSinkNode;
         this.timeoutSec = calTimeoutSec();
