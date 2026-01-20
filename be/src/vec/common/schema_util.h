@@ -121,6 +121,9 @@ void inherit_column_attributes(TabletSchemaSPtr& schema);
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr* target_schema = nullptr);
 
+// Align variant subcolumn BF inheritance with FE BF-supported types.
+bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type);
+
 // get sorted subcolumns of variant
 vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnVariant::Subcolumns& subcolumns);
