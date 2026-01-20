@@ -498,12 +498,13 @@ TEST(function_bitmap_test, function_bitmap_from_string_multiple_rows) {
     BitmapValue bitmap3({7, 8, 9});
     BitmapValue bitmap4({10, 11, 12});
     BitmapValue bitmap5({13, 14, 15});
+    BitmapValue bitmap6({18, 19, 20});
 
     DataSet data_set = {
             {{std::string("1,2,3")}, &bitmap1},    {{std::string("4,5,6")}, &bitmap2},
             {{std::string("7,8,9")}, &bitmap3},    {{std::string("10,11,12")}, &bitmap4},
             {{std::string("13,14,15")}, &bitmap5}, {{std::string("16,invalid,17")}, Null()},
-            {{std::string("18,19,20")}, &bitmap5}};
+            {{std::string("18,19,20")}, &bitmap6}};
 
     static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
 }
