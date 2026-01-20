@@ -107,6 +107,18 @@ class RoutineLoadTestUtils {
     }
 
     static int waitForTaskFinish(Closure sqlRunner, String job, String tableName, int expectedMinRows = 0, int maxAttempts = 60) {
+        return waitForTaskFinishInternal(sqlRunner, job, tableName, expectedMinRows, maxAttempts, false)
+    }
+
+    /**
+     * Wait for routine load task to finish for MOW (Merge-on-Write) unique key tables.
+     * Uses skip_delete_bitmap=true to properly count rows during partial update operations.
+     */
+    static int waitForTaskFinishMoW(Closure sqlRunner, String job, String tableName, int expectedMinRows = 0, int maxAttempts = 60) {
+        return waitForTaskFinishInternal(sqlRunner, job, tableName, expectedMinRows, maxAttempts, true)
+    }
+
+    private static int waitForTaskFinishInternal(Closure sqlRunner, String job, String tableName, int expectedMinRows, int maxAttempts, boolean isMoW) {
         def count = 0
         while (true) {
             def res = sqlRunner.call("show routine load for ${job}")
@@ -114,7 +126,18 @@ class RoutineLoadTestUtils {
             def statistic = res[0][14].toString()
             logger.info("Routine load state: ${routineLoadState}")
             logger.info("Routine load statistic: ${statistic}")
-            def rowCount = sqlRunner.call("select count(*) from ${tableName}")
+            def rowCount
+            if (isMoW) {
+                // For MOW tables, use skip_delete_bitmap to properly count rows
+                sqlRunner.call("set skip_delete_bitmap=true")
+                sqlRunner.call("set skip_delete_sign=true")
+                sqlRunner.call("sync")
+                rowCount = sqlRunner.call("select count(*) from ${tableName}")
+                sqlRunner.call("set skip_delete_bitmap=false")
+                sqlRunner.call("set skip_delete_sign=false")
+            } else {
+                rowCount = sqlRunner.call("select count(*) from ${tableName}")
+            }
             if (routineLoadState == "RUNNING" && rowCount[0][0] > expectedMinRows) {
                 break
             }

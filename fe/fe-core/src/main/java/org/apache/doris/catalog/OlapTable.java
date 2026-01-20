@@ -2977,6 +2977,33 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return hasSkipBitmapColumn();
     }
 
+    /**
+     * Validate that the table supports flexible partial update.
+     * Checks the following constraints:
+     * 1. Must be MoW unique key table
+     * 2. Must have skip_bitmap column
+     * 3. Must have light_schema_change enabled
+     * 4. Cannot have variant columns
+     * @throws UserException if any constraint is not satisfied
+     */
+    public void validateForFlexiblePartialUpdate() throws UserException {
+        if (!getEnableUniqueKeyMergeOnWrite()) {
+            throw new UserException("Flexible partial update is only supported in unique table MoW");
+        }
+        if (!hasSkipBitmapColumn()) {
+            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
+                    + " But table " + getName() + " doesn't have it. You can use `ALTER TABLE " + getName()
+                    + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it to the table.");
+        }
+        if (!getEnableLightSchemaChange()) {
+            throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
+                    + " But table " + getName() + "'s property light_schema_change is false");
+        }
+        if (hasVariantColumns()) {
+            throw new UserException("Flexible partial update can only support table without variant columns.");
+        }
+    }
+
     public boolean getEnableUniqueKeyMergeOnWrite() {
         if (tableProperty == null) {
             return false;
