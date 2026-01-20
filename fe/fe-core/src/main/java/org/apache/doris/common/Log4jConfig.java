@@ -65,6 +65,7 @@ public class Log4jConfig extends XmlConfiguration {
     private static final String RUNTIME_LOG_WARN_FILE_APPENDER_PLACEHOLDER = "<!--REPLACED BY WARN_LOG_APPENDER-->";
     private static final String AUDIT_CONSOLE_LOGGER_PLACEHOLDER = "<!--REPLACED BY AUDIT CONSOLE LOGGER-->";
     private static final String AUDIT_FILE_LOGGER_PLACEHOLDER = "<!--REPLACED BY AUDIT FILE LOGGER-->";
+    private static final String LINEAGE_FILE_LOGGER_PLACEHOLDER = "<!--REPLACED BY LINEAGE FILE LOGGER-->";
     private static final String RUNTIME_LOG_MARKER_PLACEHOLDER = "<!--REPLACED BY RUNTIME LOG MARKER-->";
     private static final String AUDIT_LOG_MARKER_PLACEHOLDER = "<!--REPLACED BY AUDIT LOG MARKER-->";
 
@@ -74,6 +75,7 @@ public class Log4jConfig extends XmlConfiguration {
     private static final String RUNTIME_LOG_WARN_FILE_APPENDER = "SysWF";
     private static final String AUDIT_LOG_CONSOLE_APPENDER = "AuditConsole";
     private static final String AUDIT_LOG_FILE_APPENDER = "AuditFile";
+    private static final String LINEAGE_LOG_FILE_APPENDER = "LineageDataworksFile";
 
     // Log patterns
     private static final String RUNTIME_LOG_PATTERN
@@ -81,6 +83,7 @@ public class Log4jConfig extends XmlConfiguration {
             + RUNTIME_LOG_FORMAT_PLACEHOLDER + "%m%n";
     private static final String AUDIT_LOG_PATTERN
             = AUDIT_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n";
+    private static final String LINEAGE_LOG_PATTERN = "%m%n";
 
     // Log markers
     private static final String RUNTIME_LOG_MARKER = "RuntimeLogger ";
@@ -157,6 +160,24 @@ public class Log4jConfig extends XmlConfiguration {
             .append("        </Delete>\n")
             .append("      </DefaultRolloverStrategy>\n")
             .append("    </RollingFile>\n")
+            .append("    <RollingFile name=\"" + LINEAGE_LOG_FILE_APPENDER + "\" fileName=\"${lineage_dataworks_log_dir}/dataworks_lineage.log\" filePattern=\"${lineage_dataworks_log_dir}/dataworks_lineage.log.${lineage_dataworks_file_pattern}-%i\">\n")
+            .append("      <PatternLayout charset=\"UTF-8\">\n")
+            .append("        <Pattern>" + LINEAGE_LOG_PATTERN + "</Pattern>\n")
+            .append("      </PatternLayout>\n")
+            .append("      <Policies>\n")
+            .append("        <TimeBasedTriggeringPolicy/>\n")
+            .append("        <SizeBasedTriggeringPolicy size=\"${lineage_dataworks_roll_maxsize}MB\"/>\n")
+            .append("      </Policies>\n")
+            .append("      <DefaultRolloverStrategy max=\"${lineage_dataworks_roll_num}\" fileIndex=\"max\">\n")
+            .append("        <Delete basePath=\"${lineage_dataworks_log_dir}/\" maxDepth=\"1\">\n")
+            .append("          <IfFileName glob=\"dataworks_lineage.log.*\" />\n");
+
+        getXmlConfByStrategy("lineage_dataworks_sys_accumulated_file_size", "lineage_dataworks_log_delete_age");
+
+        xmlConfTemplateBuilder
+            .append("        </Delete>\n")
+            .append("      </DefaultRolloverStrategy>\n")
+            .append("    </RollingFile>\n")
             .append("  </Appenders>\n")
             .append("  <Loggers>\n")
             .append("    <Root level=\"${sys_log_level}\" includeLocation=\"${include_location_flag}\">\n")
@@ -167,6 +188,9 @@ public class Log4jConfig extends XmlConfiguration {
             .append("    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n")
             .append("      " + AUDIT_FILE_LOGGER_PLACEHOLDER + "\n")
             .append("      " + AUDIT_CONSOLE_LOGGER_PLACEHOLDER + "\n")
+            .append("    </Logger>\n")
+            .append("    <Logger name=\"lineage.dataworks\" level=\"INFO\" additivity=\"false\">\n")
+            .append("      " + LINEAGE_FILE_LOGGER_PLACEHOLDER + "\n")
             .append("    </Logger>\n")
             .append("    " + VERBOSE_MODULE_PLACEHOLDER + "\n")
             .append("  </Loggers>\n")
@@ -242,6 +266,21 @@ public class Log4jConfig extends XmlConfiguration {
             throw new IOException("audit_log_roll_interval config error: " + Config.audit_log_roll_interval);
         }
 
+        // lineage log config (dataworks)
+        String lineageLogDir = Config.lineage_dataworks_log_dir;
+        String lineageLogRollPattern = "%d{yyyyMMdd}";
+        String lineageRollNum = String.valueOf(Config.lineage_dataworks_roll_num);
+        String lineageRollMaxSize = String.valueOf(Config.lineage_dataworks_roll_maxsize);
+        String lineageDeleteAge = String.valueOf(Config.lineage_dataworks_log_delete_age);
+        if (Config.lineage_dataworks_log_roll_interval.equals("HOUR")) {
+            lineageLogRollPattern = "%d{yyyyMMddHH}";
+        } else if (Config.lineage_dataworks_log_roll_interval.equals("DAY")) {
+            lineageLogRollPattern = "%d{yyyyMMdd}";
+        } else {
+            throw new IOException("lineage_dataworks_log_roll_interval config error: "
+                    + Config.lineage_dataworks_log_roll_interval);
+        }
+
         // verbose modules and audit log modules
         StringBuilder sb = new StringBuilder();
         for (String s : verboseModules) {
@@ -275,6 +314,9 @@ public class Log4jConfig extends XmlConfiguration {
                     "<AppenderRef ref=\"" + AUDIT_LOG_FILE_APPENDER + "\"/>\n");
         }
 
+        newXmlConfTemplate = newXmlConfTemplate.replaceAll(LINEAGE_FILE_LOGGER_PLACEHOLDER,
+                "<AppenderRef ref=\"" + LINEAGE_LOG_FILE_APPENDER + "\"/>\n");
+
         if (foreground) {
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_MARKER_PLACEHOLDER, RUNTIME_LOG_MARKER);
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(AUDIT_LOG_MARKER_PLACEHOLDER, AUDIT_LOG_MARKER);
@@ -299,9 +341,17 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("audit_roll_num", auditRollNum);
         properties.put("audit_log_delete_age", auditDeleteAge);
 
+        properties.put("lineage_dataworks_log_dir", lineageLogDir);
+        properties.put("lineage_dataworks_file_pattern", lineageLogRollPattern);
+        properties.put("lineage_dataworks_roll_maxsize", lineageRollMaxSize);
+        properties.put("lineage_dataworks_roll_num", lineageRollNum);
+        properties.put("lineage_dataworks_log_delete_age", lineageDeleteAge);
+
         properties.put("info_sys_accumulated_file_size", String.valueOf(Config.info_sys_accumulated_file_size));
         properties.put("warn_sys_accumulated_file_size", String.valueOf(Config.warn_sys_accumulated_file_size));
         properties.put("audit_sys_accumulated_file_size", String.valueOf(Config.audit_sys_accumulated_file_size));
+        properties.put("lineage_dataworks_sys_accumulated_file_size",
+                String.valueOf(Config.lineage_dataworks_sys_accumulated_file_size));
 
         properties.put("include_location_flag", Boolean.toString(includeLocation));
         properties.put("immediate_flush_flag", Boolean.toString(immediateFlush));

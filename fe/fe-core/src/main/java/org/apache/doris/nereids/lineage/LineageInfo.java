@@ -46,11 +46,24 @@ public class LineageInfo {
     // inDirectLineageMap stores expressions that indirectly affect output slots. These expressions,
     // which indirectly impact output slots, are categorized as IndirectLineageType.
     private Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> inDirectLineageMap;
+    // datasetIndirectLineageMap stores expressions that affect the whole dataset (e.g. filter, join).
+    private SetMultimap<IndirectLineageType, Expression> datasetIndirectLineageMap;
     // tableLineageSet stores tables that the plan depends on
     private Set<TableIf> tableLineageSet;
     // sourceCommand indicates the type of data manipulation operation that generated this lineage information
     // such as InsertIntoCommand, InsertOverwriteCommand, etc.
     private Class<? extends Command> sourceCommand;
+    // target table for this lineage event
+    private TableIf targetTable;
+    // target columns for this lineage event
+    private List<Slot> targetColumns;
+    // query metadata`
+    private String queryId;
+    private String queryText;
+    private String user;
+    private String database;
+    private long timestampMs;
+    private long durationMs;
 
     /**
      * Indirect lineage type - expressions that indirectly affect output slots
@@ -86,6 +99,7 @@ public class LineageInfo {
         this.directLineageMap = new HashMap<>();
         this.inDirectLineageMap = new HashMap<>();
         this.tableLineageSet = new HashSet<>();
+        this.datasetIndirectLineageMap = HashMultimap.create();
     }
 
     public Map<SlotReference, SetMultimap<DirectLineageType, Expression>> getDirectLineageMap() {
@@ -96,13 +110,36 @@ public class LineageInfo {
         this.directLineageMap = directLineageMap;
     }
 
+    /**
+     * Get all lineage info
+     */
     public Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> getInDirectLineageMap() {
-        return inDirectLineageMap;
+        if (datasetIndirectLineageMap.isEmpty()) {
+            return inDirectLineageMap;
+        }
+        Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> merged = new HashMap<>();
+        Set<SlotReference> outputSlots = new HashSet<>();
+        outputSlots.addAll(directLineageMap.keySet());
+        outputSlots.addAll(inDirectLineageMap.keySet());
+        for (SlotReference outputSlot : outputSlots) {
+            SetMultimap<IndirectLineageType, Expression> combined = HashMultimap.create();
+            combined.putAll(datasetIndirectLineageMap);
+            SetMultimap<IndirectLineageType, Expression> perOutput = inDirectLineageMap.get(outputSlot);
+            if (perOutput != null) {
+                combined.putAll(perOutput);
+            }
+            merged.put(outputSlot, combined);
+        }
+        return merged;
     }
 
-    public void setInDirectLineageMap(
-            Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> inDirectLineageMap) {
-        this.inDirectLineageMap = inDirectLineageMap;
+    /**
+     * Get dataset-level indirect lineage expressions.
+     *
+     * @return dataset-level indirect lineage map
+     */
+    public SetMultimap<IndirectLineageType, Expression> getDatasetIndirectLineageMap() {
+        return datasetIndirectLineageMap;
     }
 
     public Set<TableIf> getTableLineageSet() {
@@ -125,6 +162,70 @@ public class LineageInfo {
         this.sourceCommand = sourceCommand;
     }
 
+    public TableIf getTargetTable() {
+        return targetTable;
+    }
+
+    public void setTargetTable(TableIf targetTable) {
+        this.targetTable = targetTable;
+    }
+
+    public List<Slot> getTargetColumns() {
+        return targetColumns;
+    }
+
+    public void setTargetColumns(List<Slot> targetColumns) {
+        this.targetColumns = targetColumns;
+    }
+
+    public String getQueryId() {
+        return queryId;
+    }
+
+    public void setQueryId(String queryId) {
+        this.queryId = queryId;
+    }
+
+    public String getQueryText() {
+        return queryText;
+    }
+
+    public void setQueryText(String queryText) {
+        this.queryText = queryText;
+    }
+
+    public String getUser() {
+        return user;
+    }
+
+    public void setUser(String user) {
+        this.user = user;
+    }
+
+    public String getDatabase() {
+        return database;
+    }
+
+    public void setDatabase(String database) {
+        this.database = database;
+    }
+
+    public long getTimestampMs() {
+        return timestampMs;
+    }
+
+    public void setTimestampMs(long timestampMs) {
+        this.timestampMs = timestampMs;
+    }
+
+    public long getDurationMs() {
+        return durationMs;
+    }
+
+    public void setDurationMs(long durationMs) {
+        this.durationMs = durationMs;
+    }
+
     /**
      * Add direct lineage for an output slot
      */
@@ -140,16 +241,16 @@ public class LineageInfo {
     }
 
     /**
-     * Add indirect lineage for all output slots
+     * Add indirect lineage for all output slots.
+     * Stored as dataset-level indirect lineage to avoid duplication.
      */
     public void addIndirectLineageForAll(IndirectLineageType type, Expression expr) {
-        for (SlotReference outputSlot : directLineageMap.keySet()) {
-            addIndirectLineage(outputSlot, type, expr);
-        }
+        datasetIndirectLineageMap.put(type, expr);
     }
 
     /**
-     * Add indirect lineage for all output slots
+     * Add indirect lineage for all output slots.
+     * Stored as dataset-level indirect lineage to avoid duplication.
      */
     public void addIndirectLineageForAll(IndirectLineageType type, Set<Expression> exprs) {
         for (Expression expr : exprs) {
@@ -157,6 +258,12 @@ public class LineageInfo {
         }
     }
 
+    /**
+     * Generate a slot-to-expression lineage map for the plan outputs.
+     *
+     * @param plan plan to extract lineage from
+     * @return map from output slot to lineage expression
+     */
     public static Map<SlotReference, Expression> generateLineageMap(Plan plan) {
         List<Slot> output = plan.getOutput();
         Map<SlotReference, Expression> lineageMap = new HashMap<>();
@@ -175,7 +282,8 @@ public class LineageInfo {
                 .append(",\n");
         sb.append("  tableLineageSet=").append(tableLineageSet).append(",\n");
         sb.append("  directLineageMap=").append(directLineageMap).append(",\n");
-        sb.append("  inDirectLineageMap=").append(inDirectLineageMap).append("\n");
+        sb.append("  inDirectLineageMap=").append(inDirectLineageMap).append(",\n");
+        sb.append("  targetTable=").append(targetTable != null ? targetTable.getName() : "null").append("\n");
         sb.append("}");
         return sb.toString();
     }

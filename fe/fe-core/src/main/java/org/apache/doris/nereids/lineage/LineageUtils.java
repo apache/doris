@@ -1,0 +1,132 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.lineage;
+
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+
+import java.util.Optional;
+
+/**
+ * Utility methods for lineage event construction and filtering.
+ */
+public final class LineageUtils {
+
+    private LineageUtils() {
+    }
+
+    /**
+     * Check whether the parsed statement matches the current command type.
+     *
+     * @param executor statement executor containing parsed statement
+     * @param currentCommand current command class
+     * @return true if parsed command matches current command
+     */
+    public static boolean isSameParsedCommand(StmtExecutor executor, Class<? extends Command> currentCommand) {
+        if (executor == null || currentCommand == null) {
+            return false;
+        }
+        StatementBase parsedStmt = executor.getParsedStmt();
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+        Plan parsedPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        if (!(parsedPlan instanceof Command)) {
+            return false;
+        }
+        return parsedPlan.getClass().equals(currentCommand);
+    }
+
+    /**
+     * Build a lineage event and compute lineage info if lineage plugins are enabled.
+     *
+     * @param plan the plan to extract lineage from
+     * @param sourceCommand the command type for the event
+     * @param ctx connect context holding query metadata
+     * @param executor statement executor for query text
+     * @return lineage event or null if lineage is disabled
+     */
+    public static LineageEvent buildLineageEvent(Plan plan, Class<? extends Command> sourceCommand,
+            ConnectContext ctx, StmtExecutor executor) {
+        if (plan == null || ctx == null) {
+            return null;
+        }
+        if (Config.activate_lineage_plugin == null || Config.activate_lineage_plugin.length == 0) {
+            return null;
+        }
+        if (shouldSkipLineage(plan)) {
+            return null;
+        }
+        String queryId = ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId());
+        String queryText = executor == null ? "" : executor.getOriginStmtInString();
+        String user = ctx.getQualifiedUser();
+        String database = ctx.getDatabase() == null ? "" : ctx.getDatabase();
+        long timestampMs = System.currentTimeMillis();
+        long durationMs = ctx.getStartTime() > 0 ? (timestampMs - ctx.getStartTime()) : 0;
+        LineageEvent event = new LineageEvent(plan, sourceCommand, queryId, queryText, user, database,
+                timestampMs, durationMs);
+        event.setLineageInfo(LineageInfoExtractor.extractLineageInfo(event));
+        return event;
+    }
+
+    private static boolean shouldSkipLineage(Plan plan) {
+        if (isValuesOnly(plan)) {
+            return true;
+        }
+        return isInternalSchemaTarget(plan);
+    }
+
+    private static boolean isValuesOnly(Plan plan) {
+        if (plan.containsType(LogicalCatalogRelation.class)) {
+            return false;
+        }
+        return plan.containsType(InlineTable.class)
+                || plan.containsType(LogicalUnion.class)
+                || plan.containsType(LogicalOneRowRelation.class);
+    }
+
+    private static boolean isInternalSchemaTarget(Plan plan) {
+        Optional<LogicalTableSink> sink = plan.collectFirst(node -> node instanceof LogicalTableSink);
+        if (!sink.isPresent()) {
+            return false;
+        }
+        TableIf targetTable = sink.get().getTargetTable();
+        if (targetTable == null || targetTable.getDatabase() == null
+                || targetTable.getDatabase().getCatalog() == null) {
+            return false;
+        }
+        String catalogName = targetTable.getDatabase().getCatalog().getName();
+        String dbName = targetTable.getDatabase().getFullName();
+        return InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(catalogName)
+                && FeConstants.INTERNAL_DB_NAME.equalsIgnoreCase(dbName);
+    }
+}

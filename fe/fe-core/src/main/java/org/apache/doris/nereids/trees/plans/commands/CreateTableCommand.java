@@ -28,6 +28,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.lineage.LineageEvent;
+import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -110,18 +111,34 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
+            InsertIntoTableCommand insertCommand = null;
             if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(),
-                        Optional.empty(), true, Optional.empty()).run(ctx, executor);
+                insertCommand = new InsertIntoTableCommand(query, Optional.empty(),
+                        Optional.empty(), Optional.empty(), true, Optional.empty());
+                insertCommand.run(ctx, executor);
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }
+            submitLineageEventIfNeeded(ctx, executor, insertCommand);
         } catch (Exception e) {
             handleFallbackFailedCtas(ctx);
             throw new AnalysisException("Failed to execute CTAS Reason: " + e.getMessage(), e);
         }
-        Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(new LineageEvent());
+    }
+
+    private void submitLineageEventIfNeeded(ConnectContext ctx, StmtExecutor executor,
+            InsertIntoTableCommand insertCommand) {
+        if (!LineageUtils.isSameParsedCommand(executor, getClass())) {
+            return;
+        }
+        Plan plan = insertCommand == null
+                ? null
+                : insertCommand.getLineagePlan().orElseGet(insertCommand::getLogicalQuery);
+        LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, getClass(), ctx, executor);
+        if (lineageEvent != null) {
+            Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
+        }
     }
 
     /**
@@ -263,4 +280,3 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         return !CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName());
     }
 }
-

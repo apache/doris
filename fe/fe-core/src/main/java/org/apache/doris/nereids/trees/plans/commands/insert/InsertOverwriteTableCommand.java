@@ -42,6 +42,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.lineage.LineageEvent;
+import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -101,6 +102,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     private AtomicBoolean isCancelled = new AtomicBoolean(false);
     private AtomicBoolean isRunning = new AtomicBoolean(false);
     private Optional<String> branchName;
+    private Optional<Plan> lineagePlan = Optional.empty();
 
     /**
      * constructor
@@ -160,6 +162,9 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        if (planner.getCascadesContext() != null) {
+            lineagePlan = Optional.ofNullable(planner.getCascadesContext().getRewritePlan());
+        }
         executor.checkBlockRules();
         if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
@@ -273,7 +278,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
             isRunning.set(false);
         }
-        Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(new LineageEvent());
+        submitLineageEventIfNeeded(ctx, executor);
     }
 
     /**
@@ -426,6 +431,17 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 }
             }
             insertCtx.setStaticPartitionValues(staticPartitionValues);
+        }
+    }
+
+    private void submitLineageEventIfNeeded(ConnectContext ctx, StmtExecutor executor) {
+        if (!LineageUtils.isSameParsedCommand(executor, getClass())) {
+            return;
+        }
+        Plan plan = lineagePlan.orElseGet(() -> logicalQuery.orElse(originLogicalQuery));
+        LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, getClass(), ctx, executor);
+        if (lineageEvent != null) {
+            Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
         }
     }
 

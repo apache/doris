@@ -19,33 +19,33 @@ package org.apache.doris.nereids.lineage;
 
 import org.apache.doris.nereids.lineage.LineageInfo.DirectLineageType;
 import org.apache.doris.nereids.lineage.LineageInfo.IndirectLineageType;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.ExpressionReplacer;
 
+import com.google.common.collect.SetMultimap;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Extract lineage information from a Plan tree.
@@ -65,39 +65,43 @@ public class LineageInfoExtractor {
 
         // Set source command type
         lineageInfo.setSourceCommand(lineageEvent.getSourceCommand());
+        lineageInfo.setQueryId(lineageEvent.getQueryId());
+        lineageInfo.setQueryText(lineageEvent.getQueryText());
+        lineageInfo.setUser(lineageEvent.getUser());
+        lineageInfo.setDatabase(lineageEvent.getDatabase());
+        lineageInfo.setTimestampMs(lineageEvent.getTimestampMs());
+        lineageInfo.setDurationMs(lineageEvent.getDurationMs());
 
         // Step 1: Extract direct lineage using shuttleExpressionWithLineage
-        extractDirectLineage(plan, lineageInfo);
+        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext = extractDirectLineage(plan, lineageInfo);
 
         // Step 2: Extract indirect lineage by traversing plan tree
-        LineageCollector collector = new LineageCollector(lineageInfo);
-        plan.accept(collector, null);
-
-        // Step 3: Extract conditional expressions from direct lineage expressions
-        extractConditionalLineage(lineageInfo);
-
+        LineageCollector collector = new LineageCollector(replaceContext.getExprIdExpressionMap());
+        plan.accept(collector, lineageInfo);
         return lineageInfo;
     }
 
     /**
      * Extract direct lineage from plan output expressions
      */
-    private static void extractDirectLineage(Plan plan, LineageInfo lineageInfo) {
-        List<Slot> outputs = plan.getOutput();
-        List<? extends Expression> shuttledExprs = ExpressionUtils.shuttleExpressionWithLineage(outputs, plan);
+    private static ExpressionLineageReplacer.ExpressionReplaceContext extractDirectLineage(Plan plan,
+                                                                                           LineageInfo lineageInfo) {
 
+        List<Slot> outputs = plan.getOutput();
+        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                new ExpressionLineageReplacer.ExpressionReplaceContext(outputs);
+        plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+
+        List<? extends Expression> shuttledExpressions = replaceContext.getReplacedExpressions();
         for (int i = 0; i < outputs.size(); i++) {
             Slot outputSlot = outputs.get(i);
-            if (!(outputSlot instanceof SlotReference)) {
-                continue;
-            }
             SlotReference outputSlotRef = (SlotReference) outputSlot;
-            Expression shuttledExpr = shuttledExprs.get(i);
-
+            Expression shuttledExpr = shuttledExpressions.get(i);
             // Determine direct lineage type based on expression structure
             DirectLineageType type = determineDirectLineageType(shuttledExpr);
             lineageInfo.addDirectLineage(outputSlotRef, type, shuttledExpr);
         }
+        return replaceContext;
     }
 
     /**
@@ -105,7 +109,7 @@ public class LineageInfoExtractor {
      */
     private static DirectLineageType determineDirectLineageType(Expression expr) {
         // Check if expression contains aggregate function
-        if (containsAggregateFunction(expr)) {
+        if (expr.containsType(AggregateFunction.class)) {
             return DirectLineageType.AGGREGATION;
         }
         // Check if expression is a simple slot reference (identity)
@@ -117,184 +121,120 @@ public class LineageInfoExtractor {
     }
 
     /**
-     * Check if expression contains aggregate function
-     */
-    private static boolean containsAggregateFunction(Expression expr) {
-        if (expr instanceof AggregateFunction) {
-            return true;
-        }
-        for (Expression child : expr.children()) {
-            if (containsAggregateFunction(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Extract conditional expressions (CASE WHEN, IF, COALESCE) from direct lineage
-     * and add them as CONDITIONAL indirect lineage
-     */
-    private static void extractConditionalLineage(LineageInfo lineageInfo) {
-        Map<SlotReference, ?> directLineageMap = lineageInfo.getDirectLineageMap();
-
-        for (Map.Entry<SlotReference, ?> entry : directLineageMap.entrySet()) {
-            SlotReference outputSlot = entry.getKey();
-            // Get all expressions associated with this output slot
-            @SuppressWarnings("unchecked")
-            com.google.common.collect.SetMultimap<DirectLineageType, Expression> typeExprMap =
-                    (com.google.common.collect.SetMultimap<DirectLineageType, Expression>) entry.getValue();
-
-            for (Expression expr : typeExprMap.values()) {
-                Set<Expression> conditionalExprs = extractConditionalExpressions(expr);
-                for (Expression condExpr : conditionalExprs) {
-                    lineageInfo.addIndirectLineage(outputSlot, IndirectLineageType.CONDITIONAL, condExpr);
-                }
-            }
-        }
-    }
-
-    /**
-     * Extract conditional expressions from an expression tree
-     */
-    private static Set<Expression> extractConditionalExpressions(Expression expr) {
-        Set<Expression> result = new HashSet<>();
-        extractConditionalExpressionsRecursive(expr, result);
-        return result;
-    }
-
-    private static void extractConditionalExpressionsRecursive(Expression expr, Set<Expression> result) {
-        if (expr instanceof CaseWhen) {
-            // For CASE WHEN, extract the condition expressions
-            CaseWhen caseWhen = (CaseWhen) expr;
-            for (WhenClause whenClause : caseWhen.getWhenClauses()) {
-                result.add(whenClause.getOperand());
-            }
-        } else if (expr instanceof If) {
-            // For IF function, extract the condition (first argument)
-            If ifExpr = (If) expr;
-            result.add(ifExpr.getArgument(0)); // First argument is the condition
-        } else if (expr instanceof Coalesce || expr instanceof Nvl) {
-            // For COALESCE/NVL, the conditional logic is implicit
-            result.add(expr);
-        }
-
-        // Recursively check children
-        for (Expression child : expr.children()) {
-            extractConditionalExpressionsRecursive(child, result);
-        }
-    }
-
-    /**
      * Plan visitor to collect indirect lineage information
      */
-    private static class LineageCollector extends DefaultPlanVisitor<Void, Void> {
-        private final LineageInfo lineageInfo;
+    private static class LineageCollector extends DefaultPlanVisitor<Void, LineageInfo> {
+        private final Map<ExprId, Expression> exprIdExpressionMap;
 
-        public LineageCollector(LineageInfo lineageInfo) {
-            this.lineageInfo = lineageInfo;
+        public LineageCollector(Map<ExprId, Expression> exprIdExpressionMap) {
+            this.exprIdExpressionMap = exprIdExpressionMap;
         }
 
         @Override
-        public Void visit(Plan plan, Void context) {
-            // Continue visiting children
-            for (Plan child : plan.children()) {
-                child.accept(this, context);
+        public Void visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, LineageInfo lineageInfo) {
+            if (lineageInfo.getTargetTable() == null) {
+                lineageInfo.setTargetTable(logicalTableSink.getTargetTable());
+                lineageInfo.setTargetColumns(logicalTableSink.getOutput());
             }
-            return null;
+            return super.visitLogicalTableSink(logicalTableSink, lineageInfo);
         }
 
         @Override
-        public Void visitLogicalCatalogRelation(LogicalCatalogRelation relation, Void context) {
+        public Void visitLogicalCatalogRelation(LogicalCatalogRelation relation, LineageInfo lineageInfo) {
             // Collect table lineage
             lineageInfo.addTableLineage(relation.getTable());
             return null;
         }
 
         @Override
-        public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-            // Collect JOIN conditions as indirect lineage
+        public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, LineageInfo lineageInfo) {
             Set<Expression> joinConditions = new HashSet<>();
-
-            // Hash join conjuncts
             joinConditions.addAll(join.getHashJoinConjuncts());
-
-            // Other join conjuncts
             joinConditions.addAll(join.getOtherJoinConjuncts());
-
-            // Mark join conjuncts (if any)
             joinConditions.addAll(join.getMarkJoinConjuncts());
-
-            // Add join conditions to all output slots
-            lineageInfo.addIndirectLineageForAll(IndirectLineageType.JOIN, joinConditions);
-
-            // Continue visiting children
-            return visit(join, context);
+            Set<Expression> shuttled = shuttleExpressions(new ArrayList<>(joinConditions), exprIdExpressionMap);
+            addIndirectLineage(IndirectLineageType.JOIN, shuttled, lineageInfo);
+            return super.visitLogicalJoin(join, lineageInfo);
         }
 
         @Override
-        public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
-            // Collect FILTER predicates as indirect lineage
-            Set<Expression> predicates = filter.getConjuncts();
-            lineageInfo.addIndirectLineageForAll(IndirectLineageType.FILTER, predicates);
-
-            // Continue visiting children
-            return visit(filter, context);
+        public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, LineageInfo lineageInfo) {
+            Set<Expression> predicates = new HashSet<>(filter.getConjuncts());
+            Set<Expression> shuttled = shuttleExpressions(new ArrayList<>(predicates), exprIdExpressionMap);
+            addIndirectLineage(IndirectLineageType.FILTER, shuttled, lineageInfo);
+            return super.visitLogicalFilter(filter, lineageInfo);
         }
 
         @Override
-        public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
-            // Collect GROUP BY expressions as indirect lineage
-            List<Expression> groupByExprs = aggregate.getGroupByExpressions();
-            for (Expression groupByExpr : groupByExprs) {
-                lineageInfo.addIndirectLineageForAll(IndirectLineageType.GROUP_BY, groupByExpr);
+        public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, LineageInfo lineageInfo) {
+            Set<Expression> shuttled = shuttleExpressions(aggregate.getGroupByExpressions(), exprIdExpressionMap);
+            addIndirectLineage(IndirectLineageType.GROUP_BY, shuttled, lineageInfo);
+            return super.visitLogicalAggregate(aggregate, lineageInfo);
+        }
+
+        @Override
+        public Void visitLogicalSort(LogicalSort<? extends Plan> sort, LineageInfo lineageInfo) {
+            List<Expression> sortExprs = new ArrayList<>();
+            sort.getOrderKeys().forEach(orderKey -> sortExprs.add(orderKey.getExpr()));
+            Set<Expression> shuttled = shuttleExpressions(sortExprs, exprIdExpressionMap);
+            addIndirectLineage(IndirectLineageType.SORT, shuttled, lineageInfo);
+            return super.visitLogicalSort(sort, lineageInfo);
+        }
+
+        @Override
+        public Void visitLogicalTopN(LogicalTopN<? extends Plan> topN, LineageInfo lineageInfo) {
+            List<Expression> sortExprs = new ArrayList<>();
+            topN.getOrderKeys().forEach(orderKey -> sortExprs.add(orderKey.getExpr()));
+            Set<Expression> shuttled = shuttleExpressions(sortExprs, exprIdExpressionMap);
+            addIndirectLineage(IndirectLineageType.SORT, shuttled, lineageInfo);
+            return super.visitLogicalTopN(topN, lineageInfo);
+        }
+
+        @Override
+        public Void visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
+                                                     LineageInfo lineageInfo) {
+            List<Expression> sortExprs = new ArrayList<>();
+            topN.getOrderKeys().forEach(orderKey -> sortExprs.add(orderKey.getExpr()));
+            Set<Expression> shuttled = shuttleExpressions(sortExprs, exprIdExpressionMap);
+            addIndirectLineage(IndirectLineageType.SORT, shuttled, lineageInfo);
+            return super.visitLogicalDeferMaterializeTopN(topN, lineageInfo);
+        }
+
+        private Set<Expression> shuttleExpressions(List<? extends Expression> expressions,
+                                                   Map<ExprId, Expression> exprIdExpressionMap) {
+            if (expressions == null || expressions.isEmpty()) {
+                return new HashSet<>();
             }
-
-            // Continue visiting children
-            return visit(aggregate, context);
+            return expressions.stream()
+                    .map(original ->
+                            original.accept(ExpressionReplacer.INSTANCE, exprIdExpressionMap))
+                    .collect(Collectors.toSet());
         }
 
-        @Override
-        public Void visitLogicalSort(LogicalSort<? extends Plan> sort, Void context) {
-            // Collect SORT expressions as indirect lineage
-            sort.getOrderKeys().forEach(orderKey -> {
-                Expression sortExpr = orderKey.getExpr();
-                lineageInfo.addIndirectLineageForAll(IndirectLineageType.SORT, sortExpr);
-            });
+        private void addIndirectLineage(IndirectLineageType type,
+                                        Set<Expression> expressions, LineageInfo lineageInfo) {
 
-            // Continue visiting children
-            return visit(sort, context);
-        }
+            Set<Slot> exprSlots = expressions.stream()
+                    .flatMap(expr -> expr.collectToList(Slot.class::isInstance).stream())
+                    .map(Slot.class::cast)
+                    .collect(Collectors.toSet());
 
-        @Override
-        public Void visitLogicalWindow(LogicalWindow<? extends Plan> window, Void context) {
-            // Collect WINDOW partition and order expressions as indirect lineage
-            for (NamedExpression windowExpr : window.getWindowExpressions()) {
-                Expression expr = windowExpr instanceof Alias ? ((Alias) windowExpr).child() : windowExpr;
-                if (expr instanceof org.apache.doris.nereids.trees.expressions.WindowExpression) {
-                    org.apache.doris.nereids.trees.expressions.WindowExpression winExpr =
-                            (org.apache.doris.nereids.trees.expressions.WindowExpression) expr;
-
-                    // Partition by expressions
-                    for (Expression partitionKey : winExpr.getPartitionKeys()) {
-                        lineageInfo.addIndirectLineageForAll(IndirectLineageType.WINDOW, partitionKey);
-                    }
-
-                    // Order by expressions
-                    for (Expression orderKey : winExpr.getOrderKeys()) {
-                        lineageInfo.addIndirectLineageForAll(IndirectLineageType.WINDOW, orderKey);
+            Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap
+                    = lineageInfo.getDirectLineageMap();
+            for (Map.Entry<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineage
+                    : directLineageMap.entrySet()) {
+                SlotReference outputSlot = directLineage.getKey();
+                SetMultimap<DirectLineageType, Expression> value = directLineage.getValue();
+                Set<Slot> directSlots = value.values().stream()
+                        .flatMap(expr -> expr.collectToList(Slot.class::isInstance).stream())
+                        .map(Slot.class::cast)
+                        .collect(Collectors.toSet());
+                if (!Sets.intersection(exprSlots, directSlots).isEmpty()) {
+                    for (Expression expr : expressions) {
+                        lineageInfo.addIndirectLineage(outputSlot, type, expr);
                     }
                 }
             }
-
-            // Continue visiting children
-            return visit(window, context);
-        }
-
-        @Override
-        public Void visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
-            // Project doesn't add indirect lineage, just continue visiting
-            return visit(project, context);
         }
     }
 }

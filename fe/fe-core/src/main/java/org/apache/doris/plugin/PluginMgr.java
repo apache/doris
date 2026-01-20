@@ -29,6 +29,7 @@ import org.apache.doris.plugin.PluginLoader.PluginStatus;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
+import org.apache.doris.plugin.lineage.DataworksLineagePlugin;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -124,6 +125,12 @@ public class PluginMgr implements Writable {
         HttpDialectConverterPlugin httpDialectConverterPlugin = new HttpDialectConverterPlugin();
         if (!registerBuiltinPlugin(httpDialectConverterPlugin.getPluginInfo(), httpDialectConverterPlugin)) {
             LOG.warn("failed to register http dialect converter plugin");
+        }
+
+        // lineage plugins
+        DataworksLineagePlugin dataworksLineagePlugin = new DataworksLineagePlugin();
+        if (!registerBuiltinPlugin(dataworksLineagePlugin.getPluginInfo(), dataworksLineagePlugin)) {
+            LOG.warn("failed to register dataworks lineage plugin");
         }
 
         // other builtin plugins

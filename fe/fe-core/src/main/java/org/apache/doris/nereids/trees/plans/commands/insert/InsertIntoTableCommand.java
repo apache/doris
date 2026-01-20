@@ -45,7 +45,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.lineage.LineageEvent;
-import org.apache.doris.nereids.lineage.LineageEventProcessor;
+import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
@@ -111,6 +111,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private Optional<String> labelName;
     private Optional<String> branchName;
     private Optional<Plan> parsedPlan;
+    private Optional<Plan> lineagePlan = Optional.empty();
     /**
      * When source it's from job scheduler,it will be set.
      */
@@ -177,6 +178,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public Optional<Plan> getParsedPlan() {
         return parsedPlan;
+    }
+
+    public Optional<Plan> getLineagePlan() {
+        return lineagePlan;
     }
 
     protected void setLogicalQuery(LogicalPlan logicalQuery) {
@@ -265,6 +270,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
             insertExecutor = buildResult.executor;
             parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
+            if (buildResult.planner.getCascadesContext() != null) {
+                lineagePlan = Optional.ofNullable(buildResult.planner.getCascadesContext().getRewritePlan());
+            }
             if (!needBeginTransaction) {
                 return insertExecutor;
             }
@@ -577,7 +585,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             insertExecutor.registerListener(insertExecutorListener);
         }
         insertExecutor.executeSingleInsert(executor);
-        Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(new LineageEvent());
+        submitLineageEventIfNeeded(ctx, executor);
     }
 
     public boolean isExternalTableSink() {
@@ -616,6 +624,17 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public List<UnboundTVFRelation> getAllTVFRelation() {
         return getLogicalQuery().collectToList(UnboundTVFRelation.class::isInstance);
+    }
+
+    private void submitLineageEventIfNeeded(ConnectContext ctx, StmtExecutor executor) {
+        if (!LineageUtils.isSameParsedCommand(executor, getClass())) {
+            return;
+        }
+        Plan plan = lineagePlan.orElse(getLogicalQuery());
+        LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, getClass(), ctx, executor);
+        if (lineageEvent != null) {
+            Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
+        }
     }
 
     @Override
