@@ -42,7 +42,14 @@ public final class AnalyzerSelector {
     public static Selection select(Map<String, String> properties, String requestedAnalyzer) {
         String normalizedRequest = normalize(requestedAnalyzer);
         String preferredAnalyzer = selectDefaultAnalyzer(properties);
-        String parser = InvertedIndexUtil.getInvertedIndexParser(properties);
+        String rawParser = InvertedIndexUtil.getInvertedIndexParser(properties);
+
+        // For tables without index, use english parser which provides more aggressive
+        // tokenization (splits on all non-letter characters) for slow path matching.
+        boolean hasNoIndex = properties == null || properties.isEmpty();
+        String parser = hasNoIndex
+                ? InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH
+                : rawParser;
 
         if (!Strings.isNullOrEmpty(normalizedRequest)) {
             return new Selection(normalizedRequest, parser, true);
@@ -50,11 +57,14 @@ public final class AnalyzerSelector {
 
         String resolvedAnalyzer;
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            // Use custom analyzer from index properties
             resolvedAnalyzer = preferredAnalyzer;
         } else if (!Strings.isNullOrEmpty(parser)
                 && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
+            // Use builtin parser (english, chinese, standard, etc.)
             resolvedAnalyzer = parser;
         } else {
+            // Keyword index (parser=none) - no tokenization needed
             resolvedAnalyzer = "";
         }
         return new Selection(resolvedAnalyzer, parser, false);
@@ -102,8 +112,8 @@ public final class AnalyzerSelector {
          * - If we have a specific analyzer name (custom or builtin), return that name.
          *   This ensures BE can create/use the correct analyzer for both index path
          *   and slow path (full scan).
-         * - If analyzer wasn't explicitly specified and no analyzer is configured on
-         *   the index: use "__default__" to let BE choose based on index properties.
+         * - For keyword index (parser=none, no custom analyzer), return empty string
+         *   to signal BE should not tokenize.
          * - If explicit: use the user-specified analyzer (e.g., "none", "chinese")
          *   This tells BE to use the exact index with that analyzer key.
          */
@@ -113,10 +123,11 @@ public final class AnalyzerSelector {
             if (!Strings.isNullOrEmpty(analyzer)) {
                 return analyzer;
             }
-            // When no explicit analyzer is specified and no analyzer on index,
-            // return __default__ to let BE choose based on index properties.
+            // No analyzer means keyword index or no index - in either case, the parser
+            // field already indicates what to do (parser=english for no index, parser=none
+            // for keyword index). Return empty string to let BE use parser_type for decisions.
             if (!explicit) {
-                return InvertedIndexUtil.INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+                return "";
             }
             return Strings.isNullOrEmpty(fallbackParser) ? "" : fallbackParser;
         }
