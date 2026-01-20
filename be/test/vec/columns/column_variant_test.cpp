@@ -29,6 +29,7 @@
 #include <cstdint>
 
 #include "common/cast_set.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "testutil/test_util.h"
 #include "testutil/variant_util.h"
@@ -3802,6 +3803,37 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
         EXPECT_TRUE(arr2[0].is_null());
         EXPECT_EQ(arr2[1].get<TYPE_INT>(), 123);
     }
+}
+
+TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
+    ColumnVariant::Subcolumn subcolumn(0, true, true);
+    subcolumn.insert_many_defaults(20);
+    subcolumn.finalize();
+    vectorized::UInt64 v = 20231205;
+    typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType tmp;
+    tmp.from_date_int64(v);
+    auto f = vectorized::Field::create_field<TYPE_DATEV2>(tmp);
+
+    FieldWithDataType field;
+    field.base_scalar_type_id = TYPE_DATEV2;
+    field.field = f;
+    subcolumn.insert(field);
+    subcolumn.finalize();
+
+    ColumnVariant::Subcolumn array_subcolumn(0, true, true);
+    array_subcolumn.insert_many_defaults(20);
+    array_subcolumn.finalize();
+
+    Array array;
+    array.push_back(f);
+    auto array_f = vectorized::Field::create_field<TYPE_ARRAY>(array);
+
+    FieldWithDataType field2;
+    field2.base_scalar_type_id = TYPE_DATEV2;
+    field2.field = array_f;
+    field2.num_dimensions = 1;
+    array_subcolumn.insert(field2);
+    array_subcolumn.finalize();
 }
 
 } // namespace doris::vectorized
