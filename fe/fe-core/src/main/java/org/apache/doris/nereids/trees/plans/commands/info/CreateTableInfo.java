@@ -1376,18 +1376,6 @@ public class CreateTableInfo {
         return new KeysDesc(keysType, keys, clusterKeysColumnNames);
     }
 
-    private void checkVariantFieldPatternInvertedIndex(String indexColName, String fieldPattern,
-            DataType fieldType, IndexDefinition indexDef) throws AnalysisException {
-        try {
-            InvertedIndexUtil.checkInvertedIndexParser(indexColName,
-                    fieldType.toCatalogDataType().getPrimitiveType(),
-                    indexDef.getProperties(), invertedIndexFileStorageFormat);
-        } catch (Exception ex) {
-            throw new AnalysisException("invalid INVERTED index: field pattern: " + fieldPattern
-                    + ", " + ex.getMessage(), ex);
-        }
-    }
-
     // 1. if the column is variant type, check it's field pattern is valid
     // 2. if the column is not variant type, check it's index def is valid
     private void columnToIndexesCheck() {
@@ -1428,8 +1416,16 @@ public class CreateTableInfo {
                                             + fieldPattern + " is not supported for inverted index"
                                             + " of column: " + column.getName());
                                 }
-                                checkVariantFieldPatternInvertedIndex(column.getName(), fieldPattern,
-                                        field.getDataType(), indexDef);
+
+                                // keep variant subcolumn checks aligned with ordinary column rules
+                                try {
+                                    InvertedIndexUtil.checkInvertedIndexParser(column.getName(),
+                                            field.getDataType().toCatalogDataType().getPrimitiveType(),
+                                            indexDef.getProperties(), invertedIndexFileStorageFormat);
+                                } catch (Exception ex) {
+                                    throw new AnalysisException("invalid INVERTED index: field pattern: "
+                                            + fieldPattern + ", " + ex.getMessage(), ex);
+                                }
                                 fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
                                                                                                     .add(indexDef);
                                 fieldPatternToDataType.put(fieldPattern, field.getDataType());

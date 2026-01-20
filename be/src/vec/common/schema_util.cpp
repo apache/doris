@@ -431,11 +431,6 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     // 1. bloom filter
     if (is_bf_supported_by_fe_for_variant_subcolumn(target.type())) {
         target.set_is_bf_column(source.is_bf_column());
-    } else if (source.is_bf_column()) {
-        LOG(INFO) << "Skip bloom filter for extracted column due to unsupported type. column="
-                  << target.name()
-                  << " path=" << (target.path_info_ptr() ? target.path_info_ptr()->get_path() : "")
-                  << " type=" << TabletColumn::get_string_by_field_type(target.type());
     }
 
     if (!target_schema) {
