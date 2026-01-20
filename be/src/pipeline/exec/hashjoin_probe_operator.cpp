@@ -196,7 +196,13 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
              (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
             auto type = remove_nullable(_right_table_data_types[i]);
             auto column = type->create_column();
-            column->resize(block_rows);
+            // Here should NOT use `resize` instead of `insert_many_defaults` to create null column,
+            // because `insert_many_defaults` will create a column with default value.
+            // For example: for `Struct<a: int, b: string>`,
+            //  If the column is created by `resize`,
+            //  the nested columns' null-map will be random values(not only 1 and 0),
+            //  if `struct_element` is called next, it will result in an invalid ColumnNullable data.
+            column->insert_many_defaults(block_rows);
             auto null_map_column = vectorized::ColumnUInt8::create(block_rows, 1);
             auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
                                                                       std::move(null_map_column));

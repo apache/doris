@@ -37,11 +37,11 @@ public:
             auto int_field = doris::vectorized::Field::create_field<TYPE_INT>(20);
             auto str_field = doris::vectorized::Field::create_field<TYPE_STRING>(String("str", 3));
             auto arr_int_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            auto& array1 = arr_int_field.get<Array>();
+            auto& array1 = arr_int_field.get<TYPE_ARRAY>();
             array1.emplace_back(int_field);
             array1.emplace_back(int_field);
             auto arr_str_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            auto& array2 = arr_str_field.get<Array>();
+            auto& array2 = arr_str_field.get<TYPE_ARRAY>();
             array2.emplace_back(str_field);
             array2.emplace_back(str_field);
             field_map["int"] = int_field;
@@ -64,7 +64,7 @@ public:
             const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
         doris::vectorized::Field res =
                 doris::vectorized::Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& object = res.get<VariantMap&>();
+        auto& object = res.get<TYPE_VARIANT>();
         for (const auto& [k, v] : key_and_values) {
             PathInData path(k);
             object.try_emplace(path, FieldWithDataType {.field = v});
@@ -195,11 +195,11 @@ public:
                 doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
         auto variant_field = doris::vectorized::Field::create_field<TYPE_VARIANT>(VariantMap());
         for (const auto& entry : data) {
-            auto& variant_map = variant_field.get<VariantMap&>();
+            auto& variant_map = variant_field.get<TYPE_VARIANT>();
             for (const auto& [k, v] : entry) {
                 variant_map.try_emplace(PathInData(k), FieldWithDataType {.field = v});
             }
-            array_field.get<Array>().emplace_back(std::move(variant_field));
+            array_field.get<TYPE_ARRAY>().emplace_back(std::move(variant_field));
         }
         return array_field;
     }

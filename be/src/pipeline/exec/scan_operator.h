@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -53,16 +54,6 @@ enum class PushDownType {
     PARTIAL_ACCEPTABLE
 };
 
-struct FilterPredicates {
-    // Save all runtime filter predicates which may be pushed down to data source.
-    // column name -> bloom filter function
-    std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
-
-    std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
-
-    std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
-};
-
 class ScanLocalStateBase : public PipelineXLocalState<> {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
@@ -78,12 +69,10 @@ public:
 
     virtual int64_t limit_per_scanner() = 0;
 
-    virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
-    virtual int64_t get_push_down_count() = 0;
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
     // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
@@ -98,6 +87,10 @@ public:
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
+
+    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts);
 
 protected:
     friend class vectorized::ScannerContext;
@@ -122,7 +115,6 @@ protected:
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
 
@@ -133,8 +125,8 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
+    std::mutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
-    std::mutex _conjunct_lock;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
 };
@@ -164,13 +156,10 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t limit_per_scanner() override;
 
-    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
-
-    int64_t get_push_down_count() override;
 
     std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
@@ -216,17 +205,27 @@ protected:
     virtual bool _storage_no_merge() { return false; }
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
-    virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
-    virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
-    virtual PushDownType _should_push_down_is_null_predicate() {
+    virtual PushDownType _should_push_down_bloom_filter() const {
         return PushDownType::UNACCEPTABLE;
     }
-    Status _should_push_down_binary_predicate(
+    virtual PushDownType _should_push_down_topn_filter() const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_bitmap_filter() const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_is_null_predicate(
+            vectorized::VectorizedFnCall* fn_call) const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_in_predicate() const {
+        return PushDownType::UNACCEPTABLE;
+    }
+    virtual PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            StringRef* constant_val, int* slot_ref_child,
-            const std::function<bool(const std::string&)>& fn_checker, PushDownType& pdt);
-
-    PushDownType _should_push_down_in_predicate(vectorized::VInPredicate* in_pred, bool is_not_in);
+            StringRef* constant_val, const std::set<std::string> fn_name) const {
+        return PushDownType::UNACCEPTABLE;
+    }
 
     virtual Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
                                                      vectorized::VExprContext* expr_ctx,
@@ -247,48 +246,51 @@ protected:
     }
 
     Status _normalize_conjuncts(RuntimeState* state);
+    // Normalize a conjunct and try to convert it to column predicate recursively.
     Status _normalize_predicate(vectorized::VExprContext* context,
+                                const vectorized::VExprSPtr& root,
                                 vectorized::VExprSPtr& output_expr);
+    bool _is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
+                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
     Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
 
-    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    template <PrimitiveType T>
+    Status _normalize_in_predicate(vectorized::VExprContext* expr_ctx,
+                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                   ColumnValueRange<T>& range, PushDownType* pdt);
+    template <PrimitiveType T>
+    Status _normalize_binary_predicate(vectorized::VExprContext* expr_ctx,
+                                       const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                       std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                       ColumnValueRange<T>& range, PushDownType* pdt);
+    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx,
+                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
+    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx,
+                                  const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+                                  std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+                                  PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx,
+                                    const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                     PushDownType* pdt);
 
     Status _normalize_function_filters(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
-    bool _is_predicate_acting_on_slot(const std::shared_ptr<vectorized::VSlotRef>& slot_ref,
-                                      ColumnValueRangeType** range);
-
     template <PrimitiveType T>
-    Status _normalize_in_and_eq_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-                                          std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                          ColumnValueRange<T>& range, PushDownType* pdt);
-    template <PrimitiveType T>
-    Status _normalize_not_in_and_not_eq_predicate(
-            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-            PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_noneq_binary_predicate(
-            vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-            std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
-            PushDownType* pdt);
-    template <PrimitiveType T>
-    Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx,
+                                        const vectorized::VExprSPtr& root, SlotDescriptor* slot,
                                         std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         ColumnValueRange<T>& range, PushDownType* pdt);
 
-    template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
-    Status _change_value_range(ColumnValueRange<PrimitiveType>& range, const void* value,
-                               const ChangeFixedValueRangeFunc& func, const std::string& fn_name,
-                               int slot_ref_child = -1);
+    template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
+    Status _change_value_range(bool is_equal_op, ColumnValueRange<PrimitiveType>& range,
+                               const void* value, const ChangeFixedValueRangeFunc& func,
+                               const std::string& fn_name);
 
     Status _prepare_scanners();
 
@@ -311,7 +313,7 @@ protected:
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
@@ -323,6 +325,7 @@ protected:
     // Parsed from conjuncts
     phmap::flat_hash_map<int, ColumnValueRangeType> _slot_id_to_value_range;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
+    std::vector<std::shared_ptr<MutilColumnBlockPredicate>> _or_predicates;
 
     std::atomic<bool> _eos = false;
 
@@ -353,13 +356,13 @@ public:
     }
     [[nodiscard]] bool is_source() const override { return true; }
 
-    [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
-
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
     }
+
+    [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
@@ -374,12 +377,11 @@ public:
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
 
-        if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->clear_free_blocks();
+        if (auto ctx = local_state._scanner_ctx.load()) {
+            ctx->clear_free_blocks();
         }
     }
 
-    int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::node_id;
     using OperatorX<LocalStateType>::operator_id;
     using OperatorX<LocalStateType>::get_local_state;

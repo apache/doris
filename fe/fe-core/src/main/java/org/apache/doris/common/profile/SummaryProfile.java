@@ -101,6 +101,17 @@ public class SummaryProfile {
     public static final String GET_PARTITION_VERSION_BY_HAS_DATA_COUNT = "Get Partition Version Count (hasData)";
     public static final String GET_TABLE_VERSION_TIME = "Get Table Version Time";
     public static final String GET_TABLE_VERSION_COUNT = "Get Table Version Count";
+    public static final String MAX_CONCURRENCY = "Max Concurrency";
+    public static final String MAX_QUEUE_SIZE = "Max Queue Size";
+    public static final String QUEUE_TIMEOUT = "Queue Timeout";
+    public static final String SCAN_THREAD_NUM = "Scan Thread Num";
+    public static final String MAX_REMOTE_SCAN_THREAD_NUM = "Max Remote Scan Thread Num";
+    public static final String MIN_REMOTE_SCAN_THREAD_NUM = "Min Remote Scan Thread Num";
+    public static final String MEMORY_LOW_WATERMARK = "Memory Low Watermark";
+    public static final String MEMORY_HIGH_WATERMARK = "Memory High Watermark";
+    public static final String TAG = "Tag";
+    public static final String READ_BYTES_PER_SECOND = "Read Bytes Per Second";
+    public static final String REMOTE_READ_BYTES_PER_SECOND = "Remote Read Bytes Per Second";
 
     public static final String PARSE_SQL_TIME = "Parse SQL Time";
     public static final String NEREIDS_LOCK_TABLE_TIME = "Nereids Lock Table Time";
@@ -132,6 +143,8 @@ public class SummaryProfile {
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
+    public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
+    public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -146,6 +159,16 @@ public class SummaryProfile {
     // The display order of execution summary items.
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
             WORKLOAD_GROUP,
+            MAX_CONCURRENCY,
+            MAX_QUEUE_SIZE,
+            SCAN_THREAD_NUM,
+            MAX_REMOTE_SCAN_THREAD_NUM,
+            MIN_REMOTE_SCAN_THREAD_NUM,
+            MEMORY_LOW_WATERMARK,
+            MEMORY_HIGH_WATERMARK,
+            TAG,
+            READ_BYTES_PER_SECOND,
+            REMOTE_READ_BYTES_PER_SECOND,
             PARSE_SQL_TIME,
             PLAN_TIME,
             NEREIDS_GARBAGE_COLLECT_TIME,
@@ -164,6 +187,8 @@ public class SummaryProfile {
             GET_PARTITION_FILES_TIME,
             SINK_SET_PARTITION_VALUES_TIME,
             CREATE_SCAN_RANGE_TIME,
+            ICEBERG_SCAN_METRICS,
+            PAIMON_SCAN_METRICS,
             NEREIDS_DISTRIBUTE_TIME,
             GET_META_VERSION_TIME,
             GET_PARTITION_VERSION_TIME,
@@ -215,6 +240,8 @@ public class SummaryProfile {
             .put(GET_PARTITION_FILES_TIME, 3)
             .put(SINK_SET_PARTITION_VALUES_TIME, 3)
             .put(CREATE_SCAN_RANGE_TIME, 2)
+            .put(ICEBERG_SCAN_METRICS, 3)
+            .put(PAIMON_SCAN_METRICS, 3)
             .put(GET_PARTITION_VERSION_TIME, 1)
             .put(GET_PARTITION_VERSION_COUNT, 1)
             .put(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, 1)
@@ -235,8 +262,19 @@ public class SummaryProfile {
             .put(HMS_ADD_PARTITION_CNT, 2)
             .put(HMS_UPDATE_PARTITION_TIME, 1)
             .put(HMS_UPDATE_PARTITION_CNT, 2)
+            .put(MAX_QUEUE_SIZE, 1)
+            .put(QUEUE_TIMEOUT, 1)
+            .put(MAX_CONCURRENCY, 1)
+            .put(MAX_REMOTE_SCAN_THREAD_NUM, 1)
+            .put(SCAN_THREAD_NUM, 1)
+            .put(MIN_REMOTE_SCAN_THREAD_NUM, 1)
+            .put(MEMORY_LOW_WATERMARK, 1)
+            .put(MEMORY_HIGH_WATERMARK, 1)
+            .put(REMOTE_READ_BYTES_PER_SECOND, 1)
+            .put(READ_BYTES_PER_SECOND, 1)
+            .put(TAG, 1)
             .build();
-
+    public boolean parsedByConnectionProcess = false;
     @SerializedName(value = "summaryProfile")
     private RuntimeProfile summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
     @SerializedName(value = "executionSummaryProfile")
@@ -247,7 +285,6 @@ public class SummaryProfile {
     private long parseSqlFinishTime = -1;
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
-
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
     private long nereidsCollectTablePartitionFinishTime = -1;
     @SerializedName(value = "nereidsCollectTablePartitionTime")
@@ -361,17 +398,51 @@ public class SummaryProfile {
     private long externalTvfInitTime = 0;
     @SerializedName(value = "nereidsPartitiionPruneTime")
     private long nereidsPartitiionPruneTime = 0;
+    @SerializedName("maxConcurrency")
+    private int maxConcurrency = 0;
+    @SerializedName("maxQueueSize")
+    private int maxQueueSize = 0;
+    @SerializedName("queueTimeout")
+    private int queueTimeout = 0;
+    @SerializedName("scanThreadNum")
+    private int scanThreadNum = -1;
+    @SerializedName("maxRemoteScanThreadNum")
+    private int maxRemoteScanThreadNum = -1;
+    @SerializedName("minRemoteScanThreadNum")
+    private int minRemoteScanThreadNum = -1;
+    @SerializedName("memoryLowWatermark")
+    private int memoryLowWatermark = 0;
+    @SerializedName("memoryHighWatermark")
+    private int memoryHighWatermark = 0;
+    @SerializedName("tag")
+    private String tag = "";
+    @SerializedName("readBytesPerSecond")
+    private long readBytesPerSecond = -1L;
+    @SerializedName("remoteReadBytesPerSecond")
+    private long remoteReadBytesPerSecond = -1L;
     // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
     // to FE)
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
-
     private Map<Backend, Long> assignedWeightPerBackend;
-
-    public boolean parsedByConnectionProcess = false;
 
     public SummaryProfile() {
         init();
+    }
+
+    public static SummaryProfile read(DataInput input) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(input), SummaryProfile.class);
+    }
+
+    public static SummaryProfile getSummaryProfile(ConnectContext connectContext) {
+        ConnectContext ctx = connectContext == null ? ConnectContext.get() : connectContext;
+        if (ctx != null) {
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null) {
+                return executor.getSummaryProfile();
+            }
+        }
+        return null;
     }
 
     private void init() {
@@ -393,10 +464,6 @@ public class SummaryProfile {
             String randomId = String.valueOf(TimeUtils.getStartTimeMs());
             executionSummaryProfile.addInfoString(key, randomId);
         }
-    }
-
-    public static SummaryProfile read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), SummaryProfile.class);
     }
 
     public String getProfileId() {
@@ -436,11 +503,11 @@ public class SummaryProfile {
             Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()
                     .sorted(Map.Entry.comparingByValue())
                     .collect(Collectors.toMap(
-                        entry -> entry.getKey().getAddress(),
-                        Entry::getValue,
-                        (v1, v2) -> v1,
-                        LinkedHashMap::new
-                ));
+                            entry -> entry.getKey().getAddress(),
+                            Entry::getValue,
+                            (v1, v2) -> v1,
+                            LinkedHashMap::new
+                    ));
             executionSummaryProfile.addInfoString(
                     SPLITS_ASSIGNMENT_WEIGHT,
                     new GsonBuilder().create().toJson(m));
@@ -508,6 +575,22 @@ public class SummaryProfile {
                 RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
                 RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(MAX_CONCURRENCY, RuntimeProfile.printCounter(maxConcurrency, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(QUEUE_TIMEOUT, RuntimeProfile.printCounter(queueTimeout, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(MAX_QUEUE_SIZE, RuntimeProfile.printCounter(maxQueueSize, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(MEMORY_HIGH_WATERMARK,
+                RuntimeProfile.printCounter(memoryHighWatermark, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(SCAN_THREAD_NUM, RuntimeProfile.printCounter(scanThreadNum, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(MAX_REMOTE_SCAN_THREAD_NUM,
+                RuntimeProfile.printCounter(maxRemoteScanThreadNum, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(MIN_REMOTE_SCAN_THREAD_NUM,
+                RuntimeProfile.printCounter(minRemoteScanThreadNum, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(MEMORY_LOW_WATERMARK,
+                RuntimeProfile.printCounter(memoryLowWatermark, TUnit.UNIT));
+        executionSummaryProfile.addInfoString(READ_BYTES_PER_SECOND,
+                RuntimeProfile.printCounter(readBytesPerSecond, TUnit.BYTES_PER_SECOND));
+        executionSummaryProfile.addInfoString(REMOTE_READ_BYTES_PER_SECOND,
+                RuntimeProfile.printCounter(remoteReadBytesPerSecond, TUnit.BYTES_PER_SECOND));
         setTransactionSummary();
 
         if (Config.isCloudMode()) {
@@ -598,10 +681,6 @@ public class SummaryProfile {
 
     public void setNereidsDistributeTime(long distributeFinishTime) {
         this.nereidsDistributeFinishTime = distributeFinishTime;
-    }
-
-    public void setQueryBeginTime(long queryBeginTime) {
-        this.queryBeginTime = queryBeginTime;
     }
 
     public void setInitScanNodeStartTime() {
@@ -716,110 +795,16 @@ public class SummaryProfile {
         return queryBeginTime;
     }
 
+    public void setQueryBeginTime(long queryBeginTime) {
+        this.queryBeginTime = queryBeginTime;
+    }
+
     public void setRpcPhase1Latency(Map<TNetworkAddress, List<Long>> rpcPhase1Latency) {
         this.rpcPhase1Latency = rpcPhase1Latency;
     }
 
     public void setRpcPhase2Latency(Map<TNetworkAddress, List<Long>> rpcPhase2Latency) {
         this.rpcPhase2Latency = rpcPhase2Latency;
-    }
-
-    public static class SummaryBuilder {
-        private Map<String, String> map = Maps.newHashMap();
-
-        public SummaryBuilder profileId(String val) {
-            map.put(PROFILE_ID, val);
-            return this;
-        }
-
-        public SummaryBuilder dorisVersion(String val) {
-            map.put(DORIS_VERSION, val);
-            return this;
-        }
-
-        public SummaryBuilder taskType(String val) {
-            map.put(TASK_TYPE, val);
-            return this;
-        }
-
-        public SummaryBuilder startTime(String val) {
-            map.put(START_TIME, val);
-            return this;
-        }
-
-        public SummaryBuilder endTime(String val) {
-            map.put(END_TIME, val);
-            return this;
-        }
-
-        public SummaryBuilder totalTime(String val) {
-            map.put(TOTAL_TIME, val);
-            return this;
-        }
-
-        public SummaryBuilder taskState(String val) {
-            map.put(TASK_STATE, val);
-            return this;
-        }
-
-        public SummaryBuilder user(String val) {
-            map.put(USER, val);
-            return this;
-        }
-
-        public SummaryBuilder defaultCatalog(String val) {
-            map.put(DEFAULT_CATALOG, val);
-            return this;
-        }
-
-        public SummaryBuilder defaultDb(String val) {
-            map.put(DEFAULT_DB, val);
-            return this;
-        }
-
-        public SummaryBuilder workloadGroup(String workloadGroup) {
-            map.put(WORKLOAD_GROUP, workloadGroup);
-            return this;
-        }
-
-        public SummaryBuilder sqlStatement(String val) {
-            map.put(SQL_STATEMENT, val);
-            return this;
-        }
-
-        public SummaryBuilder isCached(String val) {
-            map.put(IS_CACHED, val);
-            return this;
-        }
-
-        public SummaryBuilder totalInstancesNum(String val) {
-            map.put(TOTAL_INSTANCES_NUM, val);
-            return this;
-        }
-
-        public SummaryBuilder instancesNumPerBe(String val) {
-            map.put(INSTANCES_NUM_PER_BE, val);
-            return this;
-        }
-
-        public SummaryBuilder parallelFragmentExecInstance(String val) {
-            map.put(PARALLEL_FRAGMENT_EXEC_INSTANCE, val);
-            return this;
-        }
-
-        public SummaryBuilder traceId(String val) {
-            map.put(TRACE_ID, val);
-            return this;
-        }
-
-        public SummaryBuilder isNereids(String isNereids) {
-            map.put(IS_NEREIDS, isNereids);
-            return this;
-        }
-
-        public Map<String, String> build() {
-            return map;
-        }
     }
 
     public int getParseSqlTimeMs() {
@@ -1051,6 +1036,52 @@ public class SummaryProfile {
         this.hmsAddPartitionTime = TimeUtils.getStartTimeMs() - tempStarTime;
     }
 
+    public void setMaxQueueSize(int maxQueueSize) {
+        this.maxQueueSize = maxQueueSize;
+    }
+
+    public void setMaxConcurrency(int maxConcurrency) {
+        this.maxConcurrency = maxConcurrency;
+    }
+
+    public void setScanThreadNum(int scanThreadNum) {
+        this.scanThreadNum = scanThreadNum;
+    }
+
+    public void setMaxRemoteScanThreadNum(int maxRemoteScanThreadNum) {
+        this.maxRemoteScanThreadNum = maxRemoteScanThreadNum;
+    }
+
+    public void setMinRemoteScanThreadNum(int minRemoteScanThreadNum) {
+        this.minRemoteScanThreadNum = minRemoteScanThreadNum;
+    }
+
+    public void setMemoryLowWatermark(int memoryLowWatermark) {
+        this.memoryLowWatermark = memoryLowWatermark;
+    }
+
+    public void setMemoryHighWatermark(int memoryHighWatermark) {
+        this.memoryHighWatermark = memoryHighWatermark;
+    }
+
+    public void setTag(String tag) {
+        this.tag = tag;
+    }
+
+    public void setReadBytesPerSecond(int readBytesPerSecond) {
+        this.readBytesPerSecond = readBytesPerSecond;
+    }
+
+
+    public void setRemoteReadBytesPerSecond(int remoteReadBytesPerSecond) {
+        this.remoteReadBytesPerSecond = remoteReadBytesPerSecond;
+    }
+
+
+    public void setQueueTimeout(int queueTimeout) {
+        this.queueTimeout = queueTimeout;
+    }
+
     public void addHmsAddPartitionCnt(long c) {
         this.hmsAddPartitionCnt = c;
     }
@@ -1170,17 +1201,6 @@ public class SummaryProfile {
         this.assignedWeightPerBackend = assignedWeightPerBackend;
     }
 
-    public static SummaryProfile getSummaryProfile(ConnectContext connectContext) {
-        ConnectContext ctx = connectContext == null ? ConnectContext.get() : connectContext;
-        if (ctx != null) {
-            StmtExecutor executor = ctx.getExecutor();
-            if (executor != null) {
-                return executor.getSummaryProfile();
-            }
-        }
-        return null;
-    }
-
     public String getPlanTime() {
         String planTimesMs = "{"
                 + "\"plan\"" + ":" + this.getPlanTimeMs() + ","
@@ -1220,5 +1240,103 @@ public class SummaryProfile {
                 + "\"fragment_compressed_size_byte\"" + ":" + this.getFragmentCompressedSizeByte() + ","
                 + "\"fragment_rpc_count\"" + ":" + this.getFragmentRPCCount()
                 + "}";
+    }
+
+    public static class SummaryBuilder {
+        private Map<String, String> map = Maps.newHashMap();
+
+        public SummaryBuilder profileId(String val) {
+            map.put(PROFILE_ID, val);
+            return this;
+        }
+
+        public SummaryBuilder dorisVersion(String val) {
+            map.put(DORIS_VERSION, val);
+            return this;
+        }
+
+        public SummaryBuilder taskType(String val) {
+            map.put(TASK_TYPE, val);
+            return this;
+        }
+
+        public SummaryBuilder startTime(String val) {
+            map.put(START_TIME, val);
+            return this;
+        }
+
+        public SummaryBuilder endTime(String val) {
+            map.put(END_TIME, val);
+            return this;
+        }
+
+        public SummaryBuilder totalTime(String val) {
+            map.put(TOTAL_TIME, val);
+            return this;
+        }
+
+        public SummaryBuilder taskState(String val) {
+            map.put(TASK_STATE, val);
+            return this;
+        }
+
+        public SummaryBuilder user(String val) {
+            map.put(USER, val);
+            return this;
+        }
+
+        public SummaryBuilder defaultCatalog(String val) {
+            map.put(DEFAULT_CATALOG, val);
+            return this;
+        }
+
+        public SummaryBuilder defaultDb(String val) {
+            map.put(DEFAULT_DB, val);
+            return this;
+        }
+
+        public SummaryBuilder workloadGroup(String workloadGroup) {
+            map.put(WORKLOAD_GROUP, workloadGroup);
+            return this;
+        }
+
+        public SummaryBuilder sqlStatement(String val) {
+            map.put(SQL_STATEMENT, val);
+            return this;
+        }
+
+        public SummaryBuilder isCached(String val) {
+            map.put(IS_CACHED, val);
+            return this;
+        }
+
+        public SummaryBuilder totalInstancesNum(String val) {
+            map.put(TOTAL_INSTANCES_NUM, val);
+            return this;
+        }
+
+        public SummaryBuilder instancesNumPerBe(String val) {
+            map.put(INSTANCES_NUM_PER_BE, val);
+            return this;
+        }
+
+        public SummaryBuilder parallelFragmentExecInstance(String val) {
+            map.put(PARALLEL_FRAGMENT_EXEC_INSTANCE, val);
+            return this;
+        }
+
+        public SummaryBuilder traceId(String val) {
+            map.put(TRACE_ID, val);
+            return this;
+        }
+
+        public SummaryBuilder isNereids(String isNereids) {
+            map.put(IS_NEREIDS, isNereids);
+            return this;
+        }
+
+        public Map<String, String> build() {
+            return map;
+        }
     }
 }

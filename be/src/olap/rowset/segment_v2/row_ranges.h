@@ -232,15 +232,15 @@ public:
         return _ranges[_ranges.size() - 1].to();
     }
 
-    size_t range_size() { return _ranges.size(); }
+    size_t range_size() const { return _ranges.size(); }
 
-    RowRange get_range(size_t index) { return _ranges[index]; }
+    RowRange get_range(size_t index) const { return _ranges[index]; }
 
-    int64_t get_range_from(size_t range_index) { return _ranges[range_index].from(); }
+    int64_t get_range_from(size_t range_index) const { return _ranges[range_index].from(); }
 
-    int64_t get_range_to(size_t range_index) { return _ranges[range_index].to(); }
+    int64_t get_range_to(size_t range_index) const { return _ranges[range_index].to(); }
 
-    size_t get_range_count(size_t range_index) { return _ranges[range_index].count(); }
+    size_t get_range_count(size_t range_index) const { return _ranges[range_index].count(); }
 
     std::string to_string() {
         std::string result;

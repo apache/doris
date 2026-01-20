@@ -194,7 +194,8 @@ public:
 
     virtual Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                          const void* query_value, InvertedIndexQueryType query_type,
-                         std::shared_ptr<roaring::Roaring>& bit_map) = 0;
+                         std::shared_ptr<roaring::Roaring>& bit_map,
+                         const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) = 0;
     virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                              const void* query_value, InvertedIndexQueryType query_type,
                              size_t* count) = 0;
@@ -255,7 +256,8 @@ public:
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
-                 std::shared_ptr<roaring::Roaring>& bit_map) override;
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
@@ -279,7 +281,8 @@ public:
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
-                 std::shared_ptr<roaring::Roaring>& bit_map) override;
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
@@ -338,7 +341,8 @@ public:
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
-                 std::shared_ptr<roaring::Roaring>& bit_map) override;
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      size_t* count) override;
@@ -389,7 +393,7 @@ public:
 
         if constexpr (is_string_type(PT)) {
             if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
-                const auto& str = doris::vectorized::get<vectorized::String>(*value);
+                const auto& str = value->template get<PT>();
                 param->set_value(str);
             } else if constexpr (std::is_same_v<ValueType, StringRef>) {
                 param->set_value(value);
@@ -401,9 +405,7 @@ public:
         } else {
             CPP_TYPE cpp_val;
             if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
-                auto field_val =
-                        doris::vectorized::get<doris::vectorized::NearestFieldType<CPP_TYPE>>(
-                                *value);
+                auto field_val = value->template get<PT>();
                 cpp_val = static_cast<CPP_TYPE>(field_val);
             } else {
                 cpp_val = static_cast<CPP_TYPE>(*value);

@@ -427,6 +427,12 @@ public:
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override {
         auto s = size();
@@ -481,7 +487,7 @@ public:
                                              rhs.chars.data() + rhs.offset_at(m), rhs.size_at(m));
     }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
 
     void reserve(size_t n) override;

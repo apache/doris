@@ -23,6 +23,7 @@
 #include "common/factory_creator.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
@@ -41,7 +42,8 @@ class AcceptNullPredicate : public ColumnPredicate {
 
 public:
     AcceptNullPredicate(const std::shared_ptr<ColumnPredicate>& nested)
-            : ColumnPredicate(nested->column_id(), nested->primitive_type(), nested->opposite()),
+            : ColumnPredicate(nested->column_id(), nested->col_name(), nested->primitive_type(),
+                              nested->opposite()),
               _nested {nested} {}
     AcceptNullPredicate(const AcceptNullPredicate& other, uint32_t col_id)
             : ColumnPredicate(other, col_id),
@@ -67,7 +69,19 @@ public:
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
-        return _nested->evaluate(name_with_type, iterator, num_rows, bitmap);
+        RETURN_IF_ERROR(_nested->evaluate(name_with_type, iterator, num_rows, bitmap));
+        if (iterator != nullptr) {
+            bool has_null = DORIS_TRY(iterator->has_null());
+            if (has_null) {
+                InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+                RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+                auto null_bitmap = null_bitmap_cache_handle.get_bitmap();
+                if (null_bitmap) {
+                    *bitmap |= *null_bitmap;
+                }
+            }
+        }
+        return Status::OK();
     }
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,

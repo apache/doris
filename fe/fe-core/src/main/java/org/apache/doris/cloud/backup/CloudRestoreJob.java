@@ -53,6 +53,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -376,7 +377,8 @@ public class CloudRestoreJob extends RestoreJob {
             for (int i = 0; i < restoreTablets.size(); i += maxCreateTabletBatchSize) {
                 int end = Math.min(i + maxCreateTabletBatchSize, restoreTablets.size());
                 List<Tablet> subRestoreTablets = restoreTablets.subList(i, end);
-                Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
+                Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 for (Tablet restoreTablet : subRestoreTablets) {
                     try {
                         requestBuilder.addTabletMetas(((CloudInternalCatalog) Env.getCurrentInternalCatalog())
@@ -401,7 +403,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.rowStorePageSize(),
                                     localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
-                                    localTbl.storageDictPageSize(), false));
+                                    localTbl.storageDictPageSize(), false,
+                                    localTbl.getColumnSeqMapping()));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                                 restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);

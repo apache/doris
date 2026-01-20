@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -51,8 +52,6 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
@@ -129,17 +128,11 @@ Status RowGroupReader::init(
             std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_table_columns.size());
     for (const auto& read_table_col : _read_table_columns) {
         auto read_file_col = _table_info_node_ptr->children_file_column_name(read_table_col);
-
         auto* field = schema.get_column(read_file_col);
-        auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
-        // TODO : support rested column types
-        const tparquet::OffsetIndex* offset_index =
-                col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
-                                                                      : nullptr;
         RETURN_IF_ERROR(ParquetColumnReader::create(
                 _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
-                max_buf_size, offset_index, _column_ids, _filter_column_ids));
+                max_buf_size, col_offsets, false, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -705,7 +698,6 @@ Status RowGroupReader::_fill_partition_columns(
 Status RowGroupReader::_fill_missing_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    std::set<size_t> positions_to_erase;
     for (const auto& kv : missing_columns) {
         if (!_col_name_to_block_idx->contains(kv.first)) {
             return Status::InternalError("Missing column: {} not found in block {}", kv.first,
@@ -720,16 +712,13 @@ Status RowGroupReader::_fill_missing_columns(
         } else {
             // fill with default value
             const auto& ctx = kv.second;
-            auto origin_column_num = block->columns();
-            int result_column_id = -1;
+            ColumnPtr result_column_ptr;
             // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            if (!is_origin_column) {
+            RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            if (result_column_ptr->use_count() == 1) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto result_column_ptr = block->get_by_position(result_column_id).column;
                 auto mutable_column = result_column_ptr->assume_mutable();
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
@@ -740,11 +729,9 @@ Status RowGroupReader::_fill_missing_columns(
                 block->replace_by_position(
                         (*_col_name_to_block_idx)[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                positions_to_erase.insert(result_column_id);
             }
         }
     }
-    block->erase(positions_to_erase);
     return Status::OK();
 }
 
@@ -1131,10 +1118,10 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
     }
 }
 
-ParquetColumnReader::Statistics RowGroupReader::statistics() {
-    ParquetColumnReader::Statistics st;
+ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics() {
+    ParquetColumnReader::ColumnStatistics st;
     for (auto& reader : _column_readers) {
-        auto ost = reader.second->statistics();
+        auto ost = reader.second->column_statistics();
         st.merge(ost);
     }
     return st;

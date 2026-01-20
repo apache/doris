@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -47,8 +48,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -206,7 +205,7 @@ public class JdbcResource extends Resource {
         this.configs = Maps.newHashMap(properties);
         validateProperties(this.configs);
         applyDefaultProperties();
-        String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
+        String currentDateTime = TimeUtils.longToTimeString(System.currentTimeMillis());
         configs.put(CREATE_TIME, currentDateTime);
         // check properties
         for (String property : ALL_PROPERTIES) {
@@ -337,9 +336,14 @@ public class JdbcResource extends Resource {
             // so we need to check the old default dir for compatibility.
             String targetPath = defaultDriverUrl + "/" + driverUrl;
             File targetFile = new File(targetPath);
+            String oldTargetPath = defaultOldDriverUrl + "/" + driverUrl;
+            File oldTargetFile = new File(oldTargetPath);
             if (targetFile.exists()) {
                 // File exists in new default directory
                 return "file://" + targetPath;
+            } else if (oldTargetFile.exists()) {
+                // File exists in old default directory
+                return "file://" + oldTargetPath;
             } else if (Config.isCloudMode()) {
                 // Cloud mode: download from cloud to default directory
                 try {
@@ -347,12 +351,15 @@ public class JdbcResource extends Resource {
                             PluginType.JDBC_DRIVERS, driverUrl, targetPath);
                     return "file://" + downloadedPath;
                 } catch (Exception e) {
+                    LOG.warn("failed to download jdbc driver url: " + driverUrl, e);
                     throw new RuntimeException("Cannot download JDBC driver from cloud: " + driverUrl
-                            + ". Please retry later or check your driver has been uploaded to cloud.");
+                            + ". Please retry later or check your driver has been uploaded to cloud. Error: "
+                            + Util.getRootCauseMessage(e));
                 }
+            } else {
+                // File does not exist in both new and old default directory
+                throw new RuntimeException("JDBC driver file does not exist: " + driverUrl);
             }
-            // Fallback to old default directory for compatibility
-            return "file://" + defaultOldDriverUrl + "/" + driverUrl;
         } else {
             // Return user specified driver url directly.
             return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;

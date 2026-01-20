@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_vector.h"
 
+#include <crc32c/crc32c.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <pdqsort.h>
@@ -190,7 +191,7 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 
 template <PrimitiveType T>
 Field ColumnVector<T>::operator[](size_t n) const {
-    return Field::create_field<T>((typename PrimitiveTypeTraits<T>::NearestFieldType)data[n]);
+    return Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)(&data[n]));
 }
 
 template <PrimitiveType T>
@@ -223,16 +224,60 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
                 hashes[i] = HashUtil::zlib_crc_hash(
-                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                        hashes[i]);
+                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
             }
         } else {
             for (size_t i = 0; i < s; i++) {
                 if (null_data[i] == 0)
                     hashes[i] = HashUtil::zlib_crc_hash(
-                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                            hashes[i]);
+                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
             }
+        }
+    }
+}
+
+template <PrimitiveType T>
+uint32_t ColumnVector<T>::_crc32c_hash(uint32_t hash, size_t idx) const {
+    if constexpr (is_date_or_datetime(T)) {
+        char buf[64];
+        const auto& date_val = (const VecDateTimeValue&)data[idx];
+        auto len = date_val.to_buffer(buf);
+        return crc32c_extend(hash, (const uint8_t*)buf, len);
+    } else {
+        return HashUtil::crc32c_fixed(data[idx], hash);
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32c_batch(uint32_t* __restrict hashes,
+                                          const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] = _crc32c_hash(hashes[i], i);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hashes[i] = _crc32c_hash(hashes[i], i);
+        }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                           const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                hash = _crc32c_hash(hash, i);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            hash = _crc32c_hash(hash, i);
         }
     }
 }
@@ -261,7 +306,7 @@ struct ColumnVector<T>::greater {
 
 template <PrimitiveType T>
 void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      IColumn::Permutation& res) const {
+                                      HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = data.size();
     res.resize(s);
 
@@ -284,9 +329,9 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
         for (size_t i = 0; i < s; ++i) res[i] = i;
 
         if (reverse)
-            pdqsort(res.begin(), res.end(), greater(*this, nan_direction_hint));
+            sorter.sort(res.begin(), res.end(), greater(*this, nan_direction_hint));
         else
-            pdqsort(res.begin(), res.end(), less(*this, nan_direction_hint));
+            sorter.sort(res.begin(), res.end(), less(*this, nan_direction_hint));
     }
 }
 
@@ -305,6 +350,96 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     }
 
     return res;
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::insert(const Field& x) {
+    // TODO(gabriel): `x` must have the same type as `T` if all of nested types are BIGINT in Variant
+    value_type tmp;
+    if constexpr (T == TYPE_DATEV2) {
+        if (x.get_type() != TYPE_DATEV2) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATEV2>();
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        if (x.get_type() != TYPE_DATETIMEV2) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATETIMEV2>();
+    } else if constexpr (T == TYPE_DATE) {
+        if (x.get_type() != TYPE_DATE) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATE>();
+    } else if constexpr (T == TYPE_DATETIME) {
+        if (x.get_type() != TYPE_DATETIME) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATETIME>();
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        if (x.get_type() != TYPE_TIMESTAMPTZ) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_TIMESTAMPTZ>();
+    } else {
+        switch (x.get_type()) {
+        case TYPE_NULL:
+            tmp = default_value();
+            break;
+        case TYPE_BOOLEAN:
+            tmp = x.get<TYPE_BOOLEAN>();
+            break;
+        case TYPE_TINYINT:
+            tmp = x.get<TYPE_TINYINT>();
+            break;
+        case TYPE_SMALLINT:
+            tmp = (value_type)x.get<TYPE_SMALLINT>();
+            break;
+        case TYPE_INT:
+            tmp = (value_type)x.get<TYPE_INT>();
+            break;
+        case TYPE_BIGINT:
+            tmp = (value_type)x.get<TYPE_BIGINT>();
+            break;
+        case TYPE_LARGEINT:
+            tmp = (value_type)x.get<TYPE_LARGEINT>();
+            break;
+        case TYPE_IPV4:
+            tmp = (value_type)x.get<TYPE_IPV4>();
+            break;
+        case TYPE_IPV6:
+            tmp = (value_type)x.get<TYPE_IPV6>();
+            break;
+        case TYPE_FLOAT:
+            tmp = x.get<TYPE_FLOAT>();
+            break;
+        case TYPE_DOUBLE:
+            tmp = (value_type)x.get<TYPE_DOUBLE>();
+            break;
+        case TYPE_TIME:
+            tmp = (value_type)x.get<TYPE_TIME>();
+            break;
+        case TYPE_TIMEV2:
+            tmp = (value_type)x.get<TYPE_TIMEV2>();
+            break;
+        default:
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Unsupported type {} to insert into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+            break;
+        }
+    }
+    data.push_back(tmp);
 }
 
 template <PrimitiveType T>
@@ -478,12 +613,9 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
-    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
-    if (0 == null_count) {
-        return;
-    }
+    auto value = default_value();
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? default_value() : data[i];
+        data[i] = null_map[i] ? value : data[i];
     }
 }
 

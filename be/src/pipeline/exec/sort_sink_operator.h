@@ -99,7 +99,7 @@ public:
 
     Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
                                      int batch_size, bool* eos);
-    void reset(RuntimeState* state);
+    Status reset(RuntimeState* state) override;
 
     int64_t limit() const { return _limit; }
     int64_t offset() const { return _offset; }

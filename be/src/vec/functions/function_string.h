@@ -3212,8 +3212,7 @@ struct MoneyFormatDecimalImpl {
                         size_t input_rows_count) {
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
-                const Decimal128V2& dec128 = decimalv2_column->get_element(i);
-                DecimalV2Value value = DecimalV2Value(dec128.value);
+                const auto& value = decimalv2_column->get_element(i);
                 // unified_frac_value has 3 digits
                 auto unified_frac_value = value.frac_value() / 1000000;
                 StringRef str =
@@ -3443,8 +3442,7 @@ struct FormatRoundDecimalImpl {
                             "The second argument is {}, it should be in range [0, 1024].",
                             decimal_places);
                 }
-                const Decimal128V2& dec128 = decimalv2_column->get_element(i);
-                auto value = DecimalV2Value(dec128.value);
+                const auto& value = decimalv2_column->get_element(i);
                 // unified_frac_value has 3 digits
                 auto unified_frac_value = value.frac_value() / 1000000;
                 StringRef str =
@@ -4601,7 +4599,7 @@ private:
 
     uint32_t sub_str_hash(const char* data, int32_t length) const {
         constexpr static uint32_t seed = 0;
-        return HashUtil::crc32c_hash(data, length, seed);
+        return crc32c::Extend(seed, (const uint8_t*)data, length);
     }
 
     template <bool column_const>
@@ -5099,7 +5097,7 @@ public:
         bool col_const[5];
         ColumnPtr arg_cols[5];
         bool all_const = true;
-        for (int i = 0; i < arg_size; ++i) {
+        for (int i = 1; i < arg_size; ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
             all_const = all_const && col_const[i];
         }
