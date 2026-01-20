@@ -405,8 +405,7 @@ struct ConditionColumnView : ColumnNullConstViewScalar<TYPE_BOOLEAN>, ConditionC
     }
 
     template <typename NullFunc, typename TrueFunc, typename FalseFunc>
-    void for_each(NullFunc& null_func, TrueFunc& true_func,
-                                      FalseFunc& false_func) const {
+    void for_each(NullFunc& null_func, TrueFunc& true_func, FalseFunc& false_func) const {
         if (this->null_map != nullptr) {
             const auto& null_map_data = *(this->null_map);
             auto update = [&](size_t i, size_t result_index) {
@@ -450,12 +449,12 @@ struct ConditionColumnNullView : ColumnNullConstView, ConditionColumnViewHelper 
             : ColumnNullConstView(base), ConditionColumnViewHelper(selector, count) {}
 
     static ConditionColumnNullView create(const ColumnPtr& column_ptr, const Selector* selector,
-                                         size_t count) {
+                                          size_t count) {
         DCHECK_EQ(selector == nullptr ? count : selector->size(), count);
         return {ColumnNullConstView::create(column_ptr), selector, count};
     }
 
-   template <typename NullFunc, typename NotNullFunc>
+    template <typename NullFunc, typename NotNullFunc>
     void for_each(NullFunc& null_func, NotNullFunc& not_null_func) const {
         if (this->null_map != nullptr) {
             const auto& null_map_data = *(this->null_map);
@@ -482,6 +481,5 @@ struct ConditionColumnNullView : ColumnNullConstView, ConditionColumnViewHelper 
         }
     }
 };
-
 
 } // namespace doris::vectorized

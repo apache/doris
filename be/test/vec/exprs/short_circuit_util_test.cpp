@@ -690,7 +690,8 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_non_nullable_no_selector) {
 
 TEST(ShortCircuitUtilTest, ConditionColumnNullView_nullable_no_selector) {
     // Nullable column: [1, NULL, 3, NULL, 5]
-    auto col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 0, 3, 0, 5}, {0, 1, 0, 1, 0});
+    auto col =
+            ColumnHelper::create_nullable_column<DataTypeInt32>({1, 0, 3, 0, 5}, {0, 1, 0, 1, 0});
 
     auto view = ConditionColumnNullView::create(col, nullptr, 5);
 
@@ -716,7 +717,8 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_nullable_no_selector) {
 
 TEST(ShortCircuitUtilTest, ConditionColumnNullView_with_selector) {
     // Nullable column: [1, NULL, 3, NULL, 5]
-    auto col = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 0, 3, 0, 5}, {0, 1, 0, 1, 0});
+    auto col =
+            ColumnHelper::create_nullable_column<DataTypeInt32>({1, 0, 3, 0, 5}, {0, 1, 0, 1, 0});
 
     // Only process first 3 elements, with custom result indices
     Selector input_selector = {100, 200, 300};
