@@ -149,4 +149,32 @@ class RoutineLoadTestUtils {
             }
         }
     }
+
+    static void checkTxnTimeoutMatchesTaskTimeout(Closure sqlRunner, String jobName, String expectedTimeoutMs, int maxAttempts = 60) {
+        def count = 0
+        while (true) {
+            def taskRes = sqlRunner.call("SHOW ROUTINE LOAD TASK WHERE JobName = '${jobName}'")
+            if (taskRes.size() > 0) {
+                def txnId = taskRes[0][1].toString()
+                logger.info("Task txnId: ${txnId}, task timeout: ${taskRes[0][6].toString()}")
+                if (txnId != null && txnId != "null" && txnId != "-1") {
+                    // Get transaction timeout from SHOW TRANSACTION
+                    def txnRes = sqlRunner.call("SHOW TRANSACTION WHERE id = ${txnId}")
+                    if (txnRes.size() > 0) {
+                        def txnTimeoutMs = txnRes[0][13].toString()
+                        logger.info("Transaction timeout (ms): ${txnTimeoutMs}, expected: ${expectedTimeoutMs}")
+                        Assert.assertEquals(expectedTimeoutMs, txnTimeoutMs)
+                        break
+                    }
+                }
+            }
+            if (count > maxAttempts) {
+                Assert.fail("Timeout waiting for task and transaction to be created")
+                break
+            } else {
+                sleep(1000)
+                count++
+            }
+        }
+    }
 }
