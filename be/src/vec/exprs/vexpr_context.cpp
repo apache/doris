@@ -29,13 +29,13 @@
 #include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {

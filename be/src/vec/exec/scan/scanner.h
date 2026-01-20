@@ -70,7 +70,6 @@ public:
         _projections.clear();
         _origin_block.clear();
         _common_expr_ctxs_push_down.clear();
-        _stale_expr_ctxs.clear();
         DorisMetrics::instance()->scanner_cnt->increment(-1);
     }
 
@@ -206,10 +205,6 @@ protected:
     vectorized::Block _origin_block;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
-    // Late arriving runtime filters will update _conjuncts.
-    // The old _conjuncts will be temporarily placed in _stale_expr_ctxs
-    // and will be destroyed at the end.
-    VExprContextSPtrs _stale_expr_ctxs;
 
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
