@@ -19,24 +19,19 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
-
-import java.util.Optional;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 
 /**
- * Implementation rule that convert logical Recursive Cte Scan to physical Recursive Cte Scan.
+ * Implementation rule that convert LogicalRecursiveUnionProducer to PhysicalRecursiveUnionProducer.
  */
-public class LogicalRecursiveCteScanToPhysicalRecursiveCteScan extends OneImplementationRuleFactory {
+public class LogicalRecursiveUnionProducerToPhysicalRecursiveUnionProducer
+        extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalRecursiveCteScan().then(recursiveCteScan ->
-            new PhysicalRecursiveCteScan(
-                    recursiveCteScan.getRelationId(),
-                    recursiveCteScan.getTable(),
-                    recursiveCteScan.getQualifier(),
-                    Optional.empty(),
-                    recursiveCteScan.getLogicalProperties(),
-                    recursiveCteScan.getOperativeSlots())
-        ).toRule(RuleType.LOGICAL_RECURSIVE_CTE_SCAN_TO_PHYSICAL_RECUSIVE_CTE_SCAN_RULE);
+        return logicalRecursiveUnionProducer().then(recursiveCte -> new PhysicalRecursiveUnionProducer(
+                recursiveCte.getCteName(),
+                recursiveCte.getLogicalProperties(),
+                recursiveCte.child()))
+                .toRule(RuleType.LOGICAL_RECURSIVE_UNION_PRODUCER_TO_PHYSICAL_RECURSIVE_UNION_PRODUCER);
     }
 }

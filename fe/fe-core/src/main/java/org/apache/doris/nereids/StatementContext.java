@@ -291,6 +291,8 @@ public class StatementContext implements Closeable {
     private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
     private boolean hasNestedColumns;
 
+    private final Set<CTEId> mustInlineCTE = new HashSet<>();
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -1059,5 +1061,13 @@ public class StatementContext implements Closeable {
 
     public void setHasNestedColumns(boolean hasNestedColumns) {
         this.hasNestedColumns = hasNestedColumns;
+    }
+
+    public void addToMustLineCTEs(CTEId cteId) {
+        mustInlineCTE.add(cteId);
+    }
+
+    public Set<CTEId> getMustInlineCTEs() {
+        return mustInlineCTE;
     }
 }

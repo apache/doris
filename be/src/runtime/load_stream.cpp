@@ -712,13 +712,22 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     }
 
     switch (hdr.opcode()) {
-    case PStreamHeader::ADD_SEGMENT: // ADD_SEGMENT will be dispatched inside TabletStream
-    case PStreamHeader::APPEND_DATA: {
+    case PStreamHeader::ADD_SEGMENT: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
             _report_failure(id, st, hdr);
         } else {
+            // Report tablet load info only on ADD_SEGMENT to reduce frequency.
+            // ADD_SEGMENT is sent once per segment, while APPEND_DATA is sent
+            // for every data batch. This reduces unnecessary writes and avoids
+            // potential stream write failures when the sender is closing.
             _report_tablet_load_info(id, hdr.index_id());
+        }
+    } break;
+    case PStreamHeader::APPEND_DATA: {
+        auto st = _append_data(hdr, data);
+        if (!st.ok()) {
+            _report_failure(id, st, hdr);
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {

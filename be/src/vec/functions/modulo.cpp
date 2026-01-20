@@ -425,8 +425,8 @@ struct ModNumericImpl {
 template <PrimitiveType Type>
 struct ModuloNumericImpl {
     static constexpr auto name = "mod";
-    using ArgA = typename PrimitiveTypeTraits<Type>::CppNativeType;
-    using ArgB = typename PrimitiveTypeTraits<Type>::CppNativeType;
+    using ArgA = typename PrimitiveTypeTraits<Type>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<Type>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
     using DataTypeA = typename PrimitiveTypeTraits<Type>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<Type>::DataType;
@@ -454,8 +454,8 @@ struct ModuloNumericImpl {
         }
     }
 
-    static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(ArgA a, ArgB b,
-                                                                          UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<Type>::CppType apply(ArgA a, ArgB b,
+                                                                    UInt8& is_null) {
         is_null = b == 0;
         b += is_null;
 
@@ -470,8 +470,8 @@ struct ModuloNumericImpl {
 
 template <PrimitiveType Type>
 struct PModuloNumericImpl {
-    using ArgA = typename PrimitiveTypeTraits<Type>::CppNativeType;
-    using ArgB = typename PrimitiveTypeTraits<Type>::CppNativeType;
+    using ArgA = typename PrimitiveTypeTraits<Type>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<Type>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
     using DataTypeA = typename PrimitiveTypeTraits<Type>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<Type>::DataType;
@@ -501,8 +501,8 @@ struct PModuloNumericImpl {
         }
     }
 
-    static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(ArgA a, ArgB b,
-                                                                          UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<Type>::CppType apply(ArgA a, ArgB b,
+                                                                    UInt8& is_null) {
         is_null = b == 0;
         b += is_null;
 
@@ -531,8 +531,8 @@ struct ModuloDecimalImpl {
     static constexpr auto is_pmod = false;
     using ArgA = typename PrimitiveTypeTraits<TypeA>::CppType;
     using ArgB = typename PrimitiveTypeTraits<TypeB>::CppType;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
     using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
     using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
     using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
@@ -568,9 +568,8 @@ struct ModDecimalImpl {
 
     template <PrimitiveType ResultType>
         requires(is_decimal(ResultType) && ResultType != TYPE_DECIMALV2)
-    static inline typename PrimitiveTypeTraits<ResultType>::CppNativeType impl(ArgNativeTypeA a,
-                                                                               ArgNativeTypeB b,
-                                                                               UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType::NativeType impl(
+            ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null) {
         is_null = b == 0;
         b += is_null;
 
@@ -578,7 +577,8 @@ struct ModDecimalImpl {
         if constexpr (Impl::is_pmod) {
             return (a % b + b) % b;
         } else {
-            return static_cast<typename PrimitiveTypeTraits<ResultType>::CppNativeType>(a) % b;
+            return static_cast<typename PrimitiveTypeTraits<ResultType>::CppType::NativeType>(a) %
+                   b;
         }
     }
 
@@ -824,7 +824,7 @@ struct ModDecimalImpl {
 
     template <bool check_overflow_for_decimal, PrimitiveType ResultType>
         requires(is_decimal(ResultType))
-    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppNativeType apply(
+    static ALWAYS_INLINE typename PrimitiveTypeTraits<ResultType>::CppType::NativeType apply(
             ArgNativeTypeA a, ArgNativeTypeB b, UInt8& is_null,
             const typename PrimitiveTypeTraits<ResultType>::CppType& max_result_number) {
         if constexpr (DataTypeA::PType == TYPE_DECIMALV2) {
@@ -861,7 +861,7 @@ struct ModDecimalImpl {
                     }
                 }
             }
-            typename PrimitiveTypeTraits<ResultType>::CppNativeType result {};
+            typename PrimitiveTypeTraits<ResultType>::CppType::NativeType result {};
             memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
             return result;
         } else {

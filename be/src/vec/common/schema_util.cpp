@@ -60,7 +60,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -84,6 +83,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/json/json_parser.h"
@@ -393,6 +393,34 @@ Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                         typed_columns, path_set);
 }
 
+// Keep variant subcolumn BF support aligned with FE DDL checks.
+bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type) {
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_INT:
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr* target_schema) {
     if (!target.is_extracted_column()) {
@@ -401,11 +429,7 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     target.set_aggregation_method(source.aggregation());
 
     // 1. bloom filter
-    if (target.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
-        target.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
-        target.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
-        target.type() != FieldType::OLAP_FIELD_TYPE_FLOAT) {
-        // above types are not supported in bf
+    if (is_bf_supported_by_fe_for_variant_subcolumn(target.type())) {
         target.set_is_bf_column(source.is_bf_column());
     }
 

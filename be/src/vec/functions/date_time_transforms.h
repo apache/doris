@@ -28,7 +28,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -43,6 +42,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/date_format_type.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -184,8 +184,8 @@ struct DayNameImpl {
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
-                        ColumnString::Chars& res_data, size_t& offset,
-                        const char* const* day_names) {
+                        ColumnString::Chars& res_data, size_t& offset, const char* const* day_names,
+                        FunctionContext* /*context*/) {
         DCHECK(day_names != nullptr);
         const auto* day_name = dt.day_name_with_locale(day_names);
         if (day_name != nullptr) {
@@ -210,7 +210,7 @@ struct ToIso8601Impl {
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
-                        const char* const* /*names_ptr*/) {
+                        const char* const* /*names_ptr*/, FunctionContext* /*context*/) {
         auto length = dt.to_buffer((char*)res_data.data() + offset,
                                    std::is_same_v<ArgType, UInt32> ? -1 : 6);
         if (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
@@ -226,6 +226,58 @@ struct ToIso8601Impl {
     }
 };
 
+// Specialization for TIMESTAMPTZ type
+template <>
+struct ToIso8601Impl<TYPE_TIMESTAMPTZ> {
+    static constexpr PrimitiveType OpArgType = TYPE_TIMESTAMPTZ;
+    using ArgType = typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType;
+    static constexpr auto name = "to_iso8601";
+    // Format: YYYY-MM-DDTHH:MM:SS.SSSSSS+HH:MM
+    static constexpr auto max_size = 32;
+
+    static auto execute(const TimestampTzValue& tz_value, ColumnString::Chars& res_data,
+                        size_t& offset, const char* const* /*names_ptr*/,
+                        FunctionContext* context) {
+        // Get timezone
+        const auto& local_time_zone = context->state()->timezone_obj();
+
+        // Convert UTC time to local time
+        cctz::civil_second utc_sec(tz_value.year(), tz_value.month(), tz_value.day(),
+                                   tz_value.hour(), tz_value.minute(), tz_value.second());
+        cctz::time_point<cctz::seconds> local_time = cctz::convert(utc_sec, cctz::utc_time_zone());
+
+        auto lookup_result = local_time_zone.lookup(local_time);
+        cctz::civil_second civ = lookup_result.cs;
+        auto time_offset = lookup_result.offset;
+
+        int offset_hours = time_offset / 3600;
+        int offset_mins = (std::abs(time_offset) % 3600) / 60;
+
+        // Create local datetime value
+        DateV2Value<DateTimeV2ValueType> local_dt;
+        local_dt.unchecked_set_time((uint16_t)civ.year(), (uint8_t)civ.month(), (uint8_t)civ.day(),
+                                    (uint8_t)civ.hour(), (uint8_t)civ.minute(),
+                                    (uint8_t)civ.second(), tz_value.microsecond());
+
+        // YYYY-MM-DDTHH:MM:SS.SSSSSS+HH:MM
+        auto length = local_dt.to_buffer((char*)res_data.data() + offset, 6);
+        res_data[offset + 10] = 'T';
+        res_data[offset + length] = (offset_hours >= 0 ? '+' : '-');
+        res_data[offset + length + 1] = static_cast<char>('0' + std::abs(offset_hours) / 10);
+        res_data[offset + length + 2] = '0' + std::abs(offset_hours) % 10;
+        res_data[offset + length + 3] = ':';
+        res_data[offset + length + 4] = static_cast<char>('0' + offset_mins / 10);
+        res_data[offset + length + 5] = '0' + offset_mins % 10;
+
+        offset += length + 6;
+        return offset;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::DataType>()};
+    }
+};
+
 template <PrimitiveType PType>
 struct MonthNameImpl {
     static constexpr PrimitiveType OpArgType = PType;
@@ -235,7 +287,7 @@ struct MonthNameImpl {
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
-                        const char* const* month_names) {
+                        const char* const* month_names, FunctionContext* /*context*/) {
         DCHECK(month_names != nullptr);
         const auto* month_name = dt.month_name_with_locale(month_names);
         if (month_name != nullptr) {

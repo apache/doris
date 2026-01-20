@@ -26,7 +26,7 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
+#include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -46,6 +46,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
@@ -67,7 +68,6 @@ class FunctionConvertTZ : public IFunction {
     constexpr static PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
     using DateValueType = PrimitiveTypeTraits<PType>::CppType;
     using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
 
 public:
     static constexpr auto name = "convert_tz";

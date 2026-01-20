@@ -30,24 +30,25 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
- * LogicalRecursiveCteRecursiveChild is sentinel plan for must_shuffle
+ * LogicalRecursiveUnionProducer is sentinel plan for must_shuffle
  */
-public class LogicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalRecursiveUnionProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
     private final String cteName;
 
-    public LogicalRecursiveCteRecursiveChild(String cteName, CHILD_TYPE child) {
+    public LogicalRecursiveUnionProducer(String cteName, CHILD_TYPE child) {
         this(cteName, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
+    public LogicalRecursiveUnionProducer(String cteName, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         this(cteName, groupExpression, logicalProperties, ImmutableList.of(child));
     }
 
-    public LogicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
+    public LogicalRecursiveUnionProducer(String cteName, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> child) {
         super(PlanType.LOGICAL_RECURSIVE_CTE_RECURSIVE_CHILD, groupExpression, logicalProperties, child);
         this.cteName = cteName;
@@ -59,12 +60,12 @@ public class LogicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends 
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalRecursiveCteRecursiveChild<>(cteName, Optional.empty(), Optional.empty(), children);
+        return new LogicalRecursiveUnionProducer<>(cteName, Optional.empty(), Optional.empty(), children);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalRecursiveCteRecursiveChild(this, context);
+        return visitor.visitLogicalRecursiveUnionProducer(this, context);
     }
 
     @Override
@@ -74,20 +75,37 @@ public class LogicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends 
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalRecursiveCteRecursiveChild<>(cteName, groupExpression,
+        return new LogicalRecursiveUnionProducer<>(cteName, groupExpression,
                 Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalRecursiveCteRecursiveChild<>(cteName, groupExpression, logicalProperties, children);
+        return new LogicalRecursiveUnionProducer<>(cteName, groupExpression, logicalProperties, children);
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlStringSkipNull("LogicalRecursiveCteRecursiveChild",
+        return Utils.toSqlStringSkipNull("LogicalRecursiveUnionProducer",
                 "cteName", cteName);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalRecursiveUnionProducer that = (LogicalRecursiveUnionProducer) o;
+        return cteName.equals(that.cteName);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(cteName);
     }
 
     @Override

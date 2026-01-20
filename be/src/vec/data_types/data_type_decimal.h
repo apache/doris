@@ -306,7 +306,9 @@ public:
             return scale;
         }
     }
-    FieldType::NativeType get_scale_multiplier() const { return get_scale_multiplier(scale); }
+    typename FieldType::NativeType get_scale_multiplier() const {
+        return get_scale_multiplier(scale);
+    }
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         scalar_type->set_precision(precision);
         scalar_type->set_scale(scale);
@@ -314,7 +316,7 @@ public:
 
     /// @returns multiplier for U to become T with correct scale
     template <PrimitiveType U>
-    FieldType::NativeType scale_factor_for(const DataTypeDecimal<U>& x) const {
+    typename FieldType::NativeType scale_factor_for(const DataTypeDecimal<U>& x) const {
         if (get_scale() < x.get_scale()) {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "Decimal result's scale is less then argument's one");
@@ -324,9 +326,9 @@ public:
         return get_scale_multiplier(scale_delta);
     }
 
-    static constexpr FieldType::NativeType get_scale_multiplier(UInt32 scale);
+    static constexpr typename FieldType::NativeType get_scale_multiplier(UInt32 scale);
 
-    static constexpr FieldType::NativeType get_max_digits_number(UInt32 digit_count);
+    static constexpr typename FieldType::NativeType get_max_digits_number(UInt32 digit_count);
 
     bool parse_from_string(const std::string& str, FieldType* res) const;
 
@@ -498,18 +500,20 @@ constexpr bool IsDataTypeDecimalOrNumber =
 
 template <PrimitiveType T>
     requires(is_decimal(T))
-typename PrimitiveTypeTraits<T>::CppNativeType max_decimal_value(UInt32 precision) {
-    return type_limit<typename PrimitiveTypeTraits<T>::CppType>::max().value /
-           DataTypeDecimal<T>::get_scale_multiplier(
-                   (UInt32)(max_decimal_precision<T>() - precision));
+typename PrimitiveTypeTraits<T>::CppType max_decimal_value(UInt32 precision) {
+    return typename PrimitiveTypeTraits<T>::CppType(
+            type_limit<typename PrimitiveTypeTraits<T>::CppType>::max().value /
+            DataTypeDecimal<T>::get_scale_multiplier(
+                    (UInt32)(max_decimal_precision<T>() - precision)));
 }
 
 template <PrimitiveType T>
     requires(is_decimal(T))
-typename PrimitiveTypeTraits<T>::CppNativeType min_decimal_value(UInt32 precision) {
-    return type_limit<typename PrimitiveTypeTraits<T>::CppType>::min().value /
-           DataTypeDecimal<T>::get_scale_multiplier(
-                   (UInt32)(max_decimal_precision<T>() - precision));
+typename PrimitiveTypeTraits<T>::CppType min_decimal_value(UInt32 precision) {
+    return typename PrimitiveTypeTraits<T>::CppType(
+            type_limit<typename PrimitiveTypeTraits<T>::CppType>::min().value /
+            DataTypeDecimal<T>::get_scale_multiplier(
+                    (UInt32)(max_decimal_precision<T>() - precision)));
 }
 
 template <typename T>

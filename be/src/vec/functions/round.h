@@ -74,12 +74,36 @@ enum class TieBreakingMode {
     Bankers, // use banker's rounding
 };
 
+template <PrimitiveType PT>
+struct RoundType {
+    using NativeType = typename PrimitiveTypeTraits<PT>::CppType;
+};
+
+template <>
+struct RoundType<TYPE_DECIMAL32> {
+    using NativeType = typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType::NativeType;
+};
+template <>
+struct RoundType<TYPE_DECIMAL64> {
+    using NativeType = typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType::NativeType;
+};
+template <>
+struct RoundType<TYPE_DECIMAL128I> {
+    using NativeType = typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType::NativeType;
+};
+template <>
+struct RoundType<TYPE_DECIMALV2> {
+    using NativeType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType::NativeType;
+};
+template <>
+struct RoundType<TYPE_DECIMAL256> {
+    using NativeType = typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType::NativeType;
+};
+
 template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode, typename U>
 struct IntegerRoundingComputation {
-    using T =
-            std::conditional_t<is_decimal(Type), typename PrimitiveTypeTraits<Type>::CppNativeType,
-                               typename PrimitiveTypeTraits<Type>::CppType>;
+    using T = typename RoundType<Type>::NativeType;
     static const size_t data_count = 1;
 
     static size_t prepare(size_t scale) { return scale; }

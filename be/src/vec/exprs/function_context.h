@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf.h
-// and modified by Doris
 
 #pragma once
 
@@ -43,25 +40,25 @@ class IDataType;
 using DataTypePtr = std::shared_ptr<const IDataType>;
 } // namespace vectorized
 
-// The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
-// rest of the system. It contains APIs to examine the system state, report errors
+// The FunctionContext is passed to every UDF/UDA and is the interface for UDF to
+// rest of system. It contains APIs to examine system state, report errors
 // and manage memory.
 class FunctionContext {
 public:
     enum FunctionStateScope {
-        /// Indicates that the function state for this FunctionContext's UDF is shared across
-        /// the plan fragment (a query is divided into multiple plan fragments, each of which
-        /// is responsible for a part of the query execution). Within the plan fragment, there
-        /// may be multiple instances of the UDF executing concurrently with multiple
+        /// Indicates that function state for this FunctionContext's UDF is shared across
+        /// plan fragment (a query is divided into multiple plan fragments, each of which
+        /// is responsible for a part of query execution). Within plan fragment, there
+        /// may be multiple instances of UDF executing concurrently with multiple
         /// FunctionContexts sharing this state, meaning that the state must be
-        /// thread-safe. The Prepare() function for the UDF may be called with this scope
-        /// concurrently on a single host if the UDF will be evaluated in multiple plan
+        /// thread-safe. The Prepare() function for UDF may be called with this scope
+        /// concurrently on a single host if UDF will be evaluated in multiple plan
         /// fragments on that host. In general, read-only state that doesn't need to be
         /// recomputed for every UDF call should be fragment-local.
         /// TODO: not yet implemented
         FRAGMENT_LOCAL,
 
-        /// Indicates that the function state is local to the execution thread. This state
+        /// Indicates that function state is local to execution thread. This state
         /// does not need to be thread-safe. However, this state will be initialized (via the
         /// Prepare() function) once for every execution thread, so fragment-local state
         /// should be used when possible for better performance. In general, inexpensive
@@ -120,10 +117,10 @@ public:
     // instead just insert a string literal
     bool jsonb_string_as_string() const { return _jsonb_string_as_string; }
 
-    // Sets an error for this UDF. If this is called, this will trigger the
+    // Sets an error for this UDF. If this is called, this will trigger a
     // query to fail.
-    // Note: when you set error for the UDFs used in Data Load, you should
-    // ensure the function return value is null.
+    // Note: when you set an error for UDFs used in Data Load, you should
+    // ensure that the function return value is null.
     void set_error(const char* error_msg);
 
     // Adds a warning that is returned to the user. This can include things like
@@ -149,12 +146,12 @@ public:
     // argument).
     int get_num_args() const;
 
-    // Returns the type information for the arg_idx-th argument (0-indexed, not including
+    // Returns type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
     const vectorized::DataTypePtr get_arg_type(int arg_idx) const;
 
-    // Returns true if the arg_idx-th input argument (0 indexed, not including the
-    // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
+    // Returns true if the arg_idx-th input argument (0 indexed, not including
+    // the FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
     bool is_col_constant(int arg_idx) const;
 
     // Returns a pointer to the value of the arg_idx-th input argument (0 indexed, not
@@ -200,7 +197,7 @@ private:
 
     std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
 
-    //udf execute timer
+    // UDF execute timer
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
     bool _enable_strict_mode = false;
@@ -216,4 +213,5 @@ private:
 };
 
 using doris::FunctionContext;
+
 } // namespace doris

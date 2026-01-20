@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
@@ -120,6 +119,9 @@ void inherit_column_attributes(TabletSchemaSPtr& schema);
 // target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr* target_schema = nullptr);
+
+// Align variant subcolumn BF inheritance with FE BF-supported types.
+bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type);
 
 // get sorted subcolumns of variant
 vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
