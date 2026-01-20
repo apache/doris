@@ -33,7 +33,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
@@ -52,13 +51,12 @@ import java.util.stream.Collectors;
 public class CloudReplica extends Replica implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CloudReplica.class);
 
-    // In the future, a replica may be mapped to multiple BEs in a cluster,
-    // so this value is be list
+    // a replica is mapped to one BE in a cluster, use primaryClusterToBackend instead of primaryClusterToBackends
+    @Deprecated
     @SerializedName(value = "bes")
-    private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends
-            = new ConcurrentHashMap<String, List<Long>>();
+    private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends = null;
     @SerializedName(value = "be")
-    private ConcurrentHashMap<String, Long> primaryClusterToBackend = null;
+    private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
     @SerializedName(value = "dbId")
     private long dbId = -1;
     @SerializedName(value = "tableId")
@@ -208,12 +206,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             }
         }
 
-        List<Long> backendIds = primaryClusterToBackends.get(clusterId);
-        if (backendIds != null && !backendIds.isEmpty()) {
-            return backendIds.get(0);
-        }
-
-        return -1L;
+        return primaryClusterToBackend.getOrDefault(clusterId, -1L);
     }
 
     private String getCurrentClusterId() throws ComputeGroupException {
@@ -323,8 +316,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                 backendId = memClusterToBackends.get(clusterId).get(indexRand);
             }
 
-            if (!replicaEnough && !allowColdRead && primaryClusterToBackends.containsKey(clusterId)) {
-                backendId = primaryClusterToBackends.get(clusterId).get(0);
+            if (!replicaEnough && !allowColdRead && primaryClusterToBackend.containsKey(clusterId)) {
+                backendId = primaryClusterToBackend.get(clusterId);
             }
 
             if (backendId > 0) {
@@ -349,7 +342,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             }
         }
 
-        // use primaryClusterToBackends, if find be normal
+        // use primaryClusterToBackend, if find be normal
         Backend be = getPrimaryBackend(clusterId, false);
         if (be != null && be.isQueryAvailable()) {
             return be.getId();
@@ -582,7 +575,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public void updateClusterToPrimaryBe(String cluster, long beId) {
-        primaryClusterToBackends.put(cluster, Lists.newArrayList(beId));
+        primaryClusterToBackend.put(cluster, beId);
         secondaryClusterToBackends.remove(cluster);
     }
 
@@ -601,7 +594,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public void clearClusterToBe(String cluster) {
-        primaryClusterToBackends.remove(cluster);
+        primaryClusterToBackend.remove(cluster);
         secondaryClusterToBackends.remove(cluster);
     }
 
@@ -626,12 +619,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     public List<Backend> getAllPrimaryBes() {
         List<Backend> result = new ArrayList<Backend>();
-        primaryClusterToBackends.keySet().forEach(clusterId -> {
-            List<Long> backendIds = primaryClusterToBackends.get(clusterId);
-            if (backendIds == null || backendIds.isEmpty()) {
-                return;
-            }
-            Long beId = backendIds.get(0);
+        primaryClusterToBackend.forEach((clusterId, beId) -> {
             if (beId != -1) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
                 result.add(backend);

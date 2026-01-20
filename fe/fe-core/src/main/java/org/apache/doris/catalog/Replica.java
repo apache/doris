@@ -33,7 +33,7 @@ import java.util.Comparator;
 /**
  * This class represents the olap replica related metadata.
  */
-public class Replica {
+public abstract class Replica {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final LastSuccessVersionComparator<Replica> LAST_SUCCESS_VERSION_COMPARATOR =
             new LastSuccessVersionComparator<Replica>();
@@ -167,9 +167,7 @@ public class Replica {
         }
     }
 
-    public long getBackendId() throws UserException {
-        return -1L;
-    }
+    public abstract long getBackendId() throws UserException;
 
     protected long getBackendIdValue() {
         return -1L;
@@ -384,25 +382,7 @@ public class Replica {
      *      But if state is ALTER but version larger than PARTITION_INIT_VERSION, which means this replica
      *      is already updated by load process, so we need to consider its version.
      */
-    public boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter) {
-        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
-            return true;
-        }
-
-        if (expectedVersion == Partition.PARTITION_INIT_VERSION) {
-            // no data is loaded into this replica, just return true
-            return true;
-        }
-
-        if (this.version < expectedVersion) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                          expectedVersion, this);
-            }
-            return false;
-        }
-        return true;
-    }
+    public abstract boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter);
 
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
