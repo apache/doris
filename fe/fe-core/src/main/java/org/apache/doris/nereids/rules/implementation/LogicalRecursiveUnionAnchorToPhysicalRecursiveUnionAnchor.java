@@ -19,21 +19,19 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 
 /**
- * Implementation rule that convert logical Recursive Cte to Physical Recursive Cte.
+ * Implementation rule that convert LogicalRecursiveUnionAnchor to PhysicalRecursiveUnionAnchor.
  */
-public class LogicalRecursiveCteToPhysicalRecursiveCte extends OneImplementationRuleFactory {
+public class LogicalRecursiveUnionAnchorToPhysicalRecursiveUnionAnchor
+        extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalRecursiveCte().then(recursiveCte ->
-            new PhysicalRecursiveCte(recursiveCte.getCteName(),
-                    recursiveCte.isUnionAll(),
-                    recursiveCte.getOutputs(),
-                    recursiveCte.getRegularChildrenOutputs(),
-                    recursiveCte.getLogicalProperties(),
-                    recursiveCte.children())
-        ).toRule(RuleType.LOGICAL_RECURSIVE_CTE_TO_PHYSICAL_RECURSIVE_CTE);
+        return logicalRecursiveUnionAnchor().then(recursiveCte -> new PhysicalRecursiveUnionAnchor(
+                recursiveCte.getCteId(),
+                recursiveCte.getLogicalProperties(),
+                recursiveCte.child()))
+                .toRule(RuleType.LOGICAL_RECURSIVE_UNION_ANCHOR_TO_PHYSICAL_RECURSIVE_UNION_ANCHOR);
     }
 }

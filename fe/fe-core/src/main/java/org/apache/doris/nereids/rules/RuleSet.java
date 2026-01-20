@@ -92,9 +92,9 @@ import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalPartitionTopNToPhysicalPartitionTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
-import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChild;
-import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteScanToPhysicalRecursiveCteScan;
-import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteToPhysicalRecursiveCte;
+import org.apache.doris.nereids.rules.implementation.LogicalRecursiveUnionAnchorToPhysicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.rules.implementation.LogicalRecursiveUnionProducerToPhysicalRecursiveUnionProducer;
+import org.apache.doris.nereids.rules.implementation.LogicalRecursiveUnionToPhysicalRecursiveUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepeat;
 import org.apache.doris.nereids.rules.implementation.LogicalResultSinkToPhysicalResultSink;
 import org.apache.doris.nereids.rules.implementation.LogicalSchemaScanToPhysicalSchemaScan;
@@ -104,6 +104,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFTableSinkToPhysic
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.implementation.LogicalWorkTableReferenceToPhysicalWorkTableReference;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
@@ -212,7 +213,7 @@ public class RuleSet {
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
             .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalEsScanToPhysicalEsScan())
-            .add(new LogicalRecursiveCteScanToPhysicalRecursiveCteScan())
+            .add(new LogicalWorkTableReferenceToPhysicalWorkTableReference())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
             .add(new LogicalWindowToPhysicalWindow())
@@ -228,8 +229,9 @@ public class RuleSet {
             .add(SplitAggWithoutDistinct.INSTANCE)
             .add(SplitAggMultiPhase.INSTANCE)
             .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
-            .add(new LogicalRecursiveCteToPhysicalRecursiveCte())
-            .add(new LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChild())
+            .add(new LogicalRecursiveUnionToPhysicalRecursiveUnion())
+            .add(new LogicalRecursiveUnionProducerToPhysicalRecursiveUnionProducer())
+            .add(new LogicalRecursiveUnionAnchorToPhysicalRecursiveUnionAnchor())
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())

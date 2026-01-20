@@ -352,7 +352,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
         PlanChecker.from(planner.getCascadesContext()).matches(
                 logicalProject(
                         logicalFilter(
-                                logicalRecursiveCte().when(cte -> cte.getOutput().size() == 3)
+                                logicalRecursiveUnion().when(cte -> cte.getOutput().size() == 3)
                         )
                 ).when(project -> project.getOutputs().size() == 1)
         );

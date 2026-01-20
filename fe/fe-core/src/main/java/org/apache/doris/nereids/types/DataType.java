@@ -551,6 +551,10 @@ public abstract class DataType {
         return true;
     }
 
+    public boolean equalsForRecursiveCte(Object o) {
+        return equals(o);
+    }
+
     @Override
     public int hashCode() {
         return 0;

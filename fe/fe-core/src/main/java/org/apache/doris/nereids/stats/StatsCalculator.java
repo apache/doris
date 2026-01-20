@@ -91,9 +91,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
@@ -127,9 +128,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -139,6 +140,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -183,6 +185,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 1 / 3.0;
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
+    public static double RECURSIVE_CTE_EXPAND_RATIO = 5.0;
 
     protected static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
     protected final GroupExpression groupExpression;
@@ -884,9 +887,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalRecursiveCteScan(LogicalRecursiveCteScan recursiveCteScan, Void context) {
-        recursiveCteScan.getExpressions();
-        return computeCatalogRelation(recursiveCteScan);
+    public Statistics visitLogicalWorkTableReference(LogicalWorkTableReference workTableReference, Void context) {
+        CTEId cteId = workTableReference.getCteId();
+        Statistics prodStats = cteIdToStats.get(cteId);
+        Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
+        Statistics consumerStats = new Statistics(prodStats.getRowCount(), 1, new HashMap<>());
+        // because recursive cte's anchor outputs are same as worktable's output, we compare slot name for simplicity
+        Map<String, ColumnStatistic> columnStats = new HashMap<>();
+        for (Map.Entry<Expression, ColumnStatistic> entry : prodStats.columnStatistics().entrySet()) {
+            columnStats.put(entry.getKey().getExpressionName(), entry.getValue());
+        }
+        for (Slot slot : workTableReference.getOutput()) {
+            ColumnStatistic colStats = columnStats.get(slot.getName());
+            if (colStats == null) {
+                continue;
+            }
+            consumerStats.addColumnStats(slot, colStats);
+        }
+        return new StatisticsBuilder()
+                .setRowCount(Math.max(1, consumerStats.getRowCount()) * RECURSIVE_CTE_EXPAND_RATIO)
+                .putColumnStatistics(consumerStats.columnStatistics())
+                .build();
     }
 
     @Override
@@ -933,15 +954,24 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalRecursiveCte(
-            LogicalRecursiveCte recursiveCte, Void context) {
+    public Statistics visitLogicalRecursiveUnion(
+            LogicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte, Void context) {
         return computeRecursiveCte(recursiveCte,
                 groupExpression.children()
                         .stream().map(Group::getStatistics).collect(Collectors.toList()));
     }
 
     @Override
-    public Statistics visitLogicalRecursiveCteRecursiveChild(LogicalRecursiveCteRecursiveChild recursiveChild,
+    public Statistics visitLogicalRecursiveUnionAnchor(LogicalRecursiveUnionAnchor recursiveAnchor,
+            Void context) {
+        StatisticsBuilder builder = new StatisticsBuilder(groupExpression.childStatistics(0));
+        Statistics statistics = builder.setWidthInJoinCluster(1).build();
+        cteIdToStats.put(recursiveAnchor.getCteId(), statistics);
+        return statistics;
+    }
+
+    @Override
+    public Statistics visitLogicalRecursiveUnionProducer(LogicalRecursiveUnionProducer recursiveProducer,
             Void context) {
         return groupExpression.childStatistics(0);
     }
@@ -1032,8 +1062,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan, Void context) {
-        return computeCatalogRelation(recursiveCteScan);
+    public Statistics visitPhysicalWorkTableReference(PhysicalWorkTableReference workTableReference, Void context) {
+        CTEId cteId = workTableReference.getCteId();
+        Statistics prodStats = cteIdToStats.get(cteId);
+        Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
+        Statistics consumerStats = new Statistics(prodStats.getRowCount(), 1, new HashMap<>());
+        // because recursive cte's anchor outputs are same as worktable's output, we compare slot name for simplicity
+        Map<String, ColumnStatistic> columnStats = new HashMap<>();
+        for (Map.Entry<Expression, ColumnStatistic> entry : prodStats.columnStatistics().entrySet()) {
+            columnStats.put(entry.getKey().getExpressionName(), entry.getValue());
+        }
+        for (Slot slot : workTableReference.getOutput()) {
+            ColumnStatistic colStats = columnStats.get(slot.getName());
+            if (colStats == null) {
+                continue;
+            }
+            consumerStats.addColumnStats(slot, colStats);
+        }
+        return new StatisticsBuilder()
+                .setRowCount(Math.max(1, consumerStats.getRowCount()) * RECURSIVE_CTE_EXPAND_RATIO)
+                .putColumnStatistics(consumerStats.columnStatistics())
+                .build();
     }
 
     @Override
@@ -1123,13 +1172,23 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, Void context) {
-        return computeRecursiveCte(recursiveCte, groupExpression.children()
+    public Statistics visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion,
+            Void context) {
+        return computeRecursiveCte(recursiveUnion, groupExpression.children()
                 .stream().map(Group::getStatistics).collect(Collectors.toList()));
     }
 
     @Override
-    public Statistics visitPhysicalRecursiveCteRecursiveChild(PhysicalRecursiveCteRecursiveChild recursiveChild,
+    public Statistics visitPhysicalRecursiveUnionAnchor(PhysicalRecursiveUnionAnchor recursiveUnionAnchor,
+            Void context) {
+        StatisticsBuilder builder = new StatisticsBuilder(groupExpression.childStatistics(0));
+        Statistics statistics = builder.setWidthInJoinCluster(1).build();
+        cteIdToStats.put(recursiveUnionAnchor.getCteId(), statistics);
+        return statistics;
+    }
+
+    @Override
+    public Statistics visitPhysicalRecursiveUnionProducer(PhysicalRecursiveUnionProducer recursiveUnionProducer,
             Void context) {
         return groupExpression.childStatistics(0);
     }
@@ -1519,7 +1578,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeRecursiveCte
      */
     public Statistics computeRecursiveCte(RecursiveCte recursiveCte, List<Statistics> childStats) {
-        // TODO: refactor this for one row relation
+        // similar as computeUnion
         List<SlotReference> head;
         Statistics headStats;
         List<List<SlotReference>> childOutputs = Lists.newArrayList(recursiveCte.getRegularChildrenOutputs());

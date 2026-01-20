@@ -19,19 +19,23 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
+
+import java.util.Optional;
 
 /**
- * Implementation rule that convert logical recursive cte's recursive child to physical recursive child.
+ * Implementation rule that convert LogicalWorkTableReference to PhysicalWorkTableReference.
  */
-public class LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChild
-        extends OneImplementationRuleFactory {
+public class LogicalWorkTableReferenceToPhysicalWorkTableReference extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalRecursiveCteRecursiveChild().then(recursiveCte -> new PhysicalRecursiveCteRecursiveChild(
-                recursiveCte.getCteName(),
-                recursiveCte.getLogicalProperties(),
-                recursiveCte.child()))
-                .toRule(RuleType.LOGICAL_RECURSIVE_CTE_RECURSIVE_CHILD_TO_PHYSICAL_RECURSIVE_CTE_RECURSIVE_CHILD);
+        return logicalWorkTableReference().then(workTableReference -> new PhysicalWorkTableReference(
+                workTableReference.getRelationId(),
+                workTableReference.getCteId(),
+                workTableReference.getOutput(),
+                workTableReference.getNameParts(),
+                Optional.empty(),
+                workTableReference.getLogicalProperties()))
+                .toRule(RuleType.LOGICAL_WORK_TABLE_REFERENCE_TO_PHYSICAL_WORK_TABLE_REFERENCE);
     }
 }

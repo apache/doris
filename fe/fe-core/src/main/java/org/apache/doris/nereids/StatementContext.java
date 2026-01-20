@@ -318,6 +318,7 @@ public class StatementContext implements Closeable {
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
+    private final Set<CTEId> mustInlineCTE = new HashSet<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -1205,5 +1206,13 @@ public class StatementContext implements Closeable {
             return 0;
         }
         return lowerCaseDatabaseNamesCache.computeIfAbsent(catalogName, Env::getLowerCaseDatabaseNames);
+    }
+    
+    public void addToMustLineCTEs(CTEId cteId) {
+        mustInlineCTE.add(cteId);
+    }
+
+    public Set<CTEId> getMustInlineCTEs() {
+        return mustInlineCTE;
     }
 }
