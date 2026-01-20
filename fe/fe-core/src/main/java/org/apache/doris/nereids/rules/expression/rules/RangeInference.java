@@ -279,13 +279,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 // = TA is not null
                 // = IsNotNull(TA)
                 if (rangeValue.isRangeAll() && collector.isNotNullValueOpt.isPresent()) {
-                    // Notice that if collector has isGenerateNotNullValueOpt, we should keep the rangeAll here
+                    // Notice that if collector has only isGenerateNotNullValueOpt, we should not keep the rangeAll here
                     // for expression:  (Not(IsNull(TA)) OR NULL) AND GeneratedNot(IsNull(TA))
                     // will be converted to RangeAll(TA) AND IsNotNullValue(TA, generated=true)
                     // if we skip this RangeAll, the final result will be IsNotNullValue(TA, generated=true)
                     // then convert back to expression: GeneratedNot(IsNull(TA)),
-                    // but EliminateNotNull rule will remove this generated Not expression.
-                    // then EliminateNotNull will rewrite this expression to TRUE
+                    // but later EliminateNotNull rule will remove this generated Not expression,
+                    // then the final result will be TRUE, which is wrong.
                     continue;
                 }
                 if (mergeRangeValueDesc == null) {

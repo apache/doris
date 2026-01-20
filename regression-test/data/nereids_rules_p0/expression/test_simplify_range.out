@@ -6,18 +6,26 @@ PhysicalResultSink
 
 -- !sql_1_result --
 \N
+false
 
 -- !sql_2_shape --
 PhysicalResultSink
---PhysicalOlapScan[test_simplify_range_tbl_1]
+--PhysicalProject
+----PhysicalOlapScan[test_simplify_range_tbl_1]
 
 -- !sql_2_result --
-\N	10
+\N	\N
+10	20
 
 -- !sql_3_shape --
 PhysicalResultSink
---filter(( not (a * 0) IS NULL))
-----PhysicalOlapScan[test_simplify_range_tbl_1]
+--PhysicalProject
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------filter(( not (cast(b as BIGINT) * 0) IS NULL))
+------------PhysicalOlapScan[test_simplify_range_tbl_1]
 
 -- !sql_3_result --
+0	20
 

@@ -25,8 +25,8 @@ suite('test_simplify_range') {
         '''
 
     sql "DROP TABLE IF EXISTS  ${tbl_1} FORCE"
-    sql "CREATE TABLE ${tbl_1}(a DECIMAL(16,8), b INT) PROPERTIES ('replication_num' = '1')"
-    sql "INSERT INTO ${tbl_1} VALUES(null, 10)"
+    sql "CREATE TABLE ${tbl_1}(a DECIMAL(16,8), b INT, c bigint) PROPERTIES ('replication_num' = '1')"
+    sql "INSERT INTO ${tbl_1} VALUES(null, 10, 20), (1, null, null)"
 
     explainAndOrderResult 'sql_1', """
         SELECT a BETWEEN 100.02 and 40.123 OR a IN (54.0402) AND b < 10
@@ -34,15 +34,16 @@ suite('test_simplify_range') {
         """
 
     explainAndOrderResult 'sql_2', """
-        SELECT *
+        SELECT b, c
         FROM ${tbl_1}
         WHERE a < 10 or ((a != 1 or a is null) and (a != 2 or a is null))
         """
 
     explainAndOrderResult 'sql_3', """
-        SELECT *
+        SELECT b * 0  AS b, SUM(c)
         FROM ${tbl_1}
-        WHERE  NOT  a * 0  >  a * 0
+        GROUP BY b
+        HAVING  NOT  b * 0   >  b * 0  *  6;
         """
 
     sql "DROP TABLE IF EXISTS  ${tbl_1} FORCE"
