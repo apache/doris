@@ -3012,6 +3012,68 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
+TEST_F(BlockFileCacheTest, test_query_limit_min_size) {
+    {
+        config::enable_file_cache_query_limit = true;
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+        fs::create_directories(cache_base_path);
+        TUniqueId query_id;
+        query_id.hi = 1;
+        query_id.lo = 1;
+        io::FileCacheSettings settings;
+        settings.query_queue_size = 30;
+        settings.query_queue_elements = 5;
+        settings.index_queue_size = 0;
+        settings.index_queue_elements = 0;
+        settings.disposable_queue_size = 0;
+        settings.disposable_queue_elements = 0;
+        settings.capacity = 30;
+        settings.max_file_block_size = 30;
+        settings.max_query_cache_size = 15;
+        io::CacheContext context;
+        ReadStatistics rstats;
+        context.stats = &rstats;
+        context.cache_type = FileCacheType::NORMAL;
+        context.query_id = query_id;
+        auto key = io::BlockFileCache::hash("key1");
+
+        ASSERT_TRUE(
+                FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
+        auto cache = FileCacheFactory::instance()->get_by_path(key);
+        int i = 0;
+        while (i++ < 1000) {
+            if (cache->get_async_open_success()) {
+                break;
+            };
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        ASSERT_LT(i, 1000);
+        config::file_cache_query_limit_min_size = 50;
+        auto query_context_holder =
+                FileCacheFactory::instance()->get_query_context_holders(query_id, 50);
+        for (int64_t offset = 0; offset < 60; offset += 5) {
+            auto holder = cache->get_or_set(key, offset, 5, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 4),
+                         io::FileBlock::State::EMPTY);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 4),
+                         io::FileBlock::State::DOWNLOADED);
+        }
+        EXPECT_EQ(cache->_cur_cache_size, 30);
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+    }
+    FileCacheFactory::instance()->_caches.clear();
+    FileCacheFactory::instance()->_path_to_cache.clear();
+    FileCacheFactory::instance()->_capacity = 0;
+}
+
 TEST_F(BlockFileCacheTest, state_to_string) {
     EXPECT_EQ(FileBlock::state_to_string(FileBlock::State::EMPTY), "EMPTY");
     EXPECT_EQ(FileBlock::state_to_string(FileBlock::State::SKIP_CACHE), "SKIP_CACHE");
