@@ -189,7 +189,7 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
             else
                 echo "Command failed on attempt ${attempt}"
                 if [[ ${attempt} -lt ${max_attempts} ]]; then
-                    sleep $((attempt * 5))  # Exponential backoff
+                    sleep $((attempt * 5))  # Linear backoff
                 fi
                 ((attempt++))
             fi
