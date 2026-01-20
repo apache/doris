@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TS3MPUPendingUpload;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -1635,7 +1636,8 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    private static boolean isSubDirectory(String parent, String child) {
+    @VisibleForTesting
+    static boolean isSubDirectory(String parent, String child) {
         if (parent == null || child == null) {
             return false;
         }
@@ -1655,7 +1657,14 @@ public class HMSTransaction implements Transaction {
                 && childPathValue.startsWith(parentPathValue + "/");
     }
 
-    private static String getImmediateChildPath(String parent, String child) {
+    /**
+     * Returns the first-level child path of {@code parent} that contains {@code child},
+     * or null if {@code child} is not a subdirectory of {@code parent}.
+     * Example: parent=/warehouse/table, child=/warehouse/table/.doris_staging/user/uuid
+     * returns /warehouse/table/.doris_staging.
+     */
+    @VisibleForTesting
+    static String getImmediateChildPath(String parent, String child) {
         if (!isSubDirectory(parent, child)) {
             return null;
         }
@@ -1673,12 +1682,17 @@ public class HMSTransaction implements Transaction {
     private static boolean sameFileSystem(URI left, URI right) {
         String leftScheme = normalizeUriPart(left.getScheme());
         String rightScheme = normalizeUriPart(right.getScheme());
-        if (!leftScheme.equalsIgnoreCase(rightScheme)) {
+        if (!leftScheme.isEmpty() && !rightScheme.isEmpty()
+                && !leftScheme.equalsIgnoreCase(rightScheme)) {
             return false;
         }
         String leftAuthority = normalizeUriPart(left.getAuthority());
         String rightAuthority = normalizeUriPart(right.getAuthority());
-        return leftAuthority.equalsIgnoreCase(rightAuthority);
+        if (!leftAuthority.isEmpty() && !rightAuthority.isEmpty()
+                && !leftAuthority.equalsIgnoreCase(rightAuthority)) {
+            return false;
+        }
+        return true;
     }
 
     private static String normalizeUriPart(String value) {
@@ -1708,7 +1722,8 @@ public class HMSTransaction implements Transaction {
         return normalizePath(leftUri.getPath()).equals(normalizePath(rightUri.getPath()));
     }
 
-    private void deleteTargetPathContents(String targetPath, String excludedChildPath) {
+    @VisibleForTesting
+    void deleteTargetPathContents(String targetPath, String excludedChildPath) {
         Set<String> dirs = new HashSet<>();
         Status status = fs.listDirectories(targetPath, dirs);
         if (!status.ok() && !Status.ErrCode.NOT_FOUND.equals(status.getErrCode())) {
@@ -1739,7 +1754,8 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    private void ensureDirectory(String path) {
+    @VisibleForTesting
+    void ensureDirectory(String path) {
         Status status = fs.makeDir(path);
         if (!status.ok()) {
             throw new RuntimeException("Failed to create directory " + path + ":" + status.getErrMsg());
