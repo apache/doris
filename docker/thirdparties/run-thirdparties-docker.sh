@@ -52,6 +52,7 @@ STOP=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
+export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -347,8 +348,6 @@ start_clickhouse() {
 start_kafka() {
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
     cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
@@ -379,18 +378,6 @@ start_hive2() {
     # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
-    IP_HOST="127.0.0.1"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-
-    if [ "_${IP_HOST}" == "_" ]; then
-        echo "please set IP_HOST according to your actual situation"
-        exit -1
-    fi
-    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-
-    # generate hive-2x.yaml
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-2x.yaml
@@ -405,18 +392,6 @@ start_hive2() {
 start_hive3() {
     # hive3
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
-    #default value
-    IP_HOST="127.0.0.1"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-    if [ "_${IP_HOST}" == "_" ]; then
-        echo "please set IP_HOST according to your actual situation"
-        exit -1
-    fi
-    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    
-    # generate hive-3x.yaml
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
@@ -611,9 +586,6 @@ start_lakesoul() {
 
 start_kerberos() {
     echo "RUN_KERBEROS"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
@@ -636,7 +608,7 @@ start_kerberos() {
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
         sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
-        sudo rm -f /keytabs
+        sudo rm -df /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
