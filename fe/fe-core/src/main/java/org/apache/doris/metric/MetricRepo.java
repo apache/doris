@@ -1533,40 +1533,6 @@ public final class MetricRepo {
         CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.getOrAdd(key).update(elapseMs);
     }
 
-    public static void updateClusterCloudBalanceNum(String clusterName, String clusterId,
-                                                    CloudTabletRebalancer.StatType type, long num) {
-        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)
-                || Strings.isNullOrEmpty(clusterId)) {
-            return;
-        }
-        LongCounterMetric counter = null;
-        switch (type) {
-            case PARTITION:
-                counter = CloudMetrics.CLUSTER_CLOUD_PARTITION_BALANCE_NUM.getOrAdd(clusterId);
-                break;
-            case TABLE:
-                counter = CloudMetrics.CLUSTER_CLOUD_TABLE_BALANCE_NUM.getOrAdd(clusterId);
-                break;
-            case GLOBAL:
-                counter = CloudMetrics.CLUSTER_CLOUD_GLOBAL_BALANCE_NUM.getOrAdd(clusterId);
-                break;
-            case SMOOTH_UPGRADE:
-                counter = CloudMetrics.CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM.getOrAdd(clusterId);
-                break;
-            case WARM_UP_CACHE:
-                counter = CloudMetrics.CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.getOrAdd(clusterId);
-                break;
-            default:
-                return;
-        }
-        List<MetricLabel> labels = new ArrayList<>();
-        counter.update(num);
-        labels.add(new MetricLabel("cluster_id", clusterId));
-        labels.add(new MetricLabel("cluster_name", clusterName));
-        counter.setLabels(labels);
-        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
-    }
-
     public static void unregisterCloudMetrics(String clusterId, String clusterName, List<Backend> backends) {
         if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterId)) {
             return;
@@ -1616,36 +1582,6 @@ public final class MetricRepo {
             GaugeMetricImpl<Double> queryErrRateGauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
             CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.remove(clusterId);
             DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(queryErrRateGauge.getName(), labels);
-
-            LongCounterMetric clusterCloudPartitionBalanceNum = CloudMetrics
-                    .CLUSTER_CLOUD_PARTITION_BALANCE_NUM.getOrAdd(clusterId);
-            CloudMetrics.CLUSTER_CLOUD_PARTITION_BALANCE_NUM.remove(clusterId);
-            MetricRepo.DORIS_METRIC_REGISTER
-                .removeMetricsByNameAndLabels(clusterCloudPartitionBalanceNum.getName(), labels);
-
-            LongCounterMetric clusterCloudTableBalanceNum = CloudMetrics
-                    .CLUSTER_CLOUD_TABLE_BALANCE_NUM.getOrAdd(clusterId);
-            CloudMetrics.CLUSTER_CLOUD_TABLE_BALANCE_NUM.remove(clusterId);
-            MetricRepo.DORIS_METRIC_REGISTER
-                .removeMetricsByNameAndLabels(clusterCloudTableBalanceNum.getName(), labels);
-
-            LongCounterMetric clusterCloudGlobalBalanceNum = CloudMetrics
-                    .CLUSTER_CLOUD_GLOBAL_BALANCE_NUM.getOrAdd(clusterId);
-            CloudMetrics.CLUSTER_CLOUD_GLOBAL_BALANCE_NUM.remove(clusterId);
-            MetricRepo.DORIS_METRIC_REGISTER
-                .removeMetricsByNameAndLabels(clusterCloudGlobalBalanceNum.getName(), labels);
-
-            LongCounterMetric clusterCloudUpgradeBalanceNum = CloudMetrics
-                    .CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM.getOrAdd(clusterId);
-            CloudMetrics.CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM.remove(clusterId);
-            MetricRepo.DORIS_METRIC_REGISTER
-                .removeMetricsByNameAndLabels(clusterCloudUpgradeBalanceNum.getName(), labels);
-
-            LongCounterMetric clusterCloudWarmUpBalanceNum = CloudMetrics
-                    .CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.getOrAdd(clusterId);
-            CloudMetrics.CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.remove(clusterId);
-            MetricRepo.DORIS_METRIC_REGISTER
-                .removeMetricsByNameAndLabels(clusterCloudWarmUpBalanceNum.getName(), labels);
 
             METRIC_REGISTER.getHistograms().keySet().stream()
                     .filter(k -> k.contains(clusterId))
