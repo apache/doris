@@ -1600,7 +1600,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         return 1 + totalReplicaNum + indexNum * bucketNum;
     }
 
-    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
                                              boolean isCreateTable, long generatedPartitionId,
                                              boolean writeEditLog,
                                              List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
