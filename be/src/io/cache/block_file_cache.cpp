@@ -280,6 +280,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
 
+    _no_warmup_num_read_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks");
+    _no_warmup_num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks");
+
+#ifndef BE_TEST
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
     _num_read_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
@@ -289,12 +295,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
             3600);
-
-    _no_warmup_num_read_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks");
-    _no_warmup_num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks");
-
     _no_warmup_num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks_5m",
             _no_warmup_num_hit_blocks.get(), 300);
@@ -307,6 +307,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _no_warmup_num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks_1h",
             _no_warmup_num_read_blocks.get(), 3600);
+#endif
 
     _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                         "file_cache_hit_ratio", 0.0);
@@ -858,6 +859,17 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
         return nullptr; /// Empty files are not cached.
     }
 
+    VLOG_DEBUG << "Adding file block to cache. size=" << size << " hash=" << hash.to_string()
+               << " offset=" << offset << " cache_type=" << cache_type_to_string(context.cache_type)
+               << " expiration_time=" << context.expiration_time
+               << " tablet_id=" << context.tablet_id;
+
+    if (size > 1024 * 1024 * 1024) {
+        LOG(WARNING) << "File block size is too large for a block. size=" << size
+                     << " hash=" << hash.to_string() << " offset=" << offset
+                     << " stack:" << get_stack_trace();
+    }
+
     auto& offsets = _files[hash];
     auto itr = offsets.find(offset);
     if (itr != offsets.end()) {
@@ -1211,10 +1223,10 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
     if (cell->queue_iterator) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));
-        auto iter = queue.get(hash, offset, cache_lock);
-        iter->size = new_size;
-        queue.cache_size -= old_size;
-        queue.cache_size += new_size;
+        queue.resize(*cell->queue_iterator, new_size, cache_lock);
+        _lru_recorder->record_queue_event(cell->file_block->cache_type(), CacheLRULogType::RESIZE,
+                                          cell->file_block->get_hash_value(),
+                                          cell->file_block->offset(), new_size);
     }
     _cur_cache_size -= old_size;
     _cur_cache_size += new_size;
@@ -1522,6 +1534,13 @@ void LRUQueue::remove_all(std::lock_guard<std::mutex>& /* cache_lock */) {
 
 void LRUQueue::move_to_end(Iterator queue_it, std::lock_guard<std::mutex>& /* cache_lock */) {
     queue.splice(queue.end(), queue, queue_it);
+}
+
+void LRUQueue::resize(Iterator queue_it, size_t new_size,
+                      std::lock_guard<std::mutex>& /* cache_lock */) {
+    cache_size -= queue_it->size;
+    queue_it->size = new_size;
+    cache_size += new_size;
 }
 bool LRUQueue::contains(const UInt128Wrapper& hash, size_t offset,
                         std::lock_guard<std::mutex>& /* cache_lock */) const {
@@ -1949,11 +1968,11 @@ void BlockFileCache::run_background_monitor() {
                 _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
                                       (double)_num_read_blocks->get_value());
             }
-            if (_num_read_blocks_5m->get_value() > 0) {
+            if (_num_read_blocks_5m && _num_read_blocks_5m->get_value() > 0) {
                 _hit_ratio_5m->set_value((double)_num_hit_blocks_5m->get_value() /
                                          (double)_num_read_blocks_5m->get_value());
             }
-            if (_num_read_blocks_1h->get_value() > 0) {
+            if (_num_read_blocks_1h && _num_read_blocks_1h->get_value() > 0) {
                 _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
                                          (double)_num_read_blocks_1h->get_value());
             }
@@ -1962,12 +1981,12 @@ void BlockFileCache::run_background_monitor() {
                 _no_warmup_hit_ratio->set_value((double)_no_warmup_num_hit_blocks->get_value() /
                                                 (double)_no_warmup_num_read_blocks->get_value());
             }
-            if (_no_warmup_num_hit_blocks_5m->get_value() > 0) {
+            if (_no_warmup_num_hit_blocks_5m && _no_warmup_num_hit_blocks_5m->get_value() > 0) {
                 _no_warmup_hit_ratio_5m->set_value(
                         (double)_no_warmup_num_hit_blocks_5m->get_value() /
                         (double)_no_warmup_num_read_blocks_5m->get_value());
             }
-            if (_no_warmup_num_hit_blocks_1h->get_value() > 0) {
+            if (_no_warmup_num_hit_blocks_1h && _no_warmup_num_hit_blocks_1h->get_value() > 0) {
                 _no_warmup_hit_ratio_1h->set_value(
                         (double)_no_warmup_num_hit_blocks_1h->get_value() /
                         (double)_no_warmup_num_read_blocks_1h->get_value());

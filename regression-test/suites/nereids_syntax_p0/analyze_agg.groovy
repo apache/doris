@@ -222,30 +222,122 @@ suite("analyze_agg") {
         order by id + random(1, 100), sum(id + random(1, 100)), sum(id + random(1, 100)) over ()
         '''
 
-    /* TODO: order by contains window expression throw exception, fix in PR #58036
     qt_having_with_window_3 '''explain shape plan
         select 12345
         from t1
-        having sum(id + random(1, 1)) > 1
-        order by sum(id + random(1, 1)) over ()
+        order by sum(id + random(1, 10)) over ()
         '''
 
     qt_having_with_window_4 '''explain shape plan
-        select distinct id + random(1, 1)
+        select distinct id + random(1, 10)
         from t1
-        having sum(id + random(1, 1)) > 1
-        order by sum(id + random(1, 1)) over ()
+        order by sum(id + random(1, 10)) over ()
         '''
-      */
 
-    sql "drop table if exists test_sum0_multi_distinct_with_group_by"
-    sql "create table test_sum0_multi_distinct_with_group_by (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
+    test {
+        sql "select id + sum(c) from t2 group by a"
+        exception "PROJECT expression 'id' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    explainAndOrderResult 'disable_full_group_by_1', '''
+        select /*+ SET_VAR(sql_mode='') */ id + sum(c) from t2 group by a
+        '''
+
+    test {
+        sql "select a from t2 order by sum(id)"
+        exception "PROJECT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    explainAndOrderResult 'disable_full_group_by_2', '''
+        select /*+ SET_VAR(sql_mode='') */ a from t2 order by sum(id)
+        '''
+
+    test {
+        sql "select 1000 from t2 having count(c) > 10 order by sum(id), a"
+        exception "SORT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    explainAndOrderResult 'disable_full_group_by_3', '''
+        select /*+ SET_VAR(sql_mode='') */ 1000 from t2 having count(c) > 10 order by sum(id), a
+        '''
+
+    test {
+        sql "select 1000 from t2 having count(c) > 10 order by a"
+        exception "SORT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    explainAndOrderResult 'disable_full_group_by_4', '''
+        select /*+ SET_VAR(sql_mode='') */ 1000 from t2 having count(c) > 10 order by a
+        '''
+
+    test {
+        sql "select 1000 from t2 having c > 10 order by sum(id)"
+        exception "HAVING expression 'c' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    explainAndOrderResult 'disable_full_group_by_5', '''
+        select /*+ SET_VAR(sql_mode='') */ 1000 from t2 having c > 10 order by sum(id)
+        '''
+
+    test {
+        // when generate an aggregate, havig also need to check slots for group by
+        sql "select 1000 from t2 having id > 0 and count(*) > 0"
+        exception "HAVING expression 'id' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+
+    // when not generate an aggregate, having can treat like a filter, then no check in group by list error
+    sql "select 1000 from t2 having id > 0"
+
+    // check sort -> having -> project generate aggregate
+    test {
+        // check project fail
+        sql "select a from t2 having count(c) > 10 order by sum(id)"
+        exception "PROJECT expression 'a' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
+    // check project ok
+    sql "select 1000 from t2 having count(c) > 10 order by sum(id)"
+    sql "select 1000 as k from t2 having count(c) > 10 order by sum(id)"
+
+    explainAndOrderResult 'disable_full_group_by_6', '''
+        select /*+ SET_VAR(sql_mode='') */ a + id from t2 having count(c) > 10 order by sum(id)
+        '''
+
+    explainAndOrderResult 'sort_project_1', '''
+        select 1 from t2 order by sum(id);
+        '''
+
+    explainAndOrderResult 'sort_having_project_1', '''
+        select 1 from t2 having count(c) > 10 order by sum(id);
+        '''
+
+    sql "drop table if exists tbl_analyze_agg_3"
+    sql "create table tbl_analyze_agg_3 (a bigint, b bigint, c int) distributed by hash(a) properties('replication_num'='1');"
     sql """
-    INSERT INTO test_sum0_multi_distinct_with_group_by VALUES 
+    INSERT INTO tbl_analyze_agg_3 VALUES
     (1, NULL, 3), (2, NULL, 5), (3, NULL, 7),
     (4,5,6),(4,5,7),(4,5,8),
     (5,0,0),(5,0,0),(5,0,0); 
     """
-    qt_test_sum0 "select sum0(distinct b),sum(distinct c) from test_sum0_multi_distinct_with_group_by group by a order by 1,2"
-    qt_test_sum0_all_null "select sum0(distinct b),sum(distinct c) from test_sum0_multi_distinct_with_group_by where a in (1,2,3) group by a order by 1,2"
+    qt_test_sum0 "select sum0(distinct b),sum(distinct c) from tbl_analyze_agg_3 group by a order by 1,2"
+    qt_test_sum0_all_null "select sum0(distinct b),sum(distinct c) from tbl_analyze_agg_3 where a in (1,2,3) group by a order by 1,2"
+
+    explainAndResult 'order_window_1', '''
+        select a, b
+        from tbl_analyze_agg_3
+        order by sum(a + b) over (partition by b), rank() over(), a, b
+        '''
+
+    explainAndResult 'order_window_2', '''
+        select a, b, sum(a + b) over (partition by b), rank() over(), max(a) over()
+        from tbl_analyze_agg_3
+        order by sum(a + b) over (partition by b), rank() over(), a, b
+        '''
+
+    //========================================================
+    // test for bind expression and no full group by
+    explainAnalyzedPlan  'bind_expr_1',  '''
+        select a
+        from tbl_analyze_agg_3
+        order by b, a + b
+    '''
 }

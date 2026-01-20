@@ -45,7 +45,7 @@ PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit
                                  RuntimeState* state, RuntimeProfile* profile,
                                  bool has_global_limit, int64_t partition_inner_limit,
                                  TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row)
-        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(vsort_exec_exprs, state, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset)),
           _row_desc(row_desc),
           _partition_inner_limit(partition_inner_limit),
@@ -191,8 +191,7 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
                 _output_distinct_rows++;
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->impl->block->get_columns()[i],
-                                               current->impl->pos);
+                merged_columns[i]->insert_from(*current->impl->columns[i], current->impl->pos);
             }
             merged_rows++;
             _output_total_rows++;

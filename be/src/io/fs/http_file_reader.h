@@ -82,6 +82,10 @@ private:
     // Configuration for non-Range request handling
     bool _enable_range_request = true;                         // Whether Range request is required
     size_t _max_request_size_bytes = DEFAULT_MAX_REQUEST_SIZE; // Max size for non-Range downloads
+    
+    // Full file cache for non-Range mode to avoid repeated downloads
+    std::string _full_file_cache;   // Cache complete file content
+    bool _full_file_cached = false; // Whether full file has been cached
     bool _enable_chunk_response = false; // Whether server returns chunk streaming response
 };
 

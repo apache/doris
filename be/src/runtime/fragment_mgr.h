@@ -126,8 +126,10 @@ public:
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
     void remove_query_context(const TUniqueId& key);
 
+    // `is_prepare_success` is used by invoker to ensure callback can be handle correctly (eg. stream_load_executor)
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
+                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent,
+                              std::shared_ptr<bool> is_prepare_success = nullptr);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -183,6 +185,17 @@ public:
     Status get_query_statistics(const TUniqueId& query_id, TQueryStatistics* query_stats);
 
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
+
+    Status transmit_rec_cte_block(const TUniqueId& query_id, const TUniqueId& instance_id,
+                                  int node_id,
+                                  const google::protobuf::RepeatedPtrField<PBlock>& pblocks,
+                                  bool eos);
+
+    Status rerun_fragment(const TUniqueId& query_id, int fragment,
+                          PRerunFragmentParams_Opcode stage);
+
+    Status reset_global_rf(const TUniqueId& query_id,
+                           const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
     struct BrpcItem {

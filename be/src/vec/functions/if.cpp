@@ -262,7 +262,7 @@ public:
                                                    arg_cond.column));
                 }
             } else if (cond_const_col) {
-                if (cond_const_col->get_value<UInt8>()) { // if(true, null, else)
+                if (cond_const_col->get_value<TYPE_BOOLEAN>()) { // if(true, null, else)
                     block.get_by_position(result).column =
                             block.get_by_position(result).type->create_column()->clone_resized(
                                     input_rows_count);
@@ -303,7 +303,7 @@ public:
                                                    std::move(negated_null_map)));
                 }
             } else if (cond_const_col) {
-                if (cond_const_col->get_value<UInt8>()) { // if(true, then, NULL)
+                if (cond_const_col->get_value<TYPE_BOOLEAN>()) { // if(true, then, NULL)
                     block.get_by_position(result).column =
                             make_nullable_column_if_not(arg_then.column);
                 } else { // if(false, then, NULL)
@@ -522,7 +522,7 @@ public:
 
         if (cond_const_col) {
             block.get_by_position(result).column =
-                    cond_const_col->get_value<UInt8>() ? arg_then.column : arg_else.column;
+                    cond_const_col->get_value<TYPE_BOOLEAN>() ? arg_then.column : arg_else.column;
             return Status::OK();
         }
 

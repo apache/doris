@@ -345,7 +345,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         vectorized::Field field;
         dst->get(i, field);
         DCHECK(!field.is_null());
-        const auto v = field.get<int32_t>();
+        const auto v = field.get<TYPE_INT>();
         DCHECK_GE(v, min_v);
         DCHECK_LE(v, max_v);
     }
@@ -534,6 +534,9 @@ Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* mi
                                      WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
+        min_value_container->set_not_null();
+        max_value_container->set_not_null();
+
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();

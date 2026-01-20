@@ -153,6 +153,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -163,6 +166,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -183,12 +187,12 @@ import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DictionarySink;
+import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
-import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
@@ -202,6 +206,8 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.RecursiveCteNode;
+import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
@@ -1034,6 +1040,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), schemaScan);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalWorkTableReference(PhysicalWorkTableReference workTableReference,
+            PlanTranslatorContext context) {
+        List<Slot> slots = ImmutableList.copyOf(workTableReference.getOutput());
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+        RecursiveCteScanNode scanNode = new RecursiveCteScanNode(workTableReference.getTableName(),
+                context.nextPlanNodeId(), tupleDescriptor);
+        scanNode.setNereidsId(workTableReference.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(workTableReference.getId(), scanNode.getId());
+
+        PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, workTableReference);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), workTableReference);
         return planFragment;
     }
 
@@ -2003,7 +2025,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // we need turn of parallel scan to ensure to get correct result.
         if (partitionTopN.getPhase() == PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN
-                && findOlapScanNodesByPassExchangeAndJoinNode(inputFragment.getPlanRoot())) {
+                && findOlapScanNodesByPassExchangeNode(inputFragment.getPlanRoot())) {
             inputFragment.setHasColocatePlanNode(true);
         }
         return inputFragment;
@@ -2179,6 +2201,67 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
+    @Override
+    public PlanFragment visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte,
+            PlanTranslatorContext context) {
+        List<PlanFragment> childrenFragments = new ArrayList<>();
+        for (Plan plan : recursiveCte.children()) {
+            childrenFragments.add(plan.accept(this, context));
+        }
+        List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
+        TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
+
+        RecursiveCteNode recursiveCteNode = new RecursiveCteNode(context.nextPlanNodeId(), setTuple.getId(),
+                recursiveCte.getCteName(), recursiveCte.isUnionAll());
+
+        recursiveCteNode.setChildrenDistributeExprLists(distributeExprLists);
+        recursiveCteNode.setNereidsId(recursiveCte.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(recursiveCte.getId(), recursiveCteNode.getId());
+        for (PlanFragment childFragment : childrenFragments) {
+            recursiveCteNode.addChild(childFragment.getPlanRoot());
+        }
+
+        List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
+        for (int i = 0; i < recursiveCte.getRegularChildrenOutputs().size(); ++i) {
+            List<SlotReference> resultExpressionList = recursiveCte.getRegularChildrenOutputs().get(i);
+            List<Expr> exprList = Lists.newArrayList();
+            for (int j = 0; j < resultExpressionList.size(); ++j) {
+                exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
+            }
+            materializedResultExprLists.add(exprList);
+        }
+        recursiveCteNode.setMaterializedResultExprLists(materializedResultExprLists);
+
+        int childrenSize = childrenFragments.size();
+        PlanFragment recursiveCteFragment = childrenFragments.get(childrenSize - 1);
+        for (int i = childrenSize - 2; i >= 0; i--) {
+            context.mergePlanFragment(childrenFragments.get(i), recursiveCteFragment);
+            for (PlanFragment child : childrenFragments.get(i).getChildren()) {
+                recursiveCteFragment.addChild(child);
+            }
+        }
+        setPlanRoot(recursiveCteFragment, recursiveCteNode, recursiveCte);
+
+        recursiveCteFragment.updateDataPartition(DataPartition.UNPARTITIONED);
+        recursiveCteFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+
+        return recursiveCteFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveUnionAnchor(
+            PhysicalRecursiveUnionAnchor<? extends Plan> recursiveUnionAnchor,
+            PlanTranslatorContext context) {
+        return recursiveUnionAnchor.child().accept(this, context);
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveUnionProducer(
+            PhysicalRecursiveUnionProducer<? extends Plan> recursiveUnionProducer,
+            PlanTranslatorContext context) {
+        return recursiveUnionProducer.child().accept(this, context);
+    }
+
     /**
      * Returns a new fragment with a UnionNode as its root. The data partition of the
      * returned fragment and how the data of the child fragments is consumed depends on the
@@ -2198,7 +2281,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Plan plan : setOperation.children()) {
             childrenFragments.add(plan.accept(this, context));
         }
-
+        List<List<Expr>> distributeExprLists = getDistributeExprs(setOperation.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(setOperation.getOutput(), null, context);
 
         SetOperationNode setOperationNode;
@@ -2212,7 +2295,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("not support set operation type " + setOperation);
         }
-        List<List<Expr>> distributeExprLists = getDistributeExprs(setOperation.children().toArray(new Plan[0]));
         setOperationNode.setChildrenDistributeExprLists(distributeExprLists);
         setOperationNode.setNereidsId(setOperation.getId());
         context.getNereidsIdToPlanNodeIdMap().put(setOperation.getId(), setOperationNode.getId());
@@ -2264,9 +2346,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // we need turn of parallel scan to ensure to get correct result.
         // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
         if (!setOperation.getPhysicalProperties().equals(PhysicalProperties.ANY)
-                && findOlapScanNodesByPassExchangeAndJoinNode(setOperationFragment.getPlanRoot())) {
+                && findOlapScanNodesByPassExchangeNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
             setOperationNode.setColocate(true);
+        }
+
+        for (Plan child : setOperation.children()) {
+            PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
+            if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
+                setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                break;
+            }
         }
 
         return setOperationFragment;
@@ -2563,7 +2653,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // we need turn of parallel scan to ensure to get correct result.
         // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
-        if (findOlapScanNodesByPassExchangeAndJoinNode(inputPlanFragment.getPlanRoot())) {
+        if (findOlapScanNodesByPassExchangeNode(inputPlanFragment.getPlanRoot())) {
             inputPlanFragment.setHasColocatePlanNode(true);
             analyticEvalNode.setColocate(true);
             if (root instanceof SortNode) {
@@ -3061,11 +3151,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
-    private boolean findOlapScanNodesByPassExchangeAndJoinNode(PlanNode root) {
+    private boolean findOlapScanNodesByPassExchangeNode(PlanNode root) {
         if (root instanceof OlapScanNode) {
             return true;
-        } else if (!(root instanceof JoinNodeBase || root instanceof ExchangeNode)) {
-            return root.getChildren().stream().anyMatch(child -> findOlapScanNodesByPassExchangeAndJoinNode(child));
+        } else if (!(root instanceof ExchangeNode)) {
+            return root.getChildren().stream().anyMatch(child -> findOlapScanNodesByPassExchangeNode(child));
         }
         return false;
     }

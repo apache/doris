@@ -18,29 +18,20 @@
 package org.apache.doris.cdcclient.service;
 
 import org.apache.doris.cdcclient.common.Env;
-import org.apache.doris.cdcclient.exception.StreamException;
+import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
-import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import io.debezium.data.Envelope;
+
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
-import java.io.BufferedOutputStream;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
+
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -51,20 +42,26 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import io.debezium.data.Envelope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
 /** Pipeline coordinator. */
 @Component
 public class PipelineCoordinator {
     private static final Logger LOG = LoggerFactory.getLogger(PipelineCoordinator.class);
     private static final String SPLIT_ID = "splitId";
     // jobId
-    private final Map<String, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
-    // taskId, offset
-    private final Map<String, Map<String, String>> taskOffsetCache = new ConcurrentHashMap<>();
+    private final Map<Long, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
+    // taskId -> writeFailReason
+    private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
     private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
     private static ObjectMapper objectMapper = new ObjectMapper();
-    private final byte[] LINE_DELIMITER = "\n".getBytes(StandardCharsets.UTF_8);
 
     public PipelineCoordinator() {
         this.executor =
@@ -84,54 +81,19 @@ public class PipelineCoordinator {
                         new ThreadPoolExecutor.AbortPolicy());
     }
 
-    public StreamingResponseBody fetchRecordStream(FetchRecordRequest fetchReq) throws Exception {
-        if (fetchReq.getTaskId() == null && fetchReq.getMeta() == null) {
-            LOG.info(
-                    "Generate initial meta for fetch record request, jobId={}, taskId={}",
-                    fetchReq.getJobId(),
-                    fetchReq.getTaskId());
-            // means the request did not originate from the job, only tvf
-            Map<String, Object> meta = generateMeta(fetchReq.getConfig());
-            fetchReq.setMeta(meta);
-        }
-
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchReq);
-        SplitReadResult readResult = sourceReader.readSplitRecords(fetchReq);
-        return outputStream -> {
-            try {
-                buildRecords(sourceReader, fetchReq, readResult, outputStream);
-            } catch (Exception ex) {
-                LOG.error(
-                        "Failed fetch record, jobId={}, taskId={}",
-                        fetchReq.getJobId(),
-                        fetchReq.getTaskId(),
-                        ex);
-                throw new StreamException(ex);
-            }
-        };
+    public RecordWithMeta fetchRecords(FetchRecordRequest fetchRecordRequest) throws Exception {
+        SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchRecordRequest);
+        SplitReadResult readResult = sourceReader.readSplitRecords(fetchRecordRequest);
+        return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
     }
 
-    private Map<String, Object> generateMeta(Map<String, String> cdcConfig) {
-        Map<String, Object> meta = new HashMap<>();
-        String offset = cdcConfig.get(DataSourceConfigKeys.OFFSET);
-        if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)) {
-            meta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-        } else {
-            throw new RuntimeException("Unsupported offset:" + offset);
-        }
-        return meta;
-    }
-
-    private void buildRecords(
-            SourceReader sourceReader,
-            FetchRecordRequest fetchRecord,
-            SplitReadResult readResult,
-            OutputStream rawOutputStream)
+    /** build RecordWithMeta */
+    private RecordWithMeta buildRecordResponse(
+            SourceReader sourceReader, FetchRecordRequest fetchRecord, SplitReadResult readResult)
             throws Exception {
+        RecordWithMeta recordResponse = new RecordWithMeta();
         SourceSplit split = readResult.getSplit();
-        Map<String, String> lastMeta = null;
-        int rowCount = 0;
-        BufferedOutputStream bos = new BufferedOutputStream(rawOutputStream);
+        int count = 0;
         try {
             // Serialize records and add them to the response (collect from iterator)
             Iterator<SourceRecord> iterator = readResult.getRecordIterator();
@@ -139,65 +101,50 @@ public class PipelineCoordinator {
                 SourceRecord element = iterator.next();
                 List<String> serializedRecords =
                         sourceReader.deserialize(fetchRecord.getConfig(), element);
-                for (String record : serializedRecords) {
-                    bos.write(record.getBytes(StandardCharsets.UTF_8));
-                    bos.write(LINE_DELIMITER);
+                if (!CollectionUtils.isEmpty(serializedRecords)) {
+                    recordResponse.getRecords().addAll(serializedRecords);
+                    count += serializedRecords.size();
+                    if (sourceReader.isBinlogSplit(split)) {
+                        // put offset for event
+                        Map<String, String> lastMeta =
+                                sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+                        lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                        recordResponse.setMeta(lastMeta);
+                    }
                 }
-                rowCount += serializedRecords.size();
             }
-            // force flush buffer
-            bos.flush();
         } finally {
+            // The LSN in the commit is the current offset, which is the offset from the last
+            // successful write.
+            // Therefore, even if a subsequent write fails, it will not affect the commit.
+            sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
+
+            // This must be called after commitSourceOffset; otherwise,
+            // PG's confirmed lsn will not proceed.
             sourceReader.finishSplitRecords();
         }
 
-        LOG.info(
-                "Fetch records completed, jobId={}, taskId={}, splitId={}, rowCount={}",
-                fetchRecord.getJobId(),
-                fetchRecord.getTaskId(),
-                split.splitId(),
-                rowCount);
-        if (rowCount > 0) {
+        if (readResult.getSplitState() != null) {
+            // Set meta information for hw
             if (sourceReader.isSnapshotSplit(split)) {
-                // Set meta information for hw
-                lastMeta = sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                lastMeta.put(SPLIT_ID, split.splitId());
-            } else if (sourceReader.isBinlogSplit(split)) {
-                // set meta for binlog event
-                lastMeta = sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                Map<String, String> offsetRes =
+                        sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
+                offsetRes.put(SPLIT_ID, split.splitId());
+                recordResponse.setMeta(offsetRes);
+            }
+
+            // set meta for binlog event
+            if (sourceReader.isBinlogSplit(split)) {
+                Map<String, String> offsetRes =
+                        sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+                offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                recordResponse.setMeta(offsetRes);
             }
         } else {
-            // no data in this split, set meta info
-            if (sourceReader.isBinlogSplit(split)) {
-                lastMeta = sourceReader.extractBinlogOffset(readResult.getSplit());
-                lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-            } else {
-                // chunk no data
-                throw new RuntimeException("Chunk has no data," + split.splitId());
-            }
+            throw new RuntimeException("split state is null");
         }
 
-        if (StringUtils.isNotEmpty(fetchRecord.getTaskId())) {
-            taskOffsetCache.put(fetchRecord.getTaskId(), lastMeta);
-        }
-
-        sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
-        if (!isLong(fetchRecord.getJobId())) {
-            // TVF requires closing the window after each execution, while PG requires dropping the
-            // slot.
-            sourceReader.close(fetchRecord);
-        }
-    }
-
-    private boolean isLong(String s) {
-        if (s == null || s.isEmpty()) return false;
-        try {
-            Long.parseLong(s);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
+        return recordResponse;
     }
 
     public CompletableFuture<Void> writeRecordsAsync(WriteRecordRequest writeRecordRequest) {
@@ -218,6 +165,8 @@ public class PipelineCoordinator {
                                 writeRecordRequest.getTaskId());
                     } catch (Exception ex) {
                         closeJobStreamLoad(writeRecordRequest.getJobId());
+                        String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
+                        taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -233,7 +182,6 @@ public class PipelineCoordinator {
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
         DorisBatchStreamLoad batchStreamLoad = null;
         Map<String, String> metaResponse = new HashMap<>();
-        boolean hasData = false;
         long scannedRows = 0L;
         long scannedBytes = 0L;
         SplitReadResult readResult = null;
@@ -260,20 +208,11 @@ public class PipelineCoordinator {
                 if (!CollectionUtils.isEmpty(serializedRecords)) {
                     String database = writeRecordRequest.getTargetDb();
                     String table = extractTable(element);
-                    hasData = true;
                     for (String record : serializedRecords) {
                         scannedRows++;
                         byte[] dataBytes = record.getBytes();
                         scannedBytes += dataBytes.length;
                         batchStreamLoad.writeRecord(database, table, dataBytes);
-                    }
-
-                    if (sourceReader.isBinlogSplit(readResult.getSplit())) {
-                        // put offset for event
-                        Map<String, String> lastMeta =
-                                sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                        lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                        metaResponse = lastMeta;
                     }
                 }
                 // Check if maxInterval has been exceeded
@@ -286,46 +225,53 @@ public class PipelineCoordinator {
                 }
             }
         } finally {
+            if (readResult != null) {
+                // The LSN in the commit is the current offset, which is the offset from the last
+                // successful write.
+                // Therefore, even if a subsequent write fails, it will not affect the commit.
+                sourceReader.commitSourceOffset(
+                        writeRecordRequest.getJobId(), readResult.getSplit());
+            }
+
+            // This must be called after commitSourceOffset; otherwise,
+            // PG's confirmed lsn will not proceed.
+            // This operation must be performed before batchStreamLoad.commitOffset;
+            // otherwise, fe might issue the next task for this job.
             sourceReader.finishSplitRecords();
         }
-
+        // get offset from split state
         try {
-            if (!hasData) {
-                // todo: need return the lastest heartbeat offset, means the maximum offset that the
-                //  current job can recover.
+            if (readResult.getSplitState() != null) {
+                // Set meta information for hw
+                if (sourceReader.isSnapshotSplit(readResult.getSplit())) {
+                    Map<String, String> offsetRes =
+                            sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
+                    offsetRes.put(SPLIT_ID, readResult.getSplit().splitId());
+                    metaResponse = offsetRes;
+                }
+
+                // set meta for binlog event
                 if (sourceReader.isBinlogSplit(readResult.getSplit())) {
                     Map<String, String> offsetRes =
-                            sourceReader.extractBinlogOffset(readResult.getSplit());
+                            sourceReader.extractBinlogStateOffset(readResult.getSplitState());
                     offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                    batchStreamLoad.commitOffset(offsetRes, scannedRows, scannedBytes);
-                    return;
-                } else {
-                    // chunk no data
-                    throw new RuntimeException(
-                            "Chunk has no data," + readResult.getSplit().splitId());
+                    metaResponse = offsetRes;
                 }
+            } else {
+                throw new RuntimeException("split state is null");
             }
 
             // wait all stream load finish
             batchStreamLoad.forceFlush();
-            // update offset meta
-            if (sourceReader.isSnapshotSplit(readResult.getSplit())) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                offsetRes.put(SPLIT_ID, readResult.getSplit().splitId());
-                metaResponse = offsetRes;
-            }
+
             // request fe api
             batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
-
-            // commit source offset if need
-            sourceReader.commitSourceOffset(writeRecordRequest.getJobId(), readResult.getSplit());
         } finally {
             batchStreamLoad.resetTaskId();
         }
     }
 
-    private DorisBatchStreamLoad getOrCreateBatchStreamLoad(String jobId, String targetDb) {
+    private DorisBatchStreamLoad getOrCreateBatchStreamLoad(Long jobId, String targetDb) {
         return batchStreamLoadMap.computeIfAbsent(
                 jobId,
                 k -> {
@@ -334,7 +280,7 @@ public class PipelineCoordinator {
                 });
     }
 
-    public void closeJobStreamLoad(String jobId) {
+    public void closeJobStreamLoad(Long jobId) {
         DorisBatchStreamLoad batchStreamLoad = batchStreamLoadMap.remove(jobId);
         if (batchStreamLoad != null) {
             LOG.info("Close DorisBatchStreamLoad for jobId={}", jobId);
@@ -348,7 +294,8 @@ public class PipelineCoordinator {
         return value.getStruct(Envelope.FieldName.SOURCE).getString("table");
     }
 
-    public Map<String, String> getOffsetWithTaskId(String taskId) {
-        return taskOffsetCache.get(taskId);
+    public String getTaskFailReason(String taskId) {
+        String taskReason = taskErrorMaps.remove(taskId);
+        return taskReason == null ? "" : taskReason;
     }
 }

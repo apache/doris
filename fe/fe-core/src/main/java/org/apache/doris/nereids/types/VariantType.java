@@ -166,6 +166,27 @@ public class VariantType extends PrimitiveType {
     }
 
     @Override
+    public boolean equalsForRecursiveCte(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        VariantType other = (VariantType) o;
+        if (predefinedFields.size() != other.predefinedFields.size()) {
+            return false;
+        }
+        for (int i = 0; i < predefinedFields.size(); ++i) {
+            if (!predefinedFields.get(i).getDataType()
+                    .equalsForRecursiveCte(other.predefinedFields.get(i).getDataType())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                             variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, predefinedFields);

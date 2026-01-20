@@ -155,7 +155,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // has colocate plan node
     protected boolean hasColocatePlanNode = false;
-    protected final Supplier<Boolean> hasBucketShuffleJoin;
+    protected final Supplier<Boolean> hasBucketShuffleNode;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -176,7 +176,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.transferQueryStatisticsWithEveryBatch = false;
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
-        this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
+        this.hasBucketShuffleNode = buildHasBucketShuffleNode();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -193,11 +193,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
     }
 
-    private Supplier<Boolean> buildHasBucketShuffleJoin() {
+    private Supplier<Boolean> buildHasBucketShuffleNode() {
         return Suppliers.memoize(() -> {
             List<HashJoinNode> hashJoinNodes = getPlanRoot().collectInCurrentFragment(HashJoinNode.class::isInstance);
             for (HashJoinNode hashJoinNode : hashJoinNodes) {
                 if (hashJoinNode.isBucketShuffle()) {
+                    return true;
+                }
+            }
+            List<SetOperationNode> setOperationNodes
+                    = getPlanRoot().collectInCurrentFragment(SetOperationNode.class::isInstance);
+            for (SetOperationNode setOperationNode : setOperationNodes) {
+                if (setOperationNode.isBucketShuffle()) {
                     return true;
                 }
             }
@@ -267,8 +274,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.hasColocatePlanNode = hasColocatePlanNode;
     }
 
-    public boolean hasBucketShuffleJoin() {
-        return hasBucketShuffleJoin.get();
+    public boolean hasBucketShuffleNode() {
+        return hasBucketShuffleNode.get();
     }
 
     public void setResultSinkType(TResultSinkType resultSinkType) {

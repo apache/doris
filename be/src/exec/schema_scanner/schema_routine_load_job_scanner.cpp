@@ -56,6 +56,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRoutineLoadJobScanner::_s_tbls_colu
         {"USER_NAME", TYPE_STRING, sizeof(StringRef), true},
         {"CURRENT_ABORT_TASK_NUM", TYPE_INT, sizeof(int32_t), true},
         {"IS_ABNORMAL_PAUSE", TYPE_BOOLEAN, sizeof(int8_t), true},
+        {"COMPUTE_GROUP", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaRoutineLoadJobScanner::SchemaRoutineLoadJobScanner()
@@ -172,6 +173,9 @@ Status SchemaRoutineLoadJobScanner::_fill_block_impl(vectorized::Block* block) {
                     break;
                 case 17: // USER_NAME
                     column_value = job_info.__isset.user_name ? job_info.user_name : "";
+                    break;
+                case 20: // COMPUTE_GROUP
+                    column_value = job_info.__isset.compute_group ? job_info.compute_group : "";
                     break;
                 }
 

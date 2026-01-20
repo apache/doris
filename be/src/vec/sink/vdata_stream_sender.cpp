@@ -277,7 +277,6 @@ Status Channel::close(RuntimeState* state) {
         return Status::OK();
     }
     _closed = true;
-
     if (!_need_close) {
         return Status::OK();
     }

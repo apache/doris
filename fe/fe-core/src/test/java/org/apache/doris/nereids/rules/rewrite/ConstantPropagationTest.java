@@ -88,7 +88,7 @@ class ConstantPropagationTest {
     ConstantPropagationTest() {
         cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
-        jobContext = new JobContext(cascadesContext, null, Double.MAX_VALUE);
+        jobContext = new JobContext(cascadesContext, null);
 
         student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
         studentId = (SlotReference) student.getOutput().get(0);

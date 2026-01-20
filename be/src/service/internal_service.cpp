@@ -1280,7 +1280,7 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
     if (!stream_load_ctx) {
         st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    stream_load_ctx->promise.set_value(st);
+    stream_load_ctx->load_status_promise.set_value(st);
     st.to_protobuf(response->mutable_status());
 }
 
@@ -1615,6 +1615,57 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
             LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
                          << " .and query_id_is: " << t_request.query_id;
         }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::transmit_rec_cte_block(google::protobuf::RpcController* controller,
+                                              const PTransmitRecCTEBlockParams* request,
+                                              PTransmitRecCTEBlockResult* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->fragment_mgr()->transmit_rec_cte_block(
+                UniqueId(request->query_id()).to_thrift(),
+                UniqueId(request->fragment_instance_id()).to_thrift(), request->node_id(),
+                request->blocks(), request->eos());
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::rerun_fragment(google::protobuf::RpcController* controller,
+                                      const PRerunFragmentParams* request,
+                                      PRerunFragmentResult* response,
+                                      google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto st =
+                _exec_env->fragment_mgr()->rerun_fragment(UniqueId(request->query_id()).to_thrift(),
+                                                          request->fragment_id(), request->stage());
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::reset_global_rf(google::protobuf::RpcController* controller,
+                                       const PResetGlobalRfParams* request,
+                                       PResetGlobalRfResult* response,
+                                       google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->fragment_mgr()->reset_global_rf(
+                UniqueId(request->query_id()).to_thrift(), request->filter_ids());
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {

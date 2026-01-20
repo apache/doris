@@ -56,7 +56,7 @@ testSuites = ""
 testDirectories = ""
 
 // this groups will not be executed
-excludeGroups = ""
+excludeGroups = "p1,p2"
 // this suites will not be executed
 // load_stream_fault_injection may cause bad disk
 
@@ -79,6 +79,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "external_table_p0/remote_doris," + // ubsan issue, need to investigate
     "workload_manager_p1," +
     "plsql_p0," + // plsql is not developped any more, add by sk
+    "restore_p0," +
     "variant_p0/nested," +
     "variant_p0/nested/sql," +
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line

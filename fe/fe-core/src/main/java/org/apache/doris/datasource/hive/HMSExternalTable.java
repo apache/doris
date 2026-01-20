@@ -40,7 +40,6 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -189,9 +188,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private DLAType dlaType = DLAType.UNKNOWN;
 
     private HMSDlaTable dlaTable;
-
-    // record the event update time when enable hms event listener
-    protected volatile long eventUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
@@ -648,11 +644,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
         Table table = loadHiveTable();
         // try to use transient_lastDdlTime from hms client
-        schemaUpdateTime = MapUtils.isNotEmpty(table.getParameters())
+        setUpdateTime(MapUtils.isNotEmpty(table.getParameters())
                 && table.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
                 ? Long.parseLong(table.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
                 // use current timestamp if lastDdlTime does not exist (hive views don't have this prop)
-                : System.currentTimeMillis();
+                : System.currentTimeMillis());
         return initSchema(key);
     }
 
@@ -817,8 +813,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 if (GlobalVariable.enableFetchIcebergStats) {
                     return StatisticsUtil.getIcebergColumnStats(colName,
                             Env.getCurrentEnv().getExtMetaCacheMgr()
-                                .getIcebergMetadataCache((IcebergExternalCatalog) this.getCatalog())
-                                .getIcebergTable(this));
+                                    .getIcebergMetadataCache(this.getCatalog())
+                                    .getIcebergTable(this));
                 } else {
                     break;
                 }
@@ -900,17 +896,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         builder.setAvgSizeByte(colSize / count);
         builder.setMinValue(Double.NEGATIVE_INFINITY);
         builder.setMaxValue(Double.POSITIVE_INFINITY);
-    }
-
-    public void setEventUpdateTime(long updateTime) {
-        this.eventUpdateTime = updateTime;
-    }
-
-    @Override
-    // get the max value of `schemaUpdateTime` and `eventUpdateTime`
-    // eventUpdateTime will be refreshed after processing events with hms event listener enabled
-    public long getUpdateTime() {
-        return Math.max(this.schemaUpdateTime, this.eventUpdateTime);
     }
 
     @Override
