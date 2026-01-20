@@ -236,7 +236,8 @@ public class RewriteGroupTask implements TransientTaskExecutor {
 
         // Calculate optimal parallelism and determine distribution strategy
         RewriteStrategy strategy = calculateRewriteStrategy();
-        taskContext.getSessionVariable().setParallelFragmentExecInstanceNum(strategy.parallelism);
+        // Pipeline engine uses parallelPipelineTaskNum to control instance parallelism.
+        taskContext.getSessionVariable().parallelPipelineTaskNum = strategy.parallelism;
 
         // Set env and basic identities
         taskContext.setEnv(Env.getCurrentEnv());
@@ -282,7 +283,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         int availableBeCount = Env.getCurrentSystemInfo().getBackendsNumber(true);
 
         // 3. Get default parallelism from session variable
-        int defaultParallelism = connectContext.getSessionVariable().getParallelFragmentExecInstanceNum();
+        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum();
 
         // 4. Determine strategy based on expected file count
         boolean useGather = false;
