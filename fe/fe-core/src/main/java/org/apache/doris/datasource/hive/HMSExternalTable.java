@@ -723,7 +723,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
             String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
             columns.add(new Column(fieldName,
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary()),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary(),
+                            catalog.getEnableMappingTimestampTz()),
                     true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }

@@ -97,6 +97,8 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
+    // TODO: maybe need to distinguish TYPE_DATETIME and TYPE_TIMESTAMPTZ
+    case TYPE_TIMESTAMPTZ:
     case TYPE_DATETIMEV2:
         if (type->get_scale() > 3) {
             *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);

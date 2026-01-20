@@ -533,6 +533,10 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         buffer << "datetimev2(" << type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMPTZ: {
+        buffer << "timestamptz(" << type->get_scale() << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_DECIMALV2: {
@@ -622,6 +626,10 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
         [[fallthrough]];
     case TYPE_TIMEV2: {
         buffer << "datetimev2(" << data_type->get_scale() << ")";
+        return buffer.str();
+    }
+    case TYPE_TIMESTAMPTZ: {
+        buffer << "timestamptz(" << data_type->get_scale() << ")";
         return buffer.str();
     }
     case TYPE_BINARY:
