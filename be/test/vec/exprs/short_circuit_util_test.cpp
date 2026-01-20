@@ -524,9 +524,15 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_non_nullable_no_selector) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
-    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
-    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
+    auto true_func = [&](size_t self_index, size_t executor_index) {
+        true_selector.push_back(executor_index);
+    };
+    auto false_func = [&](size_t self_index, size_t executor_index) {
+        false_selector.push_back(executor_index);
+    };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -550,9 +556,15 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_nullable_no_selector) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
-    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
-    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
+    auto true_func = [&](size_t self_index, size_t executor_index) {
+        true_selector.push_back(executor_index);
+    };
+    auto false_func = [&](size_t self_index, size_t executor_index) {
+        false_selector.push_back(executor_index);
+    };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -578,9 +590,15 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_with_selector) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
-    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
-    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
+    auto true_func = [&](size_t self_index, size_t executor_index) {
+        true_selector.push_back(executor_index);
+    };
+    auto false_func = [&](size_t self_index, size_t executor_index) {
+        false_selector.push_back(executor_index);
+    };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -603,9 +621,15 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_const_true) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
-    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
-    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
+    auto true_func = [&](size_t self_index, size_t executor_index) {
+        true_selector.push_back(executor_index);
+    };
+    auto false_func = [&](size_t self_index, size_t executor_index) {
+        false_selector.push_back(executor_index);
+    };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -629,9 +653,15 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_const_false) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
-    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
-    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
+    auto true_func = [&](size_t self_index, size_t executor_index) {
+        true_selector.push_back(executor_index);
+    };
+    auto false_func = [&](size_t self_index, size_t executor_index) {
+        false_selector.push_back(executor_index);
+    };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -651,9 +681,15 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_const_null) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
-    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
-    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
+    auto true_func = [&](size_t self_index, size_t executor_index) {
+        true_selector.push_back(executor_index);
+    };
+    auto false_func = [&](size_t self_index, size_t executor_index) {
+        false_selector.push_back(executor_index);
+    };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -673,7 +709,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_non_nullable_no_selector) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
     auto not_null_func = [&](size_t self_index, size_t executor_index) {
         not_null_selector.push_back(executor_index);
     };
@@ -698,7 +736,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_nullable_no_selector) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
     auto not_null_func = [&](size_t self_index, size_t executor_index) {
         not_null_selector.push_back(executor_index);
     };
@@ -727,7 +767,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_with_selector) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
     auto not_null_func = [&](size_t self_index, size_t executor_index) {
         not_null_selector.push_back(executor_index);
     };
@@ -755,7 +797,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_const_not_null) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
     auto not_null_func = [&](size_t self_index, size_t executor_index) {
         not_null_selector.push_back(executor_index);
     };
@@ -776,7 +820,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_const_null) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_selector.push_back(executor_index);
+    };
     auto not_null_func = [&](size_t self_index, size_t executor_index) {
         not_null_selector.push_back(executor_index);
     };

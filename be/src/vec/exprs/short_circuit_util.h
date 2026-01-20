@@ -294,7 +294,8 @@ struct NonScalarFillWithSelector {
                           const Selector& true_selector, const ColumnPtr& false_column,
                           const Selector& false_selector, size_t count) {
         DCHECK_EQ(false_selector.size() + true_selector.size(), count)
-                << "Mismatched selector sizes." << " false selector size: " << false_selector.size()
+                << "Mismatched selector sizes."
+                << " false selector size: " << false_selector.size()
                 << ", true selector size: " << true_selector.size() << ", count: " << count;
         DCHECK_EQ(true_column->size(), true_selector.size());
         DCHECK_EQ(false_column->size(), false_selector.size());
