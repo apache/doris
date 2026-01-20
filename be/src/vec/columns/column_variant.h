@@ -285,6 +285,9 @@ private:
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
     int32_t _max_subcolumns_count = 0;
 
+    // Whether typed paths are allowed to be moved into sparse column.
+    bool _enable_typed_paths_to_sparse = false;
+
     // subcolumns count materialized from typed paths
     size_t typed_path_count = 0;
 
@@ -379,6 +382,7 @@ public:
     size_t rows() const { return num_rows; }
 
     int32_t max_subcolumns_count() const { return _max_subcolumns_count; }
+    bool variant_enable_typed_paths_to_sparse() const { return _enable_typed_paths_to_sparse; }
 
     /// Adds a subcolumn from existing IColumn.
     bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn, DataTypePtr type);
@@ -617,6 +621,9 @@ public:
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {
         _max_subcolumns_count = max_subcolumns_count;
     }
+    void set_variant_enable_typed_paths_to_sparse(bool enable) {
+        _enable_typed_paths_to_sparse = enable;
+    }
 
     // Returns how many dynamic subcolumns are still allowed to be appended,
     // The remaining quota is `max - current`.
@@ -628,11 +635,14 @@ public:
         }
 
         // `current_subcolumns_count` excludes:
-        //   1) subcolumns materialized from typed paths (`typed_path_count`),
+        //   1) subcolumns materialized from typed paths (`typed_path_count`) when typed paths
+        //      are not allowed to be demoted,
         //   2) subcolumns materialized from nested paths (`nested_path_count`),
         //   3) the implicit root holder node in `subcolumns` (hence the `- 1`).
-        size_t current_subcolumns_count =
-                subcolumns.size() - typed_path_count - nested_path_count - 1;
+        size_t current_subcolumns_count = subcolumns.size() - nested_path_count - 1;
+        if (!_enable_typed_paths_to_sparse) {
+            current_subcolumns_count -= typed_path_count;
+        }
         return _max_subcolumns_count - current_subcolumns_count;
     }
 
@@ -651,6 +661,9 @@ private:
     size_t dense_subcolumn_count() const;
     bool sparse_has_data() const;
     void recompute_path_counters();
+    std::vector<PathInData> topk_paths_from_sparse(size_t k) const;
+    Status rebuild_sparse_excluding_paths(
+            const std::unordered_set<std::string_view>& exclude_paths);
 
     // May throw execption
     void try_insert(const Field& field);

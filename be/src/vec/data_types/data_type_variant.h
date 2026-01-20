@@ -51,6 +51,7 @@ namespace doris::vectorized {
 class DataTypeVariant : public IDataType {
 private:
     int32_t _max_subcolumns_count = 0;
+    bool _enable_typed_paths_to_sparse = false;
     std::string name = "Variant";
 
 public:
@@ -58,6 +59,7 @@ public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
     DataTypeVariant() = default;
     DataTypeVariant(int32_t max_subcolumns_count);
+    DataTypeVariant(int32_t max_subcolumns_count, bool enable_typed_paths_to_sparse);
     String do_get_name() const override { return name; }
     const std::string get_family_name() const override { return "Variant"; }
 
@@ -87,5 +89,6 @@ public:
     }
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
+    bool variant_enable_typed_paths_to_sparse() const { return _enable_typed_paths_to_sparse; }
 };
 } // namespace doris::vectorized

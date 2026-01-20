@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -424,6 +425,7 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
     }
     auto new_root = func(get_root())->assume_mutable();
     auto res = ColumnVariant::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
+    res->set_variant_enable_typed_paths_to_sparse(_enable_typed_paths_to_sparse);
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_root) {
             continue;
@@ -674,7 +676,9 @@ size_t ColumnVariant::size() const {
 
 MutableColumnPtr ColumnVariant::clone_resized(size_t new_size) const {
     if (new_size == 0) {
-        return ColumnVariant::create(_max_subcolumns_count);
+        auto res = ColumnVariant::create(_max_subcolumns_count);
+        res->set_variant_enable_typed_paths_to_sparse(_enable_typed_paths_to_sparse);
+        return res;
     }
     return apply_for_columns(
             [&](const ColumnPtr column) { return column->clone_resized(new_size); });
@@ -1029,14 +1033,17 @@ bool ColumnVariant::try_add_new_subcolumn(const PathInData& path) {
     if (subcolumns.get_root() == nullptr || path.empty()) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no root or path is empty");
     }
-    if (path.get_is_typed()) {
+    if (path.get_is_typed() && !_enable_typed_paths_to_sparse) {
         return add_sub_column(path, num_rows);
     }
     if (path.has_nested_part()) {
         return add_sub_column(path, num_rows);
     }
-    if (!_max_subcolumns_count ||
-        (subcolumns.size() - typed_path_count - nested_path_count) < _max_subcolumns_count + 1) {
+    size_t current_subcolumns_count = subcolumns.size() - nested_path_count;
+    if (!_enable_typed_paths_to_sparse) {
+        current_subcolumns_count -= typed_path_count;
+    }
+    if (!_max_subcolumns_count || current_subcolumns_count < _max_subcolumns_count + 1) {
         return add_sub_column(path, num_rows);
     }
 
@@ -1210,7 +1217,9 @@ MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) c
     }
 
     if (limit == 0) {
-        return ColumnVariant::create(_max_subcolumns_count);
+        auto res = ColumnVariant::create(_max_subcolumns_count);
+        res->set_variant_enable_typed_paths_to_sparse(_enable_typed_paths_to_sparse);
+        return res;
     }
 
     return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
@@ -2061,12 +2070,14 @@ ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
     }
     if (num_rows == 0) {
         auto res = ColumnVariant::create(_max_subcolumns_count, count_bytes_in_filter(filter));
+        res->set_variant_enable_typed_paths_to_sparse(_enable_typed_paths_to_sparse);
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
     }
     auto new_root = get_root()->filter(filter, count)->assume_mutable();
     auto new_column =
             ColumnVariant::create(_max_subcolumns_count, get_root_type(), std::move(new_root));
+    new_column->set_variant_enable_typed_paths_to_sparse(_enable_typed_paths_to_sparse);
     for (const auto& entry : subcolumns) {
         if (entry->data.is_root) {
             continue;
@@ -2145,7 +2156,10 @@ size_t ColumnVariant::dense_subcolumn_count() const {
         return 0;
     }
     size_t total = subcolumns.size();
-    size_t excluded = 1 + typed_path_count + nested_path_count;
+    size_t excluded = 1 + nested_path_count;
+    if (!_enable_typed_paths_to_sparse) {
+        excluded += typed_path_count;
+    }
     if (total <= excluded) {
         return 0;
     }
@@ -2176,6 +2190,115 @@ void ColumnVariant::recompute_path_counters() {
     }
 }
 
+std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
+    std::vector<PathInData> result;
+    if (k == 0 || num_rows == 0 || !sparse_has_data()) {
+        return result;
+    }
+
+    std::unordered_set<std::string_view> dense_paths;
+    dense_paths.reserve(subcolumns.size());
+    for (const auto& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
+        dense_paths.emplace(entry->path.get_path());
+    }
+
+    const auto [sparse_paths, sparse_values] = get_sparse_data_paths_and_values();
+    static_cast<void>(sparse_values);
+    if (sparse_paths->empty()) {
+        return result;
+    }
+
+    const bool need_all = k == std::numeric_limits<size_t>::max();
+    size_t limit = need_all ? sparse_paths->size()
+                            : std::max<size_t>(
+                                      k, BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE);
+
+    std::unordered_map<std::string, size_t> path_counts;
+    path_counts.reserve(std::min(limit, sparse_paths->size()));
+
+    for (size_t i = 0; i < sparse_paths->size(); ++i) {
+        auto path_ref = sparse_paths->get_data_at(i);
+        std::string_view path_view(path_ref.data, path_ref.size);
+        if (path_view.empty()) {
+            continue;
+        }
+        if (dense_paths.find(path_view) != dense_paths.end()) {
+            continue;
+        }
+        auto it = path_counts.find(path_view);
+        if (it != path_counts.end()) {
+            ++it->second;
+            continue;
+        }
+        // Bound the number of tracked paths to keep memory under control.
+        if (path_counts.size() < limit) {
+            path_counts.emplace(std::string(path_view), 1);
+        }
+    }
+
+    if (path_counts.empty()) {
+        return result;
+    }
+
+    std::vector<std::pair<std::string, size_t>> sorted_paths(path_counts.begin(),
+                                                             path_counts.end());
+    std::sort(sorted_paths.begin(), sorted_paths.end(),
+              [](const auto& a, const auto& b) {
+                  if (a.second != b.second) {
+                      return a.second > b.second;
+                  }
+                  return a.first < b.first;
+              });
+
+    size_t want = need_all ? sorted_paths.size() : std::min(k, sorted_paths.size());
+    result.reserve(want);
+    for (size_t i = 0; i < sorted_paths.size() && result.size() < want; ++i) {
+        result.emplace_back(PathInData(sorted_paths[i].first));
+    }
+    return result;
+}
+
+Status ColumnVariant::rebuild_sparse_excluding_paths(
+        const std::unordered_set<std::string_view>& exclude_paths) {
+    if (exclude_paths.empty() || !sparse_has_data()) {
+        return Status::OK();
+    }
+
+    auto new_sparse = ColumnMap::create(ColumnString::create(), ColumnString::create(),
+                                        ColumnArray::ColumnOffsets::create());
+    auto& new_map = assert_cast<ColumnMap&>(*new_sparse);
+    auto& new_offsets = new_map.get_offsets();
+    auto& new_keys = assert_cast<ColumnString&>(new_map.get_keys());
+    auto& new_values = assert_cast<ColumnString&>(new_map.get_values());
+
+    const auto& old_offsets = serialized_sparse_column_offsets();
+    const auto& [old_keys_ptr, old_values_ptr] = get_sparse_data_paths_and_values();
+    const auto& old_keys = *old_keys_ptr;
+    const auto& old_values = *old_values_ptr;
+    new_offsets.reserve(num_rows);
+
+    for (size_t row = 0; row < num_rows; ++row) {
+        size_t offset = old_offsets[static_cast<ssize_t>(row) - 1];
+        size_t end = old_offsets[static_cast<ssize_t>(row)];
+        for (size_t i = offset; i != end; ++i) {
+            auto path_ref = old_keys.get_data_at(i);
+            std::string_view path_view(path_ref.data, path_ref.size);
+            if (exclude_paths.find(path_view) != exclude_paths.end()) {
+                continue;
+            }
+            new_keys.insert_from(old_keys, i);
+            new_values.insert_from(old_values, i);
+        }
+        new_offsets.push_back(new_keys.size());
+    }
+
+    serialized_sparse_column = std::move(new_sparse);
+    return Status::OK();
+}
+
 Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
     if (target_max < 0) {
         return Status::InvalidArgument("variant_max_subcolumns_count must be non-negative");
@@ -2184,6 +2307,9 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
         finalize(FinalizeMode::READ_MODE);
     }
     recompute_path_counters();
+    // When typed-path flag is not propagated, keep a conservative behavior:
+    // typed paths are not demoted, so we assume they will not appear in sparse
+    // data and won't be materialized from it.
     if (num_rows == 0) {
         set_max_subcolumns_count(target_max);
         return Status::OK();
@@ -2210,67 +2336,16 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
             return Status::OK();
         }
 
-        std::unordered_set<std::string_view> dense_paths;
-        dense_paths.reserve(subcolumns.size());
-        for (const auto& entry : subcolumns) {
-            if (entry->data.is_root) {
-                continue;
-            }
-            dense_paths.emplace(entry->path.get_path());
-        }
-
-        std::unordered_map<std::string, size_t> sparse_path_counts;
-        auto [sparse_paths, sparse_values] = get_sparse_data_paths_and_values();
-        sparse_path_counts.reserve(sparse_paths->size());
-        for (size_t i = 0; i < sparse_paths->size(); ++i) {
-            auto path_ref = sparse_paths->get_data_at(i);
-            std::string_view path_view(path_ref.data, path_ref.size);
-            if (dense_paths.find(path_view) != dense_paths.end()) {
-                continue;
-            }
-            ++sparse_path_counts[std::string(path_view)];
-        }
-
-        if (sparse_path_counts.empty()) {
-            set_max_subcolumns_count(target_max);
-            return Status::OK();
-        }
-
-        std::vector<std::pair<std::string, size_t>> sorted_sparse_paths;
-        sorted_sparse_paths.reserve(sparse_path_counts.size());
-        for (const auto& [path, count] : sparse_path_counts) {
-            sorted_sparse_paths.emplace_back(path, count);
-        }
-        std::sort(sorted_sparse_paths.begin(), sorted_sparse_paths.end(),
-                  [](const auto& a, const auto& b) {
-                      if (a.second != b.second) {
-                          return a.second > b.second;
-                      }
-                      return a.first < b.first;
-                  });
-
-        size_t materialize_count = 0;
+        size_t need = 0;
         if (target_max == 0) {
-            materialize_count = sorted_sparse_paths.size();
+            need = std::numeric_limits<size_t>::max();
         } else {
-            materialize_count = std::min<size_t>(target_limit - current_dense,
-                                                 sorted_sparse_paths.size());
+            need = target_limit - current_dense;
         }
-        if (materialize_count == 0) {
+        auto materialize_paths = topk_paths_from_sparse(need);
+        if (materialize_paths.empty()) {
             set_max_subcolumns_count(target_max);
             return Status::OK();
-        }
-
-        std::vector<std::string> materialize_paths;
-        materialize_paths.reserve(materialize_count);
-        for (size_t i = 0; i < materialize_count; ++i) {
-            materialize_paths.emplace_back(sorted_sparse_paths[i].first);
-        }
-
-        std::unordered_set<std::string_view> materialize_set;
-        materialize_set.reserve(materialize_paths.size());
-        for (const auto& path : materialize_paths) {
-            materialize_set.emplace(path);
         }
 
         Subcolumns new_subcolumns;
@@ -2290,43 +2365,22 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
 
         ColumnPtr sparse_column = serialized_sparse_column->get_ptr();
         for (const auto& path : materialize_paths) {
+            const auto& path_str = path.get_path();
             Subcolumn subcolumn(0, is_nullable);
             ColumnVariant::fill_path_column_from_sparse_data(
-                    subcolumn, nullptr, StringRef {path.data(), path.size()}, sparse_column, 0,
-                    num_rows);
+                    subcolumn, nullptr, StringRef {path_str.data(), path_str.size()},
+                    sparse_column, 0, num_rows);
             subcolumn.finalize();
-            if (!new_subcolumns.add(PathInData(path), subcolumn)) {
-                return Status::InternalError("duplicate subcolumn {}", path);
+            if (!new_subcolumns.add(path, subcolumn)) {
+                return Status::InternalError("duplicate subcolumn {}", path_str);
             }
         }
-
-        auto new_sparse = ColumnMap::create(ColumnString::create(), ColumnString::create(),
-                                            ColumnArray::ColumnOffsets::create());
-        auto& new_map = assert_cast<ColumnMap&>(*new_sparse);
-        auto& new_offsets = new_map.get_offsets();
-        auto& new_keys = assert_cast<ColumnString&>(new_map.get_keys());
-        auto& new_values = assert_cast<ColumnString&>(new_map.get_values());
-
-        const auto& old_offsets = serialized_sparse_column_offsets();
-        const auto& old_keys = *sparse_paths;
-        const auto& old_values = *sparse_values;
-        new_offsets.reserve(num_rows);
-        for (size_t row = 0; row < num_rows; ++row) {
-            size_t offset = old_offsets[static_cast<ssize_t>(row) - 1];
-            size_t end = old_offsets[static_cast<ssize_t>(row)];
-            for (size_t i = offset; i != end; ++i) {
-                auto path_ref = old_keys.get_data_at(i);
-                std::string_view path_view(path_ref.data, path_ref.size);
-                if (materialize_set.find(path_view) != materialize_set.end()) {
-                    continue;
-                }
-                new_keys.insert_from(old_keys, i);
-                new_values.insert_from(old_values, i);
-            }
-            new_offsets.push_back(new_keys.size());
+        std::unordered_set<std::string_view> exclude_paths;
+        exclude_paths.reserve(materialize_paths.size());
+        for (const auto& path : materialize_paths) {
+            exclude_paths.emplace(path.get_path());
         }
-
-        serialized_sparse_column = std::move(new_sparse);
+        RETURN_IF_ERROR(rebuild_sparse_excluding_paths(exclude_paths));
         std::swap(subcolumns, new_subcolumns);
         _prev_positions.clear();
         recompute_path_counters();
@@ -2342,7 +2396,8 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
         if (entry->data.is_root) {
             continue;
         }
-        if (entry->path.get_is_typed() || entry->path.has_nested_part()) {
+        if ((!_enable_typed_paths_to_sparse && entry->path.get_is_typed()) ||
+            entry->path.has_nested_part()) {
             continue;
         }
         size_t size = entry->data.get_non_null_value_size();
@@ -2382,7 +2437,8 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
             continue;
         }
         const auto& path = entry->path.get_path();
-        if (entry->path.get_is_typed() || entry->path.has_nested_part()) {
+        if ((!_enable_typed_paths_to_sparse && entry->path.get_is_typed()) ||
+            entry->path.has_nested_part()) {
             if (!new_subcolumns.add(entry->path, entry->data)) {
                 return Status::InternalError("duplicate subcolumn {}", path);
             }
@@ -2896,6 +2952,7 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
 
 MutableColumnPtr ColumnVariant::clone() const {
     auto res = ColumnVariant::create(_max_subcolumns_count);
+    res->set_variant_enable_typed_paths_to_sparse(_enable_typed_paths_to_sparse);
     Subcolumns new_subcolumns;
     for (const auto& subcolumn : subcolumns) {
         auto new_subcolumn = subcolumn->data;

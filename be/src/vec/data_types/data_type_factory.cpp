@@ -105,7 +105,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-        nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count());
+        nested = std::make_shared<DataTypeVariant>(
+                col_desc.variant_max_subcolumns_count(),
+                col_desc.variant_enable_typed_paths_to_sparse());
     } else {
         nested = _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac(),
                                              col_desc.length());
