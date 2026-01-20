@@ -63,6 +63,9 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
             case KAFKA:
                 this.progress = new KafkaProgress(rlTaskTxnCommitAttachment.getKafkaRLTaskProgress());
                 break;
+            case KINESIS:
+                this.progress = new KinesisProgress(rlTaskTxnCommitAttachment.getKinesisRLTaskProgress());
+                break;
             default:
                 break;
         }

@@ -192,6 +192,9 @@ public class RoutineLoadManager implements Writable {
             case KAFKA:
                 routineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(info, ctx);
                 break;
+            case KINESIS:
+                routineLoadJob = KinesisRoutineLoadJob.fromCreateInfo(info, ctx);
+                break;
             default:
                 throw new UserException("Unknown data source type: " + type);
         }
