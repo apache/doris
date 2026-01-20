@@ -432,6 +432,7 @@ Status IcebergParquetReader::init_reader(
     const auto& filter_column_ids = column_id_result.filter_column_ids;
 
     RETURN_IF_ERROR(init_row_filters());
+    _all_required_col_names = file_col_names;
 
     if (!_params.__isset.history_schema_info || _params.history_schema_info.empty()) [[unlikely]] {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(
@@ -451,8 +452,6 @@ Status IcebergParquetReader::init_reader(
 
         table_info_node_ptr = std::make_shared<TableSchemaChangeHelper::StructNode>();
         if (exist_field_id) {
-            _all_required_col_names = file_col_names;
-
             // id -> table column name. columns that need read data file.
             std::unordered_map<int, std::shared_ptr<schema::external::TField>> id_to_table_field;
             for (const auto& table_field : table_schema.fields) {
@@ -510,7 +509,6 @@ Status IcebergParquetReader::init_reader(
                 return Status::InternalError(
                         "Can not read missing field id data file when have equality delete");
             }
-            _all_required_col_names = file_col_names;
             std::map<std::string, size_t> file_column_idx_map;
             for (size_t idx = 0; idx < _data_file_field_desc->size(); idx++) {
                 file_column_idx_map.emplace(_data_file_field_desc->get_column(idx)->name, idx);
@@ -687,6 +685,7 @@ Status IcebergOrcReader::init_reader(
 
     RETURN_IF_ERROR(init_row_filters());
 
+    _all_required_col_names = file_col_names;
     if (!_params.__isset.history_schema_info || _params.history_schema_info.empty()) [[unlikely]] {
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(tuple_descriptor, _data_file_type_desc,
                                                         table_info_node_ptr));
@@ -704,8 +703,6 @@ Status IcebergOrcReader::init_reader(
         const auto& table_schema = _params.history_schema_info.front().root_field;
         table_info_node_ptr = std::make_shared<TableSchemaChangeHelper::StructNode>();
         if (exist_field_id) {
-            _all_required_col_names = file_col_names;
-
             // id -> table column name. columns that need read data file.
             std::unordered_map<int, std::shared_ptr<schema::external::TField>> id_to_table_field;
             for (const auto& table_field : table_schema.fields) {
@@ -768,7 +765,6 @@ Status IcebergOrcReader::init_reader(
                 return Status::InternalError(
                         "Can not read missing field id data file when have equality delete");
             }
-            _all_required_col_names = file_col_names;
             std::map<std::string, size_t> file_column_idx_map;
             for (int idx = 0; idx < _data_file_type_desc->getSubtypeCount(); idx++) {
                 auto const& file_column_name = _data_file_type_desc->getFieldName(idx);

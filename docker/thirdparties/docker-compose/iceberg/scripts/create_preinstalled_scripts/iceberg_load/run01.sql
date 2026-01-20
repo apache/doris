@@ -2,6 +2,14 @@
 
 use multi_catalog;
 
+drop table  if exists multi_catalog.equality_delete_par_1;
+drop table  if exists multi_catalog.equality_delete_par_2;
+drop table  if exists multi_catalog.equality_delete_par_3;
+
+drop table  if exists multi_catalog.equality_delete_orc_1;
+drop table  if exists multi_catalog.equality_delete_orc_2;
+drop table  if exists multi_catalog.equality_delete_orc_3;
+
 
 CALL system.register_table(
     table => 'multi_catalog.equality_delete_par_1',
