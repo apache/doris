@@ -33,7 +33,7 @@ import org.junit.Test;
 
 import java.util.Collections;
 
-public class CreateUserStmtTest {
+public class AlterUserStmtTest {
 
     @Before
     public void setUp() {
@@ -47,40 +47,7 @@ public class CreateUserStmtTest {
     }
 
     @Test
-    public void testToString(@Injectable Analyzer analyzer,
-            @Mocked AccessControllerManager accessManager) throws UserException {
-
-        new Expectations() {
-            {
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.GRANT);
-                result = true;
-            }
-        };
-
-        CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("user", "%"), "passwd", true));
-        stmt.analyze(analyzer);
-
-        Assert.assertEquals("CREATE USER 'user'@'%' IDENTIFIED BY '*XXX'", stmt.toString());
-        Assert.assertEquals(new String(stmt.getPassword()), "*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0");
-
-        stmt = new CreateUserStmt(
-                new UserDesc(new UserIdentity("user", "%"), "*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0", false));
-        stmt.analyze(analyzer);
-        Assert.assertEquals("user", stmt.getUserIdent().getQualifiedUser());
-
-        Assert.assertEquals("CREATE USER 'user'@'%' IDENTIFIED BY PASSWORD '*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0'",
-                stmt.toString());
-        Assert.assertEquals(new String(stmt.getPassword()), "*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0");
-
-        stmt = new CreateUserStmt(new UserDesc(new UserIdentity("user", "%"), "", false));
-        stmt.analyze(analyzer);
-
-        Assert.assertEquals("CREATE USER 'user'@'%'", stmt.toString());
-        Assert.assertEquals(new String(stmt.getPassword()), "");
-    }
-
-    @Test
-    public void testTlsRequireNone(@Injectable Analyzer analyzer,
+    public void testTlsRequireNoneOnly(@Injectable Analyzer analyzer,
             @Mocked AccessControllerManager accessManager) throws UserException, AnalysisException {
         new Expectations() {
             {
@@ -89,12 +56,12 @@ public class CreateUserStmtTest {
             }
         };
 
-        CreateUserStmt stmt = new CreateUserStmt(false,
-                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+        AlterUserStmt stmt = new AlterUserStmt(false, new UserDesc(new UserIdentity("tls_user", "%")),
                 null, null, null, TlsOptions.requireNone());
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE USER 'tls_user'@'%' IDENTIFIED BY '*XXX' REQUIRE NONE", stmt.toString());
+        Assert.assertEquals("ALTER USER 'tls_user'@'%' REQUIRE NONE", stmt.toString());
+        Assert.assertEquals(AlterUserStmt.OpType.SET_TLS_REQUIRE, stmt.getOpType());
         UserIdentity userIdent = stmt.getUserIdent();
         Assert.assertFalse(userIdent.hasTlsRequirements());
         Assert.assertNull(userIdent.getSan());
@@ -104,7 +71,7 @@ public class CreateUserStmtTest {
     }
 
     @Test
-    public void testTlsRequireSan(@Injectable Analyzer analyzer,
+    public void testTlsRequireSanOnly(@Injectable Analyzer analyzer,
             @Mocked AccessControllerManager accessManager) throws UserException, AnalysisException {
         new Expectations() {
             {
@@ -114,13 +81,12 @@ public class CreateUserStmtTest {
         };
 
         TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:example.com")));
-        CreateUserStmt stmt = new CreateUserStmt(false,
-                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+        AlterUserStmt stmt = new AlterUserStmt(false, new UserDesc(new UserIdentity("tls_user", "%")),
                 null, null, null, tlsOptions);
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE USER 'tls_user'@'%' IDENTIFIED BY '*XXX' REQUIRE SAN 'DNS:example.com'",
-                stmt.toString());
+        Assert.assertEquals("ALTER USER 'tls_user'@'%' REQUIRE SAN 'DNS:example.com'", stmt.toString());
+        Assert.assertEquals(AlterUserStmt.OpType.SET_TLS_REQUIRE, stmt.getOpType());
         UserIdentity userIdent = stmt.getUserIdent();
         Assert.assertEquals("DNS:example.com", userIdent.getSan());
         Assert.assertNull(userIdent.getIssuer());
@@ -129,10 +95,28 @@ public class CreateUserStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
+    public void testTlsWithPasswordChangeNotAllowed(@Injectable Analyzer analyzer,
+            @Mocked AccessControllerManager accessManager) throws UserException, AnalysisException {
+        new Expectations() {
+            {
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.GRANT);
+                result = true;
+                minTimes = 0;
+            }
+        };
+
+        TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "DNS:example.com")));
+        AlterUserStmt stmt = new AlterUserStmt(false,
+                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+                null, null, null, tlsOptions);
+        stmt.analyze(analyzer);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
     public void testTlsRequireSanEmptyValue(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
         TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("SAN", "")));
-        CreateUserStmt stmt = new CreateUserStmt(false,
-                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+        AlterUserStmt stmt = new AlterUserStmt(false, new UserDesc(new UserIdentity("tls_user", "%")),
                 null, null, null, tlsOptions);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
@@ -141,23 +125,25 @@ public class CreateUserStmtTest {
     @Test(expected = AnalysisException.class)
     public void testTlsUnsupportedOption(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
         TlsOptions tlsOptions = TlsOptions.of(Collections.singletonList(Pair.of("ISSUER", "ca")));
-        CreateUserStmt stmt = new CreateUserStmt(false,
-                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+        AlterUserStmt stmt = new AlterUserStmt(false, new UserDesc(new UserIdentity("tls_user", "%")),
                 null, null, null, tlsOptions);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyUser(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
-        CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", true));
+    public void testMultipleNonTlsOpsAreRejected(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
+        AlterUserStmt stmt = new AlterUserStmt(false,
+                new UserDesc(new UserIdentity("tls_user", "%"), "passwd", true),
+                null, null, "new comment", TlsOptions.notSpecified());
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBadPass(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
-        CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", false));
+    public void testNoOpsAreRejected(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
+        AlterUserStmt stmt = new AlterUserStmt(false, new UserDesc(new UserIdentity("tls_user", "%")),
+                null, null, null, TlsOptions.notSpecified());
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }

@@ -245,6 +245,8 @@ public class UserManager implements Writable, GsonPostProcessable {
             userByUserIdentity.setPassword(pwd);
             userByUserIdentity.setComment(comment);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
+            // Update the UserIdentity to preserve TLS settings
+            userByUserIdentity.setUserIdentity(userIdent);
             return userByUserIdentity;
         }
 
@@ -362,6 +364,12 @@ public class UserManager implements Writable, GsonPostProcessable {
                     // password, this "domain" user ident will be returned as "current user".
                     for (String newIP : entry.getValue()) {
                         UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithIp(userEntry.getKey(), newIP);
+                        // Copy TLS requirements from domain user to the resolved IP user
+                        UserIdentity domainUserIdent = domainUser.getUserIdentity();
+                        userIdent.setSan(domainUserIdent.getSan());
+                        userIdent.setIssuer(domainUserIdent.getIssuer());
+                        userIdent.setCipher(domainUserIdent.getCipher());
+                        userIdent.setSubject(domainUserIdent.getSubject());
                         byte[] password = domainUser.getPassword().getPassword();
                         Preconditions.checkNotNull(password, entry.getKey());
                         try {

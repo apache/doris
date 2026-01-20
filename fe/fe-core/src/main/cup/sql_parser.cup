@@ -36,6 +36,7 @@ import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.common.Pair;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
@@ -315,6 +316,7 @@ terminal String
     KW_CATALOG,
     KW_CATALOGS,
     KW_CHAIN,
+    KW_CIPHER,
     KW_CHAR,
     KW_CHARSET,
     KW_CHECK,
@@ -468,6 +470,7 @@ terminal String
     KW_IS,
     KW_ISNULL,
     KW_ISOLATION,
+    KW_ISSUER,
     KW_INVERTED,
     KW_JOB,
     KW_JOBS,    
@@ -524,6 +527,7 @@ terminal String
     KW_NEXT,
     KW_NGRAM_BF,
     KW_NO,
+    KW_NONE,
     KW_NOT,
     KW_NULL,
     KW_NULLS,
@@ -595,6 +599,7 @@ terminal String
     KW_RESUME,
     KW_RETAIN,
     KW_RETENTION,
+    KW_REQUIRE,
     KW_RETURNS,
     KW_REVOKE,
     KW_RIGHT,
@@ -607,6 +612,7 @@ terminal String
     KW_ROWS,
     KW_S3,
     KW_SAMPLE,
+    KW_SAN,
     KW_SCHEDULE,    
     KW_SCHEMA,
     KW_SCHEMAS,
@@ -639,6 +645,7 @@ terminal String
     KW_STREAMING,
     KW_STRING,
     KW_STRUCT,
+    KW_SUBJECT,
     KW_SUM,
     KW_SUPERUSER,
     KW_SWITCH,
@@ -983,6 +990,9 @@ nonterminal String keyword, ident, ident_or_text, variable_name,
         collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, opt_file_compress_type,
         time_unit, literal_or_ident;
 nonterminal PassVar text_or_password;
+nonterminal TlsOptions opt_require_clause;
+nonterminal List<Pair<String, String>> tls_option_list;
+nonterminal Pair<String, String> tls_option;
 
 // analyze
 nonterminal Map<String, String> with_analysis_properties;
@@ -1482,9 +1492,10 @@ alter_stmt ::=
       opt_if_exists:ifExists
       grant_user:user
       opt_password_option:passwdOptions
+      opt_require_clause:requireClause
       opt_comment_null:comment
     {:
-        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions, comment);
+        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions, comment, requireClause);
     :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
@@ -2107,9 +2118,10 @@ create_stmt ::=
       grant_user:user
       opt_user_role:userRole
       opt_password_option:passwdOptions
+      opt_require_clause:requireClause
       opt_comment:comment
     {:
-        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
+        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment, requireClause);
     :}
     | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
@@ -2295,6 +2307,52 @@ opt_password_option ::=
     opt_lock_account:lockAccount
     {:
         RESULT = new PasswordOptions(expirePolicy, historyPolicy, reusePolicy, loginAttempts, passwdLockTime, lockAccount);
+    :}
+    ;
+
+opt_require_clause ::= 
+    {:
+        RESULT = TlsOptions.notSpecified();
+    :}
+    | KW_REQUIRE KW_NONE
+    {:
+        RESULT = TlsOptions.requireNone();
+    :}
+    | KW_REQUIRE tls_option_list:options
+    {:
+        RESULT = TlsOptions.of(options);
+    :}
+    ;
+
+
+tls_option_list ::=
+    tls_option:option
+    {:
+        RESULT = Lists.newArrayList(option);
+    :}
+    | tls_option_list:list KW_AND tls_option:option
+    {:
+        list.add(option);
+        RESULT = list;
+    :}
+    ;
+
+tls_option ::=
+    KW_SAN STRING_LITERAL:value
+    {:
+        RESULT = Pair.of("SAN", value);
+    :}
+    | KW_ISSUER STRING_LITERAL:value
+    {:
+        RESULT = Pair.of("ISSUER", value);
+    :}
+    | KW_CIPHER STRING_LITERAL:value
+    {:
+        RESULT = Pair.of("CIPHER", value);
+    :}
+    | KW_SUBJECT STRING_LITERAL:value
+    {:
+        RESULT = Pair.of("SUBJECT", value);
     :}
     ;
 
@@ -8296,6 +8354,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CHECK:id
     {: RESULT = id; :}
+    | KW_CIPHER:id
+    {: RESULT = id; :}
     | KW_COLUMNS:id
     {: RESULT = id; :}
     | KW_COMMENT:id
@@ -8428,6 +8488,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ISOLATION:id
     {: RESULT = id; :}
+    | KW_ISSUER:id
+    {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
     | KW_JOBS:id    
@@ -8475,6 +8537,8 @@ keyword ::=
     | KW_NEXT:id
     {: RESULT = id; :}
     | KW_NO:id
+    {: RESULT = id; :}
+    | KW_NONE:id
     {: RESULT = id; :}
     | KW_NULLS:id
     {: RESULT = id; :}
@@ -8552,6 +8616,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_RETENTION:id
     {: RESULT = id; :}
+    | KW_REQUIRE:id
+    {: RESULT = id; :}
     | KW_RETURNS:id
     {: RESULT = id; :}
     | KW_ROLLBACK:id
@@ -8589,6 +8655,8 @@ keyword ::=
     | KW_STRUCT:id
     {: RESULT = id; :}
     | KW_STRING:id
+    {: RESULT = id; :}
+    | KW_SUBJECT:id
     {: RESULT = id; :}
     | KW_TABLES:id
     {: RESULT = id; :}
@@ -8725,6 +8793,8 @@ keyword ::=
     | KW_SAMPLE:id
     {: RESULT = id; :}
     | KW_INCREMENTAL:id
+    {: RESULT = id; :}
+    | KW_SAN:id
     {: RESULT = id; :}
     | KW_PERIOD:id
     {: RESULT = id; :}
