@@ -14,3 +14,10 @@ PhysicalResultSink
 -- !sql_2_result --
 \N	10
 
+-- !sql_3_shape --
+PhysicalResultSink
+--filter(( not (a * 0) IS NULL))
+----PhysicalOlapScan[test_simplify_range_tbl_1]
+
+-- !sql_3_result --
+
