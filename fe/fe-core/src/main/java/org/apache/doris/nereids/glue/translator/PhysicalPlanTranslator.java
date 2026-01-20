@@ -153,9 +153,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -166,6 +166,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -1043,24 +1044,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan,
+    public PlanFragment visitPhysicalWorkTableReference(PhysicalWorkTableReference workTableReference,
             PlanTranslatorContext context) {
-        TableIf table = recursiveCteScan.getTable();
-        List<Slot> slots = ImmutableList.copyOf(recursiveCteScan.getOutput());
+        List<Slot> slots = ImmutableList.copyOf(workTableReference.getOutput());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
-
-        RecursiveCteScanNode scanNode = new RecursiveCteScanNode(table != null ? table.getName() : "",
+        RecursiveCteScanNode scanNode = new RecursiveCteScanNode(workTableReference.getTableName(),
                 context.nextPlanNodeId(), tupleDescriptor);
-        scanNode.setNereidsId(recursiveCteScan.getId());
-        context.getNereidsIdToPlanNodeIdMap().put(recursiveCteScan.getId(), scanNode.getId());
-        Utils.execWithUncheckedException(scanNode::initScanRangeLocations);
+        scanNode.setNereidsId(workTableReference.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(workTableReference.getId(), scanNode.getId());
 
-        translateRuntimeFilter(recursiveCteScan, scanNode, context);
-
-        context.addScanNode(scanNode, recursiveCteScan);
-        PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, recursiveCteScan);
+        PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, workTableReference);
         context.addPlanFragment(planFragment);
-        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), recursiveCteScan);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), workTableReference);
         return planFragment;
     }
 
@@ -2192,10 +2187,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (inputPlanNode instanceof OlapScanNode) {
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
-            if (!(inputPlanNode instanceof RecursiveCteScanNode)) {
-                updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
-                        requiredByProjectSlotIdSet, context);
-            }
+            updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
+                    requiredByProjectSlotIdSet, context);
         } else {
             if (project.child() instanceof PhysicalDeferMaterializeTopN) {
                 inputFragment.setOutputExprs(allProjectionExprs);
@@ -2209,63 +2202,45 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, PlanTranslatorContext context) {
+    public PlanFragment visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte,
+            PlanTranslatorContext context) {
         List<PlanFragment> childrenFragments = new ArrayList<>();
         for (Plan plan : recursiveCte.children()) {
             childrenFragments.add(plan.accept(this, context));
         }
-
+        List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
-        List<SlotDescriptor> outputSlotDescs = new ArrayList<>(setTuple.getSlots());
 
         RecursiveCteNode recursiveCteNode = new RecursiveCteNode(context.nextPlanNodeId(), setTuple.getId(),
-                    recursiveCte.getCteName(), recursiveCte.isUnionAll());
-        List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
+                recursiveCte.getCteName(), recursiveCte.isUnionAll());
+
         recursiveCteNode.setChildrenDistributeExprLists(distributeExprLists);
         recursiveCteNode.setNereidsId(recursiveCte.getId());
-        List<List<Expression>> resultExpressionLists = Lists.newArrayList();
         context.getNereidsIdToPlanNodeIdMap().put(recursiveCte.getId(), recursiveCteNode.getId());
-        for (List<SlotReference> regularChildrenOutput : recursiveCte.getRegularChildrenOutputs()) {
-            resultExpressionLists.add(new ArrayList<>(regularChildrenOutput));
-        }
-
         for (PlanFragment childFragment : childrenFragments) {
             recursiveCteNode.addChild(childFragment.getPlanRoot());
         }
 
         List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
-        for (int i = 0; i < resultExpressionLists.size(); ++i) {
-            List<Expression> resultExpressionList = resultExpressionLists.get(i);
+        for (int i = 0; i < recursiveCte.getRegularChildrenOutputs().size(); ++i) {
+            List<SlotReference> resultExpressionList = recursiveCte.getRegularChildrenOutputs().get(i);
             List<Expr> exprList = Lists.newArrayList();
-            Preconditions.checkState(resultExpressionList.size() == outputSlotDescs.size());
             for (int j = 0; j < resultExpressionList.size(); ++j) {
                 exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
-                // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
-                outputSlotDescs.get(j)
-                        .setIsNullable(outputSlotDescs.get(j).getIsNullable() || exprList.get(j).isNullable());
             }
             materializedResultExprLists.add(exprList);
         }
         recursiveCteNode.setMaterializedResultExprLists(materializedResultExprLists);
-        Preconditions.checkState(recursiveCteNode.getMaterializedResultExprLists().size()
-                == recursiveCteNode.getChildren().size());
 
-        PlanFragment recursiveCteFragment;
-        if (childrenFragments.isEmpty()) {
-            recursiveCteFragment = createPlanFragment(recursiveCteNode,
-                    DataPartition.UNPARTITIONED, recursiveCte);
-            context.addPlanFragment(recursiveCteFragment);
-        } else {
-            int childrenSize = childrenFragments.size();
-            recursiveCteFragment = childrenFragments.get(childrenSize - 1);
-            for (int i = childrenSize - 2; i >= 0; i--) {
-                context.mergePlanFragment(childrenFragments.get(i), recursiveCteFragment);
-                for (PlanFragment child : childrenFragments.get(i).getChildren()) {
-                    recursiveCteFragment.addChild(child);
-                }
+        int childrenSize = childrenFragments.size();
+        PlanFragment recursiveCteFragment = childrenFragments.get(childrenSize - 1);
+        for (int i = childrenSize - 2; i >= 0; i--) {
+            context.mergePlanFragment(childrenFragments.get(i), recursiveCteFragment);
+            for (PlanFragment child : childrenFragments.get(i).getChildren()) {
+                recursiveCteFragment.addChild(child);
             }
-            setPlanRoot(recursiveCteFragment, recursiveCteNode, recursiveCte);
         }
+        setPlanRoot(recursiveCteFragment, recursiveCteNode, recursiveCte);
 
         recursiveCteFragment.updateDataPartition(DataPartition.UNPARTITIONED);
         recursiveCteFragment.setOutputPartition(DataPartition.UNPARTITIONED);
@@ -2274,10 +2249,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalRecursiveCteRecursiveChild(
-            PhysicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
+    public PlanFragment visitPhysicalRecursiveUnionAnchor(
+            PhysicalRecursiveUnionAnchor<? extends Plan> recursiveUnionAnchor,
             PlanTranslatorContext context) {
-        return recursiveChild.child().accept(this, context);
+        return recursiveUnionAnchor.child().accept(this, context);
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveUnionProducer(
+            PhysicalRecursiveUnionProducer<? extends Plan> recursiveUnionProducer,
+            PlanTranslatorContext context) {
+        return recursiveUnionProducer.child().accept(this, context);
     }
 
     /**
@@ -2299,7 +2281,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Plan plan : setOperation.children()) {
             childrenFragments.add(plan.accept(this, context));
         }
-
+        List<List<Expr>> distributeExprLists = getDistributeExprs(setOperation.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(setOperation.getOutput(), null, context);
 
         SetOperationNode setOperationNode;
@@ -2313,7 +2295,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("not support set operation type " + setOperation);
         }
-        List<List<Expr>> distributeExprLists = getDistributeExprs(setOperation.children().toArray(new Plan[0]));
         setOperationNode.setChildrenDistributeExprLists(distributeExprLists);
         setOperationNode.setNereidsId(setOperation.getId());
         context.getNereidsIdToPlanNodeIdMap().put(setOperation.getId(), setOperationNode.getId());
