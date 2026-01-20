@@ -99,6 +99,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -759,8 +760,15 @@ public class BindExpression implements AnalysisRuleFactory {
                 otherJoinConjuncts.add(conjunct);
             }
         }
+        List<Expression> hashConjuncts = hashJoinConjuncts.build();
         List<Expression> otherConjuncts = otherJoinConjuncts.build();
         if (join.getJoinType().isAsofJoin()) {
+            // validate hash conjuncts
+            if (JoinUtils.extractExpressionForHashTable(join.left().getOutput(), join.right().getOutput(),
+                    hashConjuncts).first.isEmpty()) {
+                throw new AnalysisException(String.format("ASOF join's hash conjuncts must be"
+                        + "in form of t1.col = t2.col but its %s", hashConjuncts));
+            }
             // validate match_condition's data type
             boolean isValid = false;
             if (otherConjuncts.size() == 1) {
@@ -787,7 +795,7 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
         return new LogicalJoin<>(join.getJoinType(),
-                hashJoinConjuncts.build(), otherConjuncts,
+                hashConjuncts, otherConjuncts,
                 join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
                 join.children(), null);
     }
