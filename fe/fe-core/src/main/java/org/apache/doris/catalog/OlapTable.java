@@ -236,8 +236,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     // Cache for table version in cloud mode
     // This value is set when get the table version from meta-service, 0 means version is not cached yet
-    private long lastTableVersionCachedTimeMs = 0;
-    private long cachedTableVersion = -1;
+    private volatile long lastTableVersionCachedTimeMs = 0;
+    private volatile long cachedTableVersion = -1;
 
     public OlapTable() {
         // for persist
@@ -3285,7 +3285,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
-    public boolean isCachedTableVersionExpired() {
+    @VisibleForTesting
+    protected boolean isCachedTableVersionExpired() {
         // -1 means no cache yet, need to fetch from MS
         if (cachedTableVersion == -1) {
             return true;
@@ -3301,8 +3302,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return System.currentTimeMillis() - lastTableVersionCachedTimeMs > cacheExpirationMs;
     }
 
-    public void setCachedTableVersion(long version) {
-        if (version > cachedTableVersion) {
+    @VisibleForTesting
+    protected void setCachedTableVersion(long version) {
+        if (version >= cachedTableVersion) {
             cachedTableVersion = version;
             lastTableVersionCachedTimeMs = System.currentTimeMillis();
         }
@@ -3356,9 +3358,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     // Get the table versions in batch.
-    public static List<Long> getVisibleVersionInBatch(Collection<OlapTable> tables) {
+    public static List<Long> getVisibleVersionInBatch(List<OlapTable> tables) {
         if (tables.isEmpty()) {
-            return new ArrayList<>();
+            return Collections.emptyList();
         }
 
         if (Config.isNotCloudMode()) {
@@ -3367,14 +3369,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     .collect(Collectors.toList());
         }
 
-        List<Long> dbIds = new ArrayList<>();
-        List<Long> tableIds = new ArrayList<>();
+        List<Long> dbIds = new ArrayList<>(tables.size());
+        List<Long> tableIds = new ArrayList<>(tables.size());
         for (OlapTable table : tables) {
             dbIds.add(table.getDatabase().getId());
             tableIds.add(table.getId());
         }
 
-        return getVisibleVersionFromMeta(dbIds, tableIds);
+        List<Long> versions = getVisibleVersionFromMeta(dbIds, tableIds);
+
+        // update cache
+        Preconditions.checkState(tables.size() == versions.size());
+        for (int i = 0; i < tables.size(); i++) {
+            tables.get(i).setCachedTableVersion(versions.get(i));
+        }
+        return versions;
     }
 
     private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
