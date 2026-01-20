@@ -141,7 +141,7 @@ PROPERTIES (
     """
 
     // load and execute data.sql in the same directory, use simple direct load as in other test cases
-    sql new File("${context.file.parent}/data").text
+    sql new File("${context.config.dataPath}/query_p0/set/rqg_prod_20240226/data").text
     sql 'sync'
 
     qt_test """
