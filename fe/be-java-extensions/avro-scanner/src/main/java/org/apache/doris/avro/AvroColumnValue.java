@@ -137,6 +137,11 @@ public class AvroColumnValue implements ColumnValue {
     }
 
     @Override
+    public LocalDateTime getTimeStampTz() {
+        return null;
+    }
+
+    @Override
     public byte[] getBytes() {
         return (byte[]) inspectObject();
     }

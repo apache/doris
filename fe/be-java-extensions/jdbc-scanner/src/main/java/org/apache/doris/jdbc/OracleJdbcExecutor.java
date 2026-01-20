@@ -103,6 +103,9 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1);
             case VARBINARY:
                 return resultSet.getObject(columnIndex + 1, byte[].class);
+            case TIMESTAMPTZ:
+                Timestamp ts = resultSet.getObject(columnIndex + 1, Timestamp.class);
+                return ts == null ? null : LocalDateTime.ofInstant(ts.toInstant(), java.time.ZoneOffset.UTC);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
