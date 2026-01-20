@@ -31,7 +31,10 @@ import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -115,6 +118,11 @@ public class CheckRowPolicyTest extends TestWithFeService {
                             public String getPolicyIdent() {
                                 return String.format("custom policy: concat(%s, '_****_', %s)", col,
                                         col);
+                            }
+
+                            @Override
+                            public Expression parseMaskTypeDef(NereidsParser parser, Slot slot) {
+                                return parser.parseExpression(getMaskTypeDef());
                             }
                         })
                         : Optional.empty();

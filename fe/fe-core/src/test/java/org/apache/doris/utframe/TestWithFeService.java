@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDataMaskPolicyCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
@@ -78,6 +79,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -725,6 +727,19 @@ public abstract class TestWithFeService {
         command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
+    protected ShowResultSet showDataMaskPolicy(String user, String role) throws Exception {
+        String sql = "show data mask policy";
+        if (user != null) {
+            sql = sql + " for " + user;
+        }
+        if (role != null) {
+            sql = sql + " for role " + role;
+        }
+        NereidsParser nereidsParser = new NereidsParser();
+        ShowDataMaskPolicyCommand createPolicyStmt = (ShowDataMaskPolicyCommand) nereidsParser.parseSingle(sql);
+        return createPolicyStmt.doRun(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
     public void createFunction(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         CreateFunctionCommand command = (CreateFunctionCommand) nereidsParser.parseSingle(sql);
@@ -815,8 +830,12 @@ public abstract class TestWithFeService {
     }
 
     protected void createRole(String roleName) throws Exception {
+        createRole(roleName, false);
+    }
+
+    protected void createRole(String roleName, boolean ifNotExists) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "CREATE ROLE " + roleName;
+        String sql = "CREATE ROLE " + (ifNotExists ? "IF NOT EXISTS " : "") + roleName;
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (parsed instanceof CreateRoleCommand) {
