@@ -1435,11 +1435,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     hasEmptyValue = hasEmptyValue || type == IntersectType.EMPTY_VALUE;
                     hasFalse = hasFalse || type == IntersectType.FALSE;
                 }
-                if (hasFalse && !hasEmptyValue) {
-                    return IntersectType.FALSE;
-                } else {
-                    return IntersectType.EMPTY_VALUE;
-                }
+
+                return hasEmptyValue ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             }
         }
 
@@ -1460,11 +1457,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     hasTrue = hasTrue || type == UnionType.TRUE;
                     hasRangeAll = hasRangeAll || type == UnionType.RANGE_ALL;
                 }
-                if (hasTrue && !hasRangeAll) {
-                    return UnionType.TRUE;
-                } else {
-                    return UnionType.RANGE_ALL;
-                }
+                return hasRangeAll ? UnionType.RANGE_ALL : UnionType.TRUE;
             } else {
                 // process 'A or ((B or C) and ...)'
                 // then `this`: '(B or C)',  `other`: A
