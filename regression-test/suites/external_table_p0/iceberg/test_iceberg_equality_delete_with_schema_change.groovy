@@ -25,7 +25,7 @@ suite("test_iceberg_equality_delete_with_schema_change", "p0,external,doris,exte
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String catalog_name = "test_iceberg_equality_delete"
+    String catalog_name = "test_iceberg_equality_delete_with_schema_change"
 
     sql """drop catalog if exists ${catalog_name}"""
     sql """
