@@ -3592,7 +3592,7 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     }
 }
 
-TEST_F(ColumnVariantTest, subcolumn_fianlize_and_insert) {
+TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
     ColumnVariant::Subcolumn subcolumn(0, true, true);
     subcolumn.insert_many_defaults(20);
     subcolumn.finalize();
