@@ -40,6 +40,14 @@
 
 namespace doris::vectorized {
 
+// 对于短路执行，我们需要我们需要区分三种index
+// 一种叫self_index，表示当前列的index （for(int i =0;i<size;i++) 中的这个i，他永远是对当前执行的列而言的）
+// 一种叫executor_index，他是对于整个expr树执行器而言的index，他会通过execute_column传递下去，最后在叶子节点（例如slotref）中被使用
+// 一种叫current_index，他是相对于当前这个expr节点返回的column 的index，
+
+// 对于if/ifnull来说，self_index和current_index是一样的，因为只有一个列会作为条件列。
+
+// 对于coalesce/case来说，self_index和current_index是不一样的，因为有多个列会作为条件列(不过如果是第一次执行条件列的话，他俩是一样的（和if/ifnull 类似)
 Status ShortCircuitExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -71,6 +79,9 @@ std::string ShortCircuitExpr::debug_string() const {
     result += ")";
     return result;
 }
+
+ShortCircuitCaseExpr::ShortCircuitCaseExpr(const TExprNode& node)
+        : ShortCircuitExpr(node), _has_else_expr(node.case_expr.has_else_expr) {}
 
 ColumnPtr ShortCircuitExpr::dispatch_fill_columns(const ColumnPtr& true_column,
                                                   const Selector& true_selector,
@@ -108,13 +119,30 @@ ColumnPtr ShortCircuitExpr::dispatch_fill_columns(
     return result_column;
 }
 
-void execute_if_selector(const ColumnPtr& cond_column, size_t count, Selector& true_selector,
-                         Selector& false_selector) {
-    ConditionColumnView condition_view = ConditionColumnView::create(cond_column, nullptr, count);
+void execute_if_selector(const ColumnPtr& cond_column, const Selector* selector, size_t count,
+                         Selector& matched_executor_selector, Selector& matched_self_selector,
+                         Selector& not_matched_executor_selector,
+                         Selector& not_matched_self_selector) {
+    ConditionColumnView condition_view = ConditionColumnView::create(cond_column, selector, count);
 
-    auto null_func = [&](size_t i) { false_selector.push_back(i); };
-    auto true_func = [&](size_t i) { true_selector.push_back(i); };
-    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+    matched_executor_selector.reserve(count);
+    matched_self_selector.reserve(count);
+    not_matched_executor_selector.reserve(count);
+    not_matched_self_selector.reserve(count);
+
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        not_matched_self_selector.push_back(self_index);
+        not_matched_executor_selector.push_back(executor_index);
+    };
+
+    auto true_func = [&](size_t self_index, size_t result_index) {
+        matched_self_selector.push_back(self_index);
+        matched_executor_selector.push_back(result_index);
+    };
+    auto false_func = [&](size_t self_index, size_t result_index) {
+        not_matched_self_selector.push_back(self_index);
+        not_matched_executor_selector.push_back(result_index);
+    };
 
     condition_view.for_each(null_func, true_func, false_func);
 }
@@ -128,153 +156,69 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, cond_column));
     DCHECK_EQ(cond_column->size(), count);
 
-    Selector true_selector;
-    Selector false_selector;
-    true_selector.reserve(count);
-    false_selector.reserve(count);
-    execute_if_selector(cond_column, count, true_selector, false_selector);
+    Selector true_executor_selector;
+    Selector true_self_selector;
+    Selector false_executor_selector;
+    Selector false_self_selector;
+
+    execute_if_selector(cond_column, selector, count, true_executor_selector, true_self_selector,
+                        false_executor_selector, false_self_selector);
 
     ColumnPtr true_column;
-    RETURN_IF_ERROR(_children[1]->execute_column(context, block, &true_selector,
-                                                 true_selector.size(), true_column));
+    RETURN_IF_ERROR(_children[1]->execute_column(context, block, &true_executor_selector,
+                                                 true_executor_selector.size(), true_column));
 
     ColumnPtr false_column;
-    RETURN_IF_ERROR(_children[2]->execute_column(context, block, &false_selector,
-                                                 false_selector.size(), false_column));
+    RETURN_IF_ERROR(_children[2]->execute_column(context, block, &false_executor_selector,
+                                                 false_executor_selector.size(), false_column));
 
-    result_column =
-            dispatch_fill_columns(true_column, true_selector, false_column, false_selector, count);
+    result_column = dispatch_fill_columns(true_column, true_self_selector, false_column,
+                                          false_self_selector, count);
     return Status::OK();
 }
 
-void execute_ifnull_selector(const ColumnPtr& cond_column, size_t count, Selector& null_selector,
-                             Selector& not_null_selector) {
-    ConditionColumnNullView condition_view =
-            ConditionColumnNullView::create(cond_column, nullptr, count);
-    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
-    auto not_null_func = [&](size_t i, size_t result_index) {
-        not_null_selector.push_back(result_index);
-    };
-
-    condition_view.for_each(null_func, not_null_func);
-}
-
-Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block* block,
-                                              Selector* selector, size_t count,
-                                              ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
-    DCHECK(selector == nullptr || selector->size() == count);
-    ColumnPtr expr1_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, expr1_column));
-    DCHECK_EQ(expr1_column->size(), count);
-
-    Selector not_null_selector;
-    Selector null_selector;
-    not_null_selector.reserve(count);
-    null_selector.reserve(count);
-
-    execute_ifnull_selector(expr1_column, count, null_selector, not_null_selector);
-    // filter not null part
-    expr1_column =
-            filter_column_with_selector(expr1_column, &not_null_selector, not_null_selector.size());
-
-    ColumnPtr expr2_column;
-    RETURN_IF_ERROR(_children[1]->execute_column(context, block, &null_selector,
-                                                 null_selector.size(), expr2_column));
-
-    result_column = dispatch_fill_columns(expr1_column, not_null_selector, expr2_column,
-                                          null_selector, count);
-    return Status::OK();
-}
-
-void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* cond_selector,
-                               size_t count, Selector& null_selector, Selector& not_null_selector,
-                               Selector& cond_self_selector) {
-    ConditionColumnNullView condition_view =
-            ConditionColumnNullView::create(cond_column, cond_selector, count);
-
-    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
-
-    auto not_null_func = [&](size_t i, size_t result_index) {
-        not_null_selector.push_back(result_index);
-        cond_self_selector.push_back(i);
-    };
-
-    condition_view.for_each(null_func, not_null_func);
-}
-
-Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Block* block,
-                                                Selector* selector, size_t count,
-                                                ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr) << debug_string();
-    DCHECK(selector == nullptr || selector->size() == count);
-
-    std::vector<ColumnAndSelector> columns_and_selectors;
-    columns_and_selectors.resize(_children.size() +
-                                 1); // the last one represents the selector for null output
-
-    Selector* current_selector = selector;
-    size_t current_count = count;
-
-    Selector left_null_selector; // used to store the remaining null rows
-
-    Selector self_selector; // used to store the not-null positions in the current column
-
-    for (int64_t i = 0; i < _children.size(); ++i) {
-        ColumnPtr child_column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, current_selector,
-                                                     current_count, child_column));
-
-        DCHECK(current_selector == nullptr || current_selector->size() == child_column->size());
-
-        Selector null_selector;
-        self_selector.clear();
-
-        execute_coalesce_selector(child_column, current_selector, current_count,
-                                  null_selector /*null selector*/,
-                                  columns_and_selectors[i].selector /*not null selector*/,
-                                  self_selector /*self selector*/);
-
-        columns_and_selectors[i].column =
-                filter_column_with_selector(child_column, &self_selector, self_selector.size());
-
-        DCHECK_EQ(columns_and_selectors[i].column->size(),
-                  columns_and_selectors[i].selector.size());
-
-        left_null_selector.swap(null_selector);
-
-        // the rows that the next column needs to process are the null rows of the current column
-        current_selector = &left_null_selector;
-        current_count = left_null_selector.size();
-
-        if (left_null_selector.size() == 0) {
-            // all rows are filled, no need to process further
-            break;
-        }
-    }
-
-    // the remaining null rows at the end
-    columns_and_selectors.back().selector.swap(left_null_selector);
-
-    result_column = dispatch_fill_columns(columns_and_selectors, count);
-    return Status::OK();
-}
-
-ShortCircuitCaseExpr::ShortCircuitCaseExpr(const TExprNode& node)
-        : ShortCircuitExpr(node), _has_else_expr(node.case_expr.has_else_expr) {}
-
-void execute_case_when_selector(const ColumnPtr& when_column, const Selector* when_selector,
-                                size_t count, Selector& matched_selector,
-                                Selector& not_matched_selector) {
-    DCHECK(when_column->size() == count);
+void execute_case_selector(const ColumnPtr& cond_column, const Selector* executor_selector,
+                           size_t executor_count, const Selector* current_selector,
+                           Selector& matched_executor_selector, Selector& matched_current_selector,
+                           Selector& not_matched_executor_selector,
+                           Selector& not_matched_current_selector) {
     ConditionColumnView condition_view =
-            ConditionColumnView::create(when_column, when_selector, count);
+            ConditionColumnView::create(cond_column, executor_selector, executor_count);
+    if (current_selector == nullptr) {
+        // 如果没有current_selector，说明是第一次执行condition列，这个时候self_index和current_index是一样的
+        auto null_func = [&](size_t self_index, size_t executor_index) {
+            not_matched_current_selector.push_back(self_index);
+            not_matched_executor_selector.push_back(executor_index);
+        };
+        auto true_func = [&](size_t self_index, size_t executor_index) {
+            matched_current_selector.push_back(self_index);
+            matched_executor_selector.push_back(executor_index);
+        };
+        auto false_func = [&](size_t self_index, size_t executor_index) {
+            not_matched_current_selector.push_back(self_index);
+            not_matched_executor_selector.push_back(executor_index);
+        };
+        condition_view.for_each(null_func, true_func, false_func);
+    } else {
+        // 如果有current_selector，说明不是第一次执行condition列，这个时候self_index和current_index是不一样的
+        // 我们需要根据self和current_selector，来确定current_index
+        const auto& current_selector_data = *current_selector;
+        DCHECK_EQ(current_selector_data.size(), executor_count);
 
-    auto null_func = [&](size_t i) { not_matched_selector.push_back(i); };
-    auto true_func = [&](size_t i) { matched_selector.push_back(i); };
-    auto false_func = [&](size_t i) { not_matched_selector.push_back(i); };
-
-    condition_view.for_each(null_func, true_func, false_func);
+        auto null_func = [&](size_t self_index, size_t executor_index) {
+            not_matched_current_selector.push_back(current_selector_data[self_index]);
+            not_matched_executor_selector.push_back(executor_index);
+        };
+        auto true_func = [&](size_t self_index, size_t executor_index) {
+            matched_current_selector.push_back(current_selector_data[self_index]);
+            matched_executor_selector.push_back(executor_index);
+        };
+        auto false_func = [&](size_t self_index, size_t executor_index) {
+            not_matched_current_selector.push_back(current_selector_data[self_index]);
+            not_matched_executor_selector.push_back(executor_index);
+        };
+        condition_view.for_each(null_func, true_func, false_func);
+    }
 }
 
 Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* block,
@@ -291,43 +235,44 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
     std::vector<ColumnAndSelector> columns_and_selectors;
     columns_and_selectors.resize(num_branches);
 
-    Selector* current_selector = selector;
-    size_t current_count = count;
+    Selector* executor_selector = selector;
+    size_t executor_count = count;
 
-    Selector left_not_matched_selector; // used to store the remaining unmatched rows
+    Selector* current_selector = nullptr;
+
+    Selector left_not_matched_executor_selector;
+    Selector left_not_matched_current_selector;
 
     for (int64_t i = 0; i < static_cast<int64_t>(_children.size()) - _has_else_expr; i += 2) {
         ColumnPtr when_column_ptr;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, current_selector,
-                                                     current_count, when_column_ptr));
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, executor_selector,
+                                                     executor_count, when_column_ptr));
 
-        DCHECK(current_selector == nullptr || current_selector->size() == when_column_ptr->size());
+        DCHECK(executor_selector == nullptr ||
+               executor_selector->size() == when_column_ptr->size());
 
-        Selector not_matched_selector;
+        Selector matched_executor_selector;
+        Selector matched_current_selector;
+        Selector not_matched_executor_selector;
+        Selector not_matched_current_selector;
 
-        execute_case_when_selector(when_column_ptr, current_selector, current_count,
-                                   columns_and_selectors[i / 2].selector /*matched selector*/,
-                                   not_matched_selector /*not matched selector*/);
+        execute_case_selector(when_column_ptr, executor_selector, executor_count, current_selector,
+                              matched_executor_selector, matched_current_selector,
+                              not_matched_executor_selector, not_matched_current_selector);
 
-        auto& then_column_ptr = columns_and_selectors[i / 2].column;
+        ColumnPtr then_column_ptr;
+        RETURN_IF_ERROR(_children[i + 1]->execute_column(context, block, &matched_executor_selector,
+                                                         matched_executor_selector.size(),
+                                                         then_column_ptr));
+        columns_and_selectors[i / 2].column = then_column_ptr;
+        columns_and_selectors[i / 2].selector.swap(matched_current_selector);
 
-        auto& then_selector = columns_and_selectors[i / 2].selector;
+        left_not_matched_executor_selector.swap(not_matched_executor_selector);
+        left_not_matched_current_selector.swap(not_matched_current_selector);
 
-        RETURN_IF_ERROR(_children[i + 1]->execute_column(context, block, &then_selector,
-                                                         then_selector.size(), then_column_ptr));
-
-        DCHECK_EQ(columns_and_selectors[i / 2].column->size(),
-                  columns_and_selectors[i / 2].selector.size());
-
-        left_not_matched_selector.swap(not_matched_selector);
-        // the rows that the next column needs to process are the not-matched rows of the current column
-        current_selector = &left_not_matched_selector;
-        current_count = left_not_matched_selector.size();
-
-        if (left_not_matched_selector.size() == 0) {
-            // all rows are matched, no need to process further
-            break;
-        }
+        executor_selector = &left_not_matched_executor_selector;
+        executor_count = left_not_matched_executor_selector.size();
+        current_selector = &left_not_matched_current_selector;
     }
 
     // handle the else branch
@@ -335,17 +280,159 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
         DCHECK_EQ(columns_and_selectors.size(), (_children.size() + 1) / 2);
 
         ColumnPtr else_column_ptr;
-        RETURN_IF_ERROR(_children.back()->execute_column(context, block, current_selector,
-                                                         current_count, else_column_ptr));
+        RETURN_IF_ERROR(_children.back()->execute_column(context, block, executor_selector,
+                                                         executor_count, else_column_ptr));
         columns_and_selectors.back().column = else_column_ptr;
-        columns_and_selectors.back().selector.swap(left_not_matched_selector);
+        columns_and_selectors.back().selector.swap(left_not_matched_current_selector);
     } else {
         // no else branch, all remaining rows are null
-        columns_and_selectors.back().selector.swap(left_not_matched_selector);
+        columns_and_selectors.back().selector.swap(left_not_matched_current_selector);
     }
 
     result_column = dispatch_fill_columns(columns_and_selectors, count);
     return Status::OK();
 }
 
+// 对于ifnull来说，我们需要区分null和not null两种情况
+// 和if不一样的是，我们需要一个not_null_executor_selector,因为not null的列已经执行完了（就是输入的cond_column
+// 需要在调用后手动filter掉not null的行
+
+void execute_ifnull_selector(const ColumnPtr& cond_column, const Selector* selector, size_t count,
+                             Selector& null_executor_selector, Selector& null_current_selector,
+                             Selector& not_null_self_selector) {
+    ConditionColumnNullView condition_view =
+            ConditionColumnNullView::create(cond_column, selector, count);
+
+    null_executor_selector.reserve(count);
+    null_current_selector.reserve(count);
+    not_null_self_selector.reserve(count);
+
+    auto null_func = [&](size_t self_index, size_t executor_index) {
+        null_current_selector.push_back(self_index);
+        null_executor_selector.push_back(executor_index);
+    };
+    auto not_null_func = [&](size_t self_index, size_t executor_index) {
+        not_null_self_selector.push_back(self_index);
+    };
+
+    condition_view.for_each(null_func, not_null_func);
+}
+
+Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block* block,
+                                              Selector* selector, size_t count,
+                                              ColumnPtr& result_column) const {
+    DCHECK(_open_finished || block == nullptr) << debug_string();
+    DCHECK(selector == nullptr || selector->size() == count);
+    ColumnPtr expr1_column;
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, expr1_column));
+    DCHECK_EQ(expr1_column->size(), count);
+    Selector null_executor_selector;
+    Selector null_current_selector;
+    Selector not_null_self_selector;
+
+    execute_ifnull_selector(expr1_column, selector, count, null_executor_selector,
+                            null_current_selector, not_null_self_selector);
+    // filter not null part
+    expr1_column = filter_column_with_selector(expr1_column, &not_null_self_selector,
+                                               not_null_self_selector.size());
+
+    ColumnPtr expr2_column;
+    RETURN_IF_ERROR(_children[1]->execute_column(context, block, &null_executor_selector,
+                                                 null_executor_selector.size(), expr2_column));
+
+    result_column = dispatch_fill_columns(expr1_column, not_null_self_selector, expr2_column,
+                                          null_current_selector, count);
+    return Status::OK();
+}
+
+void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* executor_selector,
+                               size_t executor_count, const Selector* current_selector,
+                               Selector& null_executor_selector, Selector& null_current_selector,
+                               Selector& not_null_current_selector,
+                               Selector& not_null_self_selector) {
+    ConditionColumnNullView condition_view =
+            ConditionColumnNullView::create(cond_column, executor_selector, executor_count);
+    if (current_selector == nullptr) {
+        // 如果没有current_selector，说明是第一次执行condition列，这个时候self_index和current_index是一样的
+        auto null_func = [&](size_t self_index, size_t executor_index) {
+            null_current_selector.push_back(self_index);
+            null_executor_selector.push_back(executor_index);
+        };
+        auto not_null_func = [&](size_t self_index, size_t executor_index) {
+            not_null_current_selector.push_back(self_index);
+            not_null_self_selector.push_back(self_index);
+        };
+        condition_view.for_each(null_func, not_null_func);
+    } else {
+        // 如果有current_selector，说明不是第一次执行condition列，这个时候self_index和current_index是不一样的
+        // 我们需要根据self和current_selector，来确定current_index
+        const auto& current_selector_data = *current_selector;
+        DCHECK_EQ(current_selector_data.size(), executor_count);
+        auto null_func = [&](size_t self_index, size_t executor_index) {
+            null_current_selector.push_back(current_selector_data[self_index]);
+            null_executor_selector.push_back(executor_index);
+        };
+        auto not_null_func = [&](size_t self_index, size_t executor_index) {
+            not_null_current_selector.push_back(current_selector_data[self_index]);
+            not_null_self_selector.push_back(self_index);
+        };
+        condition_view.for_each(null_func, not_null_func);
+    }
+}
+
+Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Block* block,
+                                                Selector* selector, size_t count,
+                                                ColumnPtr& result_column) const {
+    DCHECK(_open_finished || block == nullptr) << debug_string();
+    DCHECK(selector == nullptr || selector->size() == count);
+
+    std::vector<ColumnAndSelector> columns_and_selectors;
+    columns_and_selectors.resize(_children.size() +
+                                 1); // the last one represents the selector for null output
+
+    Selector* executor_selector = selector;
+    size_t executor_count = count;
+
+    Selector* current_selector = nullptr;
+    Selector left_null_executor_selector;
+    Selector left_null_current_selector;
+
+    for (int64_t i = 0; i < _children.size(); ++i) {
+        ColumnPtr child_column_ptr;
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, executor_selector,
+                                                     executor_count, child_column_ptr));
+
+        DCHECK(executor_selector == nullptr ||
+               executor_selector->size() == child_column_ptr->size());
+
+        Selector null_executor_selector;
+        Selector null_current_selector;
+        Selector not_null_current_selector;
+        Selector not_null_self_selector;
+
+        execute_coalesce_selector(child_column_ptr, executor_selector, executor_count,
+                                  current_selector, null_executor_selector, null_current_selector,
+                                  not_null_current_selector, not_null_self_selector);
+
+        // use not_null_self_selector to filter child_column_ptr
+        child_column_ptr = filter_column_with_selector(child_column_ptr, &not_null_self_selector,
+                                                       not_null_self_selector.size());
+
+        columns_and_selectors[i].column = child_column_ptr;
+        columns_and_selectors[i].selector.swap(not_null_current_selector);
+
+        left_null_executor_selector.swap(null_executor_selector);
+        left_null_current_selector.swap(null_current_selector);
+
+        executor_selector = &left_null_executor_selector;
+        executor_count = left_null_executor_selector.size();
+        current_selector = &left_null_current_selector;
+    }
+
+    // the remaining null rows at the end
+    columns_and_selectors.back().selector.swap(left_null_current_selector);
+
+    result_column = dispatch_fill_columns(columns_and_selectors, count);
+    return Status::OK();
+}
 } // namespace doris::vectorized

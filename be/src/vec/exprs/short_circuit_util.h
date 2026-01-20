@@ -199,6 +199,15 @@ struct ColumnAndSelector {
         ss << "ColumnAndSelector(selector_size=" << selector.size()
            << ", output_nulls=" << output_nulls()
            << ", column size=" << (column ? std::to_string(column->size()) : "null") << ")";
+
+        ss << "\n selector data: [";
+        for (size_t i = 0; i < selector.size(); ++i) {
+            if (i != 0) {
+                ss << ", ";
+            }
+            ss << selector[i];
+        }
+        ss << "]";
         return ss.str();
     }
 };
@@ -375,12 +384,11 @@ struct ConditionColumnViewHelper {
         if (_selector != nullptr) {
             const auto& selector_data = *_selector;
             for (size_t i = 0; i < _count; ++i) {
-                auto index = selector_data[i];
-                f(index_check_const<is_const>(i), index);
+                f(index_check_const<is_const>(i), i, selector_data[i]);
             }
         } else {
             for (size_t i = 0; i < _count; ++i) {
-                f(index_check_const<is_const>(i), i);
+                f(index_check_const<is_const>(i), i, i);
             }
         }
     }
@@ -408,14 +416,14 @@ struct ConditionColumnView : ColumnNullConstViewScalar<TYPE_BOOLEAN>, ConditionC
     void for_each(NullFunc& null_func, TrueFunc& true_func, FalseFunc& false_func) const {
         if (this->null_map != nullptr) {
             const auto& null_map_data = *(this->null_map);
-            auto update = [&](size_t i, size_t result_index) {
+            auto update = [&](size_t i, size_t self_index, size_t executor_index) {
                 if (null_map_data[i]) {
-                    null_func(result_index);
+                    null_func(self_index, executor_index);
                 } else {
                     if (this->data[i]) {
-                        true_func(result_index);
+                        true_func(self_index, executor_index);
                     } else {
-                        false_func(result_index);
+                        false_func(self_index, executor_index);
                     }
                 }
             };
@@ -426,11 +434,11 @@ struct ConditionColumnView : ColumnNullConstViewScalar<TYPE_BOOLEAN>, ConditionC
             }
         } else {
             // non-nullable condition column
-            auto update = [&](size_t i, size_t result_index) {
+            auto update = [&](size_t i, size_t self_index, size_t executor_index) {
                 if (this->data[i]) {
-                    true_func(result_index);
+                    true_func(self_index, executor_index);
                 } else {
-                    false_func(result_index);
+                    false_func(self_index, executor_index);
                 }
             };
             if (is_const) {
@@ -458,11 +466,11 @@ struct ConditionColumnNullView : ColumnNullConstView, ConditionColumnViewHelper 
     void for_each(NullFunc& null_func, NotNullFunc& not_null_func) const {
         if (this->null_map != nullptr) {
             const auto& null_map_data = *(this->null_map);
-            auto update = [&](size_t i, size_t result_index) {
+            auto update = [&](size_t i, size_t self_index, size_t executor_index) {
                 if (null_map_data[i]) {
-                    null_func(i, result_index);
+                    null_func(self_index, executor_index);
                 } else {
-                    not_null_func(i, result_index);
+                    not_null_func(self_index, executor_index);
                 }
             };
             if (is_const) {
@@ -472,7 +480,9 @@ struct ConditionColumnNullView : ColumnNullConstView, ConditionColumnViewHelper 
             }
         } else {
             // non-nullable condition column
-            auto update = [&](size_t i, size_t result_index) { not_null_func(i, result_index); };
+            auto update = [&](size_t i, size_t self_index, size_t executor_index) {
+                not_null_func(self_index, executor_index);
+            };
             if (is_const) {
                 for_each_with_selector<true>(update);
             } else {
