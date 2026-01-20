@@ -78,7 +78,6 @@ under the License.
         <!-- Arrow 18 only supports jdk17 -->
         <arrow.version>17.0.0</arrow.version>
         <skipShade>false</skipShade>
-        <skipRemoteResources>false</skipRemoteResources>
     </properties>
     <build>
         <plugins>
@@ -86,14 +85,6 @@ under the License.
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
                 <version>1.2.5</version>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-remote-resources-plugin</artifactId>
-                <version>1.7.0</version>
-                <configuration>
-                    <skip>${skipRemoteResources}</skip>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -105,13 +96,6 @@ under the License.
                             <mainClass>org.apache.doris.regression.RegressionTest</mainClass>
                         </manifest>
                     </archive>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <useIncrementalCompilation>true</useIncrementalCompilation>
                 </configuration>
             </plugin>
             <plugin>

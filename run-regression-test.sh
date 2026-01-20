@@ -31,7 +31,7 @@ Usage: $0 <shell_options> <framework_options>
      --clean    clean output of regression test framework
      --teamcity print teamcity service messages
      --run      run regression test. build framework if necessary
-     --skip-shade             skip maven-shade-plugin and run with classpath (also skips remote resources)
+     --skip-shade             skip maven-shade-plugin and run with classpath
 
   Optional framework_options:
      -s                                run a specified suite
@@ -91,7 +91,6 @@ WRONG_CMD=0
 TEAMCITY=0
 RUN=0
 SKIP_SHADE=false
-SKIP_REMOTE_RESOURCES=false
 if [[ "$#" == 0 ]]; then
     #default
     CLEAN=0
@@ -129,7 +128,6 @@ else
             ;;
         --skip-shade)
             SKIP_SHADE=true
-            SKIP_REMOTE_RESOURCES=true
             shift
             ;;
         *)
@@ -157,12 +155,8 @@ if ! "${MVN_CMD}" --version; then
 fi
 export MVN_CMD
 SKIP_SHADE_VALUE=false
-SKIP_REMOTE_RESOURCES_VALUE=false
 if is_truthy "${SKIP_SHADE}"; then
     SKIP_SHADE_VALUE=true
-fi
-if is_truthy "${SKIP_REMOTE_RESOURCES}"; then
-    SKIP_REMOTE_RESOURCES_VALUE=true
 fi
 
 CONF_DIR="${DORIS_HOME}/regression-test/conf"
@@ -213,7 +207,7 @@ if [[ -z "${RUN_JAR_PATH}" ]]; then
     cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
 
     cd "${DORIS_HOME}/regression-test/framework"
-    MVN_ARGS=(package "-DskipShade=${SKIP_SHADE_VALUE}" "-DskipRemoteResources=${SKIP_REMOTE_RESOURCES_VALUE}")
+    MVN_ARGS=(package "-DskipShade=${SKIP_SHADE_VALUE}")
     if is_truthy "${SKIP_SHADE}"; then
         MVN_ARGS+=(dependency:build-classpath "-Dmdep.outputFile=${CLASSPATH_FILE}")
     fi
@@ -245,8 +239,8 @@ fi
 if is_truthy "${SKIP_SHADE}" && [[ ! -f "${CLASSPATH_FILE}" ]]; then
     echo "===== Build Regression Test Framework Classpath ====="
     cd "${DORIS_HOME}/regression-test/framework"
-    "${MVN_CMD}" -DskipShade="${SKIP_SHADE_VALUE}" -DskipRemoteResources="${SKIP_REMOTE_RESOURCES_VALUE}" \
-        -DskipTests dependency:build-classpath -Dmdep.outputFile="${CLASSPATH_FILE}"
+    "${MVN_CMD}" -DskipShade="${SKIP_SHADE_VALUE}" -DskipTests dependency:build-classpath \
+        -Dmdep.outputFile="${CLASSPATH_FILE}"
     cd "${DORIS_HOME}"
 fi
 
