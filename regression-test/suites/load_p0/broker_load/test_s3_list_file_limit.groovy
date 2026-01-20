@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_list_file_limit", "load_p0") {
+suite("test_s3_list_file_limit", "load_p0, nonConcurrent") {
     def tableName = "test_s3_list_file_limit_table"
     def bucket = getS3BucketName()
     def s3Endpoint = getS3Endpoint()
