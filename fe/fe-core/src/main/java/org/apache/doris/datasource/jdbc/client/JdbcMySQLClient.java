@@ -422,7 +422,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDateV2Type();
             case "DATETIME":
             case "DATETIMEV2": {
-                int scale = (openParen == -1) ? 6
+                int scale = (openParen == -1) ? 0
                         : Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
                 if (scale > 6) {
                     scale = 6;
