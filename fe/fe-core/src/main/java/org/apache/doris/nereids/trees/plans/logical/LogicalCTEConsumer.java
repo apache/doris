@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * LogicalCTEConsumer
@@ -74,7 +75,11 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
         this.name = Objects.requireNonNull(name, "name should not null");
         ImmutableMap.Builder<Slot, Slot> cToPBuilder = ImmutableMap.builder();
         ImmutableMultimap.Builder<Slot, Slot> pToCBuilder = ImmutableMultimap.builder();
-        List<Slot> producerOutput = producerPlan.getOutput();
+        // apply distinct on producerPlan.getOutput() to avoid mis-matching between cToPBuilder and pToCBuilder
+        // example: producerPlan.getOutput() =[a#1, a#1], by generateConsumerSlot(...), a#1->b#2, a#1->b#3
+        // eventually, pToC: a#1->b#3, where b#2 is overlapped by b#3
+        //             cToP: b#3->a#1, b#2->a#1
+        List<Slot> producerOutput = producerPlan.getOutput().stream().distinct().collect(Collectors.toList());
         for (Slot producerOutputSlot : producerOutput) {
             Slot consumerSlot = generateConsumerSlot(this.name, producerOutputSlot);
             cToPBuilder.put(consumerSlot, producerOutputSlot);
