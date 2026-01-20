@@ -84,7 +84,30 @@ suite("test_outer_join", "nereids_p0") {
         contains "FULL OUTER JOIN(PARTITIONED)"
     }
 
-    sql "DROP TABLE IF EXISTS ${tbl1}"
-    sql "DROP TABLE IF EXISTS ${tbl2}"
-    sql "DROP TABLE IF EXISTS ${tbl3}"
+    def tbl4 = "test_outer_join4"
+    def tbl5 = "test_outer_join5"
+
+    sql "DROP TABLE IF EXISTS test_outer_join4"
+    sql """
+        CREATE TABLE test_outer_join4 (
+            k INT,
+            d DATEV2
+        )
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ("replication_num" = "1");
+    """
+    sql "DROP TABLE IF EXISTS test_outer_join5"
+    sql """
+        CREATE TABLE test_outer_join5 (
+            k INT
+        )
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ("replication_num" = "1");
+    """
+    sql """INSERT INTO test_outer_join4 VALUES (1, '2023-12-18'), (2, '2023-12-15');"""
+    sql """INSERT INTO test_outer_join5 VALUES (1), (2), (3);"""
+
+    order_qt_join """
+        SELECT k, add_time(d, '23:30:01') FROM test_outer_join4 RIGHT JOIN test_outer_join5 USING (k) ORDER BY k;
+    """
 }

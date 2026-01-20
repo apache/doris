@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/column_meta_accessor.h"
 
+#include <crc32c/crc32c.h>
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -27,7 +28,6 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 
 using namespace doris;
 using namespace doris::segment_v2;
@@ -52,7 +52,7 @@ Status append_footer_trailer(io::FileWriter* fw, SegmentFooterPB* footer) {
     }
     faststring fixed_buf;
     put_fixed32_le(&fixed_buf, static_cast<uint32_t>(footer_buf.size()));
-    uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
     fixed_buf.append("D0R1", 4);
     std::vector<Slice> slices {Slice(footer_buf), Slice(fixed_buf)};

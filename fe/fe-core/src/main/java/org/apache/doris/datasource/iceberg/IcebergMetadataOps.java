@@ -455,6 +455,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                             + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         String branchName = branchInfo.getBranchName();
+
+        if (branchName == null || branchName.trim().isEmpty()) {
+            throw new UserException("Branch name cannot be empty");
+        }
+
         boolean refExists = null != icebergTable.refs().get(branchName);
         boolean create = branchInfo.getCreate();
         boolean replace = branchInfo.getReplace();
@@ -535,6 +540,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         String tagName = tagInfo.getTagName();
+
+        if (tagName == null || tagName.trim().isEmpty()) {
+            throw new UserException("Tag name cannot be empty");
+        }
+
         boolean create = tagInfo.getCreate();
         boolean replace = tagInfo.getReplace();
         boolean ifNotExists = tagInfo.getIfNotExists();
@@ -623,19 +633,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private void refreshTable(ExternalTable dorisTable) {
+    private void refreshTable(ExternalTable dorisTable, long updateTime) {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dorisTable.getRemoteDbName());
         if (db.isPresent()) {
             Optional<?> tbl = db.get().getTableForReplay(dorisTable.getRemoteName());
             if (tbl.isPresent()) {
                 Env.getCurrentEnv().getRefreshManager()
-                        .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), System.currentTimeMillis());
+                        .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), updateTime);
             }
         }
     }
 
     @Override
-    public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+    public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         validateCommonColumnInfo(column);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
@@ -650,11 +660,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to add column: " + column.getName() + " to table: "
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
     }
 
     @Override
-    public void addColumns(ExternalTable dorisTable, List<Column> columns) throws UserException {
+    public void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdateSchema updateSchema = icebergTable.updateSchema();
         for (Column column : columns) {
@@ -667,11 +677,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to add columns to table: " + icebergTable.name()
                     + ", error message is: " + e.getMessage(), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
     }
 
     @Override
-    public void dropColumn(ExternalTable dorisTable, String columnName) throws UserException {
+    public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.deleteColumn(columnName);
@@ -681,11 +691,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to drop column: " + columnName + " from table: "
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
     }
 
     @Override
-    public void renameColumn(ExternalTable dorisTable, String oldName, String newName) throws UserException {
+    public void renameColumn(ExternalTable dorisTable, String oldName, String newName, long updateTime)
+            throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.renameColumn(oldName, newName);
@@ -695,11 +706,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to rename column: " + oldName + " to " + newName
                     + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
     }
 
     @Override
-    public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+    public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         validateForModifyColumn(column, icebergTable);
@@ -720,7 +731,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to modify column: " + column.getName() + " in table: "
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
     }
 
     private void validateForModifyColumn(Column column, Table icebergTable) throws UserException {
@@ -752,7 +763,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void reorderColumns(ExternalTable dorisTable, List<String> newOrder) throws UserException {
+    public void reorderColumns(ExternalTable dorisTable, List<String> newOrder, long updateTime) throws UserException {
         if (newOrder == null || newOrder.isEmpty()) {
             throw new UserException("Reorder column failed, new order is empty.");
         }
@@ -768,7 +779,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to reorder columns in table: " + icebergTable.name()
                     + ", error message is: " + e.getMessage(), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
     }
 
     public ExecutionAuthenticator getExecutionAuthenticator() {
@@ -810,7 +821,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     /**
      * Add partition field to Iceberg table for partition evolution
      */
-    public void addPartitionField(ExternalTable dorisTable, AddPartitionFieldOp op) throws UserException {
+    public void addPartitionField(ExternalTable dorisTable, AddPartitionFieldOp op, long updateTime)
+            throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
@@ -832,7 +844,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to add partition field to table: " + icebergTable.name()
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
         // Reset cached isValidRelatedTable flag after partition evolution
         ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
@@ -840,7 +852,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     /**
      * Drop partition field from Iceberg table for partition evolution
      */
-    public void dropPartitionField(ExternalTable dorisTable, DropPartitionFieldOp op) throws UserException {
+    public void dropPartitionField(ExternalTable dorisTable, DropPartitionFieldOp op, long updateTime)
+            throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
@@ -860,7 +873,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to drop partition field from table: " + icebergTable.name()
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
         // Reset cached isValidRelatedTable flag after partition evolution
         ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
@@ -868,7 +881,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     /**
      * Replace partition field in Iceberg table for partition evolution
      */
-    public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldOp op)
+    public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldOp op, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
@@ -903,7 +916,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new UserException("Failed to replace partition field in table: " + icebergTable.name()
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
-        refreshTable(dorisTable);
+        refreshTable(dorisTable, updateTime);
         // Reset cached isValidRelatedTable flag after partition evolution
         ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }

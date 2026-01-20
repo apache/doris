@@ -999,6 +999,35 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     }
     _num_columns++;
     _num_virtual_columns = _vir_col_idx_to_unique_id.size();
+    // generate column index mapping for seq map
+    if (_seq_col_uid_to_value_cols_uid.contains(column.unique_id())) {
+        const auto seq_idx = _field_uniqueid_to_index[column.unique_id()];
+        if (!_seq_col_idx_to_value_cols_idx.contains(seq_idx)) {
+            _seq_col_idx_to_value_cols_idx[seq_idx] = {};
+        }
+    }
+    if (_value_col_uid_to_seq_col_uid.contains(column.unique_id())) {
+        const auto seq_uid = _value_col_uid_to_seq_col_uid[column.unique_id()];
+        if (_field_uniqueid_to_index.contains(seq_uid)) {
+            bool all_uid_index_found = true;
+            std::vector<int32_t> value_cols_index;
+            for (const auto value_col_uid : _seq_col_uid_to_value_cols_uid[seq_uid]) {
+                if (!_field_uniqueid_to_index.contains(value_col_uid)) {
+                    all_uid_index_found = false;
+                    break;
+                }
+                value_cols_index.push_back(_field_uniqueid_to_index[value_col_uid]);
+            }
+            if (all_uid_index_found) {
+                const auto seq_idx = _field_uniqueid_to_index[seq_uid];
+                for (const auto col_idx : value_cols_index) {
+                    _seq_col_idx_to_value_cols_idx[seq_idx].push_back(col_idx);
+                    _value_col_idx_to_seq_col_idx[col_idx] = seq_idx;
+                }
+                _value_col_idx_to_seq_col_idx[seq_idx] = seq_idx;
+            }
+        }
+    }
 }
 
 void TabletSchema::append_index(TabletIndex&& index) {
@@ -1060,6 +1089,8 @@ void TabletSchema::clear_columns() {
     _num_variant_columns = 0;
     _num_null_columns = 0;
     _num_key_columns = 0;
+    _seq_col_idx_to_value_cols_idx.clear();
+    _value_col_idx_to_seq_col_idx.clear();
     _cols.clear();
 }
 
@@ -1167,6 +1198,64 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _storage_page_size = schema.storage_page_size();
     _storage_dict_page_size = schema.storage_dict_page_size();
     _schema_version = schema.schema_version();
+    if (schema.has_seq_map()) {
+        auto column_groups_pb = schema.seq_map();
+        _seq_col_uid_to_value_cols_uid.clear();
+        _value_col_uid_to_seq_col_uid.clear();
+        _seq_col_idx_to_value_cols_idx.clear();
+        _value_col_idx_to_seq_col_idx.clear();
+        /*
+         * ColumnGroupsPB is a list of cg_pb, and
+         * ColumnGroupsPB do not have begin() or end() method.
+         * we must use for(i=0;i<xx;i++) loop
+         */
+        for (int i = 0; i < column_groups_pb.cg_size(); i++) {
+            ColumnGroupPB cg_pb = column_groups_pb.cg(i);
+            uint32_t key_uid = cg_pb.sequence_column();
+            auto found = _field_uniqueid_to_index.find(key_uid);
+            DCHECK(found != _field_uniqueid_to_index.end())
+                    << "could not find sequence col with unique id = " << key_uid
+                    << " table_id=" << _table_id;
+            int32_t seq_index = found->second;
+            _seq_col_uid_to_value_cols_uid[key_uid] = {};
+            _seq_col_idx_to_value_cols_idx[seq_index] = {};
+            for (auto val_uid : cg_pb.columns_in_group()) {
+                _seq_col_uid_to_value_cols_uid[key_uid].push_back(val_uid);
+                found = _field_uniqueid_to_index.find(val_uid);
+                DCHECK(found != _field_uniqueid_to_index.end())
+                        << "could not find value col with unique id = " << key_uid
+                        << " table_id=" << _table_id;
+                int32_t val_index = found->second;
+                _seq_col_idx_to_value_cols_idx[seq_index].push_back(val_index);
+            }
+        }
+
+        if (!_seq_col_uid_to_value_cols_uid.empty()) {
+            /*
+                |** KEY **|        ** VALUE **     |
+                ------------------------------------
+                |** KEY **|  CDE is value| sequence|
+                |----|----|----|----|----|----|----|
+                A    B    C    D    E   S1   S2
+                0    1    2    3    4    5    6
+                for example: _seq_map is {5:{2,3}, 6:{4}}
+                then, _value_to_seq = {2:5,3:5,5:5,4:6,6:6}
+            */
+            for (auto& [seq_uid, cols_uid] : _seq_col_uid_to_value_cols_uid) {
+                for (auto col_uid : cols_uid) {
+                    _value_col_uid_to_seq_col_uid[col_uid] = seq_uid;
+                }
+                _value_col_uid_to_seq_col_uid[seq_uid] = seq_uid;
+            }
+
+            for (auto& [seq_idx, value_cols_idx] : _seq_col_idx_to_value_cols_idx) {
+                for (auto col_idx : value_cols_idx) {
+                    _value_col_idx_to_seq_col_idx[col_idx] = seq_idx;
+                }
+                _value_col_idx_to_seq_col_idx[seq_idx] = seq_idx;
+            }
+        }
+    }
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
         _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
@@ -1181,6 +1270,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
     } else {
         _is_external_segment_column_meta_used = false;
+    }
+    if (schema.has_integer_type_default_use_plain_encoding()) {
+        _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
+    }
+    if (schema.has_binary_plain_encoding_default_impl()) {
+        _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
     }
     update_metadata_size();
 }
@@ -1454,6 +1549,18 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
     tablet_schema_pb->set_is_external_segment_column_meta_used(
             _is_external_segment_column_meta_used);
+    tablet_schema_pb->set_integer_type_default_use_plain_encoding(
+            _integer_type_default_use_plain_encoding);
+    tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
+    auto column_groups_pb = tablet_schema_pb->mutable_seq_map();
+    for (const auto& it : _seq_col_uid_to_value_cols_uid) {
+        uint32_t key = it.first;
+        ColumnGroupPB* cg_pb = column_groups_pb->add_cg(); // ColumnGroupPB {key: {v1, v2, v3}}
+        cg_pb->set_sequence_column(key);
+        for (auto v : it.second) {
+            cg_pb->add_columns_in_group(v);
+        }
+    }
 }
 
 size_t TabletSchema::row_size() const {
@@ -1835,6 +1942,10 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
     if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
+        return false;
+    if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
+        return false;
+    if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
         return false;
     return true;
 }

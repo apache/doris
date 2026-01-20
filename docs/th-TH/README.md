@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Doris ให้การสนับสนุนสำหรับ Spark/Flink �
 
 * เว็บไซต์อย่างเป็นทางการ Apache Doris - [เว็บไซต์](https://doris.apache.org)
 * รายชื่อจดหมายนักพัฒนา - <dev@doris.apache.org> ส่งอีเมลไปที่ <dev-subscribe@doris.apache.org> ทำตามคำตอบเพื่อสมัครรับรายชื่อจดหมาย
-* ช่อง Slack - [เข้าร่วม Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* ช่อง Slack - [เข้าร่วม Slack](https://doris.apache.org/slack)
 * Twitter - [ติดตาม @doris_apache](https://twitter.com/doris_apache)
 
 

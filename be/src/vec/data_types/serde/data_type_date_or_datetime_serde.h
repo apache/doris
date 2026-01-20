@@ -41,9 +41,8 @@ public:
     constexpr static bool IsDatetime = (T == PrimitiveType::TYPE_DATETIME);
     static_assert(IsDatetime || T == PrimitiveType::TYPE_DATE,
                   "DataTypeDateSerDe can only be used for TYPE_DATE or TYPE_DATETIME");
-    using ColumnType = PrimitiveTypeTraits<T>::ColumnType;
-    using NativeType = PrimitiveTypeTraits<T>::CppNativeType; // int64
-    using CppType = PrimitiveTypeTraits<T>::CppType;          // VecDateTimeValue
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using CppType = typename PrimitiveTypeTraits<T>::CppType; // VecDateTimeValue
     constexpr static std::string_view name() { return IsDatetime ? "DateTime" : "Date"; }
 
     using typename DataTypeNumberSerDe<T>::FormatOptions;
@@ -66,23 +65,24 @@ public:
             const NullMap::value_type* null_map = nullptr) const final;
 
     template <typename IntDataType>
-    Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;
+    Status from_int_batch(const typename IntDataType::ColumnType& int_col,
+                          ColumnNullable& target_col) const;
     template <typename IntDataType>
-    Status from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+    Status from_int_strict_mode_batch(const typename IntDataType::ColumnType& int_col,
                                       IColumn& target_col) const;
 
     template <typename FloatDataType>
-    Status from_float_batch(const FloatDataType::ColumnType& float_col,
+    Status from_float_batch(const typename FloatDataType::ColumnType& float_col,
                             ColumnNullable& target_col) const;
     template <typename FloatDataType>
-    Status from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
+    Status from_float_strict_mode_batch(const typename FloatDataType::ColumnType& float_col,
                                         IColumn& target_col) const;
 
     template <typename DecimalDataType>
-    Status from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+    Status from_decimal_batch(const typename DecimalDataType::ColumnType& decimal_col,
                               ColumnNullable& target_col) const;
     template <typename DecimalDataType>
-    Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
+    Status from_decimal_strict_mode_batch(const typename DecimalDataType::ColumnType& decimal_col,
                                           IColumn& target_col) const;
 
     Status serialize_one_cell_to_json(

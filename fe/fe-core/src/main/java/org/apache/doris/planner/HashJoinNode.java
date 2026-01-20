@@ -93,19 +93,6 @@ public class HashJoinNode extends JoinNodeBase {
         this.markJoinConjuncts = markJoinConjuncts;
         children.add(outer);
         children.add(inner);
-
-        // Inherits all the nullable tuple from the children
-        // Mark tuples that form the "nullable" side of the outer join as nullable.
-        nullableTupleIds.addAll(inner.getNullableTupleIds());
-        nullableTupleIds.addAll(outer.getNullableTupleIds());
-        if (joinOp.equals(JoinOperator.FULL_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getOutputTupleIds());
-            nullableTupleIds.addAll(inner.getOutputTupleIds());
-        } else if (joinOp.equals(JoinOperator.LEFT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(inner.getOutputTupleIds());
-        } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
-            nullableTupleIds.addAll(outer.getOutputTupleIds());
-        }
         this.vIntermediateTupleDescList = Lists.newArrayList();
         this.outputTupleDesc = null;
     }
@@ -260,40 +247,6 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append("isMarkJoin: ").append(isMarkJoin()).append("\n");
         }
         return output.toString();
-    }
-
-    public enum DistributionMode {
-        NONE("NONE"),
-        BROADCAST("BROADCAST"),
-        PARTITIONED("PARTITIONED"),
-        BUCKET_SHUFFLE("BUCKET_SHUFFLE");
-
-        private final String description;
-
-        DistributionMode(String descr) {
-            this.description = descr;
-        }
-
-        @Override
-        public String toString() {
-            return description;
-        }
-
-        public TJoinDistributionType toThrift() {
-            switch (this) {
-                case NONE:
-                    return TJoinDistributionType.NONE;
-                case BROADCAST:
-                    return TJoinDistributionType.BROADCAST;
-                case PARTITIONED:
-                    return TJoinDistributionType.PARTITIONED;
-                case BUCKET_SHUFFLE:
-                    return TJoinDistributionType.BUCKET_SHUFFLE;
-                default:
-                    Preconditions.checkArgument(false, "Unknown DistributionMode: " + this);
-            }
-            return TJoinDistributionType.NONE;
-        }
     }
 
     /**

@@ -82,19 +82,21 @@ StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
 StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percentage,
                                    int64_t pk_index_cache_capacity, uint32_t num_shards)
         : _index_cache_percentage(index_cache_percentage) {
+    size_t data_page_capacity = 0;
+    size_t index_page_capacity = 0;
     if (index_cache_percentage == 0) {
-        _data_page_cache = std::make_unique<DataPageCache>(capacity, num_shards);
+        data_page_capacity = capacity;
     } else if (index_cache_percentage == 100) {
-        _index_page_cache = std::make_unique<IndexPageCache>(capacity, num_shards);
+        index_page_capacity = capacity;
     } else if (index_cache_percentage > 0 && index_cache_percentage < 100) {
-        _data_page_cache = std::make_unique<DataPageCache>(
-                capacity * (100 - index_cache_percentage) / 100, num_shards);
-        _index_page_cache = std::make_unique<IndexPageCache>(
-                capacity * index_cache_percentage / 100, num_shards);
+        data_page_capacity = capacity * (100 - index_cache_percentage) / 100;
+        index_page_capacity = capacity * index_cache_percentage / 100;
     } else {
         CHECK(false) << "invalid index page cache percentage";
     }
 
+    _data_page_cache = std::make_unique<DataPageCache>(data_page_capacity, num_shards);
+    _index_page_cache = std::make_unique<IndexPageCache>(index_page_capacity, num_shards);
     _pk_index_page_cache = std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
 }
 

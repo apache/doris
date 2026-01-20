@@ -232,6 +232,8 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    int64_t _last_bytes_read_from_local = 0;
+    int64_t _last_bytes_read_from_remote = 0;
 
 private:
     Status _init_expr_ctxes();
@@ -251,7 +253,8 @@ private:
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
     Status _process_conjuncts();
-    Status _process_late_arrival_conjuncts();
+    Status _process_late_arrival_conjuncts(bool* changed,
+                                           VExprContextSPtrs& new_push_down_conjuncts);
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
@@ -282,8 +285,6 @@ private:
         return _local_state == nullptr ? TPushAggOp::type::NONE
                                        : _local_state->get_push_down_agg_type();
     }
-
-    int64_t _get_push_down_count() { return _local_state->get_push_down_count(); }
 
     // enable the file meta cache only when
     // 1. max_external_file_meta_cache_num is > 0

@@ -129,7 +129,7 @@ class RoutineLoadTestUtils {
         return count
     }
 
-    static void waitForTaskAbort(Closure sqlRunner, String job, int maxAttempts = 60) {
+    static void waitForTaskAbort(Closure sqlRunner, String job, int maxAttempts = 60, int expectedAbortedTaskNum = 1) {
         def count = 0
         while (true) {
             def res = sqlRunner.call("show routine load for ${job}")
@@ -137,7 +137,7 @@ class RoutineLoadTestUtils {
             logger.info("Routine load statistic: ${statistic}")
             def jsonSlurper = new JsonSlurper()
             def json = jsonSlurper.parseText(res[0][14])
-            if (json.abortedTaskNum > 1) {
+            if (json.abortedTaskNum > expectedAbortedTaskNum) {
                 break
             }
             if (count > maxAttempts) {

@@ -110,7 +110,7 @@ public:
     }
 
     void get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
-                         Permutation& res) const override {
+                         HybridSorter&, Permutation& res) const override {
         res.resize(s);
         for (size_t i = 0; i < s; ++i) res[i] = i;
     }
@@ -153,6 +153,8 @@ public:
         __builtin_unreachable();
     }
 
+    // dummy column do not need to hash, so these functions are empty
+    // do not throw exception
     void update_hash_with_value(size_t n, SipHash& hash) const override {}
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
@@ -167,6 +169,12 @@ public:
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override {}
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override {}
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override {}
 
 protected:
     size_t s;

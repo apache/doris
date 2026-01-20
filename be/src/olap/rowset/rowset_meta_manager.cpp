@@ -72,21 +72,6 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     return Status::OK();
 }
 
-Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                               const RowsetId& rowset_id,
-                                               std::string* json_rowset_meta) {
-    RowsetMetaSharedPtr rowset_meta_ptr(new (std::nothrow) RowsetMeta());
-    Status status = get_rowset_meta(meta, tablet_uid, rowset_id, rowset_meta_ptr);
-    if (!status.ok()) {
-        return status;
-    }
-    bool ret = rowset_meta_ptr->json_rowset_meta(json_rowset_meta);
-    if (!ret) {
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("get json rowset meta failed. rowset id:{}",
-                                                       rowset_id.to_string());
-    }
-    return Status::OK();
-}
 Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
     if (rowset_meta_pb.partition_id() <= 0) {
@@ -572,27 +557,6 @@ Status RowsetMetaManager::traverse_binlog_metas(
                                traverse_binlog_meta_func);
     } while (status.ok() && seek_found);
 
-    return status;
-}
-
-Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
-                                                const std::string& rowset_meta_path) {
-    std::ifstream infile(rowset_meta_path);
-    char buffer[1024];
-    std::string json_rowset_meta;
-    while (!infile.eof()) {
-        infile.getline(buffer, 1024);
-        json_rowset_meta = json_rowset_meta + buffer;
-    }
-    boost::algorithm::trim(json_rowset_meta);
-    RowsetMeta rowset_meta;
-    bool ret = rowset_meta.init_from_json(json_rowset_meta);
-    if (!ret) {
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("parse json rowset meta failed.");
-    }
-    RowsetId rowset_id = rowset_meta.rowset_id();
-    TabletUid tablet_uid = rowset_meta.tablet_uid();
-    Status status = save(meta, tablet_uid, rowset_id, rowset_meta.get_rowset_pb(), false);
     return status;
 }
 

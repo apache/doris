@@ -547,7 +547,7 @@ Status VNodeChannel::init(RuntimeState* state) {
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
 
-    _row_desc = std::make_unique<RowDescriptor>(_tuple_desc, false);
+    _row_desc = std::make_unique<RowDescriptor>(_tuple_desc);
     _batch_size = state->batch_size();
 
     _stub = state->exec_env()->brpc_internal_client_cache()->get_client(_node_info.host,
@@ -1576,7 +1576,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
             _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
-    _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
+    _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc));
 
     // add all counter
     _input_rows_counter = ADD_COUNTER(profile, "RowsRead", TUnit::UNIT);

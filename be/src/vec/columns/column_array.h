@@ -149,6 +149,11 @@ public:
     void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
@@ -166,7 +171,7 @@ public:
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

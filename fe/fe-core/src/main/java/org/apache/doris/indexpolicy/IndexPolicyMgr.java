@@ -327,7 +327,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new PinyinTokenizerValidator();
                 break;
             default:
-                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKENIZERS.stream()
                         .filter(t -> !t.equals("empty"))
                         .collect(Collectors.toSet());
                 throw new DdlException("Unsupported tokenizer type: " + type
@@ -407,6 +407,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                     return;
                 }
                 throw new DdlException("index policy " + indexPolicyName + " does not exist");
+            }
+            if (policyToDrop.getType() != type) {
+                throw new DdlException("Cannot drop " + policyToDrop.getType() + " policy '"
+                        + indexPolicyName + "' by DROP " + type + " statement.");
             }
             if (policyToDrop.getType() == IndexPolicyTypeEnum.ANALYZER) {
                 checkAnalyzerNotUsedByIndex(policyToDrop.getName());

@@ -289,8 +289,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->get_data().size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::vector_vector(col_left->get_data(), col_right->get_data(),
                                                      vec_res);
 
@@ -300,8 +300,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::vector_constant(col_left->get_data(),
                                                        col_right->get_element(0), vec_res);
 
@@ -311,8 +311,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_right->size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::constant_vector(col_left->get_element(0),
                                                        col_right->get_data(), vec_res);
 
@@ -452,6 +452,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -487,6 +488,9 @@ public:
         }
         Field param_value;
         arguments[0].column->get(0, param_value);
+        if (param_value.is_null()) {
+            return Status::OK();
+        }
         auto param_type = arguments[0].type->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
@@ -499,7 +503,8 @@ public:
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_index(&param));
+        param.analyzer_ctx = analyzer_ctx;
+        RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;

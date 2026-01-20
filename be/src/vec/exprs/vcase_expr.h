@@ -216,11 +216,22 @@ private:
                             then_columns[i]->assume_mutable().get())
                             ->get_data()
                             .data();
-
-            for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                result_raw_data[row_idx] +=
-                        typename ColumnType::value_type(then_idx[row_idx] == i) *
-                        column_raw_data[row_idx];
+            if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+                          std::is_same_v<ColumnType, ColumnDateTime> ||
+                          std::is_same_v<ColumnType, ColumnDateV2> ||
+                          std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
+                    result_raw_data[row_idx] =
+                            (then_idx[row_idx] == i ? column_raw_data[row_idx]
+                                                    : typename ColumnType::value_type());
+                }
+            } else {
+                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
+                    result_raw_data[row_idx] +=
+                            typename ColumnType::value_type(then_idx[row_idx] == i) *
+                            column_raw_data[row_idx];
+                }
             }
         }
     }

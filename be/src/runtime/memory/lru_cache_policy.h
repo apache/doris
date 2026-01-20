@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "common/be_mock_util.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"
@@ -35,9 +36,8 @@ namespace doris {
 class LRUCachePolicy : public CachePolicy {
 public:
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
-                   uint32_t stale_sweep_time_s, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS,
-                   uint32_t element_count_capacity = DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY,
-                   bool enable_prune = true, bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K)
+                   uint32_t stale_sweep_time_s, uint32_t num_shards,
+                   uint32_t element_count_capacity, bool enable_prune, bool is_lru_k)
             : CachePolicy(type, capacity, stale_sweep_time_s, enable_prune),
               _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
@@ -55,8 +55,7 @@ public:
                    uint32_t stale_sweep_time_s, uint32_t num_shards,
                    uint32_t element_count_capacity,
                    CacheValueTimeExtractor cache_value_time_extractor,
-                   bool cache_value_check_timestamp, bool enable_prune = true,
-                   bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K)
+                   bool cache_value_check_timestamp, bool enable_prune, bool is_lru_k)
             : CachePolicy(type, capacity, stale_sweep_time_s, enable_prune),
               _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
@@ -74,11 +73,11 @@ public:
     void reset_cache() { _cache.reset(); }
 
     bool check_capacity(size_t capacity, uint32_t num_shards) {
-        if (capacity < num_shards) {
+        if (capacity == 0 || capacity < num_shards) {
             LOG(INFO) << fmt::format(
-                    "{} lru cache capacity({} B) less than num_shards({}), init failed, will be "
-                    "disabled.",
-                    type_string(type()), capacity, num_shards);
+                    "{} lru cache capacity({} B) {} num_shards({}), will be disabled.",
+                    type_string(type()), capacity, capacity == 0 ? "is 0, ignore" : "less than",
+                    num_shards);
             _enable_prune = false;
             return false;
         }
@@ -137,9 +136,9 @@ public:
 
     Cache::Handle* lookup(const CacheKey& key) { return _cache->lookup(key); }
 
-    void release(Cache::Handle* handle) { _cache->release(handle); }
+    MOCK_FUNCTION void release(Cache::Handle* handle) { _cache->release(handle); }
 
-    void* value(Cache::Handle* handle) { return _cache->value(handle); }
+    MOCK_FUNCTION void* value(Cache::Handle* handle) { return _cache->value(handle); }
 
     void erase(const CacheKey& key) { _cache->erase(key); }
 
@@ -254,7 +253,11 @@ public:
         if (std::dynamic_pointer_cast<doris::DummyLRUCache>(_cache)) {
             return 0;
         }
-
+        if (!_enable_prune) {
+            LOG(INFO) << "[MemoryGC] " << type_string(_type)
+                      << " cache prune disabled, so could not adjust capacity to free memory";
+            return 0;
+        }
         size_t old_capacity = get_capacity();
         int64_t old_mem_consumption = mem_consumption();
         int64_t old_usage = get_usage();

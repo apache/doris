@@ -104,9 +104,9 @@ public:
         return _distribute_rows_into_channels_timer;
     }
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
+    std::vector<int> local_channel_ids;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool _only_local_exchange {false};
-    std::vector<uint32_t> local_channel_ids;
 
     void on_channel_finished(InstanceLoId channel_id);
     vectorized::PartitionerBase* partitioner() const { return _partitioner.get(); }

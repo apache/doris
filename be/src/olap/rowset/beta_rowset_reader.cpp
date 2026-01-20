@@ -186,7 +186,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     if (_should_push_down_value_predicates()) {
-        if (_read_context->value_predicates != nullptr) {
+        // sequence mapping currently only support merge on read, so can not push down value predicates
+        if (_read_context->value_predicates != nullptr &&
+            !read_context->tablet_schema->has_seq_map()) {
             _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                    _read_context->value_predicates->begin(),
                                                    _read_context->value_predicates->end());
@@ -232,13 +234,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.condition_cache_digest = _read_context->condition_cache_digest;
     }
 
-    _read_options.io_ctx.expiration_time =
-            read_context->ttl_seconds > 0 && _rowset->rowset_meta()->newest_write_timestamp() > 0
-                    ? _rowset->rowset_meta()->newest_write_timestamp() + read_context->ttl_seconds
-                    : 0;
-    if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
-        _read_options.io_ctx.expiration_time = 0;
-    }
+    _read_options.io_ctx.expiration_time = read_context->ttl_seconds;
 
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;
@@ -262,7 +258,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->record_rowids && _read_context->rowid_conversion) {
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
-        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, _stats));
+        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, should_use_cache, _stats));
         RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
                                                                           segment_rows));
     }

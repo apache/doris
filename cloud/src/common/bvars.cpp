@@ -43,6 +43,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_begin_sub_txn("ms", "begin_sub_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_sub_txn("ms", "abort_sub_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_check_txn_conflict("ms", "check_txn_conflict");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_txn_with_coordinator("ms", "abort_txn_with_coordinator");
+BvarLatencyRecorderWithTag g_bvar_ms_get_prepare_txn_by_coordinator("ms", "get_prepare_txn_by_coordinator");
 BvarLatencyRecorderWithTag g_bvar_ms_clean_txn_label("ms", "clean_txn_label");
 BvarLatencyRecorderWithTag g_bvar_ms_get_version("ms", "get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version("ms", "batch_get_version");
@@ -118,6 +119,11 @@ BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count("ms", "
 MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count("instance", "txn_commit_with_partition_count", {"instance_id"});
 MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count("instance", "txn_commit_with_tablet_count", {"instance_id"});
 bvar::LatencyRecorder g_bvar_ms_scan_instance_update("ms", "scan_instance_update");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_waiting_duration("txn_lazy_committer", "waiting");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_committing_duration("txn_lazy_committer", "committing");
+bvar::LatencyRecorder g_bvar_txn_lazy_committer_commit_partition_duration("txn_lazy_committer", "commit_partition");
+bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted("txn_lazy_committer", "submitted");
+bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished("txn_lazy_committer", "finished");
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
@@ -175,6 +181,11 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_bytes_object_deleted(
         "recycler", "packed_file_bytes_object_deleted");
 BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_rowset_scanned_num(
         "recycler", "packed_file_rowset_scanned_num");
+
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count(
+        "recycler", "batch_delete_rowset_plan_count");
+BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures(
+        "recycler", "batch_delete_failures");
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
@@ -237,19 +248,9 @@ bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns("fdb_qos_w
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns("fdb_qos_worst_durability_lag_storage_server_ns", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes("fdb_qos_worst_log_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes("fdb_qos_worst_storage_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_conflict_rate_hz("fdb_workload_conflict_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_location_rate_hz("fdb_workload_location_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_keys_read_hz("fdb_workload_keys_read_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_read_bytes_hz("fdb_workload_read_bytes_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_read_rate_hz("fdb_workload_read_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_write_rate_hz("fdb_workload_write_rate_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz("fdb_workload_written_bytes_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz("fdb_workload_transactions_started_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz("fdb_workload_transactions_committed_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz("fdb_workload_transactions_rejected_hz", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent("fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
-mBvarStatus<int64_t> g_bvar_fdb_process_status_int("fdb_process_status_int", {"process_id", "component", "metric"});
-mBvarStatus<double> g_bvar_fdb_process_status_float("fdb_process_status_float", {"process_id", "component", "metric"});
+mBvarStatus<double> g_bvar_fdb_cluster_processes("fdb_cluster_processes", {"process_id", "component", "metric"});
+mBvarStatus<double> g_bvar_fdb_cluster_workload("fdb_cluster_workload", {"component", "metric"});
 
 // checker's bvars
 BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned("checker", "num_scanned");
@@ -435,6 +436,8 @@ mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_counter("rpc_kv_abort_sub_txn_ge
 mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_counter("rpc_kv_abort_sub_txn_put_counter",{"instance_id"});
 // abort_txn_with_coordinator
 mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter("rpc_kv_abort_txn_with_coordinator_get_counter",{"instance_id"});
+// get_prepare_txn_by_coordinator
+mBvarInt64Adder g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_counter("rpc_kv_get_prepare_txn_by_coordinator_get_counter",{"instance_id"});
 // check_txn_conflict
 mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_counter("rpc_kv_check_txn_conflict_get_counter",{"instance_id"});
 // clean_txn_label
@@ -635,6 +638,8 @@ mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_bytes("rpc_kv_abort_sub_txn_get_
 mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_bytes("rpc_kv_abort_sub_txn_put_bytes",{"instance_id"});
 // abort_txn_with_coordinator
 mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_bytes("rpc_kv_abort_txn_with_coordinator_get_bytes",{"instance_id"});
+// get_prepare_txn_by_coordinator
+mBvarInt64Adder g_bvar_rpc_kv_get_prepare_txn_by_coordinator_get_bytes("rpc_kv_get_prepare_txn_by_coordinator_get_bytes",{"instance_id"});
 // check_txn_conflict
 mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_bytes("rpc_kv_check_txn_conflict_get_bytes",{"instance_id"});
 // clean_txn_label

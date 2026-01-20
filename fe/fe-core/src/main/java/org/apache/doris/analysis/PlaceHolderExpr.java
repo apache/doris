@@ -50,16 +50,6 @@ public class PlaceHolderExpr extends LiteralExpr {
         return lExpr;
     }
 
-    @Override
-    protected void analysisDone() {
-        if (lExpr != null && !lExpr.isAnalyzed) {
-            lExpr.analysisDone();
-        }
-        if (!isAnalyzed) {
-            super.analysisDone();
-        }
-    }
-
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
         Preconditions.checkArgument(!type.equals(Type.INVALID));
         return new PlaceHolderExpr(LiteralExpr.create(value, type));

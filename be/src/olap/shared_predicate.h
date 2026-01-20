@@ -36,8 +36,8 @@ class SharedPredicate final : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(SharedPredicate);
 
 public:
-    SharedPredicate(uint32_t column_id)
-            : ColumnPredicate(column_id, PrimitiveType::INVALID_TYPE),
+    SharedPredicate(uint32_t column_id, std::string col_name)
+            : ColumnPredicate(column_id, col_name, PrimitiveType::INVALID_TYPE),
               _mtx(std::make_shared<std::shared_mutex>()) {}
     SharedPredicate(const ColumnPredicate& other) = delete;
     SharedPredicate(const SharedPredicate& other, uint32_t column_id)
@@ -55,7 +55,8 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
     std::shared_ptr<ColumnPredicate> clone(uint32_t column_id) const override {
-        return SharedPredicate::create_shared(*this, column_id);
+        // All scanner thread should share the same SharedPredicate object.
+        return std::const_pointer_cast<ColumnPredicate>(shared_from_this());
     }
 
     PredicateType type() const override {

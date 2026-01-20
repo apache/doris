@@ -279,6 +279,17 @@ void set_return_error(const std::string& point, HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, "OK");
 }
 
+void set_segfault(const std::string& point, HttpRequest* req) {
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back(point, [point](auto&&) {
+        LOG(INFO) << "injection point hit, point=" << point << " trigger segfault";
+        // Intentional null dereference to crash the BE for testing.
+        volatile int* p = nullptr;
+        *p = 1;
+    });
+    HttpChannel::send_reply(req, HttpStatus::OK, "OK");
+}
+
 void handle_set(HttpRequest* req) {
     auto& point = req->param("name");
     if (point.empty()) {
@@ -301,6 +312,9 @@ void handle_set(HttpRequest* req) {
         return;
     } else if (behavior == "return_error") {
         set_return_error(point, req);
+        return;
+    } else if (behavior == "segfault") {
+        set_segfault(point, req);
         return;
     }
     HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "unknown behavior: " + behavior);
@@ -377,6 +391,7 @@ InjectionPointAction::InjectionPointAction() = default;
 //                 which is an int, valid values can be found in status.h, e.g. -235 or -230,
 //                 if `code` is not present return Status::InternalError. Optional `probability`
 //                 determines the percentage of times to inject the error (default 100).
+// * segfault: dereference a null pointer to crash BE intentionally
 // ```
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=sleep&duration=${x_millsec}" # sleep x millisecs
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return" # return void
@@ -384,6 +399,7 @@ InjectionPointAction::InjectionPointAction() = default;
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error" # internal error
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error&code=${code}" # -235
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error&code=${code}&probability=50" # inject with 50% probability
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=segfault" # crash BE
 // ```
 void InjectionPointAction::handle(HttpRequest* req) {
     LOG(INFO) << "handle InjectionPointAction " << req->debug_string();

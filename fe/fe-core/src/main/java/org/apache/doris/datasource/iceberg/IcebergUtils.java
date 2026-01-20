@@ -56,6 +56,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -116,7 +117,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -572,7 +572,7 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return ScalarType.createVarbinaryType(16);
+                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
             case BINARY:
                 return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
                         : Type.STRING;
@@ -685,16 +685,8 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
-            case FIXED:
-            case BINARY:
-                if (value == null) {
-                    return null;
-                }
-                // Fixed and binary types are stored as ByteBuffer
-                ByteBuffer buffer = (ByteBuffer) value;
-                byte[] res = new byte[buffer.limit()];
-                buffer.get(res);
-                return new String(res, StandardCharsets.UTF_8);
+            // case binary, fixed should not supported, because if return string with utf8,
+            // the data maybe be corrupted
             case DATE:
                 if (value == null) {
                     return null;
@@ -735,7 +727,7 @@ public class IcebergUtils {
     public static Table getIcebergTable(ExternalTable dorisTable) {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache().getIcebergTable(dorisTable);
+                .getIcebergMetadataCache(dorisTable.getCatalog()).getIcebergTable(dorisTable);
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
@@ -989,7 +981,7 @@ public class IcebergUtils {
         // Meanwhile, it will trigger iceberg metadata cache to load the table, so we can get it next time.
         Table icebergTable = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
-                .getIcebergMetadataCache()
+                .getIcebergMetadataCache(tbl.getCatalog())
                 .getIcebergTable(tbl);
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
@@ -1496,7 +1488,8 @@ public class IcebergUtils {
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
-            return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+            return Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getIcebergMetadataCache(dorisTable.getCatalog())
                     .getSnapshotCache(dorisTable);
         }
     }
@@ -1520,7 +1513,8 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
-        IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getIcebergMetadataCache(dorisTable.getCatalog());
         return metadataCache.getIcebergView(dorisTable);
     }
 
@@ -1549,6 +1543,21 @@ public class IcebergUtils {
         return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
                 +
                 icebergExternalTable.getViewText();
+    }
+
+    public static IcebergManifestCache getManifestCache(ExternalCatalog catalog) {
+        return Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .getIcebergMetadataCache(catalog)
+                .getManifestCache();
+    }
+
+    public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
+        String enabled = catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE);
+        if (enabled == null) {
+            return IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE;
+        }
+        return Boolean.parseBoolean(enabled);
     }
 
 }

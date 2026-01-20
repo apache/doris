@@ -75,10 +75,10 @@ TEST(ColumnArrayOldTest, IntArrayTest) {
     ColumnArray array_column(std::move(data_column), std::move(off_column));
     EXPECT_EQ(array_column.size(), offs.size() - 1);
     for (size_t i = 0; i < array_column.size(); ++i) {
-        auto v = get<Array>(array_column[i]);
+        auto v = array_column[i].get<TYPE_ARRAY>();
         EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
         for (size_t j = 0; j < v.size(); ++j) {
-            EXPECT_EQ(vals[offs[i] + j], get<int32_t>(v[j]));
+            EXPECT_EQ(vals[offs[i] + j], v[j].get<TYPE_INT>());
         }
     }
 }
@@ -100,10 +100,10 @@ TEST(ColumnArrayOldTest, StringArrayTest) {
     ColumnArray array_column(std::move(data_column), std::move(off_column));
     EXPECT_EQ(array_column.size(), offs.size() - 1);
     for (size_t i = 0; i < array_column.size(); ++i) {
-        auto v = get<Array>(array_column[i]);
+        auto v = array_column[i].get<TYPE_ARRAY>();
         EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
         for (size_t j = 0; j < v.size(); ++j) {
-            EXPECT_EQ(vals[offs[i] + j], get<std::string>(v[j]));
+            EXPECT_EQ(vals[offs[i] + j], v[j].get<TYPE_STRING>());
         }
     }
 }

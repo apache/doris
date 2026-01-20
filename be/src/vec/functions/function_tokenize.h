@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "udf/udf.h"
 #include "vec/columns/column_array.h"
@@ -65,7 +66,8 @@ public:
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeString>();
     }
-    void _do_tokenize(const ColumnString& src_column_string, InvertedIndexCtx& inverted_index_ctx,
+    void _do_tokenize(const ColumnString& src_column_string,
+                      const InvertedIndexAnalyzerCtx& analyzer_ctx, bool support_phrase,
                       const MutableColumnPtr& dest_column_ptr) const;
     void _do_tokenize_none(const ColumnString& src_column_string,
                            const MutableColumnPtr& dest_column_ptr) const;
