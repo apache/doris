@@ -70,8 +70,8 @@ TEST(TrivialExchangeWriterTest, BasicDistribution) {
 
     // rows: [1,2,3,4,5], channel_ids: [0,1,0,1,1]
     Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
-    uint32_t channel_ids[] = {0, 1, 0, 1, 1};
-    const size_t rows = sizeof(channel_ids) / sizeof(channel_ids[0]);
+    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {0, 1, 0, 1, 1};
+    const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
                                          /*eos=*/false);
@@ -101,8 +101,8 @@ TEST(TrivialExchangeWriterTest, AllRowsToSingleChannel) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({10, 20, 30, 40});
-    uint32_t channel_ids[] = {2, 2, 2, 2};
-    const size_t rows = sizeof(channel_ids) / sizeof(channel_ids[0]);
+    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {2, 2, 2, 2};
+    const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
                                          /*eos=*/false);
@@ -131,7 +131,7 @@ TEST(TrivialExchangeWriterTest, EmptyInput) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({});
-    const uint32_t* channel_ids = nullptr;
+    std::vector<vectorized::PartitionerBase::HashValType> channel_ids {};
     const size_t rows = 0;
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
@@ -153,13 +153,13 @@ TEST(OlapExchangeWriterTest, NeedCheckSkipsNegativeChannelIds) {
     const size_t channel_count = 3;
     auto channels = make_disabled_channels(&local_state, channel_count);
 
-    // channel_ids: [0, -1, 2, -1, 2]
+    // channel_ids: [0, x, 2, x, 2]
     Block block = ColumnHelper::create_block<DataTypeInt32>({10, 20, 30, 40, 50});
-    int64_t channel_ids[] = {0, -1, 2, -1, 2};
-    const size_t rows = sizeof(channel_ids) / sizeof(channel_ids[0]);
+    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {0, 10, 2, 10, 2};
+    const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
-                                         /*eos=*/false);
+                                         /*eos=*/false, 10);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     // Only non-negative ids should be counted: hist = [1,0,2]
@@ -187,11 +187,11 @@ TEST(OlapExchangeWriterTest, NoCheckUsesAllRows) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-    int64_t channel_ids[] = {0, 1, 0};
-    const size_t rows = sizeof(channel_ids) / sizeof(channel_ids[0]);
+    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {0, 1, 0};
+    const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
-                                         /*eos=*/false);
+                                         /*eos=*/false, 10);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_EQ(writer._channel_rows_histogram.size(), channel_count);
@@ -216,11 +216,11 @@ TEST(OlapExchangeWriterTest, EmptyInput) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({});
-    const int64_t* channel_ids = nullptr;
+    std::vector<vectorized::PartitionerBase::HashValType> channel_ids {};
     const size_t rows = 0;
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
-                                         /*eos=*/false);
+                                         /*eos=*/false, 1);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_EQ(writer._channel_rows_histogram.size(), channel_count);

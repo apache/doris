@@ -123,7 +123,7 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
     }
     {
         SCOPED_TIMER(profile.distribute_timer);
-        RETURN_IF_ERROR(_split_rows(state, sink_info.partitioner->get_channel_ids().get<uint32_t>(),
+        RETURN_IF_ERROR(_split_rows(state, sink_info.partitioner->get_channel_ids().data(),
                                     in_block, *sink_info.channel_id, sink_info.local_state,
                                     sink_info.shuffle_idx_to_instance_idx));
     }

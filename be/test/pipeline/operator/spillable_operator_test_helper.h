@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <vector>
 
 #include "common/object_pool.h"
 #include "pipeline/pipeline_task.h"
@@ -56,7 +57,10 @@ public:
         return Status::OK();
     }
 
-    vectorized::ChannelField get_channel_ids() const override { return {}; }
+    const std::vector<HashValType>& get_channel_ids() const override { return _mocked_hash_vals; }
+
+private:
+    std::vector<HashValType> _mocked_hash_vals;
 };
 
 class MockExpr : public vectorized::VExpr {

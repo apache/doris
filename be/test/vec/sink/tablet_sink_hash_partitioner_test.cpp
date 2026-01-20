@@ -102,12 +102,14 @@ TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHash
 
     auto tpartition = sink_test_utils::build_partition_param(schema_index_id);
     ASSERT_EQ(tpartition.partitions.size(), 2);
+    // 1: [0, 10), 2: [20, 1000)
     tpartition.partitions[0].__set_is_mutable(false);
     auto tlocation = sink_test_utils::build_location_param();
 
     auto partitioner = _create_partitioner(ctx, &local_state, partition_count, txn_id, tschema,
                                            tpartition, tlocation, tablet_sink_tuple_id);
 
+    // 1 -> no partition, 25 -> p1
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 25});
     auto st = partitioner->do_partitioning(&ctx.state, &block);
     ASSERT_TRUE(st.ok()) << st.to_string();
@@ -118,14 +120,12 @@ TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHash
     EXPECT_FALSE(skipped[1]);
 
     auto channel_ids = partitioner->get_channel_ids();
-    auto* hashes =
-            reinterpret_cast<const TabletSinkHashPartitioner::HashValType*>(channel_ids.channel_id);
-    ASSERT_NE(hashes, nullptr);
-    EXPECT_EQ(hashes[0], -1);
+    ASSERT_EQ(channel_ids.size(), 2);
+    EXPECT_EQ(channel_ids[0], partition_count); // skipped partition
 
-    int64_t tablet_id = 200;
-    auto hash = HashUtil::zlib_crc_hash(&tablet_id, sizeof(int64_t), 0);
-    EXPECT_EQ(hashes[1], static_cast<int64_t>(hash % partition_count));
+    uint32_t tablet_id = 200;
+    auto hash = HashUtil::zlib_crc_hash(&tablet_id, sizeof(uint32_t), 0);
+    EXPECT_EQ(channel_ids[1], static_cast<uint32_t>(hash % partition_count));
 }
 
 TEST(TabletSinkHashPartitionerTest, TryCutInLineCreatesPartitionAndReturnsBatchedBlock) {

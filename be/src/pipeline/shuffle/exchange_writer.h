@@ -19,6 +19,7 @@
 
 #include <cstdint>
 
+#include "vec/runtime/partitioner.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -35,7 +36,13 @@ class ExchangeSinkLocalState;
 
 class ExchangeWriterBase {
 public:
+    using HashValType = vectorized::PartitionerBase::HashValType;
     ExchangeWriterBase() = default;
+
+    virtual Status write(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                         vectorized::Block* block, bool eos) = 0;
+
+    virtual ~ExchangeWriterBase() = default;
 
 protected:
     template <typename ChannelPtrType>
@@ -59,12 +66,12 @@ public:
     ExchangeTrivialWriter() = default;
 
     Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
-                 bool eos);
+                 bool eos) override;
 
 private:
     Status _channel_add_rows(RuntimeState* state,
                              std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                             size_t channel_count, const uint32_t* __restrict channel_ids,
+                             size_t channel_count, const std::vector<HashValType>& channel_ids,
                              size_t rows, vectorized::Block* block, bool eos);
 };
 
@@ -74,15 +81,16 @@ public:
     ExchangeOlapWriter() = default;
 
     Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
-                 bool eos);
+                 bool eos) override;
 
 private:
     Status _write_impl(ExchangeSinkLocalState* local_state, RuntimeState* state,
                        vectorized::Block* block, bool eos = false);
     Status _channel_add_rows(RuntimeState* state,
                              std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                             size_t channel_count, const int64_t* __restrict channel_ids,
-                             size_t rows, vectorized::Block* block, bool eos);
+                             size_t channel_count, const std::vector<HashValType>& channel_ids,
+                             size_t rows, vectorized::Block* block, bool eos,
+                             HashValType invalid_val);
 };
 #include "common/compile_check_end.h"
 } // namespace pipeline

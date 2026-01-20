@@ -19,21 +19,23 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "pipeline/exec/operator.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-TabletSinkHashPartitioner::TabletSinkHashPartitioner(
-        size_t partition_count, int64_t txn_id, const TOlapTableSchemaParam& tablet_sink_schema,
-        const TOlapTablePartitionParam& tablet_sink_partition,
-        const TOlapTableLocationParam& tablet_sink_location, const TTupleId& tablet_sink_tuple_id,
-        pipeline::ExchangeSinkLocalState* local_state)
+TabletSinkHashPartitioner::TabletSinkHashPartitioner(uint32_t partition_count, int64_t txn_id,
+                                                     TOlapTableSchemaParam tablet_sink_schema,
+                                                     TOlapTablePartitionParam tablet_sink_partition,
+                                                     TOlapTableLocationParam tablet_sink_location,
+                                                     const TTupleId& tablet_sink_tuple_id,
+                                                     pipeline::ExchangeSinkLocalState* local_state)
         : PartitionerBase(partition_count),
           _txn_id(txn_id),
-          _tablet_sink_schema(tablet_sink_schema),
-          _tablet_sink_partition(tablet_sink_partition),
-          _tablet_sink_location(tablet_sink_location),
+          _tablet_sink_schema(std::move(tablet_sink_schema)),
+          _tablet_sink_partition(std::move(tablet_sink_partition)),
+          _tablet_sink_location(std::move(tablet_sink_location)),
           _tablet_sink_tuple_id(tablet_sink_tuple_id),
           _local_state(local_state) {}
 
@@ -89,9 +91,14 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     if (block->empty()) {
         return Status::OK();
     }
-    std::ranges::fill(_hash_vals, -1);
+
+    // tablet_id_hash % invalid_val never get invalid_val, so we use invalid_val as sentinel value
+    const auto& invalid_val = _partition_count;
+    std::ranges::fill(_hash_vals, invalid_val);
+
     int64_t dummy_stats = 0; // _local_state->rows_input_counter() updated in sink and write.
     std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
+
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             *block, convert_block, _row_part_tablet_ids, dummy_stats));
     _skipped = _row_distribution.get_skipped();
@@ -102,18 +109,18 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
         const auto& row = row_ids[idx];
         const auto& tablet_id_hash =
                 HashUtil::zlib_crc_hash(&tablet_ids[idx], sizeof(HashValType), 0);
-        _hash_vals[row] = tablet_id_hash % _partition_count;
+        _hash_vals[row] = tablet_id_hash % invalid_val;
     }
 
     // _hash_val == -1 = (_skipped = 1 or filtered = 1)
 #ifndef NDEBUG
     for (size_t i = 0; i < _skipped.size(); ++i) {
         if (_skipped[i]) {
-            CHECK_EQ(_hash_vals[i], -1);
+            CHECK_EQ(_hash_vals[i], invalid_val);
         }
     }
     CHECK_LE(std::ranges::count_if(_skipped, [](bool v) { return v; }),
-             std::ranges::count_if(_hash_vals, [](HashValType v) { return v == -1; }));
+             std::ranges::count_if(_hash_vals, [=](HashValType v) { return v == invalid_val; }));
 #endif
 
     return Status::OK();

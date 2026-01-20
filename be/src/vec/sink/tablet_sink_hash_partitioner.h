@@ -30,11 +30,10 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class TabletSinkHashPartitioner final : public PartitionerBase {
 public:
-    using HashValType = int64_t;
-    TabletSinkHashPartitioner(size_t partition_count, int64_t txn_id,
-                              const TOlapTableSchemaParam& tablet_sink_schema,
-                              const TOlapTablePartitionParam& tablet_sink_partition,
-                              const TOlapTableLocationParam& tablet_sink_location,
+    TabletSinkHashPartitioner(uint32_t partition_count, int64_t txn_id,
+                              TOlapTableSchemaParam tablet_sink_schema,
+                              TOlapTablePartitionParam tablet_sink_partition,
+                              TOlapTableLocationParam tablet_sink_location,
                               const TTupleId& tablet_sink_tuple_id,
                               pipeline::ExchangeSinkLocalState* local_state);
 
@@ -52,9 +51,7 @@ public:
     void finish_cut_in_line() const { _row_distribution._deal_batched = false; }
     void mark_last_block() const { _row_distribution._deal_batched = true; }
 
-    ChannelField get_channel_ids() const override {
-        return {.channel_id = _hash_vals.data(), .len = sizeof(HashValType)};
-    }
+    const std::vector<HashValType>& get_channel_ids() const override { return _hash_vals; }
     const std::vector<bool>& get_skipped(int size) const { return _skipped; }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;

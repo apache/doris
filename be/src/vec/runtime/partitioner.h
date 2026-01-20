@@ -19,27 +19,18 @@
 
 #include <algorithm>
 
-#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-struct ChannelField {
-    const void* channel_id;
-    const uint32_t len;
-
-    template <typename T>
-    const T* get() const {
-        CHECK_EQ(sizeof(T), len) << " sizeof(T): " << sizeof(T) << " len: " << len;
-        return reinterpret_cast<const T*>(channel_id);
-    }
-};
 
 class PartitionerBase {
 public:
-    PartitionerBase(size_t partition_count) : _partition_count(partition_count) {}
+    using HashValType = uint32_t;
+
+    PartitionerBase(HashValType partition_count) : _partition_count(partition_count) {}
     virtual ~PartitionerBase() = default;
 
     virtual Status init(const std::vector<TExpr>& texprs) = 0;
@@ -52,14 +43,15 @@ public:
 
     virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
 
-    virtual ChannelField get_channel_ids() const = 0;
+    virtual const std::vector<HashValType>& get_channel_ids() const = 0;
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
-    size_t partition_count() const { return _partition_count; }
+    // use _partition_count as invalid sentinel value. since modulo operation result is [0, partition_count-1]
+    HashValType partition_count() const { return _partition_count; }
 
 protected:
-    const size_t _partition_count;
+    const HashValType _partition_count;
 };
 
 template <typename ChannelIds>
@@ -82,9 +74,7 @@ public:
 
     Status do_partitioning(RuntimeState* state, Block* block) const override;
 
-    ChannelField get_channel_ids() const override {
-        return {.channel_id = _hash_vals.data(), .len = sizeof(uint32_t)};
-    }
+    const std::vector<HashValType>& get_channel_ids() const override { return _hash_vals; }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
@@ -105,31 +95,27 @@ protected:
         return Status::OK();
     }
 
-    virtual void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const;
+    virtual void _do_hash(const ColumnPtr& column, HashValType* __restrict result, int idx) const;
     virtual void _initialize_hash_vals(size_t rows) const {
         _hash_vals.resize(rows);
         std::ranges::fill(_hash_vals, 0);
     }
 
     VExprContextSPtrs _partition_expr_ctxs;
-    mutable std::vector<uint32_t> _hash_vals;
+    mutable std::vector<HashValType> _hash_vals;
 };
 
 struct ShuffleChannelIds {
-    template <typename HashValueType>
-    HashValueType operator()(HashValueType l, size_t r) {
-        return l % r;
-    }
+    using HashValType = PartitionerBase::HashValType;
+    HashValType operator()(HashValType l, size_t r) { return l % r; }
 };
 
 struct SpillPartitionChannelIds {
-    template <typename HashValueType>
-    HashValueType operator()(HashValueType l, size_t r) {
-        return ((l >> 16) | (l << 16)) % r;
-    }
+    using HashValType = PartitionerBase::HashValType;
+    HashValType operator()(HashValType l, size_t r) { return ((l >> 16) | (l << 16)) % r; }
 };
 
-static inline uint32_t crc32c_shuffle_mix(uint32_t h) {
+static inline PartitionerBase::HashValType crc32c_shuffle_mix(PartitionerBase::HashValType h) {
     // Step 1: fold high entropy into low bits
     h ^= h >> 16;
     // Step 2: odd multiplicative scramble (cheap avalanche)
@@ -143,10 +129,8 @@ static inline uint32_t crc32c_shuffle_mix(uint32_t h) {
 // shuffle hash function same with crc32c hash table(eg join hash table) will lead bad performance
 // hash table offten use low 16 bits as bucket index, so we shift 16 bits to high bits to avoid conflict
 struct ShiftChannelIds {
-    template <typename HashValueType>
-    HashValueType operator()(HashValueType l, size_t r) {
-        return crc32c_shuffle_mix(l) % r;
-    }
+    using HashValType = PartitionerBase::HashValType;
+    HashValType operator()(HashValType l, size_t r) { return crc32c_shuffle_mix(l) % r; }
 };
 
 class Crc32CHashPartitioner : public Crc32HashPartitioner<ShiftChannelIds> {
@@ -157,12 +141,12 @@ public:
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
-    void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;
+    void _do_hash(const ColumnPtr& column, HashValType* __restrict result, int idx) const override;
 
     void _initialize_hash_vals(size_t rows) const override {
         _hash_vals.resize(rows);
         // use golden ratio to initialize hash values to avoid collision with hash table's hash function
-        constexpr uint32_t CRC32C_SHUFFLE_SEED = 0x9E3779B9U;
+        constexpr HashValType CRC32C_SHUFFLE_SEED = 0x9E3779B9U;
         std::ranges::fill(_hash_vals, CRC32C_SHUFFLE_SEED);
     }
 };

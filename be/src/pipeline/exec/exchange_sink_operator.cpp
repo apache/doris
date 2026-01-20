@@ -23,6 +23,7 @@
 #include <gen_cpp/types.pb.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -151,7 +152,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("TabletSinkHashPartitioner({})", _partition_count));
         _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
-                _partition_count, p._tablet_sink_txn_id, p._tablet_sink_schema,
+                cast_set<uint32_t>(_partition_count), p._tablet_sink_txn_id, p._tablet_sink_schema,
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
         RETURN_IF_ERROR(_partitioner->init({}));
         RETURN_IF_ERROR(_partitioner->prepare(state, {}));
@@ -512,12 +513,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
-               _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(static_cast<ExchangeTrivialWriter*>(local_state._writer.get())
-                                ->write(&local_state, state, block, eos));
-    } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(static_cast<ExchangeOlapWriter*>(local_state._writer.get())
-                                ->write(&local_state, state, block, eos));
+               _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+               _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block, eos));
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         RETURN_IF_ERROR(send_to_current_channel());

@@ -166,7 +166,7 @@ private:
 
     Status _save_missing_values(const Block& input_block,
                                 std::vector<std::vector<std::string>>& col_strs, int col_size,
-                                Block* block, const std::vector<int64_t>& filter,
+                                Block* block, const std::vector<uint32_t>& filter,
                                 const std::vector<const NullMap*>& col_null_maps);
 
     void _get_tablet_ids(Block* block, int32_t index_idx, std::vector<int64_t>& tablet_ids);
@@ -249,7 +249,7 @@ private:
     std::vector<bool> _skip;
     std::vector<uint32_t> _tablet_indexes;
     std::vector<int64_t> _tablet_ids;
-    std::vector<int64_t> _missing_map; // indice of missing values in partition_col
+    std::vector<uint32_t> _missing_map; // indice of missing values in partition_col
     // for auto detect overwrite partition
     std::set<int64_t> _new_partition_ids; // if contains, not to replace it again.
 };

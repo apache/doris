@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -111,16 +112,16 @@ Status ExchangeOlapWriter::_write_impl(ExchangeSinkLocalState* local_state, Runt
     }
     {
         SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
-        const auto* channel_ids = partitioner->get_channel_ids().get<int64_t>();
-        DCHECK_EQ(partitioner->get_channel_ids().len, sizeof(int64_t));
+        const auto& channel_ids = partitioner->get_channel_ids();
+        const auto invalid_val = partitioner->partition_count();
 
         // decrease not sinked rows this time
         COUNTER_UPDATE(local_state->rows_input_counter(),
-                       -1LL * std::ranges::count(channel_ids, channel_ids + rows, -1));
+                       -1LL * std::ranges::count(channel_ids, invalid_val));
 
         RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
                                           local_state->channels.size(), channel_ids, rows, block,
-                                          eos));
+                                          eos, invalid_val));
     }
     return Status::OK();
 }
@@ -134,13 +135,11 @@ Status ExchangeTrivialWriter::write(ExchangeSinkLocalState* local_state, Runtime
     }
     {
         SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
-        const auto channel_field = local_state->partitioner()->get_channel_ids();
+        const auto& channel_ids = local_state->partitioner()->get_channel_ids();
 
-        // now for crc32 and scale writer, channel id is uint32_t.
-        DCHECK_EQ(channel_field.len, sizeof(uint32_t));
         RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
-                                          local_state->channels.size(),
-                                          channel_field.get<uint32_t>(), rows, block, eos));
+                                          local_state->channels.size(), channel_ids, rows, block,
+                                          eos));
     }
 
     return Status::OK();
@@ -148,11 +147,11 @@ Status ExchangeTrivialWriter::write(ExchangeSinkLocalState* local_state, Runtime
 
 Status ExchangeOlapWriter::_channel_add_rows(
         RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-        size_t channel_count, const int64_t* __restrict channel_ids, size_t rows,
-        vectorized::Block* block, bool eos) {
+        size_t channel_count, const std::vector<HashValType>& channel_ids, size_t rows,
+        vectorized::Block* block, bool eos, HashValType invalid_val) {
     size_t effective_rows = 0;
-    effective_rows = std::ranges::count_if(channel_ids, channel_ids + rows,
-                                           [](int64_t cid) { return cid >= 0; });
+    effective_rows =
+            std::ranges::count_if(channel_ids, [=](int64_t cid) { return cid != invalid_val; });
 
     // row index will skip all skipped rows.
     _origin_row_idx.resize(effective_rows);
@@ -162,10 +161,10 @@ Status ExchangeOlapWriter::_channel_add_rows(
         _channel_rows_histogram[i] = 0;
     }
     for (size_t i = 0; i < rows; ++i) {
-        if (channel_ids[i] < 0) {
+        if (channel_ids[i] == invalid_val) {
             continue;
         }
-        auto cid = static_cast<uint32_t>(channel_ids[i]);
+        auto cid = channel_ids[i];
         _channel_rows_histogram[cid]++;
     }
     _channel_pos_offsets[0] = 0;
@@ -173,10 +172,10 @@ Status ExchangeOlapWriter::_channel_add_rows(
         _channel_pos_offsets[i] = _channel_pos_offsets[i - 1] + _channel_rows_histogram[i - 1];
     }
     for (uint32_t i = 0; i < rows; ++i) {
-        if (channel_ids[i] < 0) {
+        if (channel_ids[i] == invalid_val) {
             continue;
         }
-        auto cid = static_cast<uint32_t>(channel_ids[i]);
+        auto cid = channel_ids[i];
         auto pos = _channel_pos_offsets[cid]++;
         _origin_row_idx[pos] = i;
     }
@@ -186,7 +185,7 @@ Status ExchangeOlapWriter::_channel_add_rows(
 
 Status ExchangeTrivialWriter::_channel_add_rows(
         RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-        size_t channel_count, const uint32_t* __restrict channel_ids, size_t rows,
+        size_t channel_count, const std::vector<HashValType>& channel_ids, size_t rows,
         vectorized::Block* block, bool eos) {
     _origin_row_idx.resize(rows);
     _channel_rows_histogram.resize(channel_count);

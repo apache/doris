@@ -59,28 +59,28 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
 
 template <typename ChannelIds>
 void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
-                                                uint32_t* __restrict result, int idx) const {
+                                                HashValType* __restrict result, int idx) const {
     column->update_crcs_with_value(
             result, _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type(),
-            cast_set<uint32_t>(column->size()));
+            cast_set<HashValType>(column->size()));
 }
 
 template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
-    auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
+    auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(_partition_count);
     partitioner.reset(new_partitioner);
     return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
 }
 
-void Crc32CHashPartitioner::_do_hash(const ColumnPtr& column, uint32_t* __restrict result,
+void Crc32CHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __restrict result,
                                      int idx) const {
     column->update_crc32c_batch(result, nullptr);
 }
 
 Status Crc32CHashPartitioner::clone(RuntimeState* state,
                                     std::unique_ptr<PartitionerBase>& partitioner) {
-    auto* new_partitioner = new Crc32CHashPartitioner(cast_set<int>(_partition_count));
+    auto* new_partitioner = new Crc32CHashPartitioner(_partition_count);
     partitioner.reset(new_partitioner);
     return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
 }

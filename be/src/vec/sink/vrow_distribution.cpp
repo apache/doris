@@ -54,10 +54,11 @@ std::pair<VExprContextSPtrs, VExprSPtrs> VRowDistribution::_get_partition_functi
 Status VRowDistribution::_save_missing_values(
         const Block& input_block,
         std::vector<std::vector<std::string>>& col_strs, // non-const ref for move
-        int col_size, Block* block, const std::vector<int64_t>& filter,
+        int col_size, Block* block, const std::vector<uint32_t>& filter,
         const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
-    RETURN_IF_ERROR(_batching_block->add_rows(&input_block, filter));
+    RETURN_IF_ERROR(
+            _batching_block->add_rows(&input_block, filter.data(), filter.data() + filter.size()));
     std::vector<TNullableStringLiteral> cur_row_values;
     for (int row = 0; row < col_strs[0].size(); ++row) {
         cur_row_values.clear();
