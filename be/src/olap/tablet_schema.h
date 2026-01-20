@@ -42,7 +42,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "udf/udf.h"
 #include "util/debug_points.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
