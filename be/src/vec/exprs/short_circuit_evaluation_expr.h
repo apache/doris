@@ -17,6 +17,7 @@
 
 #pragma once
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
@@ -28,6 +29,7 @@ namespace doris::vectorized {
 
 class Block;
 class VExprContext;
+struct ColumnAndSelector;
 
 class ShortCircuitExpr : public VExpr {
 public:
@@ -39,6 +41,20 @@ public:
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) final;
 
     std::string debug_string() const final;
+
+protected:
+    // Helper method to dispatch fill operation for two-branch case (e.g., IF, IFNULL).
+    // Uses ScalarFillWithSelector for scalar types, NonScalarFillWithSelector otherwise.
+    [[nodiscard]] ColumnPtr dispatch_fill_columns(const ColumnPtr& true_column,
+                                                  const Selector& true_selector,
+                                                  const ColumnPtr& false_column,
+                                                  const Selector& false_selector,
+                                                  size_t count) const;
+
+    // Helper method to dispatch fill operation for multi-branch case (e.g., COALESCE, CASE).
+    // Uses ScalarFillWithSelector for scalar types, NonScalarFillWithSelector otherwise.
+    [[nodiscard]] ColumnPtr dispatch_fill_columns(
+            const std::vector<ColumnAndSelector>& columns_and_selectors, size_t count) const;
 };
 
 class ShortCircuitIfExpr final : public ShortCircuitExpr {

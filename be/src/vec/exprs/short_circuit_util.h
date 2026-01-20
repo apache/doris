@@ -26,8 +26,8 @@
 
 namespace doris::vectorized {
 
-// 用来存储一个column和它的nullmap,和是否是const column
-// 如果输入的column不是nullable，那么null_map就是nullptr
+// Used to store a column along with its null_map and whether it is a const column.
+// If the input column is not nullable, then null_map will be nullptr.
 struct ColumnNullConstView {
     const IColumn& column;
     const NullMap* null_map;
@@ -48,7 +48,7 @@ struct ColumnNullConstView {
     }
 };
 
-// Scalar 会保存具体的数据类型的数组引用，方便后续操作
+// Scalar version stores a reference to the actual data type array for convenient subsequent operations.
 template <PrimitiveType PType>
 struct ColumnNullConstViewScalar {
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
@@ -76,8 +76,8 @@ struct ColumnNullConstViewScalar {
     }
 };
 
-// 用来存储一个mutable column和它的nullmap
-// 如果输入的column不是nullable，那么null_map就是nullptr
+// Used to store a mutable column along with its null_map.
+// If the input column is not nullable, then null_map will be nullptr.
 struct MutableColumnNullView {
     IColumn& column;
     NullMap* null_map;
@@ -102,8 +102,11 @@ struct MutableColumnNullView {
     }
 
     void insert_null() {
-        DCHECK(null_map != nullptr)
-                << "Cannot insert null value into non-nullable column in ShortCircuitCoalesceExpr.";
+        if (null_map == nullptr) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Cannot insert null value into non-nullable column in "
+                                   "ShortCircuitCoalesceExpr.");
+        }
         column.insert_default();
         null_map->push_back(1);
     }
@@ -180,21 +183,29 @@ struct MutableColumnNullViewScalar {
     }
 };
 
-// 用来存储一个column和它对应的selector
-// 可以这样理解，result column通过selector选出的位置，就是里面的column.
+// Used to store a column and its corresponding selector.
+// It can be understood as: the positions selected by the selector in the result column correspond to the column inside.
 // column = filter_column_with_selector(result_column, selector)
-// 我们需要做的是把这些位置填充到result column里面去（某种意义上可以看成是还原回去？）
-// 如果column为空，表示这些位置都是null，例如coalesce的最后一个参数是null，或者case when的else分支没有提供
+// What we need to do is fill these positions back into the result column (in a sense, it can be seen as restoring them).
+// If the column is empty, it means these positions are all null, e.g., the last parameter of coalesce is null, or the else branch of case when is not provided.
 struct ColumnAndSelector {
     ColumnPtr column = nullptr;
     Selector selector; // positions in result column
 
     bool output_nulls() const { return column.get() == nullptr; }
+
+    std::string debug_string() const {
+        std::stringstream ss;
+        ss << "ColumnAndSelector(selector_size=" << selector.size()
+           << ", output_nulls=" << output_nulls()
+           << ", column size=" << (column ? std::to_string(column->size()) : "null") << ")";
+        return ss.str();
+    }
 };
 
-// scalar版本的填充
-// 会在一开始就初始化result column
-// 后续通过selector把各个column的数据填充到result column中
+// Scalar version of fill.
+// Initializes the result column at the beginning.
+// Subsequently fills data from each column into the result column using selectors.
 template <PrimitiveType PType>
 struct ScalarFillWithSelector {
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
@@ -264,13 +275,15 @@ private:
     }
 };
 
-// fill的非scalar版本
-// 比如string，array，map等,不能随机访问的类型
+// Non-scalar version of fill.
+// For types that do not support random access, such as string, array, map, etc.
 struct NonScalarFillWithSelector {
     static ColumnPtr fill(const DataTypePtr& result_type, const ColumnPtr& true_column,
                           const Selector& true_selector, const ColumnPtr& false_column,
                           const Selector& false_selector, size_t count) {
-        DCHECK_EQ(false_selector.size() + true_selector.size(), count);
+        DCHECK_EQ(false_selector.size() + true_selector.size(), count)
+                << "Mismatched selector sizes." << " false selector size: " << false_selector.size()
+                << ", true selector size: " << true_selector.size() << ", count: " << count;
         DCHECK_EQ(true_column->size(), true_selector.size());
         DCHECK_EQ(false_column->size(), false_selector.size());
 
@@ -303,7 +316,7 @@ struct NonScalarFillWithSelector {
                                          }));
         struct FillColumnWithPos {
             std::optional<ColumnNullConstView> source_column;
-            size_t pos_in_source; // column中的位置
+            size_t pos_in_source; // position in the column
 
             void insert_to_column(MutableColumnNullView& result_column) const {
                 if (!source_column) {
@@ -315,6 +328,7 @@ struct NonScalarFillWithSelector {
         };
 
         auto mutable_result_column = result_type->create_column();
+        mutable_result_column->reserve(count);
 
         MutableColumnNullView mutable_result_column_view =
                 MutableColumnNullView::create(mutable_result_column);
@@ -322,6 +336,9 @@ struct NonScalarFillWithSelector {
         std::vector<FillColumnWithPos> fill_positions(count);
 
         for (const ColumnAndSelector& column_with_selector : columns_and_selectors) {
+            if (column_with_selector.selector.empty()) {
+                continue;
+            }
             for (uint32_t i = 0; i < column_with_selector.selector.size(); ++i) {
                 size_t result_index = column_with_selector.selector[i];
                 DCHECK(fill_positions[result_index].source_column.has_value() == false)
@@ -345,4 +362,126 @@ struct NonScalarFillWithSelector {
         return mutable_result_column;
     }
 };
+
+struct ConditionColumnViewHelper {
+    ConditionColumnViewHelper(const Selector* selector, size_t count)
+            : _selector(selector), _count(count) {}
+
+    // Iterate over the condition column and generate true_selector and false_selector
+    // based on null_map and data.
+
+    template <bool is_const, typename Func>
+    void for_each_with_selector(Func& f) const {
+        if (_selector != nullptr) {
+            const auto& selector_data = *_selector;
+            for (size_t i = 0; i < _count; ++i) {
+                auto index = selector_data[i];
+                f(index_check_const<is_const>(i), index);
+            }
+        } else {
+            for (size_t i = 0; i < _count; ++i) {
+                f(index_check_const<is_const>(i), i);
+            }
+        }
+    }
+
+private:
+    const Selector* _selector;
+    const size_t _count;
+};
+
+// Utility class for columns that return boolean values.
+// We care about whether the value is null, as well as true/false values.
+struct ConditionColumnView : ColumnNullConstViewScalar<TYPE_BOOLEAN>, ConditionColumnViewHelper {
+    ConditionColumnView(ColumnNullConstViewScalar<TYPE_BOOLEAN> base, const Selector* selector,
+                        size_t count)
+            : ColumnNullConstViewScalar<TYPE_BOOLEAN>(base),
+              ConditionColumnViewHelper(selector, count) {}
+
+    static ConditionColumnView create(const ColumnPtr& column_ptr, const Selector* selector,
+                                      size_t count) {
+        DCHECK_EQ(selector == nullptr ? count : selector->size(), count);
+        return {ColumnNullConstViewScalar<TYPE_BOOLEAN>::create(column_ptr), selector, count};
+    }
+
+    template <typename NullFunc, typename TrueFunc, typename FalseFunc>
+    void for_each(NullFunc& null_func, TrueFunc& true_func,
+                                      FalseFunc& false_func) const {
+        if (this->null_map != nullptr) {
+            const auto& null_map_data = *(this->null_map);
+            auto update = [&](size_t i, size_t result_index) {
+                if (null_map_data[i]) {
+                    null_func(result_index);
+                } else {
+                    if (this->data[i]) {
+                        true_func(result_index);
+                    } else {
+                        false_func(result_index);
+                    }
+                }
+            };
+            if (is_const) {
+                for_each_with_selector<true>(update);
+            } else {
+                for_each_with_selector<false>(update);
+            }
+        } else {
+            // non-nullable condition column
+            auto update = [&](size_t i, size_t result_index) {
+                if (this->data[i]) {
+                    true_func(result_index);
+                } else {
+                    false_func(result_index);
+                }
+            };
+            if (is_const) {
+                for_each_with_selector<true>(update);
+            } else {
+                for_each_with_selector<false>(update);
+            }
+        }
+    }
+};
+
+// Utility class for columns that return nullable values.
+// We only care about whether the value is null, not the actual value.
+struct ConditionColumnNullView : ColumnNullConstView, ConditionColumnViewHelper {
+    ConditionColumnNullView(ColumnNullConstView base, const Selector* selector, size_t count)
+            : ColumnNullConstView(base), ConditionColumnViewHelper(selector, count) {}
+
+    static ConditionColumnNullView create(const ColumnPtr& column_ptr, const Selector* selector,
+                                         size_t count) {
+        DCHECK_EQ(selector == nullptr ? count : selector->size(), count);
+        return {ColumnNullConstView::create(column_ptr), selector, count};
+    }
+
+   template <typename NullFunc, typename NotNullFunc>
+    void for_each(NullFunc& null_func, NotNullFunc& not_null_func) const {
+        if (this->null_map != nullptr) {
+            const auto& null_map_data = *(this->null_map);
+            auto update = [&](size_t i, size_t result_index) {
+                if (null_map_data[i]) {
+                    null_func(i, result_index);
+                } else {
+                    not_null_func(i, result_index);
+                }
+            };
+            if (is_const) {
+                for_each_with_selector<true>(update);
+            } else {
+                for_each_with_selector<false>(update);
+            }
+        } else {
+            // non-nullable condition column
+            auto update = [&](size_t i, size_t result_index) { not_null_func(i, result_index); };
+            if (is_const) {
+                for_each_with_selector<true>(update);
+            } else {
+                for_each_with_selector<false>(update);
+            }
+        }
+    }
+};
+
+
 } // namespace doris::vectorized

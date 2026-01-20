@@ -72,35 +72,51 @@ std::string ShortCircuitExpr::debug_string() const {
     return result;
 }
 
+ColumnPtr ShortCircuitExpr::dispatch_fill_columns(const ColumnPtr& true_column,
+                                                  const Selector& true_selector,
+                                                  const ColumnPtr& false_column,
+                                                  const Selector& false_selector,
+                                                  size_t count) const {
+    ColumnPtr result_column;
+    auto scalar_fill = [&](const auto& type) -> bool {
+        using DataType = std::decay_t<decltype(type)>;
+        result_column = ScalarFillWithSelector<DataType::PType>::fill(
+                _data_type, true_column, true_selector, false_column, false_selector, count);
+        return true;
+    };
+
+    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), scalar_fill)) {
+        result_column = NonScalarFillWithSelector::fill(_data_type, true_column, true_selector,
+                                                        false_column, false_selector, count);
+    }
+    return result_column;
+}
+
+ColumnPtr ShortCircuitExpr::dispatch_fill_columns(
+        const std::vector<ColumnAndSelector>& columns_and_selectors, size_t count) const {
+    ColumnPtr result_column;
+    auto scalar_fill = [&](const auto& type) -> bool {
+        using DataType = std::decay_t<decltype(type)>;
+        result_column = ScalarFillWithSelector<DataType::PType>::fill(_data_type,
+                                                                      columns_and_selectors, count);
+        return true;
+    };
+
+    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), scalar_fill)) {
+        result_column = NonScalarFillWithSelector::fill(_data_type, columns_and_selectors, count);
+    }
+    return result_column;
+}
+
 void execute_if_selector(const ColumnPtr& cond_column, size_t count, Selector& true_selector,
                          Selector& false_selector) {
-    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(cond_column.get())) {
-        const auto& null_map = column_nullable->get_null_map_data();
-        const auto& nested_column = column_nullable->get_nested_column_ptr();
-        const auto* column_uint8 = assert_cast<const ColumnBool*>(nested_column.get());
-        const auto& data = column_uint8->get_data();
-        for (size_t i = 0; i < count; ++i) {
-            if (null_map[i]) {
-                false_selector.push_back(i);
-            } else {
-                if (data[i]) {
-                    true_selector.push_back(i);
-                } else {
-                    false_selector.push_back(i);
-                }
-            }
-        }
-    } else {
-        const auto* column_uint8 = assert_cast<const ColumnBool*>(cond_column.get());
-        const auto& data = column_uint8->get_data();
-        for (size_t i = 0; i < count; ++i) {
-            if (data[i]) {
-                true_selector.push_back(i);
-            } else {
-                false_selector.push_back(i);
-            }
-        }
-    }
+    ConditionColumnView condition_view = ConditionColumnView::create(cond_column, nullptr, count);
+
+    auto null_func = [&](size_t i) { false_selector.push_back(i); };
+    auto true_func = [&](size_t i) { true_selector.push_back(i); };
+    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+
+    condition_view.for_each(null_func, true_func, false_func);
 }
 
 Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* block,
@@ -111,7 +127,6 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
     ColumnPtr cond_column;
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, cond_column));
     DCHECK_EQ(cond_column->size(), count);
-    cond_column = cond_column->convert_to_full_column_if_const();
 
     Selector true_selector;
     Selector false_selector;
@@ -127,18 +142,21 @@ Status ShortCircuitIfExpr::execute_column(VExprContext* context, const Block* bl
     RETURN_IF_ERROR(_children[2]->execute_column(context, block, &false_selector,
                                                  false_selector.size(), false_column));
 
-    auto vec_exec = [&](const auto& type) -> bool {
-        using DataType = std::decay_t<decltype(type)>;
-        result_column = ScalarFillWithSelector<DataType::PType>::fill(
-                _data_type, true_column, true_selector, false_column, false_selector, count);
-        return true;
+    result_column =
+            dispatch_fill_columns(true_column, true_selector, false_column, false_selector, count);
+    return Status::OK();
+}
+
+void execute_ifnull_selector(const ColumnPtr& cond_column, size_t count, Selector& null_selector,
+                             Selector& not_null_selector) {
+    ConditionColumnNullView condition_view =
+            ConditionColumnNullView::create(cond_column, nullptr, count);
+    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
+    auto not_null_func = [&](size_t i, size_t result_index) {
+        not_null_selector.push_back(result_index);
     };
 
-    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), vec_exec)) {
-        result_column = NonScalarFillWithSelector::fill(_data_type, true_column, true_selector,
-                                                        false_column, false_selector, count);
-    }
-    return Status::OK();
+    condition_view.for_each(null_func, not_null_func);
 }
 
 Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block* block,
@@ -149,29 +167,13 @@ Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block
     ColumnPtr expr1_column;
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, expr1_column));
     DCHECK_EQ(expr1_column->size(), count);
-    expr1_column = expr1_column->convert_to_full_column_if_const();
 
     Selector not_null_selector;
     Selector null_selector;
     not_null_selector.reserve(count);
     null_selector.reserve(count);
 
-    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(expr1_column.get())) {
-        const auto& null_map = column_nullable->get_null_map_data();
-        for (size_t i = 0; i < count; ++i) {
-            if (null_map[i]) {
-                null_selector.push_back(i);
-            } else {
-                not_null_selector.push_back(i);
-            }
-        }
-    } else {
-        /// TODO: This optimization has already been implemented in the FE,
-        // so we probably don't need to handle it here. Should we just raise an error?
-        result_column = expr1_column;
-        return Status::OK();
-    }
-
+    execute_ifnull_selector(expr1_column, count, null_selector, not_null_selector);
     // filter not null part
     expr1_column =
             filter_column_with_selector(expr1_column, &not_null_selector, not_null_selector.size());
@@ -180,79 +182,25 @@ Status ShortCircuitIfNullExpr::execute_column(VExprContext* context, const Block
     RETURN_IF_ERROR(_children[1]->execute_column(context, block, &null_selector,
                                                  null_selector.size(), expr2_column));
 
-    auto vec_exec = [&](const auto& type) -> bool {
-        using DataType = std::decay_t<decltype(type)>;
-        result_column = ScalarFillWithSelector<DataType::PType>::fill(
-                _data_type, expr1_column, not_null_selector, expr2_column, null_selector, count);
-        return true;
-    };
-
-    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), vec_exec)) {
-        result_column = NonScalarFillWithSelector::fill(_data_type, expr1_column, not_null_selector,
-                                                        expr2_column, null_selector, count);
-    }
+    result_column = dispatch_fill_columns(expr1_column, not_null_selector, expr2_column,
+                                          null_selector, count);
     return Status::OK();
 }
 
-/*
-
-coalesce 的nullable属性
-    public boolean nullable() {
-        for (Expression argument : children) {
-            if (!argument.nullable()) {
-                return false;
-            }
-        }
-        return true;
-    }
-    如果所有参数都都有nullable，那么coalesce的结果也是nullable
-    如果存在一个参数是不nullable，那么coalesce的结果就是不nullable（因为至少都可以从这个参数取到值）
-*/
-
-// 输入一个条件列，和这个条件列的selector(如果selector为nullptr，则表示全量)
-// 注意这里的selecotr是最终的result的位置
-// 输出两个selector，分别表示条件列中null和not null的位置
-// cond_self_selector 用来存储 cond_column 中not null 的位置，在调用完这个函数后，需要利用这个来filter cond_column列
 void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* cond_selector,
                                size_t count, Selector& null_selector, Selector& not_null_selector,
                                Selector& cond_self_selector) {
-    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(cond_column.get())) {
-        const auto& null_map = column_nullable->get_null_map_data();
-        if (cond_selector == nullptr) {
-            for (size_t i = 0; i < count; ++i) {
-                if (null_map[i]) {
-                    null_selector.push_back(i);
-                } else {
-                    not_null_selector.push_back(i);
-                    cond_self_selector.push_back(i);
-                }
-            }
-        } else {
-            DCHECK_EQ(cond_selector->size(), count);
-            for (size_t i = 0; i < cond_selector->size(); ++i) {
-                auto result_index = (*cond_selector)[i];
-                if (null_map[i]) {
-                    null_selector.push_back(result_index);
-                } else {
-                    not_null_selector.push_back(result_index);
-                    cond_self_selector.push_back(i);
-                }
-            }
-        }
-    } else {
-        // all not null
-        if (cond_selector == nullptr) {
-            for (size_t i = 0; i < count; ++i) {
-                not_null_selector.push_back(i);
-                cond_self_selector.push_back(i);
-            }
-        } else {
-            for (size_t i = 0; i < cond_selector->size(); ++i) {
-                not_null_selector.push_back((*cond_selector)[i]);
-                cond_self_selector.push_back(i);
-            }
-        }
-    }
+    ConditionColumnNullView condition_view =
+            ConditionColumnNullView::create(cond_column, cond_selector, count);
+
+    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
+
+    auto not_null_func = [&](size_t i, size_t result_index) {
+        not_null_selector.push_back(result_index);
+        cond_self_selector.push_back(i);
+    };
+
+    condition_view.for_each(null_func, not_null_func);
 }
 
 Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Block* block,
@@ -262,20 +210,20 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
     DCHECK(selector == nullptr || selector->size() == count);
 
     std::vector<ColumnAndSelector> columns_and_selectors;
-    columns_and_selectors.resize(_children.size() + 1); // 最后一个表示输出null的selector
+    columns_and_selectors.resize(_children.size() +
+                                 1); // the last one represents the selector for null output
 
     Selector* current_selector = selector;
     size_t current_count = count;
 
-    Selector left_null_selector; // 用来存储还剩下的null行
+    Selector left_null_selector; // used to store the remaining null rows
 
-    Selector self_selector; // 用来存储当前列中not null的位置
+    Selector self_selector; // used to store the not-null positions in the current column
 
-    for (int i = 0; i < _children.size(); ++i) {
+    for (int64_t i = 0; i < _children.size(); ++i) {
         ColumnPtr child_column;
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, current_selector,
                                                      current_count, child_column));
-        child_column = child_column->convert_to_full_column_if_const();
 
         DCHECK(current_selector == nullptr || current_selector->size() == child_column->size());
 
@@ -295,25 +243,20 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
 
         left_null_selector.swap(null_selector);
 
-        // 下一个列需要处理的行，是当前的列的null行
+        // the rows that the next column needs to process are the null rows of the current column
         current_selector = &left_null_selector;
         current_count = left_null_selector.size();
+
+        if (left_null_selector.size() == 0) {
+            // all rows are filled, no need to process further
+            break;
+        }
     }
 
-    // 最后剩下的null行
+    // the remaining null rows at the end
     columns_and_selectors.back().selector.swap(left_null_selector);
 
-    auto vec_exec = [&](const auto& type) -> bool {
-        using DataType = std::decay_t<decltype(type)>;
-        result_column = ScalarFillWithSelector<DataType::PType>::fill(_data_type,
-                                                                      columns_and_selectors, count);
-        return true;
-    };
-
-    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), vec_exec)) {
-        result_column = NonScalarFillWithSelector::fill(_data_type, columns_and_selectors, count);
-    }
-
+    result_column = dispatch_fill_columns(columns_and_selectors, count);
     return Status::OK();
 }
 
@@ -323,61 +266,15 @@ ShortCircuitCaseExpr::ShortCircuitCaseExpr(const TExprNode& node)
 void execute_case_when_selector(const ColumnPtr& when_column, const Selector* when_selector,
                                 size_t count, Selector& matched_selector,
                                 Selector& not_matched_selector) {
-    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(when_column.get())) {
-        const auto& null_map = column_nullable->get_null_map_data();
-        const auto& nested_column = column_nullable->get_nested_column_ptr();
-        const auto* column_uint8 = assert_cast<const ColumnBool*>(nested_column.get());
-        const auto& boolean_data = column_uint8->get_data();
-        if (when_selector == nullptr) {
-            for (size_t i = 0; i < count; ++i) {
-                if (null_map[i]) {
-                    not_matched_selector.push_back(i);
-                } else {
-                    if (boolean_data[i]) {
-                        matched_selector.push_back(i);
-                    } else {
-                        not_matched_selector.push_back(i);
-                    }
-                }
-            }
-        } else {
-            DCHECK_EQ(when_selector->size(), count);
-            for (size_t i = 0; i < when_selector->size(); ++i) {
-                auto result_index = (*when_selector)[i];
-                if (null_map[i]) {
-                    not_matched_selector.push_back(result_index);
-                } else {
-                    if (boolean_data[i]) {
-                        matched_selector.push_back(result_index);
-                    } else {
-                        not_matched_selector.push_back(result_index);
-                    }
-                }
-            }
-        }
-    } else {
-        const auto* column_uint8 = assert_cast<const ColumnBool*>(when_column.get());
-        const auto& boolean_data = column_uint8->get_data();
-        if (when_selector == nullptr) {
-            for (size_t i = 0; i < count; ++i) {
-                if (boolean_data[i]) {
-                    matched_selector.push_back(i);
-                } else {
-                    not_matched_selector.push_back(i);
-                }
-            }
-        } else {
-            DCHECK_EQ(when_selector->size(), count);
-            for (size_t i = 0; i < when_selector->size(); ++i) {
-                auto result_index = (*when_selector)[i];
-                if (boolean_data[i]) {
-                    matched_selector.push_back(result_index);
-                } else {
-                    not_matched_selector.push_back(result_index);
-                }
-            }
-        }
-    }
+    DCHECK(when_column->size() == count);
+    ConditionColumnView condition_view =
+            ConditionColumnView::create(when_column, when_selector, count);
+
+    auto null_func = [&](size_t i) { not_matched_selector.push_back(i); };
+    auto true_func = [&](size_t i) { matched_selector.push_back(i); };
+    auto false_func = [&](size_t i) { not_matched_selector.push_back(i); };
+
+    condition_view.for_each(null_func, true_func, false_func);
 }
 
 Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* block,
@@ -386,20 +283,23 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
     DCHECK(_open_finished || block == nullptr) << debug_string();
     DCHECK(selector == nullptr || selector->size() == count);
 
-    std::vector<ColumnAndSelector> columns_and_selectors;     // 存储每个then列和对应的selector
-    columns_and_selectors.resize((_children.size()) / 2 + 1); //
+    // Structure: WHEN expr1 THEN result1 [WHEN expr2 THEN result2 ...] [ELSE else_result]
+    // _children layout: [when1, then1, when2, then2, ..., else?]
+    // Number of when/then pairs = _children.size() / 2 (rounded down if has_else)
+    // +1 for the else branch or null output when no else is provided
+    const size_t num_branches = _children.size() / 2 + 1;
+    std::vector<ColumnAndSelector> columns_and_selectors;
+    columns_and_selectors.resize(num_branches);
 
     Selector* current_selector = selector;
     size_t current_count = count;
 
-    Selector left_not_matched_selector; // 用来存储还剩下的没有匹配的行
+    Selector left_not_matched_selector; // used to store the remaining unmatched rows
 
-    for (int i = 0; i < _children.size() - _has_else_expr; i += 2) {
+    for (int64_t i = 0; i < static_cast<int64_t>(_children.size()) - _has_else_expr; i += 2) {
         ColumnPtr when_column_ptr;
         RETURN_IF_ERROR(_children[i]->execute_column(context, block, current_selector,
                                                      current_count, when_column_ptr));
-
-        when_column_ptr = when_column_ptr->convert_to_full_column_if_const();
 
         DCHECK(current_selector == nullptr || current_selector->size() == when_column_ptr->size());
 
@@ -420,12 +320,17 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
                   columns_and_selectors[i / 2].selector.size());
 
         left_not_matched_selector.swap(not_matched_selector);
-        // 下一个列需要处理的行，是当前的列的not matched行
+        // the rows that the next column needs to process are the not-matched rows of the current column
         current_selector = &left_not_matched_selector;
         current_count = left_not_matched_selector.size();
+
+        if (left_not_matched_selector.size() == 0) {
+            // all rows are matched, no need to process further
+            break;
+        }
     }
 
-    // 处理else分支
+    // handle the else branch
     if (_has_else_expr) {
         DCHECK_EQ(columns_and_selectors.size(), (_children.size() + 1) / 2);
 
@@ -435,21 +340,11 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
         columns_and_selectors.back().column = else_column_ptr;
         columns_and_selectors.back().selector.swap(left_not_matched_selector);
     } else {
-        // 没有else分支，剩下的行全部是null
+        // no else branch, all remaining rows are null
         columns_and_selectors.back().selector.swap(left_not_matched_selector);
     }
 
-    auto vec_exec = [&](const auto& type) -> bool {
-        using DataType = std::decay_t<decltype(type)>;
-        result_column = ScalarFillWithSelector<DataType::PType>::fill(_data_type,
-                                                                      columns_and_selectors, count);
-        return true;
-    };
-
-    if (!dispatch_switch_scalar(_data_type->get_primitive_type(), vec_exec)) {
-        result_column = NonScalarFillWithSelector::fill(_data_type, columns_and_selectors, count);
-    }
-
+    result_column = dispatch_fill_columns(columns_and_selectors, count);
     return Status::OK();
 }
 
