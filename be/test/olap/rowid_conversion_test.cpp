@@ -384,7 +384,7 @@ protected:
         auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(out_rowset);
         std::vector<uint32_t> segment_num_rows;
         OlapReaderStatistics statistics;
-        EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &statistics).ok());
+        EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, false, &statistics).ok());
         if (has_delete_handler) {
             // All keys less than 1000 are deleted by delete handler
             for (auto& item : output_data) {

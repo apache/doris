@@ -224,15 +224,13 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
                 hashes[i] = HashUtil::zlib_crc_hash(
-                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                        hashes[i]);
+                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
             }
         } else {
             for (size_t i = 0; i < s; i++) {
                 if (null_data[i] == 0)
                     hashes[i] = HashUtil::zlib_crc_hash(
-                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                            hashes[i]);
+                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
             }
         }
     }
@@ -356,69 +354,90 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 
 template <PrimitiveType T>
 void ColumnVector<T>::insert(const Field& x) {
+    // TODO(gabriel): `x` must have the same type as `T` if all of nested types are BIGINT in Variant
     value_type tmp;
-    switch (x.get_type()) {
-    case TYPE_NULL:
-        tmp = default_value();
-        break;
-    case TYPE_BOOLEAN:
-        tmp = doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType>(x);
-        break;
-    case TYPE_TINYINT:
-        tmp = doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_TINYINT>::CppType>(x);
-        break;
-    case TYPE_SMALLINT:
-        tmp = (value_type)
-                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::CppType>(x);
-        break;
-    case TYPE_INT:
-        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_INT>::CppType>(
-                x);
-        break;
-    case TYPE_BIGINT:
-        tmp = (value_type)
-                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_BIGINT>::CppType>(x);
-        break;
-    case TYPE_LARGEINT:
-        tmp = (value_type)
-                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::CppType>(x);
-        break;
-    case TYPE_IPV4:
-        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_IPV4>::CppType>(
-                x);
-        break;
-    case TYPE_IPV6:
-        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_IPV6>::CppType>(
-                x);
-        break;
-    case TYPE_FLOAT:
-        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_FLOAT>::CppType>(
-                x);
-        break;
-    case TYPE_DOUBLE:
-        tmp = (value_type)
-                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::CppType>(x);
-        break;
-    case TYPE_TIME:
-        tmp = (value_type)doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_TIME>::CppType>(
-                x);
-        break;
-    case TYPE_TIMEV2:
-        tmp = (value_type)
-                doris::vectorized::get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType>(x);
-        break;
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-    case TYPE_DATEV2:
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMESTAMPTZ:
-        tmp = doris::vectorized::get<typename PrimitiveTypeTraits<T>::ColumnItemType>(x);
-        break;
-    default:
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Unsupported type {} to insert into {} type column",
-                               type_to_string(x.get_type()), type_to_string(T));
-        break;
+    if constexpr (T == TYPE_DATEV2) {
+        if (x.get_type() != TYPE_DATEV2) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATEV2>();
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        if (x.get_type() != TYPE_DATETIMEV2) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATETIMEV2>();
+    } else if constexpr (T == TYPE_DATE) {
+        if (x.get_type() != TYPE_DATE) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATE>();
+    } else if constexpr (T == TYPE_DATETIME) {
+        if (x.get_type() != TYPE_DATETIME) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_DATETIME>();
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        if (x.get_type() != TYPE_TIMESTAMPTZ) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Type mismatch: cannot insert {} into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+        }
+        tmp = x.get<TYPE_TIMESTAMPTZ>();
+    } else {
+        switch (x.get_type()) {
+        case TYPE_NULL:
+            tmp = default_value();
+            break;
+        case TYPE_BOOLEAN:
+            tmp = x.get<TYPE_BOOLEAN>();
+            break;
+        case TYPE_TINYINT:
+            tmp = x.get<TYPE_TINYINT>();
+            break;
+        case TYPE_SMALLINT:
+            tmp = (value_type)x.get<TYPE_SMALLINT>();
+            break;
+        case TYPE_INT:
+            tmp = (value_type)x.get<TYPE_INT>();
+            break;
+        case TYPE_BIGINT:
+            tmp = (value_type)x.get<TYPE_BIGINT>();
+            break;
+        case TYPE_LARGEINT:
+            tmp = (value_type)x.get<TYPE_LARGEINT>();
+            break;
+        case TYPE_IPV4:
+            tmp = (value_type)x.get<TYPE_IPV4>();
+            break;
+        case TYPE_IPV6:
+            tmp = (value_type)x.get<TYPE_IPV6>();
+            break;
+        case TYPE_FLOAT:
+            tmp = x.get<TYPE_FLOAT>();
+            break;
+        case TYPE_DOUBLE:
+            tmp = (value_type)x.get<TYPE_DOUBLE>();
+            break;
+        case TYPE_TIME:
+            tmp = (value_type)x.get<TYPE_TIME>();
+            break;
+        case TYPE_TIMEV2:
+            tmp = (value_type)x.get<TYPE_TIMEV2>();
+            break;
+        default:
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Unsupported type {} to insert into {} type column",
+                                   type_to_string(x.get_type()), type_to_string(T));
+            break;
+        }
     }
     data.push_back(tmp);
 }

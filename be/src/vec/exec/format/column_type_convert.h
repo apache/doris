@@ -485,7 +485,7 @@ struct SafeCastString<TYPE_DATETIME> {
     static bool safe_cast_string(
             const StringRef& str_ref,
             PrimitiveTypeTraits<TYPE_DATETIME>::ColumnType::value_type* value) {
-        return read_datetime_text_impl<Int64>(*value, str_ref);
+        return read_datetime_text_impl(*value, str_ref);
     }
 };
 
@@ -494,7 +494,7 @@ struct SafeCastString<TYPE_DATETIMEV2> {
     static bool safe_cast_string(
             const StringRef& str_ref,
             PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType::value_type* value, int scale) {
-        return read_datetime_v2_text_impl<UInt64>(*value, str_ref, scale);
+        return read_datetime_v2_text_impl(*value, str_ref, scale);
     }
 };
 
@@ -502,7 +502,7 @@ template <>
 struct SafeCastString<TYPE_DATE> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value) {
-        return read_date_text_impl<Int64>(*value, str_ref);
+        return read_date_text_impl(*value, str_ref);
     }
 };
 
@@ -510,7 +510,7 @@ template <>
 struct SafeCastString<TYPE_DATEV2> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATEV2>::ColumnType::value_type* value) {
-        return read_date_v2_text_impl<UInt32>(*value, str_ref);
+        return read_date_v2_text_impl(*value, str_ref);
     }
 };
 
@@ -627,8 +627,10 @@ public:
             int64_t ts_s = 0;
             if (!src_value.unix_timestamp(&ts_s, cctz::utc_time_zone())) {
                 if (null_map == nullptr) {
-                    return Status::InternalError("Failed to cast value '{}' to {} column",
-                                                 src_data[i], dst_col->get_name());
+                    char buf[30];
+                    src_data[i].to_string(buf);
+                    return Status::InternalError("Failed to cast value '{}' to {} column", buf,
+                                                 dst_col->get_name());
                 } else {
                     (*null_map)[start_idx + i] = 1;
                 }
@@ -639,8 +641,10 @@ public:
                 if ((Int64)std::numeric_limits<DstCppType>::min() > ts_ms ||
                     ts_ms > (Int64)std::numeric_limits<DstCppType>::max()) {
                     if (null_map == nullptr) {
-                        return Status::InternalError("Failed to cast value '{}' to {} column",
-                                                     src_data[i], dst_col->get_name());
+                        char buf[30];
+                        src_data[i].to_string(buf);
+                        return Status::InternalError("Failed to cast value '{}' to {} column", buf,
+                                                     dst_col->get_name());
                     } else {
                         (*null_map)[start_idx + i] = 1;
                     }

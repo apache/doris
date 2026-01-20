@@ -264,7 +264,7 @@ void JSONDataParser<ParserImpl>::handleExistingPath(std::pair<PathInData::Parts,
     // the Nested has been already collected.
     auto nested_key = getNameOfNested(path, value);
     if (!nested_key.empty()) {
-        size_t array_size = get<const Array&>(value).size();
+        size_t array_size = value.get<TYPE_ARRAY>().size();
         auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
         if (current_nested_sizes.size() == ctx.current_size) {
             current_nested_sizes.push_back(array_size);
@@ -293,7 +293,7 @@ void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::P
 
     auto nested_key = getNameOfNested(path, value);
     if (!nested_key.empty()) {
-        size_t array_size = get<const Array&>(value).size();
+        size_t array_size = value.get<TYPE_ARRAY>().size();
         auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
         if (current_nested_sizes.empty()) {
             current_nested_sizes.resize(ctx.current_size);

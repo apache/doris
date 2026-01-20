@@ -36,7 +36,7 @@ Status DataTypeTimeStampTzSerDe::from_string(StringRef& str, IColumn& column,
     if (!CastToTimstampTz::from_string(str, res, params, options.timezone, _scale)) [[unlikely]] {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str.to_string());
     }
-    col_data.insert_value(res.to_date_int_val());
+    col_data.insert_value(res);
     return Status::OK();
 }
 
@@ -55,10 +55,10 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
         if (!CastToTimstampTz::from_string(str, res, params, options.timezone, _scale))
                 [[unlikely]] {
             col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = TimestampTzValue::default_column_value();
+            col_data.get_data()[i] = TimestampTzValue(TimestampTzValue::default_column_value());
         } else {
             col_nullmap.get_data()[i] = false;
-            col_data.get_data()[i] = res.to_date_int_val();
+            col_data.get_data()[i] = res;
         }
     }
     return Status::OK();
@@ -78,7 +78,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode(StringRef& str, IColumn
                 fmt::format("parse {} to timestamptz failed: ", str.to_string_view()));
         return params.status;
     }
-    col_data.insert_value(res.to_date_int_val());
+    col_data.insert_value(res);
     return Status::OK();
 }
 
@@ -104,7 +104,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = res.to_date_int_val();
+        col_data.get_data()[i] = res;
     }
     return Status::OK();
 }
@@ -124,10 +124,8 @@ Status DataTypeTimeStampTzSerDe::serialize_one_cell_to_json(const IColumn& colum
     if (_nesting_level > 1) {
         bw.write('"');
     }
-    UInt64 int_val =
-            assert_cast<const ColumnTimeStampTz&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
-                    row_num);
-    auto val = binary_cast<UInt64, TimestampTzValue>(int_val);
+    auto val = assert_cast<const ColumnTimeStampTz&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+            row_num);
 
     auto str = val.to_string(*options.timezone, _scale);
     bw.write(str.data(), str.size());
@@ -157,7 +155,7 @@ Status DataTypeTimeStampTzSerDe::deserialize_one_cell_from_json(
         !CastToTimstampTz::from_string(str, res, params, options.timezone, _scale)) {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str.to_string());
     }
-    column_data.insert_value(res.to_date_int_val());
+    column_data.insert_value(res);
     return Status::OK();
 }
 
@@ -167,7 +165,7 @@ Status DataTypeTimeStampTzSerDe::write_column_to_mysql_binary(const IColumn& col
                                                               const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnTimeStampTz&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    auto val = binary_cast<UInt64, TimestampTzValue>(data[col_index]);
+    auto val = data[col_index];
     if (UNLIKELY(0 != result.push_timestamptz(val, *options.timezone, _scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }

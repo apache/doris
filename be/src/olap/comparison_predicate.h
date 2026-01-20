@@ -171,13 +171,13 @@ public:
         T min_value;
         T max_value;
         if constexpr (is_string_type(Type)) {
-            auto& tmp_min = min_field.template get<std::string>();
-            auto& tmp_max = max_field.template get<std::string>();
+            auto& tmp_min = min_field.template get<Type>();
+            auto& tmp_max = max_field.template get<Type>();
             min_value = StringRef(tmp_min.data(), tmp_min.size());
             max_value = StringRef(tmp_max.data(), tmp_max.size());
         } else {
-            min_value = min_field.template get<T>();
-            max_value = max_field.template get<T>();
+            min_value = min_field.template get<Type>();
+            max_value = max_field.template get<Type>();
         }
 
         if constexpr (PT == PredicateType::EQ) {

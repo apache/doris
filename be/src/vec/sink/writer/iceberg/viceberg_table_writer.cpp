@@ -604,7 +604,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     case TYPE_BOOLEAN: {
         vectorized::Field field =
                 vectorized::check_and_get_column<const ColumnUInt8>(*col_ptr)->operator[](position);
-        return field.get<bool>();
+        return field.get<TYPE_BOOLEAN>();
     }
     case TYPE_TINYINT: {
         return *reinterpret_cast<const Int8*>(item);

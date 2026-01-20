@@ -375,10 +375,10 @@ public:
         size_t start_idx = to_float_column->size();
         to_float_column->resize(start_idx + num_values);
         auto& to_float_column_data = to_float_column->get_data();
-        const uint8_t* ptr = src_data->get_data().data();
+        const auto* ptr = src_data->get_data().data();
         for (int i = 0; i < num_values; ++i) {
             size_t offset = i * _type_length;
-            const uint8_t* data_ptr = ptr + offset;
+            const auto* data_ptr = ptr + offset;
             uint16_t raw;
             memcpy(&raw, data_ptr, sizeof(uint16_t));
             float value = half_to_float(raw);
@@ -483,7 +483,7 @@ private:
 template <PrimitiveType DecimalPType>
 class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     FixedSizeToDecimal(int32_t type_length) : _type_length(type_length) {}
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
@@ -568,7 +568,7 @@ private:
 
 template <PrimitiveType DecimalPType>
 class StringToDecimal : public PhysicalToLogicalConverter {
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -601,7 +601,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
 
 template <PrimitiveType NumberType, PrimitiveType DecimalPType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);

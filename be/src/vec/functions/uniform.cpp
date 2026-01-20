@@ -79,7 +79,7 @@ struct UniformIntImpl {
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<Int64>();
+            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
             std::mt19937_64 generator(seed);
             std::uniform_int_distribution<int64_t> distribution(min, max);
             res_data[i] = distribution(generator);
@@ -127,7 +127,7 @@ struct UniformDoubleImpl {
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<Int64>();
+            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
             std::mt19937_64 generator(seed);
             std::uniform_real_distribution<double> distribution(min, max);
             res_data[i] = distribution(generator);

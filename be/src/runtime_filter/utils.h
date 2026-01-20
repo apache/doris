@@ -35,7 +35,7 @@ namespace doris {
 
 template <typename T>
 auto get_convertor() {
-    if constexpr (std::is_same_v<T, bool>) {
+    if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, uint8_t>) {
         return [](PColumnValue* value, const T& data) { value->set_boolval(data); };
     } else if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
                          std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> ||
