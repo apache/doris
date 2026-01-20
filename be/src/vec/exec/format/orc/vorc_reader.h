@@ -573,16 +573,15 @@ private:
         }
         static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
         for (int i = 0; i < num_values; ++i) {
-            auto& v = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(
-                    column_data[origin_size + i]);
+            auto& tz = column_data[origin_size + i];
             if constexpr (is_filter) {
                 if (!filter_data[i]) {
                     continue;
                 }
             }
-            v.from_unixtime(data->data[i], utc_time_zone);
+            tz.from_unixtime(data->data[i], utc_time_zone);
             // nanoseconds will lose precision. only keep microseconds.
-            v.set_microsecond(data->nanoseconds[i] / 1000);
+            tz.set_microsecond(data->nanoseconds[i] / 1000);
         }
         return Status::OK();
     }

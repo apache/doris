@@ -133,6 +133,16 @@ public:
         return _utc_dt.datetime_trunc<unit>();
     }
 
+    void from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
+        _utc_dt.from_unixtime(timestamp, ctz);
+    }
+
+    void set_microsecond(uint64_t microsecond) { _utc_dt.set_microsecond(microsecond); }
+
+    bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
+        return _utc_dt.unix_timestamp(timestamp, ctz);
+    }
+
     // Convert UTC time to local time based on the given timezone
     void convert_utc_to_local(const cctz::time_zone& local_time_zone,
                               DateV2Value<DateTimeV2ValueType>& dt) const;

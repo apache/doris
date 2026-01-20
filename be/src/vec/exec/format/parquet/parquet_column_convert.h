@@ -692,11 +692,10 @@ struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
-            auto& num = dest_data[start_idx + i];
-            auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            value.from_unixtime(x / _convert_params->second_mask, UTC);
-            value.set_microsecond((x % _convert_params->second_mask) *
-                                  (_convert_params->scale_to_nano_factor / 1000));
+            auto& tz = dest_data[start_idx + i];
+            tz.from_unixtime(x / _convert_params->second_mask, UTC);
+            tz.set_microsecond((x % _convert_params->second_mask) *
+                               (_convert_params->scale_to_nano_factor / 1000));
         }
         return Status::OK();
     }
@@ -738,16 +737,14 @@ struct Int96toTimestampTz : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
         auto& data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
-        static const cctz::time_zone utc = cctz::utc_time_zone();
+        static const cctz::time_zone UTC = cctz::utc_time_zone();
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];
-            auto& dst_value =
-                    reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[start_idx + i]);
-
             int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
-            dst_value.from_unixtime(timestamp_with_micros / 1000000, utc);
-            dst_value.set_microsecond(timestamp_with_micros % 1000000);
+            auto& tz = data[start_idx + i];
+            tz.from_unixtime(timestamp_with_micros / 1000000, UTC);
+            tz.set_microsecond(timestamp_with_micros % 1000000);
         }
         return Status::OK();
     }

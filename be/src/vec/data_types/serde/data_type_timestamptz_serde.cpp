@@ -190,13 +190,14 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
                                              array_builder->type()->name()));
         } else {
             int64_t timestamp = 0;
-            col_data[i].utc_dt().unix_timestamp(&timestamp, UTC);
+            const auto& tz = col_data[i];
+            tz.unix_timestamp(&timestamp, UTC);
 
             if (_scale > 3) {
-                uint32_t microsecond = col_data[i].utc_dt().microsecond();
+                uint32_t microsecond = tz.microsecond();
                 timestamp = (timestamp * 1000000) + microsecond;
             } else if (_scale > 0) {
-                uint32_t millisecond = col_data[i].utc_dt().microsecond() / 1000;
+                uint32_t millisecond = tz.microsecond() / 1000;
                 timestamp = (timestamp * 1000) + millisecond;
             }
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
@@ -215,20 +216,19 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
     const auto& col_data = assert_cast<const ColumnTimeStampTz&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
     static const int64_t micro_to_nano_second = 1000;
-    static const auto& utc = cctz::utc_time_zone();
+    static const auto& UTC = cctz::utc_time_zone();
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
 
         int64_t timestamp = 0;
-        if (!col_data[row_id].utc_dt().unix_timestamp(&timestamp, utc)) {
+        if (!col_data[row_id].unix_timestamp(&timestamp, UTC)) {
             return Status::InternalError("get unix timestamp error.");
         }
 
         cur_batch->data[row_id] = timestamp;
-        cur_batch->nanoseconds[row_id] =
-                col_data[row_id].utc_dt().microsecond() * micro_to_nano_second;
+        cur_batch->nanoseconds[row_id] = col_data[row_id].microsecond() * micro_to_nano_second;
     }
     cur_batch->numElements = end - start;
     return Status::OK();
