@@ -217,7 +217,8 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
     auto least_common_type_id = least_common_type.get_base_type_id();
     auto least_common_type_dim = least_common_type.get_dimensions();
     bool type_changed = info.need_convert;
-    if (data.empty()) {
+    // Special case: when data is not empty but contains a column of DataTypeNothing, least type is DataTypeNothing
+    if (data.empty() || least_common_type_id == PrimitiveType::INVALID_TYPE) {
         if (from_dim > 1) {
             add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
             type_changed = true;
