@@ -678,7 +678,7 @@ public class StmtExecutor {
             // t1: client issues create table to master fe
             // t2: client issues query sql to observer fe, the query would fail due to not exist table in plan phase.
             // t3: observer fe receive editlog creating the table from the master fe
-            syncJournalIfNeeded();
+            syncJournalIfNeeded(context);
             try {
                 ((Command) logicalPlan).verifyCommandSupported(context);
                 ((Command) logicalPlan).run(context, this);
@@ -741,7 +741,7 @@ public class StmtExecutor {
             // t2: client issues query sql to observer fe, the query would fail due to not exist table in
             //     plan phase.
             // t3: observer fe receive editlog creating the table from the master fe
-            syncJournalIfNeeded();
+            syncJournalIfNeeded(context);
             planner = new NereidsPlanner(statementContext);
             try {
                 checkBlockRulesByRegex(originStmt);
@@ -978,7 +978,8 @@ public class StmtExecutor {
         }
     }
 
-    private void syncJournalIfNeeded() throws Exception {
+    /** syncJournalIfNeeded */
+    public static void syncJournalIfNeeded(ConnectContext context) throws Exception {
         final Env env = context.getEnv();
         if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
             return;
