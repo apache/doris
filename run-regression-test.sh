@@ -213,7 +213,8 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     
     # First try to download dependencies only
     echo "Downloading dependencies..."
-    execute_maven_with_retry "\"${MVN_CMD}\" dependency:resolve -B -DskipTests=true -Dmdep.prependGroupId=true -DoutputFile=/tmp/dependencies.txt" || {
+    dep_output_file="$(mktemp -t doris-dependencies-XXXXXX.txt)" || { echo "Failed to create temporary file for dependency output"; exit 1; }
+    execute_maven_with_retry "\"${MVN_CMD}\" dependency:resolve -B -DskipTests=true -Dmdep.prependGroupId=true -DoutputFile=${dep_output_file}" || {
         echo "Failed to download dependencies"
         exit 1
     }
