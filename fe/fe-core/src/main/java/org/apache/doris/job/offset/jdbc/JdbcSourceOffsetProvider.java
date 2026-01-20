@@ -18,6 +18,7 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.httpv2.entity.ResponseBody;
+import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -331,19 +332,19 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
         String offsetProviderPersist = job.getOffsetProviderPersist();
-        if (job.getOffsetProviderPersist() == null) {
-            return;
-        }
-        JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
-                JdbcSourceOffsetProvider.class);
-        this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
-        this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
-
-        if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
-            currentOffset = new JdbcOffset();
-            currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
-        } else {
-            try {
+        if (offsetProviderPersist != null) {
+            JdbcSourceOffsetProvider replayFromPersist = GsonUtils.GSON.fromJson(offsetProviderPersist,
+                    JdbcSourceOffsetProvider.class);
+            this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
+            this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
+            log.info("Replaying offset provider for job {}, binlogOffset size {}, chunkHighWatermark size {}",
+                    getJobId(),
+                    binlogOffsetPersist == null ? 0 : binlogOffsetPersist.size(),
+                    chunkHighWatermarkMap == null ? 0 : chunkHighWatermarkMap.size());
+            if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
+                currentOffset = new JdbcOffset();
+                currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
+            } else {
                 Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
                     SnapshotSplit lastSnapshotSplit = recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
@@ -352,10 +353,20 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         currentOffset.setSplit(lastSnapshotSplit);
                     }
                 }
-            } catch (Exception ex) {
-                log.warn("Replay snapshot splits error with job {} ", job.getJobId(), ex);
-                throw new JobException(ex);
             }
+        } else if (checkNeedSplitChunks(sourceProperties)
+                    && CollectionUtils.isEmpty(remainingSplits)
+                    && CollectionUtils.isEmpty(finishedSplits)
+                    && MapUtils.isEmpty(chunkHighWatermarkMap)
+                    && MapUtils.isEmpty(binlogOffsetPersist)) {
+            // After the Job is created for the first time, starting from the initial offset,
+            // the task for the first split is scheduled, When the task status is running or failed,
+            // If FE restarts, the split needs to be restore from the meta again.
+            log.info("Replaying offset provider for job {}, offsetProviderPersist is empty", getJobId());
+            Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
+            recalculateRemainingSplits(new HashMap<>(), snapshotSplits);
+        } else {
+            log.info("No need to replay offset provider for job {}", getJobId());
         }
     }
 
@@ -430,6 +441,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             this.remainingSplits = tableSplits.values().stream()
                     .flatMap(List::stream)
                     .collect(Collectors.toList());
+        } else {
+            // The source reader is automatically initialized when the split is obtained.
+            // In latest mode, a separate init is required.init source reader
+            initSourceReader();
         }
     }
 
@@ -488,6 +503,56 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return false;
         }
         return DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startMode);
+    }
+
+    /**
+     * Source reader needs to be initialized here.
+     * For example, PG slots need to be created first;
+     * otherwise, conflicts will occur in multi-backends scenarios.
+     */
+    private void initSourceReader() throws JobException {
+        Backend backend = StreamingJobUtils.selectBackend();
+        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                .setApi("/api/initReader")
+                .setParams(new Gson().toJson(requestParams)).build();
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        InternalService.PRequestCdcClientResult result = null;
+        try {
+            Future<PRequestCdcClientResult> future =
+                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                log.warn("Failed to init job {} reader, {}", getJobId(), result.getStatus().getErrorMsgs(0));
+                throw new JobException(
+                        "Failed to init source reader," + result.getStatus().getErrorMsgs(0) + ", response: "
+                                + result.getResponse());
+            }
+            String response = result.getResponse();
+            try {
+                ResponseBody<String> responseObj = objectMapper.readValue(
+                        response,
+                        new TypeReference<ResponseBody<String>>() {
+                        }
+                );
+                if (responseObj.getCode() == RestApiStatusCode.OK.code) {
+                    log.info("Init {} source reader successfully, response: {}", getJobId(), responseObj.getData());
+                    return;
+                } else {
+                    throw new JobException("Failed to init source reader, error: " + responseObj.getData());
+                }
+            } catch (JobException jobex) {
+                log.warn("Failed to init {} source reader, {}", getJobId(), response);
+                throw new JobException(jobex.getMessage());
+            } catch (Exception e) {
+                log.warn("Failed to init {} source reader, {}", getJobId(), response);
+                throw new JobException("Failed to init source reader, cause " + e.getMessage());
+            }
+        } catch (ExecutionException | InterruptedException ex) {
+            log.warn("init source reader: ", ex);
+            throw new JobException(ex);
+        }
     }
 
     public void cleanMeta(Long jobId) throws JobException {

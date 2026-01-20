@@ -28,13 +28,16 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
@@ -69,6 +72,24 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         public ProbeContext(SlotReference slot) {
             this.slot = slot;
         }
+    }
+
+    @Override
+    public Optional<MaterializeSource> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter,
+                                                           ProbeContext context) {
+        if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
+            // agg table do not support lazy materialize
+            OlapTable table = ((PhysicalOlapScan) filter.child()).getTable();
+            if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+                return Optional.empty();
+            }
+            if (filter.getInputSlots().contains(context.slot)) {
+                return Optional.of(new MaterializeSource((Relation) filter.child(), context.slot));
+            } else {
+                return filter.child().accept(this, context);
+            }
+        }
+        return this.visit(filter, context);
     }
 
     @Override
@@ -195,7 +216,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         } else {
             // projectExpr is alias
             Alias alias = (Alias) projectExpr;
-            if (alias.child() instanceof SlotReference) {
+            if (alias.child() instanceof SlotReference && !SessionVariable.getTopNLazyMaterializationUsingIndex()) {
                 ProbeContext childContext = new ProbeContext((SlotReference) alias.child());
                 return project.child().accept(this, childContext);
             } else {

@@ -781,16 +781,19 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Load snapshot information of mvcc
+     * Load snapshot information of mvcc for a specific table.
+     *
+     * @param specificTable specific table to load snapshot for.
+     * @param tableSnapshot table snapshot info
+     * @param scanParams table scan params (e.g., branch/tag for Iceberg tables)
      */
-    public void loadSnapshots(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        for (TableIf tableIf : tables.values()) {
-            if (tableIf instanceof MvccTable) {
-                MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
-                // may be set by MTMV, we can not load again
-                if (!snapshots.containsKey(mvccTableInfo)) {
-                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot(tableSnapshot, scanParams));
-                }
+    public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (specificTable instanceof MvccTable) {
+            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
+            if (!snapshots.containsKey(mvccTableInfo)) {
+                snapshots.put(mvccTableInfo,
+                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
             }
         }
     }

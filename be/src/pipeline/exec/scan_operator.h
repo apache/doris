@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -87,6 +88,10 @@ public:
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
 
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
+
+    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts);
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::Scanner;
@@ -120,6 +125,7 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
+    std::mutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
@@ -307,7 +313,7 @@ protected:
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;

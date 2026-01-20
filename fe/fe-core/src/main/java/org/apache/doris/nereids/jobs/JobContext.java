@@ -37,7 +37,6 @@ public class JobContext {
     // use for optimizer
     protected final ScheduleContext scheduleContext;
     protected final PhysicalProperties requiredProperties;
-    protected double costUpperBound;
 
     // use for rewriter
     protected boolean rewritten = false;
@@ -46,10 +45,9 @@ public class JobContext {
     // user for trace
     protected Map<RuleType, Integer> ruleInvokeTimes = Maps.newLinkedHashMap();
 
-    public JobContext(ScheduleContext scheduleContext, PhysicalProperties requiredProperties, double costUpperBound) {
+    public JobContext(ScheduleContext scheduleContext, PhysicalProperties requiredProperties) {
         this.scheduleContext = scheduleContext;
         this.requiredProperties = requiredProperties;
-        this.costUpperBound = costUpperBound;
     }
 
     public ScheduleContext getScheduleContext() {
@@ -62,14 +60,6 @@ public class JobContext {
 
     public PhysicalProperties getRequiredProperties() {
         return requiredProperties;
-    }
-
-    public double getCostUpperBound() {
-        return costUpperBound;
-    }
-
-    public void setCostUpperBound(double costUpperBound) {
-        this.costUpperBound = costUpperBound;
     }
 
     public boolean isRewritten() {

@@ -23,6 +23,6 @@ TEST_F(FunctionCastToDecimalTest, test_to_decimal32_from_decimal128_overflow) {
     between_decimal_overflow_test_func<Decimal128V3, Decimal32>();
 }
 TEST_F(FunctionCastToDecimalTest, test_to_decimal32_from_decimalv2_overflow) {
-    between_decimal_overflow_test_func<Decimal128V2, Decimal32>();
+    between_decimal_overflow_test_func<DecimalV2Value, Decimal32>();
 }
 } // namespace doris::vectorized

@@ -15,19 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_meta", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_meta", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
         return
     }
 
     String catalog_name = "test_hudi_meta"
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
+    
     sql """drop catalog if exists ${catalog_name};"""
     sql """
         create catalog if not exists ${catalog_name} properties (
-            ${props}
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
         );
     """
 
@@ -35,13 +46,49 @@ suite("test_hudi_meta", "p2,external,hudi,external_remote,external_remote_hudi")
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
     
-    qt_hudi_meta1 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_non_partition", "query_type" = "timeline"); """
-    qt_hudi_meta2 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_mor_non_partition", "query_type" = "timeline"); """
-    qt_hudi_meta3 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline"); """
-    qt_hudi_meta4 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline"); """
-
-    qt_hudi_meta5 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_cow", "query_type" = "timeline"); """
-    qt_hudi_meta6 """ select * from hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_mor", "query_type" = "timeline"); """
+    // Query timeline and verify structure (action, state) without relying on specific timestamps
+    // For user_activity_log_cow_non_partition: expect 5 commits (we changed from 10 to 5 commits)
+    qt_hudi_meta1 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_non_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For user_activity_log_mor_non_partition: expect 5 deltacommits
+    qt_hudi_meta2 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_mor_non_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For user_activity_log_cow_partition: expect 5 commits
+    qt_hudi_meta3 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // Same table as hudi_meta3, should have same result
+    qt_hudi_meta4 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.user_activity_log_cow_partition", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For timetravel_cow: expect 1 commit
+    qt_hudi_meta5 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_cow", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
+    
+    // For timetravel_mor: expect 1 deltacommit
+    qt_hudi_meta6 """ 
+        SELECT action, state 
+        FROM hudi_meta("table"="${catalog_name}.regression_hudi.timetravel_mor", "query_type" = "timeline")
+        ORDER BY timestamp;
+    """
 
     sql """drop catalog if exists ${catalog_name};"""
 }
+

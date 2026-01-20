@@ -92,7 +92,7 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
             // trigger compactions for all tablets in ${tableName}
-            trigger_and_wait_compaction(tableName, "cumulative")
+            trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
             int rowCount = 0
             for (def tablet in tablets) {
@@ -123,7 +123,7 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             }
             insert2.call();
             insert2.call();
-            trigger_and_wait_compaction(tableName, "cumulative")
+            trigger_and_wait_compaction(tableName, "cumulative", 1800)
             sql "set topn_opt_limit_threshold = 1"
             order_qt_select "select * from ${tableName} order by k, cast(v as string) limit 5;"
             sql "set topn_opt_limit_threshold = 10"
