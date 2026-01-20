@@ -524,6 +524,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 sb.append(prefix).append(prefix).append(predicate).append("\n");
             }
         }
+        sb.append(prefix).append("PaimonTable: ").append(source.getPaimonTable().name()).append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE) {
             sb.append(prefix).append("PaimonSplitStats: \n");

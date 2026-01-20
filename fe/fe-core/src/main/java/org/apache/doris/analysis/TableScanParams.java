@@ -29,23 +29,32 @@ public class TableScanParams {
     public static final String INCREMENTAL_READ = "incr";
     public static final String BRANCH = "branch";
     public static final String TAG = "tag";
+    // for paimon read-optimized system table
+    public static final String RO = "ro";
     private static final ImmutableSet<String> VALID_PARAM_TYPES = ImmutableSet.of(
             INCREMENTAL_READ,
             BRANCH,
-            TAG);
+            TAG,
+            RO);
 
     private final String paramType;
-    // There are two ways to pass parameters to a function.
+    // There are three ways to pass parameters to a function.
     // - One is in map form, where the data is stored in `mapParams`.
     //   such as: @func_name('param1'='value1', 'param2'='value2', 'param3'='value3')
-    // - The other is in list form, where the data is stored in `listParams`.
+    // - Another one is in list form, where the data is stored in `listParams`.
     //   such as: `listParams` is used for @func_name('value1', 'value2', 'value3')
+    // - The third one is in short form, now only used for paimon 'ro' table.
+    //   such as: @ro
     private final Map<String, String> mapParams;
     private final List<String> listParams;
 
     private void validate() {
         if (!VALID_PARAM_TYPES.contains(paramType)) {
             throw new IllegalArgumentException("Invalid param type: " + paramType);
+        }
+        if (isRo() && (!mapParams.isEmpty() || !listParams.isEmpty())) {
+            throw new IllegalArgumentException(
+                    "The '@ro' parameter for Paimon read-optimized tables must be used without arguments");
         }
         // TODO: validate mapParams and listParams for different param types
     }
@@ -79,5 +88,9 @@ public class TableScanParams {
 
     public boolean isTag() {
         return TAG.equals(paramType);
+    }
+
+    public boolean isRo() {
+        return RO.equals(paramType);
     }
 }
