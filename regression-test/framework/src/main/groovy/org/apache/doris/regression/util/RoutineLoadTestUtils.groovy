@@ -120,25 +120,25 @@ class RoutineLoadTestUtils {
 
     private static int waitForTaskFinishInternal(Closure sqlRunner, String job, String tableName, int expectedMinRows, int maxAttempts, boolean isMoW) {
         def count = 0
+        def jsonSlurper = new JsonSlurper()
         while (true) {
             def res = sqlRunner.call("show routine load for ${job}")
             def routineLoadState = res[0][8].toString()
             def statistic = res[0][14].toString()
             logger.info("Routine load state: ${routineLoadState}")
             logger.info("Routine load statistic: ${statistic}")
-            def rowCount
+            def checkValue
             if (isMoW) {
-                // For MOW tables, use skip_delete_bitmap to properly count rows
-                sqlRunner.call("set skip_delete_bitmap=true")
-                sqlRunner.call("set skip_delete_sign=true")
-                sqlRunner.call("sync")
-                rowCount = sqlRunner.call("select count(*) from ${tableName}")
-                sqlRunner.call("set skip_delete_bitmap=false")
-                sqlRunner.call("set skip_delete_sign=false")
+                // For MOW tables, use accumulated loadedRows from statistics
+                // This avoids issues with delete bitmap during partial updates
+                def json = jsonSlurper.parseText(statistic)
+                checkValue = json.loadedRows ?: 0
+                logger.info("MOW table accumulated loadedRows: ${checkValue}")
             } else {
-                rowCount = sqlRunner.call("select count(*) from ${tableName}")
+                def rowCount = sqlRunner.call("select count(*) from ${tableName}")
+                checkValue = rowCount[0][0]
             }
-            if (routineLoadState == "RUNNING" && rowCount[0][0] > expectedMinRows) {
+            if (routineLoadState == "RUNNING" && checkValue > expectedMinRows) {
                 break
             }
             if (count > maxAttempts) {

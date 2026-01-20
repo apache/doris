@@ -44,6 +44,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -104,9 +105,8 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             producer.flush()
 
             // wait for routine load task to finish
-            // Initial: 5 rows, Kafka: 4 messages (3 updates + 1 insert), Expected: 6 rows
-            // waitForTaskFinish waits until rowCount > expectedMinRows, so pass 5
-            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job1, tableName1, 5)
+            // Kafka: 4 messages, wait for loadedRows > 3
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job1, tableName1, 3)
 
             // verify flexible partial update results
             qt_select_after_flex_update1 "SELECT id, name, score, age FROM ${tableName1} ORDER BY id"
@@ -136,6 +136,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -183,7 +184,8 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job2, tableName2, 3)
+            // Kafka: 3 messages, wait for loadedRows > 2
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job2, tableName2, 2)
 
             qt_select_after_flex_update2 "SELECT id, v1, v2, v3, v4 FROM ${tableName2} ORDER BY id"
         } catch (Exception e) {
@@ -209,6 +211,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -249,6 +252,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -291,6 +295,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -333,6 +338,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -376,6 +382,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -426,6 +433,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
+            // Kafka: 4 messages, wait for loadedRows > 3
             RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job7, tableName7, 3)
 
             // verify: id=1 should NOT be updated (filtered by WHERE), id=2,3,4 should be updated
@@ -453,6 +461,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "enable_unique_key_skip_bitmap_column" = "false"
             );
@@ -493,6 +502,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
             );
@@ -533,6 +543,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
             );
@@ -574,6 +585,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true"
             );
         """
@@ -620,7 +632,8 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job11, tableName11, 3)
+            // Kafka: 3 messages, wait for loadedRows > 2
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job11, tableName11, 2)
 
             qt_select_after_fixed_update "SELECT id, name, score, age FROM ${tableName11} ORDER BY id"
         } catch (Exception e) {
@@ -647,6 +660,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -715,7 +729,8 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job12, tableName12, 3)
+            // Kafka: 3 messages, wait for loadedRows > 2
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job12, tableName12, 2)
 
             // verify flexible partial update results after alter
             qt_select_after_alter_flex "SELECT id, name, score, age FROM ${tableName12} ORDER BY id"
@@ -742,6 +757,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "enable_unique_key_skip_bitmap_column" = "false"
             );
@@ -801,6 +817,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -861,6 +878,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -921,6 +939,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -981,6 +1000,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -1042,6 +1062,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -1108,6 +1129,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
+            // Kafka: 3 messages, wait for loadedRows > 2
             RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job18, tableName18, 2)
 
             // verify: id=1 should NOT be updated (filtered by WHERE), id=2,3 should be updated
@@ -1193,6 +1215,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
@@ -1258,7 +1281,8 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job20, tableName20, 2)
+            // Kafka: 2 messages, wait for loadedRows > 1
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job20, tableName20, 1)
 
             // with UPSERT, id=1 should have NULL for name and age (full row replacement)
             qt_select_after_alter_upsert "SELECT id, name, score, age FROM ${tableName20} ORDER BY id"
@@ -1286,6 +1310,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 3
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "enable_unique_key_skip_bitmap_column" = "true"
