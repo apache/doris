@@ -36,12 +36,16 @@
 #include "testutil/variant_util.h"
 #include "vec/columns/column_variant.cpp"
 #include "vec/columns/common_column_test.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/variant_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 using namespace doris;
@@ -516,6 +520,21 @@ static std::set<std::string> collect_sparse_paths(const ColumnVariant& variant) 
     return paths;
 }
 
+static MutableColumnPtr make_nullable_int_column(const std::vector<int32_t>& values,
+                                                 const std::vector<uint8_t>& nulls) {
+    auto data = ColumnInt32::create();
+    auto null_map = ColumnUInt8::create();
+    for (size_t i = 0; i < values.size(); ++i) {
+        data->insert_value(values[i]);
+        null_map->insert_value(nulls[i]);
+    }
+    return ColumnNullable::create(std::move(data), std::move(null_map));
+}
+
+static DataTypePtr make_nullable_int_type() {
+    return make_nullable(std::make_shared<DataTypeInt32>());
+}
+
 TEST_F(ColumnVariantTest, is_null_at) {
     auto v = VariantUtil::construct_dst_varint_column();
     PathInData path("v.f");
@@ -694,6 +713,59 @@ TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_to_zero) {
     EXPECT_TRUE(sparse_paths.empty());
     const auto& offsets = variant->serialized_sparse_column_offsets();
     EXPECT_EQ(offsets[variant->size() - 1], 0);
+}
+
+TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_increase_no_sparse) {
+    auto variant = VariantUtil::construct_varint_column_only_subcolumns();
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
+    ASSERT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
+
+    auto before_subcolumns = variant->subcolumns.size();
+    EXPECT_TRUE(collect_sparse_paths(*variant).empty());
+
+    EXPECT_TRUE(variant->adjust_max_subcolumns_count(10).ok());
+    EXPECT_EQ(variant->max_subcolumns_count(), 10);
+    EXPECT_EQ(variant->subcolumns.size(), before_subcolumns);
+    EXPECT_TRUE(collect_sparse_paths(*variant).empty());
+}
+
+TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_typed_path_keep_when_disabled) {
+    auto variant = ColumnVariant::create(2, 3);
+    variant->set_variant_enable_typed_paths_to_sparse(false);
+    auto type = make_nullable_int_type();
+    ASSERT_TRUE(variant->add_sub_column(PathInData("t.a", true),
+                                        make_nullable_int_column({1, 1, 1}, {0, 0, 0}), type));
+    ASSERT_TRUE(variant->add_sub_column(PathInData("v.a"),
+                                        make_nullable_int_column({1, 1, 1}, {0, 0, 0}), type));
+    ASSERT_TRUE(variant->add_sub_column(PathInData("v.b"),
+                                        make_nullable_int_column({1, 0, 0}, {0, 1, 1}), type));
+
+    EXPECT_TRUE(variant->adjust_max_subcolumns_count(1).ok());
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("t.a", true)));
+    EXPECT_TRUE(variant->has_subcolumn(PathInData("v.a")));
+    EXPECT_FALSE(variant->has_subcolumn(PathInData("v.b")));
+
+    auto sparse_paths = collect_sparse_paths(*variant);
+    EXPECT_TRUE(sparse_paths.count("v.b") > 0);
+    EXPECT_TRUE(sparse_paths.count("t.a") == 0);
+}
+
+TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_typed_path_can_demote) {
+    auto variant = ColumnVariant::create(3, 3);
+    variant->set_variant_enable_typed_paths_to_sparse(true);
+    auto type = make_nullable_int_type();
+    ASSERT_TRUE(variant->add_sub_column(PathInData("t.a", true),
+                                        make_nullable_int_column({1, 0, 0}, {0, 1, 1}), type));
+    ASSERT_TRUE(variant->add_sub_column(PathInData("v.a"),
+                                        make_nullable_int_column({1, 1, 1}, {0, 0, 0}), type));
+    ASSERT_TRUE(variant->add_sub_column(PathInData("v.b"),
+                                        make_nullable_int_column({1, 1, 0}, {0, 0, 1}), type));
+
+    EXPECT_TRUE(variant->adjust_max_subcolumns_count(2).ok());
+    EXPECT_FALSE(variant->has_subcolumn(PathInData("t.a", true)));
+
+    auto sparse_paths = collect_sparse_paths(*variant);
+    EXPECT_TRUE(sparse_paths.count("t.a") > 0);
 }
 
 TEST_F(ColumnVariantTest, advanced_insert_range_from) {

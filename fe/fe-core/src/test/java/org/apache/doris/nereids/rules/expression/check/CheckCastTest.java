@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.Lists;
@@ -241,6 +242,27 @@ public class CheckCastTest {
         Assertions.assertFalse(CheckCast.check(SmallIntType.INSTANCE, HllType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(SmallIntType.INSTANCE, BitmapType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(SmallIntType.INSTANCE, QuantileStateType.INSTANCE, false));
+    }
+
+    @Test
+    public void testVariantCastCompatibility() {
+        VariantType base = new VariantType(Lists.newArrayList(), 1, false, 10000, 0);
+        VariantType diffMax = new VariantType(Lists.newArrayList(), 5, false, 10000, 0);
+        Assertions.assertTrue(CheckCast.check(base, diffMax, true));
+
+        VariantType diffTyped = new VariantType(Lists.newArrayList(), 5, true, 10000, 0);
+        Assertions.assertFalse(CheckCast.check(base, diffTyped, true));
+
+        VariantType diffStats = new VariantType(Lists.newArrayList(), 5, false, 9999, 0);
+        Assertions.assertFalse(CheckCast.check(base, diffStats, true));
+
+        VariantType diffShard = new VariantType(Lists.newArrayList(), 5, false, 10000, 3);
+        Assertions.assertFalse(CheckCast.check(base, diffShard, true));
+
+        List<VariantField> fields = Lists.newArrayList(
+                new VariantField("a", IntegerType.INSTANCE, ""));
+        VariantType diffFields = new VariantType(fields, 5, false, 10000, 0);
+        Assertions.assertFalse(CheckCast.check(base, diffFields, true));
     }
 
     @Test

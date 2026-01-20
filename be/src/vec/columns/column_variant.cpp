@@ -2216,7 +2216,15 @@ std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
                             : std::max<size_t>(
                                       k, BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE);
 
-    std::unordered_map<std::string, size_t> path_counts;
+    struct StringViewHash {
+        size_t operator()(std::string_view value) const {
+            return StringRefHash()(StringRef(value.data(), value.size()));
+        }
+    };
+    struct StringViewEqual {
+        bool operator()(std::string_view lhs, std::string_view rhs) const { return lhs == rhs; }
+    };
+    std::unordered_map<std::string_view, size_t, StringViewHash, StringViewEqual> path_counts;
     path_counts.reserve(std::min(limit, sparse_paths->size()));
 
     for (size_t i = 0; i < sparse_paths->size(); ++i) {
@@ -2235,7 +2243,7 @@ std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
         }
         // Bound the number of tracked paths to keep memory under control.
         if (path_counts.size() < limit) {
-            path_counts.emplace(std::string(path_view), 1);
+            path_counts.emplace(path_view, 1);
         }
     }
 
@@ -2243,8 +2251,8 @@ std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
         return result;
     }
 
-    std::vector<std::pair<std::string, size_t>> sorted_paths(path_counts.begin(),
-                                                             path_counts.end());
+    std::vector<std::pair<std::string_view, size_t>> sorted_paths(path_counts.begin(),
+                                                                  path_counts.end());
     std::sort(sorted_paths.begin(), sorted_paths.end(),
               [](const auto& a, const auto& b) {
                   if (a.second != b.second) {
