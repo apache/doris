@@ -31,6 +31,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "librdkafka/rdkafkacpp.h"
+#include "runtime/routine_load/aws_msk_iam_auth.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/uid_util.h"
 
@@ -167,6 +168,10 @@ private:
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;
+
+    // AWS MSK IAM authentication support
+    std::shared_ptr<AwsMskIamAuth> _aws_msk_iam_auth;
+    std::unique_ptr<AwsMskIamOAuthCallback> _aws_msk_oauth_callback;
 };
 
 } // end namespace doris

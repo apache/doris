@@ -43,9 +43,10 @@ public class KafkaAwsMskIamAuthTest {
 
     @Test
     public void testValidAwsMskIamConfig() throws UserException {
-        // Test with AWS_MSK_IAM mechanism
+        // Test with OAUTHBEARER mechanism (correct way for AWS MSK IAM)
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
-        dataSourceProperties.put("property.sasl.mechanism", "AWS_MSK_IAM");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
         dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyMskRole");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
@@ -54,7 +55,8 @@ public class KafkaAwsMskIamAuthTest {
 
         Assert.assertNotNull(props.getCustomKafkaProperties());
         Assert.assertEquals("SASL_SSL", props.getCustomKafkaProperties().get("security.protocol"));
-        Assert.assertEquals("AWS_MSK_IAM", props.getCustomKafkaProperties().get("sasl.mechanism"));
+        Assert.assertEquals("OAUTHBEARER", props.getCustomKafkaProperties().get("sasl.mechanism"));
+        Assert.assertEquals("us-east-1", props.getCustomKafkaProperties().get("aws.region"));
     }
 
     @Test
@@ -127,6 +129,24 @@ public class KafkaAwsMskIamAuthTest {
         // Test invalid sasl.mechanism value when using AWS MSK IAM
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "PLAIN");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+
+        try {
+            props.analyze();
+            Assert.fail("Should throw AnalysisException for invalid sasl.mechanism with AWS config");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("OAUTHBEARER"));
+        }
+    }
+    
+    @Test
+    public void testMissingRegionWithRoleArn() {
+        // Test with role ARN but valid configuration
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyMskRole");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
@@ -134,9 +154,10 @@ public class KafkaAwsMskIamAuthTest {
 
         try {
             props.analyze();
-            Assert.fail("Should throw AnalysisException for invalid sasl.mechanism with AWS role");
+            // Should succeed - region can be inferred or defaults to us-east-1
+            Assert.assertNotNull(props.getCustomKafkaProperties());
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("AWS_MSK_IAM") || e.getMessage().contains("OAUTHBEARER"));
+            Assert.fail("Should not throw exception when region is not specified: " + e.getMessage());
         }
     }
 
