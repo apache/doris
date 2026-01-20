@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -33,47 +34,69 @@ import com.google.common.collect.ImmutableList;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
- * PhysicalRecursiveCteRecursiveChild is sentinel plan for must_shuffle
+ * PhysicalRecursiveUnionAnchor is sentinel plan for must_shuffle
  */
-public class PhysicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
-    private final String cteName;
+public class PhysicalRecursiveUnionAnchor<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+    private final CTEId cteId;
 
-    public PhysicalRecursiveCteRecursiveChild(String cteName, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(cteName, Optional.empty(), logicalProperties, child);
+    public PhysicalRecursiveUnionAnchor(CTEId cteId, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(cteId, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
+    public PhysicalRecursiveUnionAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(cteName, groupExpression, logicalProperties, PhysicalProperties.ANY, null, child);
+        this(cteId, groupExpression, logicalProperties, PhysicalProperties.ANY, null, child);
     }
 
-    public PhysicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
+    public PhysicalRecursiveUnionAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties, Statistics statistics,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_RECURSIVE_CTE_RECURSIVE_CHILD, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
-        this.cteName = cteName;
+        this.cteId = cteId;
+    }
+
+    public CTEId getCteId() {
+        return cteId;
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlStringSkipNull("PhysicalRecursiveCteRecursiveChild",
-                "cteName", cteName);
+        return Utils.toSqlStringSkipNull("PhysicalRecursiveUnionAnchor",
+                "CTEId", cteId);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalRecursiveUnionAnchor that = (PhysicalRecursiveUnionAnchor) o;
+        return cteId.equals(that.cteId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(cteId);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, getLogicalProperties(),
+        return new PhysicalRecursiveUnionAnchor<>(cteId, groupExpression, getLogicalProperties(),
                 children.get(0));
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalRecursiveCteRecursiveChild(this, context);
+        return visitor.visitPhysicalRecursiveUnionAnchor(this, context);
     }
 
     @Override
@@ -83,14 +106,14 @@ public class PhysicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, getLogicalProperties(), child());
+        return new PhysicalRecursiveUnionAnchor<>(cteId, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, logicalProperties.get(), child());
+        return new PhysicalRecursiveUnionAnchor<>(cteId, groupExpression, logicalProperties.get(), child());
     }
 
     @Override
@@ -115,7 +138,7 @@ public class PhysicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, getLogicalProperties(),
+        return new PhysicalRecursiveUnionAnchor<>(cteId, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics, child());
     }
 }

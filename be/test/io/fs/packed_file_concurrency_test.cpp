@@ -677,7 +677,10 @@ TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
             std::uniform_int_distribution<int> read_size_dist(4 * 1024, 32 * 1024);
 
             for (int iter = 0; iter < kIterationPerThread; ++iter) {
-                std::string path = fmt::format("/tablet_{}/rowset_{}/file_{}", tid, iter, iter);
+                // Use unique file names to avoid cache key conflicts between threads
+                // since CachedRemoteFileReader uses path().filename() for cache hash
+                std::string path =
+                        fmt::format("/tablet_{}/rowset_{}/file_t{}_i{}", tid, iter, tid, iter);
 
                 PackedAppendContext append_info;
                 append_info.resource_id = resource_ids[tid];
@@ -718,11 +721,13 @@ TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
                 opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
                 opts.is_doris_table = true;
                 ASSERT_TRUE(reader_fs.open_file(Path(path), &reader, &opts).ok());
-                auto* merge_reader = dynamic_cast<PackedFileReader*>(reader.get());
-                ASSERT_NE(merge_reader, nullptr);
-                auto* cached_reader =
-                        dynamic_cast<CachedRemoteFileReader*>(merge_reader->_inner_reader.get());
+                // After the fix, CachedRemoteFileReader wraps PackedFileReader (not vice versa)
+                // This ensures cache key uses segment path for proper cleanup
+                auto* cached_reader = dynamic_cast<CachedRemoteFileReader*>(reader.get());
                 ASSERT_NE(cached_reader, nullptr);
+                auto* merge_reader =
+                        dynamic_cast<PackedFileReader*>(cached_reader->get_remote_reader());
+                ASSERT_NE(merge_reader, nullptr);
 
                 IOContext io_ctx;
                 size_t verified = 0;

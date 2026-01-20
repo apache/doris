@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -31,17 +32,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -53,11 +51,11 @@ import java.util.Set;
  */
 public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implements CustomRewriter {
     // all cte used by recursive cte's recursive child should be inline
-    private Set<LogicalCTEConsumer> mustInlineCteConsumers = new HashSet<>();
+    private Set<CTEId> mustInlineCTEs;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        collectMustInlineCteConsumers(plan, false, mustInlineCteConsumers);
+        mustInlineCTEs = jobContext.getCascadesContext().getStatementContext().getMustInlineCTEs();
 
         Plan root = plan.accept(this, null);
         // collect cte id to consumer
@@ -86,7 +84,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 }
                 return false;
             });
-            if (!Sets.intersection(mustInlineCteConsumers, Sets.newHashSet(consumers)).isEmpty()) {
+            if (mustInlineCTEs.contains(cteAnchor.getCteId())) {
                 // should inline
                 Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
                 // process child
@@ -127,20 +125,5 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             return new LogicalProject<>(projects, inlinedPlan);
         }
         return cteConsumer;
-    }
-
-    private void collectMustInlineCteConsumers(Plan planNode, boolean needCollect,
-            Set<LogicalCTEConsumer> cteConsumers) {
-        if (planNode instanceof LogicalCTEConsumer) {
-            if (needCollect) {
-                cteConsumers.add((LogicalCTEConsumer) planNode);
-            }
-        } else if (planNode instanceof LogicalRecursiveCteRecursiveChild) {
-            collectMustInlineCteConsumers(planNode.child(0), true, cteConsumers);
-        } else {
-            for (Plan child : planNode.children()) {
-                collectMustInlineCteConsumers(child, needCollect, cteConsumers);
-            }
-        }
     }
 }

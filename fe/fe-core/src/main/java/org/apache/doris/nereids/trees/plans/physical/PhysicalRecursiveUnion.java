@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -46,50 +47,54 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * PhysicalRecursiveCte is basically like PhysicalUnion
+ * PhysicalRecursiveUnion is basically like PhysicalUnion, so most methods are same or similar as PhysicalUnion
  */
-public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements RecursiveCte {
+public class PhysicalRecursiveUnion<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
+        extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements RecursiveCte {
     private final String cteName;
     private final List<NamedExpression> outputs;
     private final List<List<SlotReference>> regularChildrenOutputs;
-    private final boolean isUnionAll;
+    private final SetOperation.Qualifier qualifier;
 
     /** PhysicalRecursiveCte */
-    public PhysicalRecursiveCte(String cteName, boolean isUnionAll,
+    public PhysicalRecursiveUnion(String cteName, SetOperation.Qualifier qualifier,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
-        this(cteName, isUnionAll, outputs, childrenOutputs, Optional.empty(), logicalProperties, children);
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(cteName, qualifier, outputs, childrenOutputs, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     /** PhysicalRecursiveCte */
-    public PhysicalRecursiveCte(String cteName, boolean isUnionAll,
+    public PhysicalRecursiveUnion(String cteName, SetOperation.Qualifier qualifier,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
-            List<Plan> children) {
-        this(cteName, isUnionAll, outputs, childrenOutputs, groupExpression, logicalProperties,
-                PhysicalProperties.ANY, null, children);
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(cteName, qualifier, outputs, childrenOutputs, groupExpression, logicalProperties,
+                PhysicalProperties.ANY, null, leftChild, rightChild);
     }
 
     /** PhysicalRecursiveCte */
-    public PhysicalRecursiveCte(String cteName, boolean isUnionAll, List<NamedExpression> outputs,
+    public PhysicalRecursiveUnion(String cteName, SetOperation.Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> children) {
+            PhysicalProperties physicalProperties, Statistics statistics, LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_RECURSIVE_CTE, groupExpression, logicalProperties, physicalProperties,
-                statistics, children.toArray(new Plan[0]));
+                statistics, leftChild, rightChild);
         this.cteName = cteName;
-        this.isUnionAll = isUnionAll;
+        this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(childrenOutputs);
     }
 
     @Override
     public boolean isUnionAll() {
-        return isUnionAll;
+        return qualifier == SetOperation.Qualifier.ALL;
     }
 
     public String getCteName() {
@@ -126,19 +131,19 @@ public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements Recurs
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PhysicalRecursiveCte that = (PhysicalRecursiveCte) o;
-        return cteName.equals(that.cteName) && isUnionAll == that.isUnionAll && Objects.equals(outputs, that.outputs)
+        PhysicalRecursiveUnion that = (PhysicalRecursiveUnion) o;
+        return cteName.equals(that.cteName) && qualifier == that.qualifier && Objects.equals(outputs, that.outputs)
                 && Objects.equals(regularChildrenOutputs, that.regularChildrenOutputs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(cteName, isUnionAll, outputs, regularChildrenOutputs);
+        return Objects.hash(cteName, qualifier, outputs, regularChildrenOutputs);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalRecursiveCte(this, context);
+        return visitor.visitPhysicalRecursiveUnion(this, context);
     }
 
     @Override
@@ -151,7 +156,7 @@ public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements Recurs
         return Utils.toSqlString("PhysicalRecursiveCte" + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "stats", statistics,
                 "cteName", cteName,
-                "isUnionAll", isUnionAll,
+                "Qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs);
     }
@@ -171,40 +176,41 @@ public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements Recurs
     }
 
     @Override
-    public PhysicalRecursiveCte withChildren(List<Plan> children) {
-        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs, groupExpression,
-                getLogicalProperties(), children);
+    public PhysicalRecursiveUnion<Plan, Plan> withChildren(List<Plan> children) {
+        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs, groupExpression,
+                getLogicalProperties(), children.get(0), children.get(1));
     }
 
     @Override
-    public PhysicalRecursiveCte withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
-                groupExpression, getLogicalProperties(), children);
+    public PhysicalRecursiveUnion<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
+                groupExpression, getLogicalProperties(), left(), right());
     }
 
     @Override
-    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+    public PhysicalRecursiveUnion<Plan, Plan> withGroupExprLogicalPropChildren(
+            Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties.get(), children);
+        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
+                groupExpression, logicalProperties.get(), left(), right());
     }
 
     @Override
-    public PhysicalRecursiveCte withPhysicalPropertiesAndStats(
+    public PhysicalRecursiveUnion<Plan, Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, children);
+        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 
     @Override
-    public PhysicalRecursiveCte resetLogicalProperties() {
-        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
-                Optional.empty(), null, physicalProperties, statistics, children);
+    public PhysicalRecursiveUnion<Plan, Plan> resetLogicalProperties() {
+        return new PhysicalRecursiveUnion<>(cteName, qualifier, outputs, regularChildrenOutputs,
+                Optional.empty(), null, physicalProperties, statistics, left(), right());
     }
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
-        if (!isUnionAll) {
+        if (qualifier == SetOperation.Qualifier.DISTINCT) {
             builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
     }

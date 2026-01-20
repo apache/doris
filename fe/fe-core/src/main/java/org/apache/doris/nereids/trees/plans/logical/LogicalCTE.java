@@ -41,26 +41,26 @@ import java.util.stream.Collectors;
 public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements PropagateFuncDeps {
 
     private final List<LogicalSubQueryAlias<Plan>> aliasQueries;
-    private final boolean isRecursiveCte;
+    private final boolean isRecursive;
 
-    public LogicalCTE(boolean isRecursiveCte, List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child) {
-        this(isRecursiveCte, aliasQueries, Optional.empty(), Optional.empty(), child);
+    public LogicalCTE(boolean isRecursive, List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child) {
+        this(isRecursive, aliasQueries, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalCTE(boolean isRecursiveCte, List<LogicalSubQueryAlias<Plan>> aliasQueries,
+    public LogicalCTE(boolean isRecursive, List<LogicalSubQueryAlias<Plan>> aliasQueries,
                       Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
                       CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
         this.aliasQueries = ImmutableList.copyOf(Objects.requireNonNull(aliasQueries, "aliasQueries can not be null"));
-        this.isRecursiveCte = isRecursiveCte;
+        this.isRecursive = isRecursive;
     }
 
     public List<LogicalSubQueryAlias<Plan>> getAliasQueries() {
         return aliasQueries;
     }
 
-    public boolean isRecursiveCte() {
-        return isRecursiveCte;
+    public boolean isRecursive() {
+        return isRecursive;
     }
 
     @Override
@@ -81,7 +81,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalCTE",
-                "isRecursiveCte", isRecursiveCte,
+                "isRecursive", isRecursive,
                 "aliasQueries", aliasQueries
         );
     }
@@ -113,18 +113,18 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
             return false;
         }
         LogicalCTE that = (LogicalCTE) o;
-        return aliasQueries.equals(that.aliasQueries) && isRecursiveCte == that.isRecursiveCte;
+        return aliasQueries.equals(that.aliasQueries) && isRecursive == that.isRecursive;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(aliasQueries, isRecursiveCte);
+        return Objects.hash(aliasQueries, isRecursive);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(aliasQueries.size() > 0);
-        return new LogicalCTE<>(isRecursiveCte, aliasQueries, children.get(0));
+        return new LogicalCTE<>(isRecursive, aliasQueries, children.get(0));
     }
 
     @Override
@@ -139,7 +139,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public LogicalCTE<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTE<>(isRecursiveCte, aliasQueries, groupExpression,
+        return new LogicalCTE<>(isRecursive, aliasQueries, groupExpression,
                 Optional.of(getLogicalProperties()), child());
     }
 
@@ -147,6 +147,6 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(aliasQueries.size() > 0);
-        return new LogicalCTE<>(isRecursiveCte, aliasQueries, groupExpression, logicalProperties, children.get(0));
+        return new LogicalCTE<>(isRecursive, aliasQueries, groupExpression, logicalProperties, children.get(0));
     }
 }
