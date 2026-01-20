@@ -1395,25 +1395,51 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return IntersectType.OTHERS;
             }
             if (isAnd) {
-                boolean hasEmptyValueType = false;
+                // process A and ((B and C) or ...)
+                boolean hasEmptyValue = false;
+                boolean hasNonNullableOthers = false;
+                boolean hasIsNotNull = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     IntersectType type = valueDesc.getIntersectType(other, depth + 1);
                     if (type == IntersectType.FALSE) {
                         return type;
                     }
-                    hasEmptyValueType = hasEmptyValueType || type == IntersectType.EMPTY_VALUE;
+                    if (type == IntersectType.EMPTY_VALUE) {
+                        hasEmptyValue = true;
+                    } else {
+                        hasNonNullableOthers = hasNonNullableOthers || !valueDesc.nullable();
+                    }
+                    hasIsNotNull = hasIsNotNull || valueDesc instanceof IsNotNullValue;
                 }
-                return hasEmptyValueType ? IntersectType.EMPTY_VALUE : IntersectType.OTHERS;
+                if (hasEmptyValue) {
+                    if (hasIsNotNull) {
+                        // EmptyValue and IsNotNull = FALSE
+                        return IntersectType.FALSE;
+                    }
+                    // A and ((B and C) or ...)
+                    // if A intersect B is EMPTY_VALUE, A intersect C is OTHERS, C is nullable
+                    if (!hasNonNullableOthers) {
+                        return IntersectType.EMPTY_VALUE;
+                    }
+                }
+                return IntersectType.OTHERS;
             } else {
-                boolean hasEmptyValueType = false;
+                // process A and (B or C) => A and B or A and C
+                boolean hasEmptyValue = false;
+                boolean hasFalse = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     IntersectType type = valueDesc.getIntersectType(other, depth + 1);
                     if (type == IntersectType.OTHERS) {
                         return type;
                     }
-                    hasEmptyValueType = hasEmptyValueType || type == IntersectType.EMPTY_VALUE;
+                    hasEmptyValue = hasEmptyValue || type == IntersectType.EMPTY_VALUE;
+                    hasFalse = hasFalse || type == IntersectType.FALSE;
                 }
-                return hasEmptyValueType ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
+                if (hasFalse && !hasEmptyValue) {
+                    return IntersectType.FALSE;
+                } else {
+                    return IntersectType.EMPTY_VALUE;
+                }
             }
         }
 
@@ -1423,43 +1449,56 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return UnionType.OTHERS;
             }
             if (isAnd) {
-                UnionType resultType = null;
+                // process `A or (B and C)`:  => (A or B) and (A or C)
+                boolean hasTrue = false;
+                boolean hasRangeAll = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     UnionType type = valueDesc.getUnionType(other, depth + 1);
                     if (type == UnionType.OTHERS) {
                         return type;
                     }
-                    if (resultType == null) {
-                        resultType = type;
-                    }
-                    if (resultType != type) {
-                        return UnionType.OTHERS;
-                    }
+                    hasTrue = hasTrue || type == UnionType.TRUE;
+                    hasRangeAll = hasRangeAll || type == UnionType.RANGE_ALL;
                 }
-                return resultType;
+                if (hasTrue && !hasRangeAll) {
+                    return UnionType.TRUE;
+                } else {
+                    return UnionType.RANGE_ALL;
+                }
             } else {
-                // a < 10 or ((a != 1 or a is null) and (a != 2 or a is null))
-                // let A = a < 10,
-                // B1 = a != 1, B2 = a is null, B = B1 or B2,
-                // C1 = a != 2, C2 = a is null, C = C1 OR C2,
-                // D = B and C,
-                // when want to calc the union type of 'A or D'
-                // then will need calc the union type of 'A or B',
-                // then will need calc the union type of 'A or B1' and 'A or B2',
-                // for 'A or B1', the union type is RANGE_ALL,
-                // for 'A or B2', the union type is OTHERS,
-                // RANGE_ALL or OTHERS != RANGE_ALL
-                boolean allAreRangeAll = true;
+                // process 'A or ((B or C) and ...)'
+                // then `this`: '(B or C)',  `other`: A
+                boolean hasRangeAll = false;
+                boolean hasIsNull = false;
+                boolean hasNoneNullableOthers = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     UnionType type = valueDesc.getUnionType(other, depth + 1);
                     if (type == UnionType.TRUE) {
                         return type;
                     }
-                    if (type != UnionType.RANGE_ALL) {
-                        allAreRangeAll = false;
+                    if (type == UnionType.RANGE_ALL) {
+                        hasRangeAll = true;
+                    } else {
+                        hasNoneNullableOthers = hasNoneNullableOthers || !valueDesc.nullable();
+                    }
+                    hasIsNull = hasIsNull || valueDesc instanceof IsNullValue;
+                }
+                if (hasRangeAll) {
+                    if (hasIsNull) {
+                        // A or ((B or C) and ....)
+                        // if A union B is RANGE_ALL, C is IsNull
+                        // then A or ((B or C) and ...) = A or (TRUE and ...)
+                        // RangeAll or IsNull = TRUE
+                        return UnionType.TRUE;
+                    }
+                    if (!hasNoneNullableOthers) {
+                        // A or ((B or C) and ....)
+                        // if A union B is RANGE_ALL, and C is nullable
+                        // then A or ((B or C) and ...) = A or (Range.all() and ...)
+                        return UnionType.RANGE_ALL;
                     }
                 }
-                return allAreRangeAll ? UnionType.RANGE_ALL : UnionType.OTHERS;
+                return UnionType.OTHERS;
             }
         }
     }
