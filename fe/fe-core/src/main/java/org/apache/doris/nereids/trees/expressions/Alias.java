@@ -182,8 +182,4 @@ public class Alias extends NamedExpression implements UnaryExpression {
     public boolean isNameFromChild() {
         return nameFromChild;
     }
-
-    public Alias withExprId(ExprId id) {
-        return new Alias(id, children, name, qualifier, nameFromChild);
-    }
 }
