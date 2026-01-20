@@ -106,7 +106,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             // wait for routine load task to finish
             // Initial: 5 rows, Kafka: 4 messages (3 updates + 1 insert), Expected: 6 rows
             // waitForTaskFinish waits until rowCount > expectedMinRows, so pass 5
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job1, tableName1, 5)
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job1, tableName1, 5)
 
             // verify flexible partial update results
             qt_select_after_flex_update1 "SELECT id, name, score, age FROM ${tableName1} ORDER BY id"
@@ -183,7 +183,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job2, tableName2, 3)
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job2, tableName2, 3)
 
             qt_select_after_flex_update2 "SELECT id, v1, v2, v3, v4 FROM ${tableName2} ORDER BY id"
         } catch (Exception e) {
@@ -426,7 +426,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job7, tableName7, 3)
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job7, tableName7, 3)
 
             // verify: id=1 should NOT be updated (filtered by WHERE), id=2,3,4 should be updated
             qt_select_after_flex_where "SELECT id, name, score, age FROM ${tableName7} ORDER BY id"
@@ -620,7 +620,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job11, tableName11, 3)
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job11, tableName11, 3)
 
             qt_select_after_fixed_update "SELECT id, name, score, age FROM ${tableName11} ORDER BY id"
         } catch (Exception e) {
@@ -715,7 +715,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job12, tableName12, 3)
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job12, tableName12, 3)
 
             // verify flexible partial update results after alter
             qt_select_after_alter_flex "SELECT id, name, score, age FROM ${tableName12} ORDER BY id"
@@ -1108,7 +1108,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job18, tableName18, 2)
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job18, tableName18, 2)
 
             // verify: id=1 should NOT be updated (filtered by WHERE), id=2,3 should be updated
             qt_select_after_alter_flex_where "SELECT id, name, score, age FROM ${tableName18} ORDER BY id"
@@ -1258,7 +1258,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             }
             producer.flush()
 
-            RoutineLoadTestUtils.waitForTaskFinish(runSql, job20, tableName20, 2)
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job20, tableName20, 2)
 
             // with UPSERT, id=1 should have NULL for name and age (full row replacement)
             qt_select_after_alter_upsert "SELECT id, name, score, age FROM ${tableName20} ORDER BY id"
