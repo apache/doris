@@ -214,14 +214,14 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     # First try to download dependencies only
     echo "Downloading dependencies..."
     dep_output_file="$(mktemp -t doris-dependencies-XXXXXX.txt)" || { echo "Failed to create temporary file for dependency output"; exit 1; }
-    execute_maven_with_retry "\"${MVN_CMD}\" dependency:resolve -B -DskipTests=true -Dmdep.prependGroupId=true -DoutputFile=${dep_output_file}" || {
+    execute_maven_with_retry "${MVN_CMD} dependency:resolve -B -DskipTests=true -Dmdep.prependGroupId=true -DoutputFile=${dep_output_file}" || {
         echo "Failed to download dependencies"
         exit 1
     }
     
     # Then package with retry
     echo "Building package..."
-    execute_maven_with_retry "\"${MVN_CMD}\" clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
+    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
         echo "Failed to build package"
         exit 1
     }
@@ -236,7 +236,7 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cd "${DORIS_HOME}"/regression-test/java-udf-src || { echo "Failed to change directory to java-udf-src"; exit 1; }
     
     # Build UDF with retry
-    execute_maven_with_retry "\"${MVN_CMD}\" clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
+    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
         echo "Failed to build UDF package"
         exit 1
     }
