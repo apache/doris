@@ -19,19 +19,22 @@ package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+
+import org.apache.commons.lang3.StringUtils;
+
+import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Properties;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.mysql.cj.conf.ConnectionUrl;
-import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.time.ZoneId;
-import java.util.Arrays;
-import java.util.Map;
-import java.util.Properties;
 
 public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();

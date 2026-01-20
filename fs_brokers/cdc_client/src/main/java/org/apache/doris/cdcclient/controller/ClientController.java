@@ -72,6 +72,17 @@ public class ClientController {
         }
     }
 
+    /** Fetch records from source reader, for debug */
+    @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
+    public Object fetchRecords(@RequestBody FetchRecordRequest recordReq) {
+        try {
+            return RestResponse.success(pipelineCoordinator.fetchRecords(recordReq));
+        } catch (Exception ex) {
+            LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
+            return RestResponse.internalError(ex.getMessage());
+        }
+    }
+
     @RequestMapping(path = "/api/fetchRecordStream", method = RequestMethod.POST)
     public StreamingResponseBody fetchRecordStream(@RequestBody FetchRecordRequest recordReq)
             throws Exception {

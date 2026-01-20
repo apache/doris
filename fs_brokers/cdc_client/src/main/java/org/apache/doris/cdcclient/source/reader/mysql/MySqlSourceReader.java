@@ -70,7 +70,6 @@ import org.apache.kafka.connect.source.SourceRecord;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -118,7 +117,7 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
     }
 
@@ -170,39 +169,14 @@ public class MySqlSourceReader implements SourceReader {
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
         }
-        LOG.info("Job {} read split records with offset: {}", baseReq.getJobId(), offsetMeta);
-
-        //  If there is an active split being consumed, reuse it directly;
-        //  Otherwise, create a new snapshot/binlog split based on offset and start the reader.
-        MySqlSplit split = null;
-        SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
-        if (currentSplitRecords == null) {
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader = this.getCurrentReader();
-            if (baseReq.isReload() || currentReader == null) {
-                LOG.info(
-                        "No current reader or reload {}, create new split reader",
-                        baseReq.isReload());
-                // build split
-                Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
-                split = splitFlag.f0;
-                // reset binlog reader
-                // closeBinlogReader();
-                currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
-                this.setCurrentSplitRecords(currentSplitRecords);
-                this.setCurrentSplit(split);
-            } else if (currentReader instanceof BinlogSplitReader) {
-                LOG.info("Continue poll records with current binlog reader");
-                // only for binlog reader
-                currentSplitRecords = pollSplitRecordsWithCurrentReader(currentReader);
-                split = this.getCurrentSplit();
-            } else {
-                throw new RuntimeException("Should not happen");
-            }
-        } else {
-            LOG.info(
-                    "Continue read records with current split records, splitId: {}",
-                    currentSplitRecords.getSplitId());
-        }
+        // Create a new snapshot/binlog split based on offset and start the reader.
+        LOG.info("create new split reader for {} with offset {}", baseReq.getJobId(), offsetMeta);
+        // build split
+        Tuple2<MySqlSplit, Boolean> splitFlag = createMySqlSplit(offsetMeta, baseReq);
+        MySqlSplit split = splitFlag.f0;
+        // it's necessary to ensure that the binlog reader is already closed.
+        this.currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
+        this.currentSplit = split;
 
         // build response with iterator
         SplitReadResult result = new SplitReadResult();
@@ -449,6 +423,7 @@ public class MySqlSourceReader implements SourceReader {
         return new SplitRecords(currentSplitId, sourceRecords.iterator());
     }
 
+    /** Poll data from the current reader, only for binlog reader */
     private SplitRecords pollSplitRecordsWithCurrentReader(
             DebeziumReader<SourceRecords, MySqlSplit> currentReader) throws Exception {
         Iterator<SourceRecords> dataIt = null;
@@ -568,12 +543,11 @@ public class MySqlSourceReader implements SourceReader {
 
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        String[] includingTbls =
-                Arrays.stream(includingTables.split(","))
-                        .map(t -> databaseName + "." + t.trim())
-                        .toArray(String[]::new);
-        configFactory.tableList(includingTbls);
+        // Set table list
+        String[] tableList = ConfigUtil.getTableList(databaseName, cdcConfig);
+        com.google.common.base.Preconditions.checkArgument(
+                tableList.length >= 1, "include_tables or table is required");
+        configFactory.tableList(tableList);
 
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
