@@ -1418,7 +1418,7 @@ TEST_F(GeoTypesTest, test_length) {
         EXPECT_GT(length, 100000.0);
         // Line should have two segments: (0,0)-(1,0) and (1,0)-(1,1)
         // Expected total distance is approximately 2 degrees in Earth distance
-        EXPECT_LT(length, 300000.0);  // Less than 300km
+        EXPECT_LT(length, 300000.0); // Less than 300km
     }
 
     // Test GeoPolygon - calculate perimeter
@@ -1429,7 +1429,7 @@ TEST_F(GeoTypesTest, test_length) {
         double perimeter = polygon->Length();
         EXPECT_GT(perimeter, 400000.0);
         // Polygon is 1x1 degree square, perimeter should be roughly 4 times one degree
-        EXPECT_LT(perimeter, 500000.0);  // Less than 500km
+        EXPECT_LT(perimeter, 500000.0); // Less than 500km
     }
 
     // Test GeoMultiPolygon - should have non-zero length
@@ -1439,13 +1439,13 @@ TEST_F(GeoTypesTest, test_length) {
         EXPECT_NE(nullptr, multi_polygon.get());
         double length = multi_polygon->Length();
         EXPECT_GT(length, 400000.0);
-        EXPECT_LT(length, 500000.0);  // Less than 500km
+        EXPECT_LT(length, 500000.0); // Less than 500km
     }
 
     // Test GeoCircle - length should be circumference (2 * pi * radius in meters)
     {
         GeoCircle circle;
-        auto res = circle.init(0, 0, 1000);  // 1000 meters radius
+        auto res = circle.init(0, 0, 1000); // 1000 meters radius
         EXPECT_EQ(GEO_PARSE_OK, res);
         double circumference = circle.Length();
         EXPECT_GT(circumference, 0.0);
@@ -1488,7 +1488,7 @@ TEST_F(GeoTypesTest, test_distance_point) {
         auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, line.get());
         double dist = point1.Distance(line.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is on the line at (0,0)
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is on the line at (0,0)
     }
     {
         const char* wkt = "LINESTRING (5 5, 6 6)";
@@ -1497,7 +1497,7 @@ TEST_F(GeoTypesTest, test_distance_point) {
         double dist = point1.Distance(line.get());
         EXPECT_GT(dist, 0.0);
         // Distance from (0,0) to a line at (5,5)-(6,6)
-        EXPECT_GT(dist, 700000.0);  // More than 700km
+        EXPECT_GT(dist, 700000.0); // More than 700km
     }
 
     // ==========================
@@ -1508,7 +1508,7 @@ TEST_F(GeoTypesTest, test_distance_point) {
         auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, polygon.get());
         double dist = point1.Distance(polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is on the polygon boundary at (0,0)
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is on the polygon boundary at (0,0)
     }
     {
         const char* wkt = "POLYGON ((5 5, 6 5, 6 6, 5 6, 5 5))";
@@ -1517,7 +1517,7 @@ TEST_F(GeoTypesTest, test_distance_point) {
         double dist = point1.Distance(polygon.get());
         EXPECT_GT(dist, 0.0);
         // Distance from (0,0) to polygon at (5,5)
-        EXPECT_GT(dist, 700000.0);  // More than 700km
+        EXPECT_GT(dist, 700000.0); // More than 700km
     }
 
     // ==========================
@@ -1528,7 +1528,7 @@ TEST_F(GeoTypesTest, test_distance_point) {
         auto multi_polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, multi_polygon.get());
         double dist = point1.Distance(multi_polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is on the multipolygon boundary
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is on the multipolygon boundary
     }
 
     // ==========================
@@ -1536,17 +1536,17 @@ TEST_F(GeoTypesTest, test_distance_point) {
     // ==========================
     {
         GeoCircle circle;
-        circle.init(0, 0, 10000);  // 10km radius
+        circle.init(0, 0, 10000); // 10km radius
         double dist = point1.Distance(&circle);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is at the center of circle
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is at the center of circle
     }
     {
         GeoCircle circle;
-        circle.init(5, 0, 10000);  // 10km radius at (5,0)
+        circle.init(5, 0, 10000); // 10km radius at (5,0)
         double dist = point1.Distance(&circle);
         EXPECT_GT(dist, 0.0);
         // Point (0,0) is outside circle at (5,0)
-        EXPECT_LT(dist, 600000.0);  // Should be less than 600km from center minus radius
+        EXPECT_LT(dist, 600000.0); // Should be less than 600km from center minus radius
     }
 }
 
@@ -1564,7 +1564,7 @@ TEST_F(GeoTypesTest, test_distance_linestring) {
         GeoPoint point;
         point.from_coord(0, 0);
         double dist = line1->Distance(&point);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is on the line
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is on the line
     }
 
     // ==========================
@@ -1575,7 +1575,7 @@ TEST_F(GeoTypesTest, test_distance_linestring) {
         auto line2 = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, line2.get());
         double dist = line1->Distance(line2.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Lines intersect
+        EXPECT_DOUBLE_EQ(0.0, dist); // Lines intersect
     }
     {
         const char* wkt = "LINESTRING (5 5, 6 5)";
@@ -1595,7 +1595,7 @@ TEST_F(GeoTypesTest, test_distance_linestring) {
         auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, polygon.get());
         double dist = line1->Distance(polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Line is on/inside polygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // Line is on/inside polygon
     }
 
     // ==========================
@@ -1606,7 +1606,7 @@ TEST_F(GeoTypesTest, test_distance_linestring) {
         auto multi_polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, multi_polygon.get());
         double dist = line1->Distance(multi_polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Line is on/inside multipolygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // Line is on/inside multipolygon
     }
 
     // ==========================
@@ -1614,9 +1614,9 @@ TEST_F(GeoTypesTest, test_distance_linestring) {
     // ==========================
     {
         GeoCircle circle;
-        circle.init(0.5, 0.5, 100000);  // 100km radius
+        circle.init(0.5, 0.5, 100000); // 100km radius
         double dist = line1->Distance(&circle);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Line is within/touches circle
+        EXPECT_DOUBLE_EQ(0.0, dist); // Line is within/touches circle
     }
 }
 
@@ -1634,7 +1634,7 @@ TEST_F(GeoTypesTest, test_distance_polygon) {
         GeoPoint point;
         point.from_coord(0, 0);
         double dist = polygon1->Distance(&point);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is on polygon boundary
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is on polygon boundary
     }
     {
         GeoPoint point;
@@ -1653,7 +1653,7 @@ TEST_F(GeoTypesTest, test_distance_polygon) {
         auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, line.get());
         double dist = polygon1->Distance(line.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Line is within polygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // Line is within polygon
     }
 
     // ==========================
@@ -1664,7 +1664,7 @@ TEST_F(GeoTypesTest, test_distance_polygon) {
         auto polygon2 = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, polygon2.get());
         double dist = polygon1->Distance(polygon2.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Polygons overlap
+        EXPECT_DOUBLE_EQ(0.0, dist); // Polygons overlap
     }
     {
         const char* wkt = "POLYGON ((5 5, 6 5, 6 6, 5 6, 5 5))";
@@ -1684,7 +1684,7 @@ TEST_F(GeoTypesTest, test_distance_polygon) {
         auto multi_polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, multi_polygon.get());
         double dist = polygon1->Distance(multi_polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // MultiPolygon overlaps with Polygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // MultiPolygon overlaps with Polygon
     }
 
     // ==========================
@@ -1692,9 +1692,9 @@ TEST_F(GeoTypesTest, test_distance_polygon) {
     // ==========================
     {
         GeoCircle circle;
-        circle.init(1, 1, 100000);  // 100km radius at (1,1)
+        circle.init(1, 1, 100000); // 100km radius at (1,1)
         double dist = polygon1->Distance(&circle);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Circle overlaps with polygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // Circle overlaps with polygon
     }
 }
 
@@ -1706,8 +1706,7 @@ TEST_F(GeoTypesTest, test_distance_multipolygon) {
             "((0 0, 2 0, 2 2, 0 2, 0 0)),"
             "((5 5, 7 5, 7 7, 5 7, 5 5))"
             ")";
-    auto multipolygon1 =
-            GeoShape::from_wkt(base_multipolygon, strlen(base_multipolygon), status);
+    auto multipolygon1 = GeoShape::from_wkt(base_multipolygon, strlen(base_multipolygon), status);
     EXPECT_NE(nullptr, multipolygon1.get());
 
     // ==========================
@@ -1717,15 +1716,16 @@ TEST_F(GeoTypesTest, test_distance_multipolygon) {
         GeoPoint point;
         point.from_coord(0, 0);
         double dist = multipolygon1->Distance(&point);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is on multipolygon boundary
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is on multipolygon boundary
     }
     {
         GeoPoint point;
         point.from_coord(10, 10);
         double dist = multipolygon1->Distance(&point);
         EXPECT_GT(dist, 0.0);
-        // Point is outside all polygons
-        EXPECT_GT(dist, 500000.0);
+        // Point is outside all polygons, distance to nearest polygon at (5,5)-(7,7) is ~469km
+        EXPECT_GT(dist, 400000.0);
+        EXPECT_LT(dist, 500000.0);
     }
 
     // ==========================
@@ -1736,7 +1736,7 @@ TEST_F(GeoTypesTest, test_distance_multipolygon) {
         auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, line.get());
         double dist = multipolygon1->Distance(line.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Line is within first polygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // Line is within first polygon
     }
 
     // ==========================
@@ -1747,7 +1747,7 @@ TEST_F(GeoTypesTest, test_distance_multipolygon) {
         auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, polygon.get());
         double dist = multipolygon1->Distance(polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Polygon overlaps with first multipolygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // Polygon overlaps with first multipolygon
     }
     {
         const char* wkt = "POLYGON ((10 10, 12 10, 12 12, 10 12, 10 10))";
@@ -1755,8 +1755,9 @@ TEST_F(GeoTypesTest, test_distance_multipolygon) {
         EXPECT_NE(nullptr, polygon.get());
         double dist = multipolygon1->Distance(polygon.get());
         EXPECT_GT(dist, 0.0);
-        // Polygon is separate from multipolygon
-        EXPECT_GT(dist, 500000.0);
+        // Polygon is separate from multipolygon, distance to nearest polygon at (5,5)-(7,7) is ~469km
+        EXPECT_GT(dist, 400000.0);
+        EXPECT_LT(dist, 500000.0);
     }
 
     // ==========================
@@ -1767,7 +1768,7 @@ TEST_F(GeoTypesTest, test_distance_multipolygon) {
         auto multipolygon2 = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, multipolygon2.get());
         double dist = multipolygon1->Distance(multipolygon2.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Overlapping multipolygons
+        EXPECT_DOUBLE_EQ(0.0, dist); // Overlapping multipolygons
     }
 
     // ==========================
@@ -1775,9 +1776,9 @@ TEST_F(GeoTypesTest, test_distance_multipolygon) {
     // ==========================
     {
         GeoCircle circle;
-        circle.init(1, 1, 100000);  // 100km radius
+        circle.init(1, 1, 100000); // 100km radius
         double dist = multipolygon1->Distance(&circle);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Circle overlaps with first polygon
+        EXPECT_DOUBLE_EQ(0.0, dist); // Circle overlaps with first polygon
     }
 }
 
@@ -1785,7 +1786,7 @@ TEST_F(GeoTypesTest, test_distance_circle) {
     GeoParseStatus status;
 
     GeoCircle circle1;
-    circle1.init(0, 0, 10000);  // 10km radius
+    circle1.init(0, 0, 10000); // 10km radius
 
     // ==========================
     // GeoCircle vs GeoPoint
@@ -1794,7 +1795,7 @@ TEST_F(GeoTypesTest, test_distance_circle) {
         GeoPoint point;
         point.from_coord(0, 0);
         double dist = circle1.Distance(&point);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Point is at center of circle
+        EXPECT_DOUBLE_EQ(0.0, dist); // Point is at center of circle
     }
     {
         GeoPoint point;
@@ -1802,7 +1803,7 @@ TEST_F(GeoTypesTest, test_distance_circle) {
         double dist = circle1.Distance(&point);
         EXPECT_GT(dist, 0.0);
         // Point is outside circle
-        EXPECT_LT(dist, 200000.0);  // Less than 200km
+        EXPECT_LT(dist, 200000.0); // Less than 200km
     }
 
     // ==========================
@@ -1813,7 +1814,7 @@ TEST_F(GeoTypesTest, test_distance_circle) {
         auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, line.get());
         double dist = circle1.Distance(line.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Line is within circle
+        EXPECT_DOUBLE_EQ(0.0, dist); // Line is within circle
     }
 
     // ==========================
@@ -1824,7 +1825,7 @@ TEST_F(GeoTypesTest, test_distance_circle) {
         auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, polygon.get());
         double dist = circle1.Distance(polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Polygon is within circle
+        EXPECT_DOUBLE_EQ(0.0, dist); // Polygon is within circle
     }
 
     // ==========================
@@ -1835,7 +1836,7 @@ TEST_F(GeoTypesTest, test_distance_circle) {
         auto multi_polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, multi_polygon.get());
         double dist = circle1.Distance(multi_polygon.get());
-        EXPECT_DOUBLE_EQ(0.0, dist);  // MultiPolygon is within circle
+        EXPECT_DOUBLE_EQ(0.0, dist); // MultiPolygon is within circle
     }
 
     // ==========================
@@ -1843,17 +1844,18 @@ TEST_F(GeoTypesTest, test_distance_circle) {
     // ==========================
     {
         GeoCircle circle2;
-        circle2.init(0, 0, 5000);  // 5km radius at same center
+        circle2.init(0, 0, 5000); // 5km radius at same center
         double dist = circle1.Distance(&circle2);
-        EXPECT_DOUBLE_EQ(0.0, dist);  // Circles overlap
+        EXPECT_DOUBLE_EQ(0.0, dist); // Circles overlap
     }
     {
         GeoCircle circle2;
-        circle2.init(10, 0, 5000);  // 5km radius at (10,0)
+        circle2.init(10, 0, 5000); // 5km radius at (10,0)
         double dist = circle1.Distance(&circle2);
         EXPECT_GT(dist, 0.0);
-        // Circles are separate
-        EXPECT_LT(dist, 200000.0);
+        // Circles are separate, distance between centers ~1110km minus radii (10+5km) = ~1095km
+        EXPECT_GT(dist, 1000000.0);
+        EXPECT_LT(dist, 1100000.0);
     }
 }
 

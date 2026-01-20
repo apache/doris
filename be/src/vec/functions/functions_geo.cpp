@@ -882,7 +882,7 @@ struct StLength {
                 res->insert_default();
                 continue;
             }
-            
+
             double length = shape->Length();
             res->insert_value(length);
         }
@@ -916,7 +916,7 @@ struct StGeometryType {
                 res->insert_default();
                 continue;
             }
-            
+
             auto geo_type = shape->GeometryType();
             res->insert_data(geo_type.data(), geo_type.size());
         }
@@ -1000,7 +1000,8 @@ struct StDualGeoDoubleFunction {
     }
 
     static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                              ColumnFloat64::MutablePtr& res, NullMap& null_map, const size_t size) {
+                              ColumnFloat64::MutablePtr& res, NullMap& null_map,
+                              const size_t size) {
         std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
@@ -1012,9 +1013,7 @@ struct StDualGeoDoubleFunction {
 
 struct StDistanceImpl {
     static constexpr auto NAME = "st_distance";
-    static double compute(GeoShape* shape1, GeoShape* shape2) { 
-        return shape1->Distance(shape2); 
-    }
+    static double compute(GeoShape* shape1, GeoShape* shape2) { return shape1->Distance(shape2); }
 };
 
 void register_function_geo(SimpleFunctionFactory& factory) {
