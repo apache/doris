@@ -29,9 +29,9 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
-import org.apache.doris.planner.UnionNode;
 import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -127,6 +127,10 @@ public class UnassignedJobBuilder {
                 unassignedJob = buildScanMetadataJob(
                         statementContext, planFragment, (SchemaScanNode) scanNode, scanWorkerSelector
                 );
+            } else if (scanNode instanceof RecursiveCteScanNode) {
+                unassignedJob = buildScanRecursiveCteJob(
+                        statementContext, planFragment, (RecursiveCteScanNode) scanNode, inputJobs, scanWorkerSelector
+                );
             } else {
                 // only scan external tables or cloud tables or table valued functions
                 // e,g. select * from numbers('number'='100')
@@ -197,6 +201,14 @@ public class UnassignedJobBuilder {
         return new UnassignedScanMetadataJob(statementContext, fragment, schemaScanNode, scanWorkerSelector);
     }
 
+    private UnassignedJob buildScanRecursiveCteJob(
+            StatementContext statementContext, PlanFragment fragment,
+            RecursiveCteScanNode recursiveCteScanNode,
+            ListMultimap<ExchangeNode, UnassignedJob> inputJobs, ScanWorkerSelector scanWorkerSelector) {
+        return new UnassignedRecursiveCteScanJob(statementContext, fragment, recursiveCteScanNode,
+                inputJobs, scanWorkerSelector);
+    }
+
     private UnassignedJob buildScanRemoteTableJob(
             StatementContext statementContext, PlanFragment planFragment, List<ScanNode> scanNodes,
             ListMultimap<ExchangeNode, UnassignedJob> inputJobs,
@@ -216,10 +228,7 @@ public class UnassignedJobBuilder {
     private UnassignedJob buildShuffleJob(
             StatementContext statementContext, PlanFragment planFragment,
             ListMultimap<ExchangeNode, UnassignedJob> inputJobs) {
-        if (planFragment.getPlanRoot().collectInCurrentFragment(UnionNode.class::isInstance)
-                .stream().map(UnionNode.class::cast).anyMatch(UnionNode::isLocalShuffleUnion)) {
-            return new UnassignedLocalShuffleUnionJob(statementContext, planFragment, inputJobs);
-        } else if (planFragment.isPartitioned()) {
+        if (planFragment.isPartitioned()) {
             return new UnassignedShuffleJob(statementContext, planFragment, inputJobs);
         } else {
             return new UnassignedGatherJob(statementContext, planFragment, inputJobs);
@@ -286,7 +295,7 @@ public class UnassignedJobBuilder {
         if (fragment.hasColocatePlanNode()) {
             return true;
         }
-        if (fragment.hasBucketShuffleJoin()) {
+        if (fragment.hasBucketShuffleNode()) {
             return true;
         }
         return false;

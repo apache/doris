@@ -46,6 +46,7 @@
 #include "runtime/type_limit.h"
 #include "util/runtime_profile.h"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
@@ -85,6 +86,8 @@ std::string cast_to_string(T value, int scale) {
         return IPv4Value::to_string(value);
     } else if constexpr (primitive_type == TYPE_IPV6) {
         return IPv6Value::to_string(value);
+    } else if constexpr (primitive_type == TYPE_BOOLEAN) {
+        return vectorized::CastToString::from_number(value);
     } else {
         return boost::lexical_cast<std::string>(value);
     }
@@ -96,8 +99,9 @@ std::string cast_to_string(T value, int scale) {
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
-                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
+    using CppType =
+            std::conditional_t<primitive_type == TYPE_HLL || is_string_type(primitive_type),
+                               StringRef, typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using SetType = std::set<CppType, doris::Less<CppType>>;
     using IteratorType = typename SetType::iterator;
 
@@ -207,40 +211,22 @@ public:
         _contain_null = _is_nullable_col && contain_null;
     }
 
-    void attach_profile_counter(
-            int runtime_filter_id,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter,
-            std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter) {
-        DCHECK(predicate_filtered_rows_counter != nullptr);
-        DCHECK(predicate_input_rows_counter != nullptr);
-
-        _runtime_filter_id = runtime_filter_id;
-
-        if (predicate_filtered_rows_counter != nullptr) {
-            _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
-        }
-        if (predicate_input_rows_counter != nullptr) {
-            _predicate_input_rows_counter = predicate_input_rows_counter;
-        }
-        if (predicate_always_true_rows_counter != nullptr) {
-            _predicate_always_true_rows_counter = predicate_always_true_rows_counter;
-        }
-    }
-
     int precision() const { return _precision; }
 
     int scale() const { return _scale; }
 
-    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range,
+    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                       const CppType* value) {
         static_cast<void>(range.add_fixed_value(*value));
     }
 
-    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range,
+    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                          const CppType* value) {
         range.remove_fixed_value(*value);
     }
+
+    static void empty_function(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                               const CppType* value) {}
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
                                 const CppType* value) {
@@ -294,15 +280,6 @@ private:
             primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
             primitive_type == PrimitiveType::TYPE_TIMESTAMPTZ ||
             primitive_type == PrimitiveType::TYPE_DECIMAL256;
-
-    int _runtime_filter_id = -1;
-
-    std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
-            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
-    std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
-            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
-    std::shared_ptr<RuntimeProfile::Counter> _predicate_always_true_rows_counter =
-            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 template <>
 const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MIN;
@@ -315,12 +292,6 @@ const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUB
 
 class OlapScanKeys {
 public:
-    OlapScanKeys()
-            : _has_range_value(false),
-              _begin_include(true),
-              _end_include(true),
-              _is_convertible(true) {}
-
     // TODO(gabriel): use ColumnPredicate to extend scan key
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
@@ -358,10 +329,10 @@ public:
 private:
     std::vector<OlapTuple> _begin_scan_keys;
     std::vector<OlapTuple> _end_scan_keys;
-    bool _has_range_value;
-    bool _begin_include;
-    bool _end_include;
-    bool _is_convertible;
+    bool _has_range_value = false;
+    bool _begin_include = false;
+    bool _end_include = false;
+    bool _is_convertible = false;
 };
 
 using ColumnValueRangeType = std::variant<
@@ -850,8 +821,9 @@ template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos,
                                      bool* should_break) {
-    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
-                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
+    using CppType =
+            std::conditional_t<primitive_type == TYPE_HLL || is_string_type(primitive_type),
+                               StringRef, typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using ConstIterator = typename ColumnValueRange<primitive_type>::SetType::const_iterator;
 
     // 1. clear ScanKey if some column range is empty

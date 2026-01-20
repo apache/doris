@@ -824,8 +824,8 @@ class Config {
         }
 
         if (config.validateBackupPrefix == null) {
-            config.validateBackupPrefix = "doris_validate_backup"
-            log.info("set validateBackupPrefix to 'doris_validate_backup' because not specify.".toString())
+            config.validateBackupPrefix = "regression/doris_validate_backup"
+            log.info("set validateBackupPrefix to 'regression/doris_validate_backup' because not specify.".toString())
         }
 
         if (config.defaultDb == null) {

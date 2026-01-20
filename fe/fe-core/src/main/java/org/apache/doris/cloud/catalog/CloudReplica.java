@@ -67,9 +67,12 @@ public class CloudReplica extends Replica {
     @SerializedName(value = "idx")
     private long idx = -1;
 
-    private Random rand = new Random();
+    private long segmentCount = 0L;
+    private long rowsetCount = 0L;
 
-    private Map<String, List<Long>> memClusterToBackends = new ConcurrentHashMap<String, List<Long>>();
+    private static final Random rand = new Random();
+
+    private Map<String, List<Long>> memClusterToBackends = null;
 
     // clusterId, secondaryBe, changeTimestamp
     private Map<String, Pair<Long, Long>> secondaryClusterToBackends
@@ -308,6 +311,7 @@ public class CloudReplica extends Replica {
             int indexRand = rand.nextInt(Config.cloud_replica_num);
             int coldReadRand = rand.nextInt(100);
             boolean allowColdRead = coldReadRand < Config.cloud_cold_read_percent;
+            initMemClusterToBackends();
             boolean replicaEnough = memClusterToBackends.get(clusterId) != null
                     && memClusterToBackends.get(clusterId).size() > indexRand;
 
@@ -467,7 +471,18 @@ public class CloudReplica extends Replica {
         return (hashValue % beNum + beNum) % beNum;
     }
 
-    public List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum)
+    private void initMemClusterToBackends() {
+        // the enable_cloud_multi_replica is not used now
+        if (memClusterToBackends == null) {
+            synchronized (this) {
+                if (memClusterToBackends == null) {
+                    memClusterToBackends = new ConcurrentHashMap<>();
+                }
+            }
+        }
+    }
+
+    private List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum)
             throws ComputeGroupException {
         // TODO(luwei) list should be sorted
         List<Backend> clusterBes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
@@ -625,5 +640,25 @@ public class CloudReplica extends Replica {
             }
         });
         return result;
+    }
+
+    @Override
+    public long getSegmentCount() {
+        return segmentCount;
+    }
+
+    @Override
+    public void setSegmentCount(long segmentCount) {
+        this.segmentCount = segmentCount;
+    }
+
+    @Override
+    public long getRowsetCount() {
+        return rowsetCount;
+    }
+
+    @Override
+    public void setRowsetCount(long rowsetCount) {
+        this.rowsetCount = rowsetCount;
     }
 }

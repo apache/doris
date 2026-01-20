@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -43,9 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -331,6 +327,10 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, TimeV2Type.class);
     }
 
+    public static boolean hasTimestampTzType(DataType dataType) {
+        return hasSpecifiedType(dataType, TimeStampTzType.class);
+    }
+
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         if (dataType instanceof ArrayType) {
             return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
@@ -367,10 +367,16 @@ public class TypeCoercionUtils {
         return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
     }
 
+    /**
+     * replace times with target precision.
+     */
     public static DataType replaceTimesWithTargetPrecision(DataType dataType, int targetScale) {
         return replaceSpecifiedType(
-                replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.of(targetScale)), TimeV2Type.class,
-                TimeV2Type.of(targetScale));
+                replaceSpecifiedType(
+                    replaceSpecifiedType(dataType, DateTimeV2Type.class,
+                        DateTimeV2Type.of(targetScale)),
+                        TimeV2Type.class, TimeV2Type.of(targetScale)),
+                    TimeStampTzType.class, TimeStampTzType.of(targetScale));
     }
 
     /**
@@ -939,32 +945,6 @@ public class TypeCoercionUtils {
 
         // add, subtract and multiply do not need to cast children for fixed point type
         return castChildren(binaryArithmetic, left, right, commonType.promotion());
-    }
-
-    /**
-     * process timestamp arithmetic type coercion.
-     */
-    public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic) {
-        timestampArithmetic.checkLegalityBeforeTypeCoercion();
-
-        String name = timestampArithmetic.getFuncName().toLowerCase();
-        List<Expression> children = timestampArithmetic.children();
-        Expression left = timestampArithmetic.left();
-        Expression right = timestampArithmetic.right();
-
-        // get right signature by normal function resolution
-        FunctionBuilder functionBuilder = Env.getCurrentEnv().getFunctionRegistry().findFunctionBuilder(name,
-                children);
-        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(name,
-                children);
-        FunctionSignature signature = targetExpressionPair.second.getSignature();
-        DataType leftType = signature.getArgType(0);
-        DataType rightType = signature.getArgType(1);
-
-        left = castIfNotSameType(left, leftType);
-        right = castIfNotSameType(right, rightType);
-
-        return timestampArithmetic.withChildren(left, right);
     }
 
     /**

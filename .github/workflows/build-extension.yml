@@ -40,6 +40,7 @@ jobs:
     outputs:
       broker_changes: ${{ steps.filter.outputs.broker_changes }}
       docs_changes: ${{ steps.filter.outputs.docs_changes }}
+      cdc_client_changes: ${{ steps.filter.outputs.cdc_client_changes }}
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v3
@@ -53,9 +54,11 @@ jobs:
         with:
           filters: |
             broker_changes:
-              - 'fs_brokers/**'
+              - 'fs_brokers/apache_hdfs_broker/**'
             docs_changes:
               - 'docs/**'
+            cdc_client_changes:
+              - 'fs_brokers/cdc_client/**'
   build-broker:
     name: Build Broker
     needs: changes
@@ -75,7 +78,7 @@ jobs:
         run: |
           pushd thirdparty
           branch="${{ github.base_ref }}"
-          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' || "${branch}" == 'branch-3.0' || "${branch}" == 'branch-2.1' ]]; then
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' || "${branch}" == 'branch-4.0' || "${branch}" == 'branch-3.0' || "${branch}" == 'branch-2.1' ]]; then
             curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
               -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
           else
@@ -92,6 +95,41 @@ jobs:
       - name: Build broker
         run: |
           cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
+  build-cdc-client:
+    name: Build Cdc Client
+    needs: changes
+    if: ${{ needs.changes.outputs.cdc_client_changes == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v3
+
+      - name: Setup java
+        uses: actions/setup-java@v2
+        with:
+          distribution: adopt
+          java-version: '17'
+
+      - name: Setup thrift
+        run: |
+          pushd thirdparty
+          branch="${{ github.base_ref }}"
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' || "${branch}" == 'branch-4.0' || "${branch}" == 'branch-3.0' || "${branch}" == 'branch-2.1' ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          else
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-linux-x86_64.tar.xz" \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          fi
+          tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          popd
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+          
+          thrift --version
+
+      - name: Build cdc client
+        run: |
+          cd fs_brokers/cdc_client/ && /bin/bash build.sh
   # build-docs:
   #   name: Build Documents
   #   needs: changes

@@ -140,6 +140,16 @@ public:
                         const ::doris::PPublishFilterRequestV2* request,
                         ::doris::PPublishFilterResponse* response,
                         ::google::protobuf::Closure* done) override;
+    void transmit_rec_cte_block(google::protobuf::RpcController* controller,
+                                const PTransmitRecCTEBlockParams* request,
+                                PTransmitRecCTEBlockResult* response,
+                                google::protobuf::Closure* done) override;
+    void rerun_fragment(google::protobuf::RpcController* controller,
+                        const PRerunFragmentParams* request, PRerunFragmentResult* response,
+                        google::protobuf::Closure* done) override;
+    void reset_global_rf(google::protobuf::RpcController* controller,
+                         const PResetGlobalRfParams* request, PResetGlobalRfResult* response,
+                         google::protobuf::Closure* done) override;
     void transmit_block(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response,
@@ -230,6 +240,11 @@ public:
     void get_tablet_rowsets(google::protobuf::RpcController* controller,
                             const PGetTabletRowsetsRequest* request,
                             PGetTabletRowsetsResponse* response,
+                            google::protobuf::Closure* done) override;
+
+    void request_cdc_client(google::protobuf::RpcController* controller,
+                            const PRequestCdcClientRequest* request,
+                            PRequestCdcClientResult* result,
                             google::protobuf::Closure* done) override;
 
 private:

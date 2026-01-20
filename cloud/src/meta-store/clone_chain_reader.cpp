@@ -59,7 +59,8 @@ TxnErrorCode CloneChainReader::get_table_version(Transaction* txn, int64_t table
         TxnErrorCode err = reader.get_table_version(txn, table_id, table_version, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -170,7 +171,8 @@ TxnErrorCode CloneChainReader::get_partition_version(Transaction* txn, int64_t p
                 reader.get_partition_version(txn, partition_id, version, versionstamp, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -318,7 +320,8 @@ TxnErrorCode CloneChainReader::get_tablet_load_stats(Transaction* txn, int64_t t
                 reader.get_tablet_load_stats(txn, tablet_id, tablet_stats, versionstamp, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -440,7 +443,8 @@ TxnErrorCode CloneChainReader::get_tablet_compact_stats(Transaction* txn, int64_
                                                            versionstamp, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -705,7 +709,8 @@ TxnErrorCode CloneChainReader::get_tablet_meta(Transaction* txn, int64_t tablet_
                 reader.get_tablet_meta(txn, tablet_id, tablet_meta, versionstamp, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -947,7 +952,8 @@ TxnErrorCode CloneChainReader::get_load_rowset_meta(Transaction* txn, int64_t ta
                                                        versionstamp, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -963,6 +969,70 @@ TxnErrorCode CloneChainReader::get_load_rowset_meta(Transaction* txn, int64_t ta
         current_instance_id = std::move(prev_instance_id);
         current_snapshot_version = prev_snapshot_version;
     } while (true);
+}
+
+TxnErrorCode CloneChainReader::get_load_rowset_metas(
+        int64_t tablet_id, std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+        bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_load_rowset_metas(txn.get(), tablet_id, rowset_metas, snapshot);
+}
+
+TxnErrorCode CloneChainReader::get_load_rowset_metas(
+        Transaction* txn, int64_t tablet_id,
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas, bool snapshot) {
+    std::string current_instance_id(instance_id_);
+    Versionstamp current_snapshot_version = snapshot_version_;
+    std::map<int64_t, std::pair<RowsetMetaCloudPB, Versionstamp>> version_to_rowset;
+
+    do {
+        MetaReader reader(current_instance_id, current_snapshot_version);
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> current_rowsets;
+        TxnErrorCode err = reader.get_load_rowset_metas(txn, tablet_id, &current_rowsets, snapshot);
+        if (err != TxnErrorCode::TXN_OK) {
+            return err;
+        }
+        min_read_versionstamp_ = std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
+
+        // Add found rowsets to version_to_rowset map (only if not already found)
+        for (auto&& rowset_pair : current_rowsets) {
+            int64_t version = rowset_pair.first.end_version();
+            if (!version_to_rowset.contains(version)) {
+                if (!rowset_pair.first.has_reference_instance_id()) {
+                    rowset_pair.first.set_reference_instance_id(current_instance_id);
+                }
+                version_to_rowset[version] = std::move(rowset_pair);
+            }
+        }
+
+        // Try to find in previous clone chain
+        std::string prev_instance_id;
+        Versionstamp prev_snapshot_version;
+        if (!get_source_snapshot_info(current_instance_id, &prev_instance_id,
+                                      &prev_snapshot_version)) {
+            // no previous clone chain
+            break;
+        }
+        current_instance_id = std::move(prev_instance_id);
+        current_snapshot_version = prev_snapshot_version;
+    } while (true);
+
+    rowset_metas->clear();
+    rowset_metas->reserve(version_to_rowset.size());
+    for (auto&& [version, rowset_pair] : version_to_rowset) {
+        rowset_metas->push_back(std::move(rowset_pair));
+    }
+
+    return TxnErrorCode::TXN_OK;
 }
 
 TxnErrorCode CloneChainReader::get_compact_rowset_meta(int64_t tablet_id, int64_t version,
@@ -994,7 +1064,8 @@ TxnErrorCode CloneChainReader::get_compact_rowset_meta(Transaction* txn, int64_t
                                                           versionstamp, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -1010,6 +1081,71 @@ TxnErrorCode CloneChainReader::get_compact_rowset_meta(Transaction* txn, int64_t
         current_instance_id = std::move(prev_instance_id);
         current_snapshot_version = prev_snapshot_version;
     } while (true);
+}
+
+TxnErrorCode CloneChainReader::get_compact_rowset_metas(
+        int64_t tablet_id, std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+        bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_compact_rowset_metas(txn.get(), tablet_id, rowset_metas, snapshot);
+}
+
+TxnErrorCode CloneChainReader::get_compact_rowset_metas(
+        Transaction* txn, int64_t tablet_id,
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas, bool snapshot) {
+    std::string current_instance_id(instance_id_);
+    Versionstamp current_snapshot_version = snapshot_version_;
+    std::map<int64_t, std::pair<RowsetMetaCloudPB, Versionstamp>> version_to_rowset;
+
+    do {
+        MetaReader reader(current_instance_id, current_snapshot_version);
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> current_rowsets;
+        TxnErrorCode err =
+                reader.get_compact_rowset_metas(txn, tablet_id, &current_rowsets, snapshot);
+        if (err != TxnErrorCode::TXN_OK) {
+            return err;
+        }
+        min_read_versionstamp_ = std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
+
+        // Add found rowsets to version_to_rowset map (only if not already found)
+        for (auto&& rowset_pair : current_rowsets) {
+            int64_t version = rowset_pair.first.end_version();
+            if (!version_to_rowset.contains(version)) {
+                if (!rowset_pair.first.has_reference_instance_id()) {
+                    rowset_pair.first.set_reference_instance_id(current_instance_id);
+                }
+                version_to_rowset[version] = std::move(rowset_pair);
+            }
+        }
+
+        // Try to find in previous clone chain
+        std::string prev_instance_id;
+        Versionstamp prev_snapshot_version;
+        if (!get_source_snapshot_info(current_instance_id, &prev_instance_id,
+                                      &prev_snapshot_version)) {
+            // no previous clone chain
+            break;
+        }
+        current_instance_id = std::move(prev_instance_id);
+        current_snapshot_version = prev_snapshot_version;
+    } while (true);
+
+    rowset_metas->clear();
+    rowset_metas->reserve(version_to_rowset.size());
+    for (auto&& [version, rowset_pair] : version_to_rowset) {
+        rowset_metas->push_back(std::move(rowset_pair));
+    }
+
+    return TxnErrorCode::TXN_OK;
 }
 
 TxnErrorCode CloneChainReader::get_partition_pending_txn_id(int64_t partition_id,
@@ -1173,7 +1309,8 @@ TxnErrorCode CloneChainReader::is_index_exists(Transaction* txn, int64_t index_i
         TxnErrorCode err = reader.is_index_exists(txn, index_id, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }
@@ -1214,7 +1351,8 @@ TxnErrorCode CloneChainReader::is_partition_exists(Transaction* txn, int64_t par
         TxnErrorCode err = reader.is_partition_exists(txn, partition_id, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
-                min_read_versionstamp_ = reader.min_read_versionstamp();
+                min_read_versionstamp_ =
+                        std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
             }
             return err;
         }

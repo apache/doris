@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyEqualBooleanLiteral;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
+import org.apache.doris.nereids.rules.expression.rules.TimestampToAddTime;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
@@ -48,8 +49,9 @@ import java.util.List;
 public class ExpressionNormalization extends ExpressionRewrite {
     // we should run supportJavaDateFormatter before foldConstantRule or be will fold
     // from_unixtime(timestamp, 'yyyyMMdd') to 'yyyyMMdd'
-    // specically note: LogToLn and ConcatWsMultiArrayToOne must  before FoldConstantRule,otherwise log will core when
-    // input single argument like log(100),and concat_ws will retuen a wrong result when input multi array
+    // specically note: LogToLn, ConcatWsMultiArrayToOne and TimestampToAddTime must before FoldConstantRule,
+    // otherwise log will core when input single argument like log(100), and concat_ws will return a wrong result
+    // when input multi array
     public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> NORMALIZE_REWRITE_RULES
                 = ImmutableList.of(
             bottomUp(
@@ -62,6 +64,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyArithmeticRule.INSTANCE,
                 LogToLn.INSTANCE,
                 ConcatWsMultiArrayToOne.INSTANCE,
+                TimestampToAddTime.INSTANCE,
                 FoldConstantRule.INSTANCE,
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,

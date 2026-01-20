@@ -29,7 +29,10 @@ public:
 
     TabletSchemaCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::TABLET_SCHEMA_CACHE, capacity,
-                             LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval) {}
+                             LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval,
+                             /*num_shards*/ 32,
+                             /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                             /*is_lru_k*/ false) {}
 
     static TabletSchemaCache* create_global_schema_cache(size_t capacity) {
         auto* res = new TabletSchemaCache(capacity);

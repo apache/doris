@@ -91,7 +91,10 @@ public:
 
     // Close all file writers
     // If the inverted index file writer is not closed, an error will be thrown during destruction
-    Status close();
+    Status begin_close();
+
+    // Wait for all inverted index file writers to be closed
+    Status finish_close();
 
     // Get inverted index file info in segment id order.
     // `seg_id_offset` is the offset of the segment id relative to the subscript of `_inverted_index_file_writers`,
@@ -193,13 +196,6 @@ public:
         return this->_idx_files.get_file_writers();
     }
 
-    CalcDeleteBitmapToken* calc_delete_bitmap_token() { return _calc_delete_bitmap_token.get(); }
-
-    CalcDeleteBitmapTask* calc_delete_bitmap_task(int32_t segment_id) {
-        DCHECK(_context.mow_context != nullptr);
-        return _context.mow_context->get_calc_dbm_task(segment_id);
-    }
-
 private:
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
@@ -221,9 +217,11 @@ protected:
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
     Status _close_inverted_index_file_writers() {
-        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.begin_close(),
                                        "failed to close index file when build new rowset");
         this->_total_index_size += _idx_files.get_total_index_size();
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.finish_close(),
+                                       "failed to wait close index file when build new rowset");
         return Status::OK();
     }
 
@@ -259,6 +257,7 @@ protected:
 
     fmt::memory_buffer vlog_buffer;
 
+    std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
 
     int64_t _delete_bitmap_ns = 0;
@@ -302,6 +301,7 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint32_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+    Status _remove_segment_footer_cache(const uint32_t seg_id, const std::string& segment_path);
     void _clear_statistics_for_deleting_segments_unsafe(uint32_t begin, uint32_t end);
 
     StorageEngine& _engine;

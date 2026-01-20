@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <functional>
@@ -44,7 +45,17 @@ public:
     }
 
     template <typename T>
+    static Status rpc(std::function<TNetworkAddress()> address_provider,
+                      std::function<void(ClientConnection<T>&)> callback) {
+        return rpc(address_provider, callback, config::thrift_rpc_timeout_ms);
+    }
+
+    template <typename T>
     static Status rpc(const std::string& ip, const int32_t port,
+                      std::function<void(ClientConnection<T>&)> callback, int timeout_ms);
+
+    template <typename T>
+    static Status rpc(std::function<TNetworkAddress()> address_provider,
                       std::function<void(ClientConnection<T>&)> callback, int timeout_ms);
 
     static ExecEnv* get_exec_env() { return _s_exec_env; }

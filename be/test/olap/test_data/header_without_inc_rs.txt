@@ -62,7 +62,9 @@
         "is_dynamic_schema": false,
         "is_partial_update": false,
         "enable_single_replica_compaction": false,
-        "variant_enable_flatten_nested": false
+        "variant_enable_flatten_nested": false,
+        "version_col_idx": -1,
+        "seq_map": {}
     },
     "rs_metas": [
         {

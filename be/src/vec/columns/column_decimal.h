@@ -86,9 +86,8 @@ private:
 
 public:
     // value_type is decimal32/64/128/256 type
-    using value_type =
-            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
-    using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
+    using CppNativeType = value_type::NativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 
 private:
@@ -141,10 +140,7 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(value_type()); }
-    void insert(const Field& x) override {
-        data.push_back(
-                doris::vectorized::get<typename PrimitiveTypeTraits<T>::NearestFieldType>(x));
-    }
+    void insert(const Field& x) override { data.push_back(x.template get<T>()); }
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_many_defaults(size_t length) override {
@@ -173,13 +169,19 @@ public:
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
 
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -193,7 +195,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
 
@@ -221,6 +222,8 @@ public:
     }
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
+
+    bool support_replace_column_null_data() const override { return true; }
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
@@ -256,7 +259,8 @@ protected:
     Container data;
     UInt32 scale;
     template <typename U>
-    void permutation(bool reverse, size_t limit, PaddedPODArray<U>& res) const {
+    void permutation(bool reverse, size_t limit, HybridSorter& sorter,
+                     PaddedPODArray<U>& res) const {
         size_t s = data.size();
         res.resize(s);
         for (U i = 0; i < s; ++i) res[i] = i;
@@ -272,11 +276,11 @@ protected:
                                   [this](size_t a, size_t b) { return data[a] < data[b]; });
         } else {
             if (reverse)
-                pdqsort(res.begin(), res.end(),
-                        [this](size_t a, size_t b) { return data[a] > data[b]; });
+                sorter.sort(res.begin(), res.end(),
+                            [this](size_t a, size_t b) { return data[a] > data[b]; });
             else
-                pdqsort(res.begin(), res.end(),
-                        [this](size_t a, size_t b) { return data[a] < data[b]; });
+                sorter.sort(res.begin(), res.end(),
+                            [this](size_t a, size_t b) { return data[a] < data[b]; });
         }
     }
 

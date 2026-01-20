@@ -198,10 +198,18 @@ function show_frontends()
 #parse the `$BE_CONFIG` file, passing the key need resolve as parameter.
 parse_confval_from_conf()
 {
-    # a naive script to grep given confkey from fe conf file
-    # assume conf format: ^\s*<key>\s*=\s*<value>\s*$
     local confkey=$1
-    local confvalue=`grep "^\s*$confkey" $BE_CONFIG | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+
+    esc_key=$(printf '%s\n' "$confkey" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local confvalue=$(
+        grep -v '^[[:space:]]*#' "$BE_CONFIG" |
+        grep -E "^[[:space:]]*${esc_key}[[:space:]]*=" |
+        tail -n1 |
+        sed -E 's/^[[:space:]]*[^=]+[[:space:]]*=[[:space:]]*//' |
+        sed -E 's/[[:space:]]*#.*$//' |
+        sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+    )
+    log_stderr "[info] read 'be.conf' config [ $confkey: $confvalue]"
     echo "$confvalue"
 }
 
@@ -564,9 +572,9 @@ resolve_password_from_secret
 # parse tls connection variables, if config `enbale_tls=true`, use tls connection to manage node.
 parse_tls_connection_variables
 collect_env_info
+./doris-debug --component be
 #add_self $fe_addr || exit $?
 check_and_register $fe_addrs
-./doris-debug --component be
 ulimit -c unlimited
 log_stderr "run start_be.sh"
 # the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal

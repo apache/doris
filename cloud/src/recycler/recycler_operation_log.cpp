@@ -82,7 +82,8 @@ int OperationLogRecycleChecker::init() {
     snapshots_.clear();
     snapshot_indexes_.clear();
     MetaReader reader(instance_id_);
-    err = reader.get_snapshots(txn.get(), &snapshots_);
+    std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+    err = reader.get_snapshots(txn.get(), &snapshots);
     if (err != TxnErrorCode::TXN_OK) {
         LOG_WARNING("failed to get snapshots").tag("err", err);
         return -1;
@@ -96,16 +97,22 @@ int OperationLogRecycleChecker::init() {
     }
 
     max_versionstamp_ = Versionstamp(read_version, 0);
-    for (size_t i = 0; i < snapshots_.size(); ++i) {
-        auto&& [snapshot, versionstamp] = snapshots_[i];
-        snapshot_indexes_.insert(std::make_pair(versionstamp, i));
+    for (size_t i = 0; i < snapshots.size(); ++i) {
+        auto&& [snapshot, versionstamp] = snapshots[i];
+        if (snapshot.status() == SnapshotStatus::SNAPSHOT_ABORTED ||
+            snapshot.status() == SnapshotStatus::SNAPSHOT_RECYCLED) {
+            continue;
+        }
+        snapshot_indexes_.insert(std::make_pair(versionstamp, snapshots_.size()));
+        snapshots_.push_back(std::make_pair(std::move(snapshot), versionstamp));
     }
 
     return 0;
 }
 
 bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstamp,
-                                             int64_t log_min_timestamp) const {
+                                             int64_t log_min_timestamp,
+                                             OperationLogReferenceInfo* reference_info) const {
     Versionstamp log_min_read_timestamp(log_min_timestamp, 0);
     if (log_versionstamp > max_versionstamp_) {
         // Not recycleable.
@@ -114,12 +121,15 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
 
     // Do not recycle operation logs referenced by active snapshots.
     if (log_min_read_timestamp < source_snapshot_versionstamp_) {
+        reference_info->referenced_by_instance = true;
         return false;
     }
 
     auto it = snapshot_indexes_.lower_bound(log_min_read_timestamp);
     if (it != snapshot_indexes_.end() && snapshots_[it->second].second < log_versionstamp) {
         // in [log_min_read_timestmap, log_versionstamp)
+        reference_info->referenced_by_snapshot = true;
+        reference_info->referenced_snapshot_timestamp = snapshots_[it->second].second;
         return false;
     }
 
@@ -130,10 +140,11 @@ bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstam
 class OperationLogRecycler {
 public:
     OperationLogRecycler(std::string_view instance_id, TxnKv* txn_kv, Versionstamp log_version,
-                         const std::vector<std::string>& raw_keys)
+                         int64_t min_read_version, const std::vector<std::string>& raw_keys)
             : instance_id_(instance_id),
               txn_kv_(txn_kv),
               log_version_(log_version),
+              min_read_versionstamp_(min_read_version),
               raw_keys_(raw_keys) {}
     OperationLogRecycler(const OperationLogRecycler&) = delete;
     OperationLogRecycler& operator=(const OperationLogRecycler&) = delete;
@@ -169,6 +180,7 @@ private:
     std::string_view instance_id_;
     TxnKv* txn_kv_;
     Versionstamp log_version_;
+    Versionstamp min_read_versionstamp_;
     const std::vector<std::string>& raw_keys_;
 
     std::unique_ptr<Transaction> txn_;
@@ -378,7 +390,9 @@ int OperationLogRecycler::begin() {
 
 int OperationLogRecycler::commit() {
     // Remove the operation log entry itself after recycling its contents
-    LOG_INFO("remove operation log key").tag("log_version", log_version_.to_string());
+    LOG_INFO("remove operation log key")
+            .tag("log_version", log_version_.to_string())
+            .tag("min_read_version", min_read_versionstamp_.version());
     for (const auto& raw_key : raw_keys_) {
         txn_->remove(raw_key);
     }
@@ -397,6 +411,13 @@ int OperationLogRecycler::recycle_table_version(int64_t table_id) {
     Versionstamp prev_version;
     TxnErrorCode err = meta_reader.get_table_version(txn_.get(), table_id, &prev_version);
     if (err == TxnErrorCode::TXN_OK) {
+        if (prev_version < min_read_versionstamp_) {
+            LOG_FATAL("table version is less than min read versionstamp")
+                    .tag("table_id", table_id)
+                    .tag("prev_version", prev_version.to_string())
+                    .tag("min_read_version", min_read_versionstamp_.version());
+        }
+
         std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
         versioned_remove(txn_.get(), table_version_key, prev_version);
         LOG_INFO("recycle table version")
@@ -418,15 +439,21 @@ int OperationLogRecycler::recycle_table_version(int64_t table_id) {
 int OperationLogRecycler::recycle_tablet_meta(int64_t tablet_id) {
     MetaReader meta_reader(instance_id_, log_version_);
     TabletMetaCloudPB tablet_meta;
-    Versionstamp versionstamp;
+    Versionstamp prev_version;
     TxnErrorCode err =
-            meta_reader.get_tablet_meta(txn_.get(), tablet_id, &tablet_meta, &versionstamp);
+            meta_reader.get_tablet_meta(txn_.get(), tablet_id, &tablet_meta, &prev_version);
     if (err == TxnErrorCode::TXN_OK) {
+        if (prev_version < min_read_versionstamp_) {
+            LOG_FATAL("tablet meta version is less than min read versionstamp")
+                    .tag("tablet_id", tablet_id)
+                    .tag("prev_version", prev_version.to_string())
+                    .tag("min_read_version", min_read_versionstamp_.version());
+        }
         std::string tablet_meta_key = versioned::meta_tablet_key({instance_id_, tablet_id});
-        versioned_remove(txn_.get(), tablet_meta_key, versionstamp);
+        versioned_remove(txn_.get(), tablet_meta_key, prev_version);
         LOG_INFO("recycle tablet meta")
                 .tag("tablet_id", tablet_id)
-                .tag("prev_version", versionstamp.to_string());
+                .tag("prev_version", prev_version.to_string());
         return 0;
     } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         LOG_WARNING("failed to get tablet meta for recycling operation log")
@@ -442,16 +469,23 @@ int OperationLogRecycler::recycle_tablet_meta(int64_t tablet_id) {
 
 int OperationLogRecycler::recycle_tablet_load_stats(int64_t tablet_id) {
     MetaReader meta_reader(instance_id_, log_version_);
-    Versionstamp versionstamp;
+    Versionstamp prev_version;
     TxnErrorCode err =
-            meta_reader.get_tablet_load_stats(txn_.get(), tablet_id, nullptr, &versionstamp);
+            meta_reader.get_tablet_load_stats(txn_.get(), tablet_id, nullptr, &prev_version);
     if (err == TxnErrorCode::TXN_OK) {
+        if (prev_version < min_read_versionstamp_) {
+            LOG_FATAL("tablet load stats version is less than min read versionstamp")
+                    .tag("tablet_id", tablet_id)
+                    .tag("prev_version", prev_version.to_string())
+                    .tag("min_read_version", min_read_versionstamp_.version());
+        }
+
         std::string tablet_load_stats_key =
                 versioned::tablet_load_stats_key({instance_id_, tablet_id});
-        versioned_remove(txn_.get(), tablet_load_stats_key, versionstamp);
+        versioned_remove(txn_.get(), tablet_load_stats_key, prev_version);
         LOG_INFO("recycle tablet load stats")
                 .tag("tablet_id", tablet_id)
-                .tag("prev_version", versionstamp.to_string());
+                .tag("prev_version", prev_version.to_string());
         return 0;
     } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         LOG_WARNING("failed to get tablet load stats for recycling operation log")
@@ -467,16 +501,22 @@ int OperationLogRecycler::recycle_tablet_load_stats(int64_t tablet_id) {
 
 int OperationLogRecycler::recycle_tablet_compact_stats(int64_t tablet_id) {
     MetaReader meta_reader(instance_id_, log_version_);
-    Versionstamp versionstamp;
+    Versionstamp prev_version;
     TxnErrorCode err =
-            meta_reader.get_tablet_compact_stats(txn_.get(), tablet_id, nullptr, &versionstamp);
+            meta_reader.get_tablet_compact_stats(txn_.get(), tablet_id, nullptr, &prev_version);
     if (err == TxnErrorCode::TXN_OK) {
+        if (prev_version < min_read_versionstamp_) {
+            LOG_FATAL("tablet compact stats version is less than min read versionstamp")
+                    .tag("tablet_id", tablet_id)
+                    .tag("prev_version", prev_version.to_string())
+                    .tag("min_read_version", min_read_versionstamp_.version());
+        }
         std::string tablet_compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id_, tablet_id});
-        versioned_remove(txn_.get(), tablet_compact_stats_key, versionstamp);
+        versioned_remove(txn_.get(), tablet_compact_stats_key, prev_version);
         LOG_INFO("recycle tablet compact stats")
                 .tag("tablet_id", tablet_id)
-                .tag("prev_version", versionstamp.to_string());
+                .tag("prev_version", prev_version.to_string());
         return 0;
     } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         LOG_WARNING("failed to get tablet compact stats for recycling operation log")
@@ -496,6 +536,12 @@ int OperationLogRecycler::recycle_partition_version(int64_t partition_id) {
     TxnErrorCode err =
             meta_reader.get_partition_version(txn_.get(), partition_id, nullptr, &prev_version);
     if (err == TxnErrorCode::TXN_OK) {
+        if (prev_version < min_read_versionstamp_) {
+            LOG_FATAL("partition version is less than min read versionstamp")
+                    .tag("partition_id", partition_id)
+                    .tag("prev_version", prev_version.to_string())
+                    .tag("min_read_version", min_read_versionstamp_.version());
+        }
         std::string partition_version_key =
                 versioned::partition_version_key({instance_id_, partition_id});
         versioned_remove(txn_.get(), partition_version_key, prev_version);
@@ -641,6 +687,8 @@ int InstanceRecycler::recycle_operation_logs() {
         LOG_WARNING("failed to initialize recycle checker").tag("error_code", init_res);
         return init_res;
     }
+    SnapshotDataSizeCalculator calculator(instance_id_, txn_kv_);
+    calculator.init(recycle_checker.get_snapshots());
 
     auto scan_and_recycle_operation_log = [&](const std::string_view& key,
                                               const std::vector<std::string>& raw_keys,
@@ -654,7 +702,9 @@ int InstanceRecycler::recycle_operation_logs() {
         }
 
         size_t value_size = operation_log.ByteSizeLong();
-        if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp())) {
+        OperationLogReferenceInfo reference_info;
+        if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp(),
+                                        &reference_info)) {
             AnnotateTag tag("log_key", hex(key));
             int res = recycle_operation_log(log_versionstamp, raw_keys, std::move(operation_log));
             if (res != 0) {
@@ -664,6 +714,13 @@ int InstanceRecycler::recycle_operation_logs() {
 
             recycled_operation_logs++;
             recycled_operation_log_data_size += value_size;
+        } else {
+            int res = calculator.calculate_operation_log_data_size(key, operation_log,
+                                                                   reference_info);
+            if (res != 0) {
+                LOG_WARNING("failed to calculate operation log data size").tag("error_code", res);
+                return res;
+            }
         }
 
         total_operation_logs++;
@@ -733,6 +790,11 @@ int InstanceRecycler::recycle_operation_logs() {
                 .tag("error_code", iter->error_code());
         return -1;
     }
+    int res = calculator.save_snapshot_data_size_with_retry();
+    if (res != 0) {
+        LOG_WARNING("failed to save snapshot data size").tag("error_code", res);
+        return res;
+    }
     return 0;
 }
 
@@ -740,7 +802,8 @@ int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
                                             const std::vector<std::string>& raw_keys,
                                             OperationLogPB operation_log) {
     int recycle_log_count = 0;
-    OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version, raw_keys);
+    OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version,
+                                      operation_log.min_timestamp(), raw_keys);
     RETURN_ON_FAILURE(log_recycler.begin());
 
 #define RECYCLE_OPERATION_LOG(log_type, method_name)                      \

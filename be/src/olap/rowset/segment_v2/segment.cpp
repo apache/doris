@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -66,7 +67,6 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/slice.h" // Slice
 #include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
@@ -275,39 +275,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    if (!read_options.topn_filter_source_node_ids.empty()) {
-        auto* query_ctx = read_options.runtime_state->get_query_ctx();
-        for (int id : read_options.topn_filter_source_node_ids) {
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
-                    read_options.topn_filter_target_node_id);
-
-            AndBlockColumnPredicate and_predicate;
-            and_predicate.add_column_predicate(
-                    SingleColumnBlockPredicate::create_unique(runtime_predicate));
-            std::shared_ptr<ColumnReader> reader;
-            Status st = get_column_reader(
-                    read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
-                    read_options.stats);
-            if (st.is<ErrorCode::NOT_FOUND>()) {
-                continue;
-            }
-            RETURN_IF_ERROR(st);
-            DCHECK(reader != nullptr);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
-                                           read_options.target_cast_type_for_variants,
-                                           read_options)) {
-                bool matched = true;
-                RETURN_IF_ERROR(reader->match_condition(&and_predicate, &matched));
-                if (!matched) {
-                    // any condition not satisfied, return.
-                    *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                    read_options.stats->filtered_segment_number++;
-                    return Status::OK();
-                }
-            }
-        }
-    }
-
     {
         SCOPED_RAW_TIMER(&read_options.stats->segment_load_index_timer_ns);
         RETURN_IF_ERROR(load_index(read_options.stats));
@@ -469,7 +436,7 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
-    uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t actual_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         Status st = _write_error_file(file_size, file_size - 12 - footer_length, bytes_read,
                                       footer_buf.data(), io_ctx);
@@ -1052,8 +1019,13 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
     // The footer is always at the end of the segment file.
     // The size of footer is 12.
     // So we use the size of file minus 12 as the cache key, which is unique for each segment file.
-    return StoragePageCache::CacheKey(_file_reader->path().native(), _file_reader->size(),
-                                      _file_reader->size() - 12);
+    return get_segment_footer_cache_key(_file_reader);
+}
+
+StoragePageCache::CacheKey Segment::get_segment_footer_cache_key(
+        const io::FileReaderSPtr& file_reader) {
+    return {file_reader->path().native(), file_reader->size(),
+            static_cast<int64_t>(file_reader->size() - 12)};
 }
 
 #include "common/compile_check_end.h"

@@ -31,7 +31,6 @@ import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
 import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
-import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
 import org.apache.doris.datasource.metacache.MetaCache;
@@ -89,7 +88,10 @@ public class ExternalMetaCacheMgr {
     private ExecutorService scheduleExecutor;
 
     // catalog id -> HiveMetaStoreCache
-    private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
+    private final Map<Long, HiveMetaStoreCache> hiveCacheMap = Maps.newConcurrentMap();
+
+    // catalog id -> IcebergMetadataCache
+    private final Map<Long, IcebergMetadataCache> icebergCacheMap = Maps.newConcurrentMap();
     // catalog id -> table schema cache
     private final Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
     // hudi partition manager
@@ -98,7 +100,6 @@ public class ExternalMetaCacheMgr {
     private FileSystemCache fsCache;
     // all external table row count cache.
     private ExternalRowCountCache rowCountCache;
-    private final IcebergMetadataCacheMgr icebergMetadataCacheMgr;
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
     private final DorisExternalMetaCacheMgr dorisExternalMetaCacheMgr;
@@ -130,7 +131,6 @@ public class ExternalMetaCacheMgr {
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
         hudiMetadataCacheMgr = new HudiMetadataCacheMgr(commonRefreshExecutor);
-        icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
         paimonMetadataCacheMgr = new PaimonMetadataCacheMgr(commonRefreshExecutor);
         dorisExternalMetaCacheMgr = new DorisExternalMetaCacheMgr(commonRefreshExecutor);
@@ -160,14 +160,14 @@ public class ExternalMetaCacheMgr {
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
-        HiveMetaStoreCache cache = cacheMap.get(catalog.getId());
+        HiveMetaStoreCache cache = hiveCacheMap.get(catalog.getId());
         if (cache == null) {
-            synchronized (cacheMap) {
-                if (!cacheMap.containsKey(catalog.getId())) {
-                    cacheMap.put(catalog.getId(),
+            synchronized (hiveCacheMap) {
+                if (!hiveCacheMap.containsKey(catalog.getId())) {
+                    hiveCacheMap.put(catalog.getId(),
                             new HiveMetaStoreCache(catalog, commonRefreshExecutor, fileListingExecutor));
                 }
-                cache = cacheMap.get(catalog.getId());
+                cache = hiveCacheMap.get(catalog.getId());
             }
         }
         return cache;
@@ -202,8 +202,17 @@ public class ExternalMetaCacheMgr {
         return hudiMetadataCacheMgr;
     }
 
-    public IcebergMetadataCache getIcebergMetadataCache() {
-        return icebergMetadataCacheMgr.getIcebergMetadataCache();
+    public IcebergMetadataCache getIcebergMetadataCache(ExternalCatalog catalog) {
+        IcebergMetadataCache cache = icebergCacheMap.get(catalog.getId());
+        if (cache == null) {
+            synchronized (icebergCacheMap) {
+                if (!icebergCacheMap.containsKey(catalog.getId())) {
+                    icebergCacheMap.put(catalog.getId(), new IcebergMetadataCache(catalog, commonRefreshExecutor));
+                }
+                cache = icebergCacheMap.get(catalog.getId());
+            }
+        }
+        return cache;
     }
 
     public PaimonMetadataCache getPaimonMetadataCache() {
@@ -227,7 +236,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCache(long catalogId) {
-        if (cacheMap.remove(catalogId) != null) {
+        if (hiveCacheMap.remove(catalogId) != null) {
             LOG.info("remove hive metastore cache for catalog {}", catalogId);
         }
         synchronized (schemaCacheMap) {
@@ -235,8 +244,10 @@ public class ExternalMetaCacheMgr {
                 LOG.info("remove schema cache for catalog {}", catalogId);
             }
         }
+        if (icebergCacheMap.remove(catalogId) != null) {
+            LOG.info("remove iceberg meta cache for catalog {}", catalogId);
+        }
         hudiMetadataCacheMgr.removeCache(catalogId);
-        icebergMetadataCacheMgr.removeCache(catalogId);
         maxComputeMetadataCacheMgr.removeCache(catalogId);
         paimonMetadataCacheMgr.removeCache(catalogId);
         dorisExternalMetaCacheMgr.removeCache(catalogId);
@@ -249,12 +260,15 @@ public class ExternalMetaCacheMgr {
                 schemaCache.invalidateTableCache(dorisTable);
             }
         }
-        HiveMetaStoreCache metaCache = cacheMap.get(dorisTable.getCatalog().getId());
-        if (metaCache != null) {
-            metaCache.invalidateTableCache(dorisTable.getOrBuildNameMapping());
+        HiveMetaStoreCache hiveMetaCache = hiveCacheMap.get(dorisTable.getCatalog().getId());
+        if (hiveMetaCache != null) {
+            hiveMetaCache.invalidateTableCache(dorisTable.getOrBuildNameMapping());
+        }
+        IcebergMetadataCache icebergMetadataCache = icebergCacheMap.get(dorisTable.getCatalog().getId());
+        if (icebergMetadataCache != null) {
+            icebergMetadataCache.invalidateTableCache(dorisTable);
         }
         hudiMetadataCacheMgr.invalidateTableCache(dorisTable);
-        icebergMetadataCacheMgr.invalidateTableCache(dorisTable);
         maxComputeMetadataCacheMgr.invalidateTableCache(dorisTable);
         paimonMetadataCacheMgr.invalidateTableCache(dorisTable);
         if (LOG.isDebugEnabled()) {
@@ -271,12 +285,15 @@ public class ExternalMetaCacheMgr {
                 schemaCache.invalidateDbCache(dbName);
             }
         }
-        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        HiveMetaStoreCache metaCache = hiveCacheMap.get(catalogId);
         if (metaCache != null) {
             metaCache.invalidateDbCache(dbName);
         }
+        IcebergMetadataCache icebergMetadataCache = icebergCacheMap.get(catalogId);
+        if (icebergMetadataCache != null) {
+            icebergMetadataCache.invalidateDbCache(catalogId, dbName);
+        }
         hudiMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
-        icebergMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         maxComputeMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         paimonMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         if (LOG.isDebugEnabled()) {
@@ -288,12 +305,15 @@ public class ExternalMetaCacheMgr {
         synchronized (schemaCacheMap) {
             schemaCacheMap.remove(catalogId);
         }
-        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        HiveMetaStoreCache metaCache = hiveCacheMap.get(catalogId);
         if (metaCache != null) {
             metaCache.invalidateAll();
         }
+        IcebergMetadataCache icebergMetadataCache = icebergCacheMap.get(catalogId);
+        if (icebergMetadataCache != null) {
+            icebergMetadataCache.invalidateCatalogCache(catalogId);
+        }
         hudiMetadataCacheMgr.invalidateCatalogCache(catalogId);
-        icebergMetadataCacheMgr.invalidateCatalogCache(catalogId);
         maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
         paimonMetadataCacheMgr.invalidateCatalogCache(catalogId);
         dorisExternalMetaCacheMgr.invalidateCatalogCache(catalogId);
@@ -310,7 +330,7 @@ public class ExternalMetaCacheMgr {
 
     public void addPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
-        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        HiveMetaStoreCache metaCache = hiveCacheMap.get(catalogId);
         if (metaCache != null) {
             List<Type> partitionColumnTypes;
             try {
@@ -328,7 +348,7 @@ public class ExternalMetaCacheMgr {
 
     public void dropPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
-        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        HiveMetaStoreCache metaCache = hiveCacheMap.get(catalogId);
         if (metaCache != null) {
             metaCache.dropPartitionsCache(table, partitionNames, true);
         }
@@ -338,7 +358,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidatePartitionsCache(ExternalTable dorisTable, List<String> partitionNames) {
-        HiveMetaStoreCache metaCache = cacheMap.get(dorisTable.getCatalog().getId());
+        HiveMetaStoreCache metaCache = hiveCacheMap.get(dorisTable.getCatalog().getId());
         if (metaCache != null) {
             for (String partitionName : partitionNames) {
                 metaCache.invalidatePartitionCache(dorisTable, partitionName);

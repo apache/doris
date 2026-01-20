@@ -1312,6 +1312,14 @@ build_pdqsort() {
     cp "${PDQSORT_FILE}" "${TP_INSTALL_DIR}/include/"
 }
 
+# timsort
+build_timsort() {
+    check_if_archive_exist "${TIMSORT_FILE}"
+    cd "${TP_SOURCE_DIR}"
+    mkdir -p "${TP_INSTALL_DIR}/include/gfx"
+    cp "${TIMSORT_FILE}" "${TP_INSTALL_DIR}/include/gfx/"
+}
+
 # libdivide
 build_libdivide() {
     check_if_source_exist "${LIBDIVIDE_SOURCE}"
@@ -1362,6 +1370,8 @@ build_cctz() {
     # -Wno-elaborated-enum-base to make C++20 on MacOS happy
     "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS -Wno-elaborated-enum-base" \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_TOOLS=OFF \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
@@ -2010,6 +2020,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         fmt
         parallel_hashmap
         pdqsort
+        timsort
         libdivide
         cctz
         tsan_header

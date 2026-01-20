@@ -27,7 +27,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
-#include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -68,7 +67,6 @@ class FunctionConvertTZ : public IFunction {
     constexpr static PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
     using DateValueType = PrimitiveTypeTraits<PType>::CppType;
     using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
 
 public:
     static constexpr auto name = "convert_tz";
@@ -241,8 +239,7 @@ private:
                 continue;
             }
 
-            DateValueType ts_value =
-                    binary_cast<NativeType, DateValueType>(date_column->get_element(i));
+            DateValueType ts_value = date_column->get_element(i);
             DateValueType ts_value2;
 
             std::pair<int64_t, int64_t> timestamp;
@@ -256,8 +253,7 @@ private:
                                                              from_tz.name(), to_tz.name());
             }
 
-            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
-                    binary_cast<DateValueType, NativeType>(ts_value2)));
+            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
         }
     }
 
@@ -288,8 +284,7 @@ private:
     static void execute_inner_loop(const ColumnType* date_column, const std::string& from_tz_name,
                                    const std::string& to_tz_name, ColumnType* result_column,
                                    NullMap& result_null_map, const size_t index_now) {
-        DateValueType ts_value =
-                binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
+        DateValueType ts_value = date_column->get_element(index_now);
         cctz::time_zone from_tz {}, to_tz {};
         DateValueType ts_value2;
 
@@ -313,8 +308,7 @@ private:
                                                          from_tz.name(), to_tz.name());
         }
 
-        result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
-                binary_cast<DateValueType, NativeType>(ts_value2)));
+        result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
     }
 };
 
