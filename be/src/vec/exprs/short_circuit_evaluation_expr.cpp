@@ -29,7 +29,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "short_circuit_util.h"
-#include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
