@@ -120,7 +120,7 @@ public class MatchPredicate extends Predicate {
         children.add(e1);
         children.add(e2);
         Map<String, String> properties = invertedIndex == null ? Collections.emptyMap() : invertedIndex.getProperties();
-        AnalyzerSelector.Selection selection = AnalyzerSelector.select(properties, analyzer);
+        AnalyzerSelector.Selection selection = AnalyzerSelector.select(invertedIndex, analyzer);
 
         // Set parser and analyzer fields
         this.invertedIndexParser = selection.parser();

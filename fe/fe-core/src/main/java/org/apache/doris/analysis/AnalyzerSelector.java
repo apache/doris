@@ -36,18 +36,24 @@ public final class AnalyzerSelector {
 
     public static Selection select(Index index, String requestedAnalyzer) {
         Map<String, String> properties = index == null ? Collections.emptyMap() : index.getProperties();
-        return select(properties, requestedAnalyzer);
+        return select(properties, requestedAnalyzer, index == null);
     }
 
     public static Selection select(Map<String, String> properties, String requestedAnalyzer) {
+        // When called directly with properties (not through Index overload),
+        // assume an index exists if properties is provided (even if empty).
+        return select(properties, requestedAnalyzer, properties == null);
+    }
+
+    private static Selection select(Map<String, String> properties, String requestedAnalyzer, boolean noIndexExists) {
         String normalizedRequest = normalize(requestedAnalyzer);
         String preferredAnalyzer = selectDefaultAnalyzer(properties);
         String rawParser = InvertedIndexUtil.getInvertedIndexParser(properties);
 
         // For tables without index, use english parser which provides more aggressive
         // tokenization (splits on all non-letter characters) for slow path matching.
-        boolean hasNoIndex = properties == null || properties.isEmpty();
-        String parser = hasNoIndex
+        // Note: empty properties with an existing index means keyword index (parser=none).
+        String parser = noIndexExists
                 ? InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH
                 : rawParser;
 
