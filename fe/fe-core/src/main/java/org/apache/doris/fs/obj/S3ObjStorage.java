@@ -671,6 +671,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                                     maxFileCount, result.size(), remotePath);
                             return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
                                     String.format("Too many files in directory %s (> %d). "
+                                            + "The max file count limit is enforced to avoid OOM (Out of Memory). "
                                             + "Please check if the directory is correct.",
                                             remotePath, maxFileCount)));
                         }
