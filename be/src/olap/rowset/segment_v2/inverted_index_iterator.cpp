@@ -31,9 +31,9 @@ namespace doris::segment_v2 {
 InvertedIndexIterator::InvertedIndexIterator() = default;
 
 std::string InvertedIndexIterator::ensure_normalized_key(const std::string& analyzer_key) {
-    // normalize_analyzer_key now handles all cases consistently:
+    // normalize_analyzer_key handles all cases consistently:
     // - empty string -> __default__
-    // - "none" (case-insensitive) -> __default__
+    // - "none" -> stays as "none" (distinct from __default__, means no tokenization)
     // - other values -> lowercase normalized
     return normalize_analyzer_key(analyzer_key);
 }
