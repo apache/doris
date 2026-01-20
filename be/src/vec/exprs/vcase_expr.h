@@ -204,7 +204,15 @@ private:
 
         // set default value
         for (int i = 0; i < rows_count; i++) {
-            result_raw_data[i] = {};
+            if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+                          std::is_same_v<ColumnType, ColumnDateTime> ||
+                          std::is_same_v<ColumnType, ColumnDateV2> ||
+                          std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+                result_raw_data[i] = ColumnType::default_value();
+            } else {
+                result_raw_data[i] = {};
+            }
         }
 
         for (IndexType i = 0; i < then_columns.size(); i++) {
@@ -222,9 +230,8 @@ private:
                           std::is_same_v<ColumnType, ColumnDateTimeV2> ||
                           std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    result_raw_data[row_idx] =
-                            (then_idx[row_idx] == i ? column_raw_data[row_idx]
-                                                    : typename ColumnType::value_type());
+                    result_raw_data[row_idx] = (then_idx[row_idx] == i) ? column_raw_data[row_idx]
+                                                                        : result_raw_data[row_idx];
                 }
             } else {
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
