@@ -262,11 +262,11 @@ public class VariableMgr {
     }
 
     public static SessionVariable newSessionVariable() {
-        wlock.lock();
+        rlock.lock();
         try {
             return cloneSessionVariable(defaultSessionVariable);
         } finally {
-            wlock.unlock();
+            rlock.unlock();
         }
     }
 
