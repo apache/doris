@@ -315,3 +315,13 @@ anymousS3Uri="https://datasets-documentation.s3.eu-west-3.amazonaws.com/aapl_sto
 anymousS3Region="eu-west-3"
 anymousS3ExpectDataCount="8365"
 awsInstanceProfileRegion="us-east-1"
+
+// hudi p0 external regression test config
+// To enable hudi test, you need first start hudi container.
+// See `docker/thirdparties/run-thirdparties-docker.sh -c hudi`
+enableHudiTest=true
+// hudi catalog config
+hudiHmsPort=19083
+hudiMinioPort=19100
+hudiMinioAccessKey="minio"
+hudiMinioSecretKey="minio123"
