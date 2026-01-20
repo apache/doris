@@ -2539,36 +2539,39 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputPlanFragment = repeat.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(repeat.child(0));
 
-        ImmutableSet<Expression> flattenGroupingSetExprs = ImmutableSet.copyOf(
-                ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
+        Set<NamedExpression> outputSets = ImmutableSet.copyOf(repeat.getOutputExpressions());
+        List<Expression> flattenGroupingExpressions = repeat.getGroupByExpressions();
+        Set<Slot> preRepeatExpressions = Sets.newLinkedHashSet();
+        // keep group by expression comes first
+        for (Expression groupByExpr : flattenGroupingExpressions) {
+            Slot groupBySlot = (Slot) groupByExpr;
+            Preconditions.checkState(outputSets.contains(groupBySlot));
+            preRepeatExpressions.add(groupBySlot);
+        }
 
-        List<Slot> aggregateFunctionUsedSlots = repeat.getOutputExpressions()
-                .stream()
-                .filter(output -> !flattenGroupingSetExprs.contains(output))
-                .filter(output -> !output.containsType(GroupingScalarFunction.class))
-                .distinct()
-                .map(NamedExpression::toSlot)
+        // add aggregate function used expressions
+        for (NamedExpression outputExpr : repeat.getOutputExpressions()) {
+            if (!outputExpr.containsType(GroupingScalarFunction.class)) {
+                preRepeatExpressions.add(outputExpr.toSlot());
+            }
+        }
+
+        List<Expr> preRepeatExprs = preRepeatExpressions.stream()
+                .map(expr -> ExpressionTranslator.translate(expr, context))
                 .collect(ImmutableList.toImmutableList());
 
-        // keep flattenGroupingSetExprs comes first
-        List<Expr> preRepeatExprs = Stream.concat(flattenGroupingSetExprs.stream(), aggregateFunctionUsedSlots.stream())
-                .map(expr -> ExpressionTranslator.translate(expr, context)).collect(ImmutableList.toImmutableList());
+        // outputSlots's order need same with preRepeatExprs, then grouping id, then grouping function slots
+        ImmutableList.Builder<Slot> outputSlotsBuilder
+                = ImmutableList.builderWithExpectedSize(repeat.getOutputExpressions().size() + 1);
+        outputSlotsBuilder.addAll(preRepeatExpressions);
+        outputSlotsBuilder.add(repeat.getGroupingId().toSlot());
+        for (NamedExpression outputExpr : repeat.getOutputExpressions()) {
+            if (outputExpr.containsType(GroupingScalarFunction.class)) {
+                outputSlotsBuilder.add(outputExpr.toSlot());
+            }
+        }
 
-        // outputSlots's order need same with preRepeatExprs
-        List<Slot> outputSlots = Stream.concat(Stream
-                .concat(repeat.getOutputExpressions().stream()
-                        .filter(output -> flattenGroupingSetExprs.contains(output)),
-                        repeat.getOutputExpressions().stream()
-                                .filter(output -> !flattenGroupingSetExprs.contains(output))
-                                .filter(output -> !output.containsType(GroupingScalarFunction.class))
-                                .distinct()
-                       ),
-                        Stream.concat(Stream.of(repeat.getGroupingId().toSlot()),
-                                repeat.getOutputExpressions().stream()
-                                        .filter(output -> output.containsType(GroupingScalarFunction.class)))
-                        )
-                .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
-
+        List<Slot> outputSlots = outputSlotsBuilder.build();
         // NOTE: we should first translate preRepeatExprs, then generate output tuple,
         //       or else the preRepeatExprs can not find the bottom slotRef and throw
         //       exception: invalid slot id
