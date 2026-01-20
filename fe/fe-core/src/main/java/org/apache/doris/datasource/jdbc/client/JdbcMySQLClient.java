@@ -277,7 +277,18 @@ public class JdbcMySQLClient extends JdbcClient {
                     fieldSchema.setAllowNull(true);
                 }
                 return ScalarType.createDateV2Type();
-            case "TIMESTAMP":
+            case "TIMESTAMP": {
+                int columnSize = fieldSchema.requiredColumnSize();
+                int scale = columnSize > 19 ? columnSize - 20 : 0;
+                if (scale > 6) {
+                    scale = 6;
+                }
+                if (convertDateToNull) {
+                    fieldSchema.setAllowNull(true);
+                }
+                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
+                        : ScalarType.createDatetimeV2Type(scale);
+            }
             case "DATETIME": {
                 // mysql can support microsecond
                 // use columnSize to calculate the precision of timestamp/datetime

@@ -126,7 +126,8 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Unrecognized queryType for iceberg metadata: " + queryType);
         }
         this.sysTable = MetadataTableUtils.createMetadataTableInstance(icebergTable, tableType);
-        this.schema = IcebergUtils.parseSchema(sysTable.schema(), externalCatalog.getEnableMappingVarbinary());
+        this.schema = IcebergUtils.parseSchema(sysTable.schema(), externalCatalog.getEnableMappingVarbinary(),
+                externalCatalog.getEnableMappingTimestampTz());
     }
 
     @Override

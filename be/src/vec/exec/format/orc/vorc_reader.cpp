@@ -1487,6 +1487,11 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
         return DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_CHAR, true, 0, 0, cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::TIMESTAMP_INSTANT:
+        if (_scan_params.__isset.enable_mapping_timestamp_tz &&
+            _scan_params.enable_mapping_timestamp_tz) {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TIMESTAMPTZ,
+                                                                true, 0, 6);
+        }
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
                                                             6);
     case orc::TypeKind::LIST: {
@@ -1879,6 +1884,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         //                : std::make_unique<StringVectorBatch>(capacity, memoryPool);
         return _decode_string_column<is_filter>(col_name, data_column, orc_column_type->getKind(),
                                                 cvb, num_values);
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return _decode_timestamp_tz_column<is_filter>(col_name, data_column, cvb, num_values);
     case PrimitiveType::TYPE_ARRAY: {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
             return Status::InternalError(
@@ -2080,7 +2087,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     default:
         break;
     }
-    return Status::InternalError("Unsupported type for column '{}'", col_name);
+    return Status::InternalError("Unsupported type {} for column '{}'", data_type->get_name(),
+                                 col_name);
 }
 
 template <bool is_filter>

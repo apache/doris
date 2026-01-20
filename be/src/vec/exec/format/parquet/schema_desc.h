@@ -91,6 +91,7 @@ private:
     size_t _next_schema_pos;
     // useful for parse_node_field to decide whether to convert byte_array to VARBINARY type
     bool _enable_mapping_varbinary = false;
+    bool _enable_mapping_timestamp_tz = false;
 
 private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
@@ -151,8 +152,6 @@ public:
 
     const std::vector<FieldSchema>& get_fields_schema() const { return _fields; }
 
-    void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
-
     /**
      * Assign stable column IDs to schema fields.
      *
@@ -165,6 +164,8 @@ public:
     void assign_ids();
 
     const FieldSchema* find_column_by_id(uint64_t column_id) const;
+    void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
+    void set_enable_mapping_timestamp_tz(bool enable) { _enable_mapping_timestamp_tz = enable; }
 };
 #include "common/compile_check_end.h"
 
