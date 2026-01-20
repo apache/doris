@@ -158,6 +158,9 @@ struct MutableColumnNullViewScalar {
         if (result_null_map_data != nullptr && from_null_map_data != nullptr) {
             insert_with_selector<is_const>(*result_null_map_data, *from_null_map_data, selector);
         }
+        // Note: When from_null_map_data is nullptr (non-nullable source),
+        // no action needed since result null_map is already initialized to 0 (non-null)
+        // by init_result_column's resize_fill(count, 0)
     }
 
     template <bool is_const>
@@ -348,7 +351,7 @@ struct NonScalarFillWithSelector {
             if (column_with_selector.selector.empty()) {
                 continue;
             }
-            for (uint32_t i = 0; i < column_with_selector.selector.size(); ++i) {
+            for (size_t i = 0; i < column_with_selector.selector.size(); ++i) {
                 size_t result_index = column_with_selector.selector[i];
                 DCHECK(fill_positions[result_index].source_column.has_value() == false)
                         << "Position " << result_index << " has been filled already.";

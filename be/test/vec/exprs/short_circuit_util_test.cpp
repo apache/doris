@@ -524,9 +524,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_non_nullable_no_selector) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t i) { null_selector.push_back(i); };
-    auto true_func = [&](size_t i) { true_selector.push_back(i); };
-    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
+    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -550,9 +550,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_nullable_no_selector) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t i) { null_selector.push_back(i); };
-    auto true_func = [&](size_t i) { true_selector.push_back(i); };
-    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
+    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -578,9 +578,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_with_selector) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t i) { null_selector.push_back(i); };
-    auto true_func = [&](size_t i) { true_selector.push_back(i); };
-    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
+    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -603,9 +603,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_const_true) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t i) { null_selector.push_back(i); };
-    auto true_func = [&](size_t i) { true_selector.push_back(i); };
-    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
+    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -629,9 +629,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_const_false) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t i) { null_selector.push_back(i); };
-    auto true_func = [&](size_t i) { true_selector.push_back(i); };
-    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
+    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -651,9 +651,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnView_const_null) {
     Selector true_selector;
     Selector false_selector;
 
-    auto null_func = [&](size_t i) { null_selector.push_back(i); };
-    auto true_func = [&](size_t i) { true_selector.push_back(i); };
-    auto false_func = [&](size_t i) { false_selector.push_back(i); };
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto true_func = [&](size_t self_index, size_t executor_index) { true_selector.push_back(executor_index); };
+    auto false_func = [&](size_t self_index, size_t executor_index) { false_selector.push_back(executor_index); };
 
     view.for_each(null_func, true_func, false_func);
 
@@ -673,9 +673,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_non_nullable_no_selector) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
-    auto not_null_func = [&](size_t i, size_t result_index) {
-        not_null_selector.push_back(result_index);
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto not_null_func = [&](size_t self_index, size_t executor_index) {
+        not_null_selector.push_back(executor_index);
     };
 
     view.for_each(null_func, not_null_func);
@@ -698,9 +698,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_nullable_no_selector) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
-    auto not_null_func = [&](size_t i, size_t result_index) {
-        not_null_selector.push_back(result_index);
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto not_null_func = [&](size_t self_index, size_t executor_index) {
+        not_null_selector.push_back(executor_index);
     };
 
     view.for_each(null_func, not_null_func);
@@ -727,16 +727,16 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_with_selector) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
-    auto not_null_func = [&](size_t i, size_t result_index) {
-        not_null_selector.push_back(result_index);
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto not_null_func = [&](size_t self_index, size_t executor_index) {
+        not_null_selector.push_back(executor_index);
     };
 
     view.for_each(null_func, not_null_func);
 
-    // col[0]=1 not null -> result_index=100
-    // col[1]=NULL -> result_index=200
-    // col[2]=3 not null -> result_index=300
+    // col[0]=1 not null -> executor_index=100
+    // col[1]=NULL -> executor_index=200
+    // col[2]=3 not null -> executor_index=300
     EXPECT_EQ(null_selector.size(), 1);
     EXPECT_EQ(not_null_selector.size(), 2);
 
@@ -755,9 +755,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_const_not_null) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
-    auto not_null_func = [&](size_t i, size_t result_index) {
-        not_null_selector.push_back(result_index);
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto not_null_func = [&](size_t self_index, size_t executor_index) {
+        not_null_selector.push_back(executor_index);
     };
 
     view.for_each(null_func, not_null_func);
@@ -776,9 +776,9 @@ TEST(ShortCircuitUtilTest, ConditionColumnNullView_const_null) {
     Selector null_selector;
     Selector not_null_selector;
 
-    auto null_func = [&](size_t i, size_t result_index) { null_selector.push_back(result_index); };
-    auto not_null_func = [&](size_t i, size_t result_index) {
-        not_null_selector.push_back(result_index);
+    auto null_func = [&](size_t self_index, size_t executor_index) { null_selector.push_back(executor_index); };
+    auto not_null_func = [&](size_t self_index, size_t executor_index) {
+        not_null_selector.push_back(executor_index);
     };
 
     view.for_each(null_func, not_null_func);

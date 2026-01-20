@@ -40,14 +40,19 @@
 
 namespace doris::vectorized {
 
-// 对于短路执行，我们需要我们需要区分三种index
-// 一种叫self_index，表示当前列的index （for(int i =0;i<size;i++) 中的这个i，他永远是对当前执行的列而言的）
-// 一种叫executor_index，他是对于整个expr树执行器而言的index，他会通过execute_column传递下去，最后在叶子节点（例如slotref）中被使用
-// 一种叫current_index，他是相对于当前这个expr节点返回的column 的index，
-
-// 对于if/ifnull来说，self_index和current_index是一样的，因为只有一个列会作为条件列。
-
-// 对于coalesce/case来说，self_index和current_index是不一样的，因为有多个列会作为条件列(不过如果是第一次执行条件列的话，他俩是一样的（和if/ifnull 类似)
+// For short-circuit execution, we need to distinguish between three types of indices:
+// 1. self_index: The index of the current column (the 'i' in for(int i=0; i<size; i++),
+//    which always refers to the currently executing column)
+// 2. executor_index: The index relative to the entire expr tree executor, passed down through
+//    execute_column and ultimately used in leaf nodes (e.g., SlotRef)
+// 3. current_index: The index relative to the column returned by the current expr node
+//
+// For if/ifnull, self_index and current_index are the same because only one column serves
+// as the condition column.
+//
+// For coalesce/case, self_index and current_index are different because multiple columns
+// serve as condition columns (however, for the first condition column execution, they are
+// the same, similar to if/ifnull)
 Status ShortCircuitExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -119,6 +124,16 @@ ColumnPtr ShortCircuitExpr::dispatch_fill_columns(
     return result_column;
 }
 
+/// TODO: Potential optimization opportunities:
+// 1. The logic of IF and CASE is similar; IFNULL and COALESCE are also similar.
+//    A better approach would be to keep only CASE and COALESCE, with the optimizer
+//    rewriting IF to CASE and IFNULL to COALESCE.
+// 2. The following functions (execute_if_selector, execute_case_selector,
+//    execute_ifnull_selector, execute_coalesce_selector) could theoretically be
+//    further abstracted, e.g., by introducing a "column with selector" structure.
+//    However, since there are currently few places handling selectors and keeping
+//    them separate makes code review easier, each function is implemented individually.
+
 void execute_if_selector(const ColumnPtr& cond_column, const Selector* selector, size_t count,
                          Selector& matched_executor_selector, Selector& matched_self_selector,
                          Selector& not_matched_executor_selector,
@@ -135,13 +150,13 @@ void execute_if_selector(const ColumnPtr& cond_column, const Selector* selector,
         not_matched_executor_selector.push_back(executor_index);
     };
 
-    auto true_func = [&](size_t self_index, size_t result_index) {
+    auto true_func = [&](size_t self_index, size_t executor_index) {
         matched_self_selector.push_back(self_index);
-        matched_executor_selector.push_back(result_index);
+        matched_executor_selector.push_back(executor_index);
     };
-    auto false_func = [&](size_t self_index, size_t result_index) {
+    auto false_func = [&](size_t self_index, size_t executor_index) {
         not_matched_self_selector.push_back(self_index);
-        not_matched_executor_selector.push_back(result_index);
+        not_matched_executor_selector.push_back(executor_index);
     };
 
     condition_view.for_each(null_func, true_func, false_func);
@@ -185,7 +200,8 @@ void execute_case_selector(const ColumnPtr& cond_column, const Selector* executo
     ConditionColumnView condition_view =
             ConditionColumnView::create(cond_column, executor_selector, executor_count);
     if (current_selector == nullptr) {
-        // 如果没有current_selector，说明是第一次执行condition列，这个时候self_index和current_index是一样的
+        // If current_selector is nullptr, this is the first condition column execution,
+        // so self_index and current_index are the same
         auto null_func = [&](size_t self_index, size_t executor_index) {
             not_matched_current_selector.push_back(self_index);
             not_matched_executor_selector.push_back(executor_index);
@@ -200,8 +216,9 @@ void execute_case_selector(const ColumnPtr& cond_column, const Selector* executo
         };
         condition_view.for_each(null_func, true_func, false_func);
     } else {
-        // 如果有current_selector，说明不是第一次执行condition列，这个时候self_index和current_index是不一样的
-        // 我们需要根据self和current_selector，来确定current_index
+        // If current_selector is not nullptr, this is not the first condition column execution,
+        // so self_index and current_index are different.
+        // We need to determine current_index based on self_index and current_selector
         const auto& current_selector_data = *current_selector;
         DCHECK_EQ(current_selector_data.size(), executor_count);
 
@@ -229,8 +246,13 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
 
     // Structure: WHEN expr1 THEN result1 [WHEN expr2 THEN result2 ...] [ELSE else_result]
     // _children layout: [when1, then1, when2, then2, ..., else?]
-    // Number of when/then pairs = _children.size() / 2 (rounded down if has_else)
-    // +1 for the else branch or null output when no else is provided
+    //
+    // Examples:
+    //   CASE WHEN a THEN b END           -> children=[a,b], size=2, num_branches=2 (b + null)
+    //   CASE WHEN a THEN b ELSE c END    -> children=[a,b,c], size=3, num_branches=2 (b + c)
+    //   CASE WHEN a THEN b WHEN c THEN d END -> children=[a,b,c,d], size=4, num_branches=3 (b + d + null)
+    //
+    // num_branches = number of when/then pairs + 1 (for else or null output)
     const size_t num_branches = _children.size() / 2 + 1;
     std::vector<ColumnAndSelector> columns_and_selectors;
     columns_and_selectors.resize(num_branches);
@@ -293,9 +315,12 @@ Status ShortCircuitCaseExpr::execute_column(VExprContext* context, const Block* 
     return Status::OK();
 }
 
-// 对于ifnull来说，我们需要区分null和not null两种情况
-// 和if不一样的是，我们需要一个not_null_executor_selector,因为not null的列已经执行完了（就是输入的cond_column
-// 需要在调用后手动filter掉not null的行
+// For ifnull(expr1, expr2), we distinguish between null and not-null rows of expr1:
+// - Not-null rows: Use expr1's value directly (already computed), only need self_selector
+//   to filter the column. No need for executor_selector since we don't execute further.
+// - Null rows: Need executor_selector to execute expr2, and current_selector for result filling.
+//
+// This differs from IF where both branches need to execute child expressions.
 
 void execute_ifnull_selector(const ColumnPtr& cond_column, const Selector* selector, size_t count,
                              Selector& null_executor_selector, Selector& null_current_selector,
@@ -353,7 +378,8 @@ void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* exe
     ConditionColumnNullView condition_view =
             ConditionColumnNullView::create(cond_column, executor_selector, executor_count);
     if (current_selector == nullptr) {
-        // 如果没有current_selector，说明是第一次执行condition列，这个时候self_index和current_index是一样的
+        // If current_selector is nullptr, this is the first condition column execution,
+        // so self_index and current_index are the same
         auto null_func = [&](size_t self_index, size_t executor_index) {
             null_current_selector.push_back(self_index);
             null_executor_selector.push_back(executor_index);
@@ -364,8 +390,9 @@ void execute_coalesce_selector(const ColumnPtr& cond_column, const Selector* exe
         };
         condition_view.for_each(null_func, not_null_func);
     } else {
-        // 如果有current_selector，说明不是第一次执行condition列，这个时候self_index和current_index是不一样的
-        // 我们需要根据self和current_selector，来确定current_index
+        // If current_selector is not nullptr, this is not the first condition column execution,
+        // so self_index and current_index are different.
+        // We need to determine current_index based on self_index and current_selector
         const auto& current_selector_data = *current_selector;
         DCHECK_EQ(current_selector_data.size(), executor_count);
         auto null_func = [&](size_t self_index, size_t executor_index) {

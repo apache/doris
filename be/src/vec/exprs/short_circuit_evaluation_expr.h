@@ -81,7 +81,7 @@ public:
                           size_t count, ColumnPtr& result_column) const override;
 
 private:
-    bool _has_else_expr;
+    const bool _has_else_expr;
     inline static const std::string CASE_NAME = "case";
 };
 
