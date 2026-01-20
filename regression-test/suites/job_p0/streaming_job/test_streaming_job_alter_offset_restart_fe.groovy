@@ -93,7 +93,7 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":1,\"fileSize\":138}"
 
         sql """
             PAUSE JOB where jobname =  '${jobName}'
@@ -112,7 +112,7 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/anoexist1234.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":1,\"fileSize\":138}"
         assert jobInfo.get(0).get(2) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // Restart FE
@@ -131,7 +131,7 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/anoexist1234.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":1,\"fileSize\":138}"
         assert jobInfo.get(0).get(2) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // resume to check whether consumption will resume
