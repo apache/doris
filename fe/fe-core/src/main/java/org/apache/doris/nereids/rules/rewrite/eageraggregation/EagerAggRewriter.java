@@ -433,7 +433,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private Plan genAggregate(Plan child, PushDownAggContext context) {
-        if (checkStats(child, context)) {
+        if (context.isValid() && checkStats(child, context)) {
             List<NamedExpression> aggOutputExpressions = new ArrayList<>();
             for (AggregateFunction func : context.getAggFunctions()) {
                 aggOutputExpressions.add(context.getAliasMap().get(func));
