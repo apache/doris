@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
@@ -145,17 +146,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The signing region for the iceberg rest catalog service.")
     private String icebergRestSigningRegion = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.access-key-id"},
-            required = false,
-            description = "The access key ID for the iceberg rest catalog service.")
-    private String icebergRestAccessKeyId = "";
-
-    @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
-            required = false,
-            sensitive = true,
-            description = "The secret access key for the iceberg rest catalog service.")
-    private String icebergRestSecretAccessKey = "";
-
     @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"},
             required = false,
             description = "Connection timeout in milliseconds for the REST catalog HTTP client. Default: 10000 (10s).")
@@ -185,6 +175,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The external ID for STS AssumeRole, used for cross-account access security.")
     private String icebergRestAssumeRoleExternalId = "";
 
+    private S3Properties s3Properties;
     private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
     protected IcebergRestProperties(Map<String, String> props) {
@@ -214,6 +205,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        s3Properties = S3Properties.of(origProps);
         validateSecurityType();
         initAwsCredentialsProviderMode();
         buildRules().validate();
@@ -340,13 +332,16 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
 
             // Priority order:
-            // 1. Explicit credentials (access-key-id + secret-access-key)
+            // 1. Explicit credentials (access_key + secret_key) from S3Properties
             // 2. AssumeRole with role ARN
             // 3. Configured credentials provider type
 
-            if (Strings.isNotBlank(icebergRestAccessKeyId) && Strings.isNotBlank(icebergRestSecretAccessKey)) {
-                icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
-                icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
+            boolean hasExplicitCredentials = StringUtils.isNotBlank(s3Properties.getAccessKey())
+                    && StringUtils.isNotBlank(s3Properties.getSecretKey());
+
+            if (hasExplicitCredentials) {
+                icebergRestCatalogProperties.put("rest.access-key-id", s3Properties.getAccessKey());
+                icebergRestCatalogProperties.put("rest.secret-access-key", s3Properties.getSecretKey());
             } else if (Strings.isNotBlank(icebergRestAssumeRoleArn)) {
                 // Use AssumeRoleAwsClientFactory for cross-account access
                 icebergRestCatalogProperties.put("client.factory",
