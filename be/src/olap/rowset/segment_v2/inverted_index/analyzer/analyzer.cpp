@@ -140,13 +140,13 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
                                        config->stop_words);
     }
 
-    // "__default__" means "use the index's configured analyzer".
-    // Return nullptr so that the caller (FullTextIndexReader::query) falls back to
-    // using _index_meta.properties() for tokenization. This ensures that custom
-    // analyzers configured on the index are used, rather than a builtin analyzer
-    // based on parser_type (which would be NONE for custom analyzers).
+    // "__default__" is used for backwards compatibility. Create a standard analyzer
+    // so that slow path (match.cpp) can still tokenize queries. For index path,
+    // the inverted_index_reader.cpp will fall back to _index_meta.properties()
+    // when custom analyzers are configured on the index.
     if (analyzer_name == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
-        return nullptr;
+        return create_builtin_analyzer(InvertedIndexParserType::PARSER_STANDARD,
+                                       config->parser_mode, config->lower_case, config->stop_words);
     }
 
     if (is_builtin_analyzer(analyzer_name)) {

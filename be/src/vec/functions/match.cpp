@@ -200,14 +200,19 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(analyzer_ctx->parser_type);
     if (!analyzer_ctx->should_tokenize()) {
-        query_tokens.emplace_back(match_query_str);
+        // Don't add empty string as token - empty query should match nothing
+        if (!match_query_str.empty()) {
+            query_tokens.emplace_back(match_query_str);
+        }
         return query_tokens;
     }
-    // If analyzer is nullptr (e.g., __default__ was specified, meaning use index's analyzer),
-    // but we're in the slow path without access to index properties, fall back to no tokenization.
+    // If analyzer is nullptr, fall back to no tokenization.
+    // This can happen with older FE versions that send "__default__" for keyword indexes.
     if (analyzer_ctx->analyzer == nullptr) {
         VLOG_DEBUG << "Analyzer is nullptr in slow path, falling back to no tokenization";
-        query_tokens.emplace_back(match_query_str);
+        if (!match_query_str.empty()) {
+            query_tokens.emplace_back(match_query_str);
+        }
         return query_tokens;
     }
     auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
