@@ -798,7 +798,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNotNullValue) {
                 return IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else {
                 return IntersectType.OTHERS;
             }
@@ -815,7 +815,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -881,7 +881,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             }
             return IntersectType.OTHERS;
         }
@@ -917,7 +917,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1005,7 +1005,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (other instanceof EmptyValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof RangeValue) {
-                return ((RangeValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else if (other instanceof DiscreteValue) {
                 Set<ComparableLiteral> otherValues = ((DiscreteValue) other).values;
                 for (ComparableLiteral value : otherValues) {
@@ -1017,7 +1017,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else {
                 return IntersectType.OTHERS;
             }
@@ -1026,7 +1026,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected UnionType getUnionType(ValueDesc other, int depth) {
             if (other instanceof RangeValue) {
-                return ((RangeValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             } else if (other instanceof NotDiscreteValue) {
                 boolean succ = true;
                 Set<ComparableLiteral> notDiscreteValues = ((NotDiscreteValue) other).values;
@@ -1044,7 +1044,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1113,7 +1113,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             }
             return IntersectType.OTHERS;
         }
@@ -1121,9 +1121,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected UnionType getUnionType(ValueDesc other, int depth) {
             if (other instanceof RangeValue) {
-                return ((RangeValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             } else if (other instanceof DiscreteValue) {
-                return ((DiscreteValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             } else if (other instanceof NotDiscreteValue) {
                 Set<ComparableLiteral> notDiscreteValues = ((NotDiscreteValue) other).values;
                 for (ComparableLiteral value : notDiscreteValues) {
@@ -1137,7 +1137,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1183,7 +1183,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNotNullValue) {
                 return IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             }
             return IntersectType.OTHERS;
         }
@@ -1241,7 +1241,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (other instanceof EmptyValue || other instanceof IsNullValue) {
                 return IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else {
                 return IntersectType.OTHERS;
             }
@@ -1257,7 +1257,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return UnionType.TRUE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1438,13 +1438,28 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 }
                 return resultType;
             } else {
+                // a < 10 or ((a != 1 or a is null) and (a != 2 or a is null))
+                // let A = a < 10,
+                // B1 = a != 1, B2 = a is null, B = B1 or B2,
+                // C1 = a != 2, C2 = a is null, C = C1 OR C2,
+                // D = B and C,
+                // when want to calc the union type of 'A or D'
+                // then will need calc the union type of 'A or B',
+                // then will need calc the union type of 'A or B1' and 'A or B2',
+                // for 'A or B1', the union type is RANGE_ALL,
+                // for 'A or B2', the union type is OTHERS,
+                // RANGE_ALL or OTHERS != RANGE_ALL
+                boolean allAreRangeAll = true;
                 for (ValueDesc valueDesc : sourceValues) {
                     UnionType type = valueDesc.getUnionType(other, depth + 1);
-                    if (type != UnionType.OTHERS) {
+                    if (type == UnionType.TRUE) {
                         return type;
                     }
+                    if (type != UnionType.RANGE_ALL) {
+                        allAreRangeAll = false;
+                    }
                 }
-                return UnionType.OTHERS;
+                return allAreRangeAll ? UnionType.RANGE_ALL : UnionType.OTHERS;
             }
         }
     }
