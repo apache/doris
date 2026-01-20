@@ -734,6 +734,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         protected abstract boolean nullable();
 
+        protected boolean nullForNullReference() {
+            return nullable();
+        }
+
         // X containsAll Y, means:
         // 1) when Y is TRUE, X is TRUE;
         // 2) when Y is FALSE, X can be any;
@@ -1330,6 +1334,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
 
         @Override
+        protected boolean nullForNullReference() {
+            return reference.nullable() && !hasNoneNullable;
+        }
+
+        @Override
         protected boolean containsAll(ValueDesc other, int depth) {
             // in fact, when merge the value desc for the same reference,
             // all the value desc should not be unknown value
@@ -1403,8 +1412,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (isAnd) {
                 // process A and ((B and C) or ...)
                 boolean hasEmptyValue = false;
-                boolean hasNonNullableOthers = false;
                 boolean hasIsNotNull = false;
+                boolean allOtherNullForNullReference = true;
                 for (ValueDesc valueDesc : sourceValues) {
                     IntersectType type = valueDesc.getIntersectType(other, depth + 1);
                     if (type == IntersectType.FALSE) {
@@ -1413,7 +1422,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     if (type == IntersectType.EMPTY_VALUE) {
                         hasEmptyValue = true;
                     } else {
-                        hasNonNullableOthers = hasNonNullableOthers || !valueDesc.nullable();
+                        allOtherNullForNullReference = allOtherNullForNullReference && valueDesc.nullForNullReference();
                     }
                     hasIsNotNull = hasIsNotNull || valueDesc instanceof IsNotNullValue;
                 }
@@ -1424,7 +1433,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     }
                     // A and ((B and C) or ...)
                     // if A intersect B is EMPTY_VALUE, A intersect C is OTHERS, C is nullable
-                    if (!hasNonNullableOthers) {
+                    if (allOtherNullForNullReference) {
                         return IntersectType.EMPTY_VALUE;
                     }
                 }
@@ -1469,7 +1478,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 // then `this`: '(B or C)',  `other`: A
                 boolean hasRangeAll = false;
                 boolean hasIsNull = false;
-                boolean hasNoneNullableOthers = false;
+                boolean allOtherNullForNullReference = true;
                 for (ValueDesc valueDesc : sourceValues) {
                     UnionType type = valueDesc.getUnionType(other, depth + 1);
                     if (type == UnionType.TRUE) {
@@ -1478,7 +1487,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     if (type == UnionType.RANGE_ALL) {
                         hasRangeAll = true;
                     } else {
-                        hasNoneNullableOthers = hasNoneNullableOthers || !valueDesc.nullable();
+                        allOtherNullForNullReference = allOtherNullForNullReference && valueDesc.nullForNullReference();
                     }
                     hasIsNull = hasIsNull || valueDesc instanceof IsNullValue;
                 }
@@ -1490,7 +1499,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                         // RangeAll or IsNull = TRUE
                         return UnionType.TRUE;
                     }
-                    if (!hasNoneNullableOthers) {
+                    if (allOtherNullForNullReference) {
                         // A or ((B or C) and ....)
                         // if A union B is RANGE_ALL, and C is nullable
                         // then A or ((B or C) and ...) = A or (Range.all() and ...)
@@ -1519,6 +1528,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected boolean nullable() {
             return reference.nullable();
+        }
+
+        @Override
+        protected boolean nullForNullReference() {
+            return false;
         }
 
         @Override
