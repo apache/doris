@@ -140,6 +140,11 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return functionList;
     }
 
+    public Set<GroupingScalarFunction> getGroupingScalarFunctions() {
+        return new HashSet<>(
+                ExpressionUtils.collectAll(outputExpressions, e -> e instanceof GroupingScalarFunction));
+    }
+
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalRepeat",

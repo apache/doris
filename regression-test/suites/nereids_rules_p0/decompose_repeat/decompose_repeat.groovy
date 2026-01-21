@@ -71,4 +71,36 @@ suite("decompose_repeat") {
     order_qt_cube "select a,b,c,d,sum(d),grouping_id(a) from t1 group by cube(a,b,c,d)"
     order_qt_cube_add "select a,b,c,d,sum(d)+100+grouping_id(a) from t1 group by cube(a,b,c,d);"
     order_qt_cube_sum_parm_add "select a,b,c,d,sum(a+1),grouping_id(a) from t1 group by cube(a,b,c,d);"
+
+    // grouping scalar functions add more test
+    order_qt_grouping_only_in_max "select a,b,c, grouping(c) from t1 group by grouping sets((a,b,c),(a,b),(a),());"
+    order_qt_grouping_id_only_in_max_c_d "select a,b,c, grouping_id(a,b,c,d) from t1 group by grouping sets((a,b,c,d),(a,b),(a),());"
+    order_qt_grouping_id_only_in_max_d "select a,b,c, grouping_id(a,b,c,d) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a),());"
+    order_qt_multi_grouping_func "select a,b,c,d, grouping_id(a,b,c), grouping_id(c,b,a), grouping_id(c,a,b), grouping_id(a,a) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a),());"
+    
+    // more test cases for grouping scalar function bug(added by ai)
+    // Test case: grouping function with partial parameters only in max group
+    order_qt_grouping_partial_only_in_max "select a,b,c,d, grouping_id(a,c,d) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a,b),());"
+    // Test case: multiple grouping functions, some can optimize and some cannot
+    order_qt_mixed_grouping_func_1 "select a,b,c,d, grouping(a), grouping_id(b,c,d) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a),());"
+    // Test case: grouping function with all parameters exist in other groups (should optimize)
+    order_qt_grouping_all_in_other "select a,b,c,d, grouping_id(a,b) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a,b),(a),());"
+    // Test case: grouping function with same column repeated
+    order_qt_grouping_dup_col "select a,b,c,d, grouping_id(a,b,a,c,a) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a),());"
+    // Test case: both grouping and grouping_id with different parameters
+    order_qt_mixed_grouping_both "select a,b,c,d, grouping(a), grouping(b), grouping_id(a,b,c), grouping_id(c,d) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a),());"
+    // Test case: grouping function with columns in different positions
+    order_qt_grouping_different_pos "select a,b,c,d, grouping_id(b,d) from t1 group by grouping sets((a,b,c,d),(a,b),(a,c),());"
+    // Test case: nested case with grouping functions that reference only-max columns
+    order_qt_grouping_nested_case "select a,b,c,d, case when grouping(d) = 1 then 0 else 1 end from t1 group by grouping sets((a,b,c,d),(a,b,c),(a),());"
+    // Test case: grouping function parameter mix - one in max only, others in all groups
+    order_qt_grouping_mixed_params_1 "select a,b,c,d, grouping_id(a,b,d) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a,b),(a),());"
+    // Test case: grouping function with single parameter that exists in multiple groups
+    order_qt_grouping_single_param_multi "select a,b,c,d, grouping(c) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a,c),());"
+    // Test case: multiple grouping_id functions with different parameter combinations
+    order_qt_grouping_multi_combinations "select a,b,c,d, grouping_id(a), grouping_id(a,b), grouping_id(a,b,c), grouping_id(a,b,c,d) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a,b),(a),());"
+    // Test case: grouping function where max group is not first
+    order_qt_grouping_max_not_first "select a,b,c,d, grouping_id(c,d) from t1 group by grouping sets((a,b),(a,b,c),(a,b,c,d),());"
+    // Test case: complex case with aggregation function and grouping function
+    order_qt_grouping_with_agg "select a,b,c,d, sum(d), grouping_id(a,b,c) from t1 group by grouping sets((a,b,c,d),(a,b,c),(a),());"
 }
