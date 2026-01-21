@@ -6029,6 +6029,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static void throwAnalysisExceptionWhenFeDebug(String msg) {
+        LOG.warn(msg);
         if (isFeDebug()) {
             throw new AnalysisException(msg);
         }

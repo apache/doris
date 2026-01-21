@@ -100,7 +100,8 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             try {
                 new AdjustNullable(false).rewriteRoot(plan, null);
             } catch (Exception e) {
-                throw new NereidsException("(PushDownAggregation) input plan has nullable problem", e);
+                LOG.warn("(PushDownAggregation) input plan has nullable problem", e);
+                return plan;
             }
         }
         int mode = SessionVariable.getEagerAggregationMode();
