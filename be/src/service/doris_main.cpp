@@ -143,7 +143,8 @@ enum class InstructionFail {
     AVX = 6,
     AVX2 = 7,
     AVX512 = 8,
-    ARM_NEON = 9
+    ARM_NEON = 9,
+    ARM_SVE = 10
 };
 
 auto instruction_fail_to_string(InstructionFail fail) {
@@ -169,6 +170,8 @@ auto instruction_fail_to_string(InstructionFail fail) {
         ret("AVX512");
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
+    case InstructionFail::ARM_SVE:
+        ret("ARM_SVE");
     }
 
     LOG(ERROR) << "Unrecognized instruction fail value." << std::endl;
@@ -233,7 +236,14 @@ void check_required_instructions_impl(volatile InstructionFail& fail) {
 #if defined(__ARM_NEON__)
     fail = InstructionFail::ARM_NEON;
 #ifndef __APPLE__
-    __asm__ volatile("vadd.i32  q8, q8, q8" : : : "q8");
+    __asm__ volatile("add v0.4s, v0.4s, v0.4s" : : : "v0");
+#endif
+#endif
+
+#if defined(__ARM_FEATURE_SVE)
+    fail = InstructionFail::ARM_SVE;
+#ifndef __APPLE__
+    __asm__ volatile("add z0.d, z0.d, z0.d" : : : "z0");
 #endif
 #endif
 
