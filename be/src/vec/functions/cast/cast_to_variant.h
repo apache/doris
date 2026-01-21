@@ -133,9 +133,11 @@ struct CastToVariant {
     }
 };
 
+// adjust a variant column to the target layout during variant->variant cast
 struct CastVariantAdjust {
-    static Status execute(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t /*input_rows_count*/, int32_t target_max,
+    static Status execute(FunctionContext* /*context*/, Block& block,
+                          const ColumnNumbers& arguments, uint32_t result,
+                          size_t /*input_rows_count*/, int32_t target_max,
                           bool enable_typed_paths_to_sparse,
                           const NullMap::value_type* /*null_map*/ = nullptr) {
         const auto& col_from = block.get_by_position(arguments[0]).column;
@@ -153,6 +155,7 @@ struct CastVariantAdjust {
 WrapperType create_cast_to_variant_wrapper(const DataTypePtr& from_type,
                                            const DataTypeVariant& to_type) {
     if (from_type->get_primitive_type() == TYPE_VARIANT) {
+        // variant->variant: verify compatibility and adjust max subcolumns if needed
         const auto& from_variant = static_cast<const DataTypeVariant&>(*from_type);
         if (from_variant.variant_enable_typed_paths_to_sparse() !=
             to_type.variant_enable_typed_paths_to_sparse()) {
@@ -163,11 +166,10 @@ WrapperType create_cast_to_variant_wrapper(const DataTypePtr& from_type,
         }
         int32_t target_max = to_type.variant_max_subcolumns_count();
         bool enable_typed_paths_to_sparse = to_type.variant_enable_typed_paths_to_sparse();
-        return [target_max, enable_typed_paths_to_sparse](FunctionContext* context, Block& block,
-                                                          const ColumnNumbers& arguments,
-                                                          uint32_t result, size_t input_rows_count,
-                                                          const NullMap::value_type* null_map)
-                       -> Status {
+        return [target_max, enable_typed_paths_to_sparse](
+                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                       uint32_t result, size_t input_rows_count,
+                       const NullMap::value_type* null_map) -> Status {
             return CastVariantAdjust::execute(context, block, arguments, result, input_rows_count,
                                               target_max, enable_typed_paths_to_sparse, null_map);
         };

@@ -48,11 +48,13 @@ class IColumn;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+// constructor with max subcolumns count only
 DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
         : _max_subcolumns_count(max_subcolumns_count) {
     name = fmt::format("Variant(max subcolumns count = {})", max_subcolumns_count);
 }
 
+// constructor with max subcolumns count and typed-path demotion flag
 DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_typed_paths_to_sparse)
         : _max_subcolumns_count(max_subcolumns_count),
           _enable_typed_paths_to_sparse(enable_typed_paths_to_sparse) {

@@ -2151,6 +2151,7 @@ void ColumnVariant::clear_subcolumns_data() {
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
+// count materialized dynamic subcolumns that participate in max-limit accounting
 size_t ColumnVariant::dense_subcolumn_count() const {
     if (subcolumns.empty()) {
         return 0;
@@ -2166,6 +2167,7 @@ size_t ColumnVariant::dense_subcolumn_count() const {
     return total - excluded;
 }
 
+// true if sparse column contains any entries for current rows
 bool ColumnVariant::sparse_has_data() const {
     if (num_rows == 0) {
         return false;
@@ -2174,6 +2176,7 @@ bool ColumnVariant::sparse_has_data() const {
     return offsets[num_rows - 1] != 0;
 }
 
+// recompute cached typed/nested path counters from current subcolumns
 void ColumnVariant::recompute_path_counters() {
     typed_path_count = 0;
     nested_path_count = 0;
@@ -2190,6 +2193,7 @@ void ColumnVariant::recompute_path_counters() {
     }
 }
 
+// collect top-k frequent sparse paths, excluding existing dense paths
 std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
     std::vector<PathInData> result;
     if (k == 0 || num_rows == 0 || !sparse_has_data()) {
@@ -2212,9 +2216,9 @@ std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
     }
 
     const bool need_all = k == std::numeric_limits<size_t>::max();
-    size_t limit = need_all ? sparse_paths->size()
-                            : std::max<size_t>(
-                                      k, BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE);
+    size_t limit =
+            need_all ? sparse_paths->size()
+                     : std::max<size_t>(k, BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE);
 
     struct StringViewHash {
         size_t operator()(std::string_view value) const {
@@ -2253,13 +2257,12 @@ std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
 
     std::vector<std::pair<std::string_view, size_t>> sorted_paths(path_counts.begin(),
                                                                   path_counts.end());
-    std::sort(sorted_paths.begin(), sorted_paths.end(),
-              [](const auto& a, const auto& b) {
-                  if (a.second != b.second) {
-                      return a.second > b.second;
-                  }
-                  return a.first < b.first;
-              });
+    std::sort(sorted_paths.begin(), sorted_paths.end(), [](const auto& a, const auto& b) {
+        if (a.second != b.second) {
+            return a.second > b.second;
+        }
+        return a.first < b.first;
+    });
 
     size_t want = need_all ? sorted_paths.size() : std::min(k, sorted_paths.size());
     result.reserve(want);
@@ -2269,6 +2272,7 @@ std::vector<PathInData> ColumnVariant::topk_paths_from_sparse(size_t k) const {
     return result;
 }
 
+// rebuild sparse column while excluding specified paths
 Status ColumnVariant::rebuild_sparse_excluding_paths(
         const std::unordered_set<std::string_view>& exclude_paths) {
     if (exclude_paths.empty() || !sparse_has_data()) {
@@ -2307,6 +2311,7 @@ Status ColumnVariant::rebuild_sparse_excluding_paths(
     return Status::OK();
 }
 
+// adjust materialized/sparse layout to meet target max subcolumns count
 Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
     if (target_max < 0) {
         return Status::InvalidArgument("variant_max_subcolumns_count must be non-negative");
@@ -2315,9 +2320,9 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
         finalize(FinalizeMode::READ_MODE);
     }
     recompute_path_counters();
-    // When typed-path flag is not propagated, keep a conservative behavior:
+    // when typed-path flag is not propagated, keep a conservative behavior:
     // typed paths are not demoted, so we assume they will not appear in sparse
-    // data and won't be materialized from it.
+    // data and won't be materialized from it
     if (num_rows == 0) {
         set_max_subcolumns_count(target_max);
         return Status::OK();
@@ -2325,8 +2330,8 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
 
     const size_t current_dense = dense_subcolumn_count();
     const bool has_sparse = sparse_has_data();
-    const size_t target_limit = target_max == 0 ? std::numeric_limits<size_t>::max()
-                                                : static_cast<size_t>(target_max);
+    const size_t target_limit =
+            target_max == 0 ? std::numeric_limits<size_t>::max() : static_cast<size_t>(target_max);
 
     if (target_max == 0 && !has_sparse) {
         set_max_subcolumns_count(target_max);
@@ -2338,6 +2343,7 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
         return Status::OK();
     }
 
+    // target_limit > current_dense: materialize extra paths from sparse data
     if (target_limit > current_dense) {
         if (!has_sparse) {
             set_max_subcolumns_count(target_max);
@@ -2376,8 +2382,8 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
             const auto& path_str = path.get_path();
             Subcolumn subcolumn(0, is_nullable);
             ColumnVariant::fill_path_column_from_sparse_data(
-                    subcolumn, nullptr, StringRef {path_str.data(), path_str.size()},
-                    sparse_column, 0, num_rows);
+                    subcolumn, nullptr, StringRef {path_str.data(), path_str.size()}, sparse_column,
+                    0, num_rows);
             subcolumn.finalize();
             if (!new_subcolumns.add(path, subcolumn)) {
                 return Status::InternalError("duplicate subcolumn {}", path_str);
@@ -2417,13 +2423,12 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
 
     std::vector<std::pair<std::string_view, size_t>> sorted_by_size(non_null_sizes.begin(),
                                                                     non_null_sizes.end());
-    std::sort(sorted_by_size.begin(), sorted_by_size.end(),
-              [](const auto& a, const auto& b) {
-                  if (a.second != b.second) {
-                      return a.second > b.second;
-                  }
-                  return a.first < b.first;
-              });
+    std::sort(sorted_by_size.begin(), sorted_by_size.end(), [](const auto& a, const auto& b) {
+        if (a.second != b.second) {
+            return a.second > b.second;
+        }
+        return a.first < b.first;
+    });
 
     size_t keep_dynamic = std::min<size_t>(target_limit, sorted_by_size.size());
     std::unordered_set<std::string_view> selected_paths;

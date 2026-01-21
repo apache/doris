@@ -34,19 +34,19 @@
 #include "runtime/jsonb_value.h"
 #include "testutil/test_util.h"
 #include "testutil/variant_util.h"
-#include "vec/columns/column_variant.cpp"
-#include "vec/columns/common_column_test.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_variant.cpp"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/common_column_test.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/variant_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_factory.hpp"
 
 using namespace doris;
 namespace doris::vectorized {
@@ -509,6 +509,7 @@ std::string convert_field_to_string(doris::vectorized::Field array) {
     return std::string(buffer.GetString());
 }
 
+// collect all sparse paths for simple assertions
 static std::set<std::string> collect_sparse_paths(const ColumnVariant& variant) {
     auto sparse_pair = variant.get_sparse_data_paths_and_values();
     const auto* sparse_paths = sparse_pair.first;
@@ -520,6 +521,7 @@ static std::set<std::string> collect_sparse_paths(const ColumnVariant& variant) 
     return paths;
 }
 
+// build a nullable int column from values/null flags
 static MutableColumnPtr make_nullable_int_column(const std::vector<int32_t>& values,
                                                  const std::vector<uint8_t>& nulls) {
     auto data = ColumnInt32::create();
@@ -531,6 +533,7 @@ static MutableColumnPtr make_nullable_int_column(const std::vector<int32_t>& val
     return ColumnNullable::create(std::move(data), std::move(null_map));
 }
 
+// data type helper for nullable int
 static DataTypePtr make_nullable_int_type() {
     return make_nullable(std::make_shared<DataTypeInt32>());
 }
@@ -658,6 +661,7 @@ TEST_F(ColumnVariantTest, advanced_deserialize) {
     }
 }
 
+// increase max: materialize top paths from sparse column
 TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_increase) {
     auto variant = VariantUtil::construct_advanced_varint_column();
     variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
@@ -676,6 +680,7 @@ TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_increase) {
     EXPECT_TRUE(sparse_paths.count("v.d.d") > 0);
 }
 
+// decrease max: demote least-populated subcolumns to sparse
 TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_decrease) {
     auto variant = VariantUtil::construct_advanced_varint_column();
     variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
@@ -699,6 +704,7 @@ TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_decrease) {
     EXPECT_TRUE(sparse_paths.count("v.d.d") > 0);
 }
 
+// max=0 means materialize all paths (no sparse data)
 TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_to_zero) {
     auto variant = VariantUtil::construct_advanced_varint_column();
     variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
@@ -715,6 +721,7 @@ TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_to_zero) {
     EXPECT_EQ(offsets[variant->size() - 1], 0);
 }
 
+// increase max when there is no sparse data should be a no-op on layout
 TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_increase_no_sparse) {
     auto variant = VariantUtil::construct_varint_column_only_subcolumns();
     variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
@@ -729,6 +736,7 @@ TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_increase_no_sparse) {
     EXPECT_TRUE(collect_sparse_paths(*variant).empty());
 }
 
+// typed paths stay materialized when demotion is disabled
 TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_typed_path_keep_when_disabled) {
     auto variant = ColumnVariant::create(2, 3);
     variant->set_variant_enable_typed_paths_to_sparse(false);
@@ -750,6 +758,7 @@ TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_typed_path_keep_when_disab
     EXPECT_TRUE(sparse_paths.count("t.a") == 0);
 }
 
+// typed paths can be demoted when the flag allows it
 TEST_F(ColumnVariantTest, adjust_max_subcolumns_count_typed_path_can_demote) {
     auto variant = ColumnVariant::create(3, 3);
     variant->set_variant_enable_typed_paths_to_sparse(true);

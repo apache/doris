@@ -50,7 +50,9 @@ class IColumn;
 namespace doris::vectorized {
 class DataTypeVariant : public IDataType {
 private:
+    // max number of materialized subcolumns for this variant type
     int32_t _max_subcolumns_count = 0;
+    // whether typed paths can be demoted to sparse data
     bool _enable_typed_paths_to_sparse = false;
     std::string name = "Variant";
 
@@ -58,7 +60,9 @@ public:
     static constexpr PrimitiveType PType = TYPE_VARIANT;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
     DataTypeVariant() = default;
+    // construct a variant type with a max materialized subcolumns limit
     DataTypeVariant(int32_t max_subcolumns_count);
+    // construct a variant type with typed-path demotion behavior
     DataTypeVariant(int32_t max_subcolumns_count, bool enable_typed_paths_to_sparse);
     String do_get_name() const override { return name; }
     const std::string get_family_name() const override { return "Variant"; }
@@ -88,7 +92,9 @@ public:
         node->set_type(TTypeNodeType::VARIANT);
     }
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    // variant max-subcolumns property for BE layout decisions
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
+    // whether typed paths are allowed to be sparse in this type
     bool variant_enable_typed_paths_to_sparse() const { return _enable_typed_paths_to_sparse; }
 };
 } // namespace doris::vectorized

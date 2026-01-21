@@ -285,7 +285,7 @@ private:
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
     int32_t _max_subcolumns_count = 0;
 
-    // Whether typed paths are allowed to be moved into sparse column.
+    // whether typed paths are allowed to be moved into sparse column
     bool _enable_typed_paths_to_sparse = false;
 
     // subcolumns count materialized from typed paths
@@ -382,6 +382,8 @@ public:
     size_t rows() const { return num_rows; }
 
     int32_t max_subcolumns_count() const { return _max_subcolumns_count; }
+
+    // whether typed paths can be demoted to sparse data
     bool variant_enable_typed_paths_to_sparse() const { return _enable_typed_paths_to_sparse; }
 
     /// Adds a subcolumn from existing IColumn.
@@ -616,11 +618,14 @@ public:
     Status convert_typed_path_to_storage_type(
             const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths);
 
+    // adjust materialized/sparse layout to match target max subcolumns count
     Status adjust_max_subcolumns_count(int32_t target_max);
 
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {
         _max_subcolumns_count = max_subcolumns_count;
     }
+
+    // configure whether typed paths are allowed to move into sparse column
     void set_variant_enable_typed_paths_to_sparse(bool enable) {
         _enable_typed_paths_to_sparse = enable;
     }
@@ -658,10 +663,19 @@ public:
     bool has_doc_value_column(size_t n) const;
 
 private:
+    // number of materialized dynamic subcolumns that count toward the max limit
     size_t dense_subcolumn_count() const;
+
+    // whether sparse column holds any data for current rows
     bool sparse_has_data() const;
+
+    // recompute cached counts of typed and nested paths
     void recompute_path_counters();
+
+    // select top-k paths from sparse column by frequency (excluding dense paths)
     std::vector<PathInData> topk_paths_from_sparse(size_t k) const;
+
+    // rebuild sparse column while excluding the specified paths
     Status rebuild_sparse_excluding_paths(
             const std::unordered_set<std::string_view>& exclude_paths);
 
