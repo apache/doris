@@ -290,6 +290,94 @@ public class BitmapValueTest {
     }
 
     @Test
+    public void testBitmapValueXor() {
+        // empty xor empty
+        BitmapValue bitmapValue1 = new BitmapValue();
+        BitmapValue bitmapValue1Dot1 = new BitmapValue();
+        bitmapValue1.xor(bitmapValue1Dot1);
+        Assert.assertTrue(bitmapValue1.getBitmapType() == BitmapValue.EMPTY);
+
+        // empty xor single value
+        BitmapValue bitmapValue2 = new BitmapValue();
+        BitmapValue bitmapValue2Dot1 = new BitmapValue();
+        bitmapValue2Dot1.add(1);
+        bitmapValue2.xor(bitmapValue2Dot1);
+        Assert.assertTrue(bitmapValue2.getBitmapType() == BitmapValue.SINGLE_VALUE);
+
+        // empty xor bitmap
+        BitmapValue bitmapValue3 = new BitmapValue();
+        BitmapValue bitmapValue3Dot1 = new BitmapValue();
+        bitmapValue3Dot1.add(1);
+        bitmapValue3Dot1.add(2);
+        bitmapValue3.xor(bitmapValue3Dot1);
+        Assert.assertTrue(bitmapValue3.getBitmapType() == BitmapValue.BITMAP_VALUE);
+
+        // single xor and empty
+        BitmapValue bitmapValue4 = new BitmapValue();
+        BitmapValue bitmapValue4Dot1 = new BitmapValue();
+        bitmapValue4.add(1);
+        bitmapValue4.xor(bitmapValue4Dot1);
+        Assert.assertTrue(bitmapValue4.getBitmapType() == BitmapValue.SINGLE_VALUE);
+
+        // single xor and single value
+        BitmapValue bitmapValue5 = new BitmapValue();
+        BitmapValue bitmapValue5Dot1 = new BitmapValue();
+        bitmapValue5.add(1);
+        bitmapValue5Dot1.add(1);
+        bitmapValue5.xor(bitmapValue5Dot1);
+        Assert.assertTrue(bitmapValue5.getBitmapType() == BitmapValue.EMPTY);
+
+        bitmapValue5.clear();
+        bitmapValue5.add(2);
+        bitmapValue5.xor(bitmapValue5Dot1);
+        Assert.assertTrue(bitmapValue5.getBitmapType() == BitmapValue.BITMAP_VALUE);
+
+        // single xor and bitmap
+        BitmapValue bitmapValue6 = new BitmapValue();
+        BitmapValue bitmapValue6Dot1 = new BitmapValue();
+        bitmapValue6.add(1);
+        bitmapValue6Dot1.add(1);
+        bitmapValue6Dot1.add(2);
+        bitmapValue6.xor(bitmapValue6Dot1);
+        Assert.assertTrue(bitmapValue6.getBitmapType() == BitmapValue.BITMAP_VALUE);
+        Assert.assertTrue(bitmapValue6.cardinality() == 1);
+
+        bitmapValue6.clear();
+        bitmapValue6Dot1.clear();
+        bitmapValue6.add(10);
+        bitmapValue6Dot1.add(20);
+        bitmapValue6Dot1.add(30);
+        bitmapValue6.xor(bitmapValue6Dot1);
+        Assert.assertTrue(bitmapValue6.getBitmapType() == BitmapValue.BITMAP_VALUE);
+        Assert.assertTrue(bitmapValue6.toString().equals("{10,20,30}")); //before fix, the result is {2,20,30}
+
+        // bitmap xor empty
+        BitmapValue bitmapValue7 = new BitmapValue();
+        bitmapValue7.add(1);
+        bitmapValue7.add(2);
+        BitmapValue bitmapValue7Dot1 = new BitmapValue();
+        bitmapValue7.xor(bitmapValue7Dot1);
+        Assert.assertTrue(bitmapValue7.getBitmapType() == BitmapValue.BITMAP_VALUE);
+
+        // bitmap xor single value
+        BitmapValue bitmapValue8 = new BitmapValue();
+        bitmapValue8.add(1);
+        bitmapValue8.add(2);
+        BitmapValue bitmapValue8Dot1 = new BitmapValue();
+        bitmapValue8Dot1.add(1);
+        bitmapValue8.xor(bitmapValue8Dot1);
+        Assert.assertTrue(bitmapValue8.getBitmapType() == BitmapValue.SINGLE_VALUE);
+
+        // bitmap xor bitmap
+        BitmapValue bitmapValue9 = new BitmapValue();
+        bitmapValue9.add(1);
+        bitmapValue9.add(2);
+        BitmapValue bitmapValue9Dot1 = new BitmapValue();
+        bitmapValue9.xor(bitmapValue9Dot1);
+        Assert.assertTrue(bitmapValue9.getBitmapType() == BitmapValue.BITMAP_VALUE);
+    }
+
+    @Test
     public void testBitmapValueSerializeAndDeserialize() throws IOException {
         // empty
         BitmapValue serializeBitmapValue = new BitmapValue();
