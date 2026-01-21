@@ -68,10 +68,27 @@ public class DNSCache {
      * @return The IP address for the given hostname, or an empty string if the hostname cannot be resolved.
      */
     private String resolveHostname(String hostname) {
+        String cachedIp = cache.get(hostname);
         try {
-            return NetUtils.getIpByHost(hostname, 0);
+            String ip = NetUtils.getIpByHost(hostname, 0);
+            if (ip == null || ip.isEmpty()) {
+                if (cachedIp != null && !cachedIp.isEmpty()) {
+                    LOG.warn("Failed to resolve hostname {}, use cached ip: {}", hostname, cachedIp);
+                    return cachedIp;
+                } else {
+                    LOG.warn("Failed to resolve hostname {}, no cached ip available", hostname);
+                    return "";
+                }
+            }
+            return ip;
         } catch (UnknownHostException e) {
-            return "";
+            if (cachedIp != null && !cachedIp.isEmpty()) {
+                LOG.warn("Failed to resolve hostname {}, use cached ip: {}", hostname, cachedIp);
+                return cachedIp;
+            } else {
+                LOG.warn("Failed to resolve hostname {}, no cached ip available", hostname);
+                return "";
+            }
         }
     }
 
@@ -83,15 +100,12 @@ public class DNSCache {
      */
     private void refresh() {
         for (String hostname : cache.keySet()) {
-            String resolvedIp = resolveHostname(hostname);
-            String currentIp = cache.get(hostname);
-            if (resolvedIp.isEmpty()) {
-                LOG.warn("Failed to resolve hostname {}, using cached IP: {}", hostname, currentIp);
-                continue;
-            }
-            if (!resolvedIp.equals(currentIp)) {
-                cache.put(hostname, resolvedIp);
-                LOG.info("IP for hostname {} has changed from {} to {}", hostname, currentIp, resolvedIp);
+            String resolvedHostname = resolveHostname(hostname);
+            String currentHostname = cache.get(hostname);
+            if (!resolvedHostname.equals(currentHostname)) {
+                cache.put(hostname, resolvedHostname);
+                LOG.info("IP for hostname {} has changed from {} to {}", hostname, currentHostname,
+                        resolvedHostname);
             }
         }
     }
