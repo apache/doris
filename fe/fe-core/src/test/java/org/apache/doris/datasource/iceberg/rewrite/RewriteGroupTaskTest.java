@@ -109,12 +109,11 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         // Create task and invoke private method via reflection
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -139,11 +138,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -167,11 +165,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -197,11 +194,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -227,11 +223,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -256,11 +251,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -286,11 +280,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -316,12 +309,11 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
         Mockito.when(mockSessionVariable.getParallelExecInstanceNum()).thenReturn(100);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -347,11 +339,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -377,11 +368,10 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.emptyList());
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 
@@ -407,11 +397,10 @@ public class RewriteGroupTaskTest {
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Arrays.asList(
                 mockFileScanTask, mockFileScanTask, mockFileScanTask));
-        Mockito.when(mockSystemInfoService.getBackendsNumber(true)).thenReturn(availableBeCount);
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,
-                targetFileSizeBytes, null);
+                targetFileSizeBytes, availableBeCount, null);
 
         Object strategy = invokeCalculateRewriteStrategy(task);
 

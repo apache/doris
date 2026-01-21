@@ -64,6 +64,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final Long taskId;
     private final AtomicBoolean isCanceled;
     private final AtomicBoolean isFinished;
+    private final int availableBeCount;
 
     // for canceling the task
     private StmtExecutor stmtExecutor;
@@ -73,12 +74,14 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             IcebergExternalTable dorisTable,
             ConnectContext connectContext,
             long targetFileSizeBytes,
+            int availableBeCount,
             RewriteResultCallback resultCallback) {
         this.group = group;
         this.transactionId = transactionId;
         this.dorisTable = dorisTable;
         this.connectContext = connectContext;
         this.targetFileSizeBytes = targetFileSizeBytes;
+        this.availableBeCount = availableBeCount;
         this.resultCallback = resultCallback;
         this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.isCanceled = new AtomicBoolean(false);
@@ -279,8 +282,8 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         long totalSize = group.getTotalSize();
         int expectedFileCount = (int) Math.ceil((double) totalSize / targetFileSizeBytes);
 
-        // 2. Get available BE count
-        int availableBeCount = Env.getCurrentSystemInfo().getBackendsNumber(true);
+        // 2. Use available BE count passed from constructor
+        int availableBeCount = this.availableBeCount;
 
         // 3. Get default parallelism from session variable
         int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum();

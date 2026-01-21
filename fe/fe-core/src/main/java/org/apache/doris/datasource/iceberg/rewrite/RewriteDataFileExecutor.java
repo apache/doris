@@ -69,6 +69,10 @@ public class RewriteDataFileExecutor {
         List<RewriteGroupTask> tasks = Lists.newArrayList();
         RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
 
+        // Get available BE count once before creating tasks
+        // This avoids calling getBackendsNumber() in each task during multi-threaded execution
+        int availableBeCount = Env.getCurrentSystemInfo().getBackendsNumber(true);
+
         // Create tasks with callbacks
         for (RewriteDataGroup group : groups) {
             RewriteGroupTask task = new RewriteGroupTask(
@@ -77,6 +81,7 @@ public class RewriteDataFileExecutor {
                     dorisTable,
                     connectContext,
                     targetFileSizeBytes,
+                    availableBeCount,
                     new RewriteGroupTask.RewriteResultCallback() {
                         @Override
                         public void onTaskCompleted(Long taskId) {
