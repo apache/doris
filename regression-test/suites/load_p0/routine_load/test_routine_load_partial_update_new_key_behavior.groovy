@@ -276,7 +276,7 @@ suite("test_routine_load_partial_update_new_key_behavior", "nonConcurrent") {
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
-            exception "partial_update_new_key_behavior can only be set when partial_columns is true"
+            exception "partial_update_new_key_behavior can only be set when partial update is enabled"
         }
     }
 }

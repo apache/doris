@@ -73,6 +73,7 @@ import org.apache.doris.catalog.RecyclePartitionParam;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -2481,6 +2482,15 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 // keep table property: variant_enable_flatten_nested = false
                 olapTable.setVariantEnableFlattenNested(false);
+            }
+            for (Column column : baseSchema) {
+                if (column.getType().isVariantType()) {
+                    ScalarType scalarType = (ScalarType) column.getType();
+                    if (scalarType.getVariantEnableDocMode() && variantEnableFlattenNested) {
+                        throw new DdlException("variant flatten nested is not enabled, "
+                                                        + "because doc snapshot mode is enabled");
+                    }
+                }
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());

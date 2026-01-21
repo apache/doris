@@ -117,7 +117,7 @@
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/avro//avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
@@ -1206,8 +1206,8 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                st = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                      merged_schema);
+                st = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
+                                                                       merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                     st = Status::InternalError("Failed to get least common schema: {}",
@@ -1242,15 +1242,15 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto tablet = res.value();
                     auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = vectorized::schema_util::VariantCompactionUtil::
+                    auto schema = vectorized::variant_util::VariantCompactionUtil::
                             calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
                     tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    st = vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr,
-                                                                          merged_schema);
+                    st = vectorized::variant_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                                           merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                         st = Status::InternalError("Failed to get least common schema: {}",

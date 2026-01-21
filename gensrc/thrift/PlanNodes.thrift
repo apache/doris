@@ -488,6 +488,7 @@ struct TFileScanRangeParams {
     27: optional string paimon_predicate
     // enable mapping varbinary type for Doris external table and TVF
     28: optional bool enable_mapping_varbinary = false;
+    29: optional bool enable_mapping_timestamp_tz = false;
 }
 
 struct TFileRangeDesc {

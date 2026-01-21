@@ -21,7 +21,7 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
     def testTable = "test_variant_is_null_expr"
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
-
+    sql """ set default_variant_enable_doc_mode = false """
     sql """ DROP TABLE IF EXISTS ${testTable} """ 
     sql """
         CREATE TABLE ${testTable} (

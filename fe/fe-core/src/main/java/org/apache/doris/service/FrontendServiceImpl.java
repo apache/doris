@@ -3582,6 +3582,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
         //    So we skip caching for them.
         boolean needUseCache = false;
+        boolean mockRebalance = false;
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
@@ -3601,8 +3602,28 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("needUseCache = : {}, instanceNum = {}", needUseCache, instanceNum);
+                }
             }
         }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.DisableCache")) {
+            needUseCache = false;
+        }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
+            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+            if (LOG.isDebugEnabled()) {
+                LOG.info("open MockRebalance, currentExecuteNum = {}", currentExecuteNum);
+            }
+            if (currentExecuteNum > 1) {
+                mockRebalance = true;
+            }
+        }
+
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
@@ -3692,9 +3713,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
-                LOG.debug("Fast path: use cached auto partition info, txnId: {}, partitionId: {}, "
-                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
-                        partitionTablets.size(), partitionSlaveTablets.size());
                 continue;
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
@@ -3711,28 +3729,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                     .getNormalReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
-                        }
-                        // The purpose of this injected code is to simulate tablet rebalance.
-                        // Before using this code to write tests, you should ensure that your
-                        // configuration is set to single replica.
-                        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.createPartition.MockRebalance")) {
-                            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                                    "FE.FrontendServiceImpl.createPartition.MockRebalance");
-                            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
-                            if (currentExecuteNum > 1) {
-                                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
-                                // (assign different distribution information to tablets)
-                                for (Long beId : bePathsMap.keySet()) {
-                                    Long otherBeId = allBeIds.stream()
-                                            .filter(id -> id != beId)
-                                            .findFirst()
-                                            .orElse(null);
-                                    if (otherBeId != null) {
-                                        LOG.info("Mock rebalance: beId={} otherBeId={}", beId, otherBeId);
-                                        bePathsMap.put(beId, otherBeId);
-                                    }
-                                }
-                            }
                         }
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
@@ -3760,18 +3756,37 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
 
+            // The purpose of this injected code is to simulate tablet rebalance.
+            // Before using this code to write tests, you should ensure that your
+            // configuration is set to single replica.
+            if (mockRebalance) {
+                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                for (TTabletLocation oldTablet : partitionTablets) {
+                    List<Long> curBeIds = oldTablet.getNodeIds();
+                    Long curBeId = curBeIds.get(0);
+                    for (Long beId : allBeIds) {
+                        if (beId != curBeId) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
+                                        oldTablet.getTabletId(), curBeId, beId);
+                            }
+                            oldTablet.setNodeIds(Lists.newArrayList(beId));
+                            break;
+                        }
+                    }
+                }
+            }
+
             if (needUseCache) {
                 Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
                                 partitionSlaveTablets);
-                LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
-                        + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
-                        partitionTablets.size(), partitionSlaveTablets.size());
             }
 
             tablets.addAll(partitionTablets);
             slaveTablets.addAll(partitionSlaveTablets);
         }
+
         result.setPartitions(partitions);
         result.setTablets(tablets);
         result.setSlaveTablets(slaveTablets);
@@ -3834,6 +3849,54 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable olapTable = (OlapTable) table;
+        // Cache tablet location only when needed:
+        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
+        //    distribution issues due to concurrent replacePartition RPCs.
+        // 2. From a necessity perspective: For BE-initiated loads (e.g., stream load commit/abort from BE),
+        //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
+        //    So we skip caching for them.
+        boolean needUseCache = false;
+        boolean mockRebalance = false;
+        long txnId = 0;
+        if (request.isSetQueryId()) {
+            Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
+            if (coordinator != null) {
+                int instanceNum = 0;
+                // For single-instance imports (like stream load from FE), we don't need cache either
+                // Only multi-instance imports need to ensure consistent tablet replica information
+                // Coordinator may be null for stream load or other BE-initiated loads
+                if (coordinator instanceof NereidsCoordinator) {
+                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
+                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
+                } else {
+                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
+                    instanceNum = beToInstancesNum.values().stream()
+                            .mapToInt(Integer::intValue)
+                            .sum();
+                }
+                if (instanceNum > 1) {
+                    needUseCache = true;
+                    txnId = coordinator.getTxnId();
+                }
+            }
+        }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
+            needUseCache = false;
+        }
+
+        if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.MockRebalance")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "FE.FrontendServiceImpl.replacePartition.MockRebalance");
+            int currentExecuteNum = debugPoint.executeNum.incrementAndGet();
+            if (LOG.isDebugEnabled()) {
+                LOG.info("open MockRebalance, currentExecuteNum = {}", currentExecuteNum);
+            }
+            if (currentExecuteNum > 1) {
+                mockRebalance = true;
+            }
+        }
+
         InsertOverwriteManager overwriteManager = Env.getCurrentEnv().getInsertOverwriteManager();
         ReentrantLock taskLock = overwriteManager.getLock(taskGroupId);
         if (taskLock == null) {
@@ -3937,6 +4000,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         for (long partitionId : resultPartitionIds) {
             Partition partition = olapTable.getPartition(partitionId);
+            // For thread safety, we preserve the tablet distribution information of each partition
+            // before calling getOrSetAutoPartitionInfo, but not check the partition first
+            List<TTabletLocation> partitionTablets = new ArrayList<>();
+            List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
 
@@ -3958,6 +4025,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             partitions.add(tPartition);
             // tablet
+            if (needUseCache && txnId != 0
+                    && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                            .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                                    partitionSlaveTablets)) {
+                // fast path, if cached
+                tablets.addAll(partitionTablets);
+                slaveTablets.addAll(partitionSlaveTablets);
+                continue;
+            }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
@@ -3976,7 +4052,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     } catch (UserException ex) {
                         errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                         result.setStatus(errorStatus);
-                        LOG.warn("send create partition error status: {}", result);
+                        LOG.warn("send replace partition error status: {}", result);
                         return result;
                     }
                     if (bePathsMap.keySet().size() < quorum) {
@@ -3988,16 +4064,57 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         Long masterNode = nodes[random.nextInt(nodes.length)];
                         Multimap<Long, Long> slaveBePathsMap = bePathsMap;
                         slaveBePathsMap.removeAll(masterNode);
-                        tablets.add(new TTabletLocation(tablet.getId(),
+                        partitionTablets.add(new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(Sets.newHashSet(masterNode))));
-                        slaveTablets.add(new TTabletLocation(tablet.getId(),
+                        partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(slaveBePathsMap.keySet())));
                     } else {
-                        tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                        partitionTablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(bePathsMap.keySet())));
                     }
                 }
             }
+
+            // The purpose of this injected code is to simulate tablet rebalance.
+            // Before using this code to write tests, you should ensure that your
+            // configuration is set to single replica.
+            if (mockRebalance) {
+                List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
+                for (TTabletLocation oldTablet : partitionTablets) {
+                    List<Long> curBeIds = oldTablet.getNodeIds();
+                    Long curBeId = curBeIds.get(0);
+                    for (Long beId : allBeIds) {
+                        if (beId != curBeId) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.info("Mock rebalance: modify first tablet={}, beId={} => newBeId={}",
+                                        oldTablet.getTabletId(), curBeId, beId);
+                            }
+                            oldTablet.setNodeIds(Lists.newArrayList(beId));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
+                needUseCache = false;
+            }
+
+            if (needUseCache) {
+                Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                        .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
+                                partitionSlaveTablets);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
+                            + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
+                            partitionTablets.size(), partitionSlaveTablets.size());
+                }
+            }
+
+            tablets.addAll(partitionTablets);
+            slaveTablets.addAll(partitionSlaveTablets);
         }
+
         result.setPartitions(partitions);
         result.setTablets(tablets);
         result.setSlaveTablets(slaveTablets);
