@@ -784,7 +784,7 @@ struct TStreamLoadPutRequest {
     56: optional string group_commit_mode
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
-    59: optional TCertBasedAuth cert_based_auth
+    60: optional TCertBasedAuth cert_based_auth
 
     // For cloud
     1000: optional string cloud_cluster
