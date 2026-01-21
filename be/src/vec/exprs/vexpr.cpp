@@ -53,7 +53,6 @@
 #include "vec/exprs/vcolumn_ref.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vcondition_expr.h"
-#include "vec/exprs/vdefault_expr.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -555,10 +554,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::SEARCH_EXPR: {
             expr = VSearchExpr::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::DEFAULT_EXPR: {
-            expr = VDefaultExpr::create_shared(expr_node);
             break;
         }
         default:

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_default") {
+suite("test_default_expr") {
     
     def tableName = "test_default_scalar"
     def aggTableName = "test_default_agg"
@@ -133,8 +133,11 @@ suite("test_default") {
     sql "INSERT INTO ${aggTableName} (k_id) VALUES (3)"
 
     test {
-        sql "SELECT DEFAULT(bitmap_col), DEFAULT(hll_col) FROM ${aggTableName} LIMIT 1"
-        exception "Agg type(HLL, BITMAP, QUANTILE_STATE) cannot be used for the DEFAULT function"
+        sql "SELECT DEFAULT(bitmap_col) FROM ${aggTableName} LIMIT 1"
+        exception "Cannot find column information"
+
+        sql """ SELECT DEFAULT(hll_col) FROM ${aggTableName} LIMIT 1 """
+        exception "Cannot find column information"
     }
 
     // Test 3: Non-constant default value test (CURRENT_TIMESTAMP, CURRENT_DATE)
@@ -187,7 +190,7 @@ suite("test_default") {
 
     test {
         sql "SELECT DEFAULT(required_col) FROM ${notNullTableName} LIMIT 1"
-        exception "Column 'required_col' is NOT NULL but has no default value"
+        exception "has no default value and does not allow NULL or column is auto-increment"
     }
 
     qt_null_column_default """
@@ -599,4 +602,32 @@ suite("test_default") {
                         FROM ${tableA} AS a
                         JOIN ${tableB} AS b
                         ON a.id = b.id;"""
+
+    // aotu-increment column
+    sql """ DROP TABLE IF EXISTS test_auto_inc """
+    sql """
+        CREATE TABLE test_auto_inc (
+            id BIGINT NOT NULL AUTO_INCREMENT,
+            value BIGINT NOT NULL
+        ) PROPERTIES ('replication_num' = '1' );
+    """
+    sql """ INSERT INTO test_auto_inc(value) VALUES (1); """
+    test {
+        sql """ SELECT DEFAULT(id) FROM test_auto_inc; """
+        exception "has no default value and does not allow NULL or column is auto-increment"
+    }
+
+    // generate column
+    sql """ DROP TABLE IF EXISTS test_gen_col """
+    sql """ 
+        CREATE TABLE test_gen_col (
+            a INT,
+            b INT AS (a + 10)
+        ) PROPERTIES ('replication_num' = '1' );
+    """
+    sql """ INSERT INTO test_gen_col(a) VALUES (1); """
+    test {
+        sql """ SELECT DEFAULT(b) FROM test_gen_col; """
+        exception "DEFAULT cannot be used on generated column"
+    }
 }

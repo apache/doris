@@ -88,7 +88,6 @@ constexpr PURE To binary_cast(const From& from) {
             match_v<From, uint64_t, To, DateV2Value<DateTimeV2ValueType>>;
 
     constexpr bool from_ui64_to_timestamptz = match_v<From, uint64_t, To, TimestampTzValue>;
-    constexpr bool from_timestamptz_to_ui64 = match_v<From, TimestampTzValue, To, uint64_t>;
 
     constexpr bool from_datetime_v2_to_ui64 =
             match_v<From, DateV2Value<DateTimeV2ValueType>, To, uint64_t>;
@@ -97,7 +96,7 @@ constexpr PURE To binary_cast(const From& from) {
                   from_i64_to_vec_dt || from_vec_dt_to_i64 || from_i128_to_decv2 ||
                   from_decv2_to_i128 || from_decv2_to_i256 || from_ui32_to_date_v2 ||
                   from_date_v2_to_ui32 || from_ui64_to_datetime_v2 || from_ui64_to_timestamptz ||
-                  from_datetime_v2_to_ui64 || from_timestamptz_to_ui64);
+                  from_datetime_v2_to_ui64);
 
     return std::bit_cast<To>(from);
 }

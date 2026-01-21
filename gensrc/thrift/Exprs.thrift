@@ -88,7 +88,6 @@ enum TExprNodeType {
   TRY_CAST_EXPR = 41
   // for search DSL function
   SEARCH_EXPR = 42,
-  DEFAULT_EXPR = 43
 }
 
 //enum TAggregationOp {

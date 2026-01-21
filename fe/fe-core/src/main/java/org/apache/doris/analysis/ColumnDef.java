@@ -336,6 +336,7 @@ public class ColumnDef {
     public void analyze(boolean isOlap) throws AnalysisException {
     }
 
+
     @SuppressWarnings("checkstyle:Indentation")
     public static void validateDefaultValue(Type type, String defaultValue, DefaultValueExprDef defaultValueExprDef)
             throws AnalysisException {

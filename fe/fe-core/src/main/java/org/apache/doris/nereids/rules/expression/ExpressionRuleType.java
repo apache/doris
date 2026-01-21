@@ -66,6 +66,7 @@ public enum ExpressionRuleType {
     SUPPORT_JAVA_DATE_FORMATTER,
     NORMALIZE_STRUCT_ELEMENT,
     TOPN_TO_MAX,
+    REWRITE_DEFAULT_EXPRESSION,
     ADD_SESSION_VAR_GUARD;
     public int type() {
         return ordinal();

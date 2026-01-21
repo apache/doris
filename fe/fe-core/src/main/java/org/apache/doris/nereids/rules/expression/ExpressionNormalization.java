@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.rules.MedianConvert;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeStructElement;
+import org.apache.doris.nereids.rules.expression.rules.RewriteDefaultExpression;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
@@ -53,6 +54,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> NORMALIZE_REWRITE_RULES
                 = ImmutableList.of(
             bottomUp(
+                RewriteDefaultExpression.INSTANCE,
                 SupportJavaDateFormatter.INSTANCE,
                 NormalizeBinaryPredicatesRule.INSTANCE,
                 InPredicateDedup.INSTANCE,

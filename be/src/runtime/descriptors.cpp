@@ -68,8 +68,7 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
                                           ? tdesc.predicate_access_paths
                                           : TColumnAccessPaths {}),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
-          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : ""),
-          _has_default_value(tdesc.__isset.col_default_value) {
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
     if (tdesc.__isset.virtual_column_expr) {
         // Make sure virtual column is valid.
         if (tdesc.virtual_column_expr.nodes.empty()) {
@@ -102,9 +101,7 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _field_idx(-1),
           _is_key(pdesc.is_key()),
           _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
-          _is_auto_increment(pdesc.is_auto_increment()),
-          _col_default_value(),
-          _has_default_value(false) {
+          _is_auto_increment(pdesc.is_auto_increment()) {
     auto convert_to_thrift_column_access_path = [](const PColumnAccessPath& pb_path) {
         TColumnAccessPath thrift_path;
         thrift_path.type = (TAccessPathType::type)pb_path.type();
@@ -140,9 +137,7 @@ SlotDescriptor::SlotDescriptor()
           _slot_idx(0),
           _field_idx(-1),
           _is_key(false),
-          _is_auto_increment(false),
-          _col_default_value(),
-          _has_default_value(false) {}
+          _is_auto_increment(false) {}
 #endif
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {

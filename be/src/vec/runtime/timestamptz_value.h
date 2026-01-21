@@ -63,12 +63,6 @@ public:
     bool from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
                      vectorized::CastParameters& params, uint32_t to_scale);
 
-    // Converts from unixtime
-    void from_unixtime(int64_t timestamp, int32_t nano_seconds, const cctz::time_zone& ctz,
-                       int32_t precision) {
-        _utc_dt.from_unixtime(timestamp, nano_seconds, cctz::utc_time_zone(), precision);
-    }
-
     // Converts from a datetime value
     bool from_datetime(const DateV2Value<DateTimeV2ValueType>& dt,
                        const cctz::time_zone& local_time_zone, int dt_scale, int tz_scale);

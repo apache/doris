@@ -65,6 +65,11 @@ public class Default extends Expression
     }
 
     @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDefault(this, context);
     }
