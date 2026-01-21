@@ -1789,7 +1789,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = SHORT_CIRCUIT_EVALUATION, fuzzy = true, description = { "是否启用短路求值",
             "Whether to enable short-circuit evaluation" })
-    public boolean shortCircuitEvaluation = true;
+    public boolean shortCircuitEvaluation = false;
 
     /**
      * This variable is used to select n-th optimized plan in memo.

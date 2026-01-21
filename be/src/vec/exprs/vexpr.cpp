@@ -484,7 +484,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                     expr_node.short_circuit_evaluation) {
                     expr = ShortCircuitIfExpr::create_shared(expr_node);
                 } else {
-                    expr = ShortCircuitIfExpr::create_shared(expr_node);
+                    expr = VectorizedIfExpr::create_shared(expr_node);
                 }
                 break;
             } else if (expr_node.fn.name.function_name == "ifnull" ||
@@ -493,7 +493,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                     expr_node.short_circuit_evaluation) {
                     expr = ShortCircuitIfNullExpr::create_shared(expr_node);
                 } else {
-                    expr = ShortCircuitIfNullExpr::create_shared(expr_node);
+                    expr = VectorizedIfNullExpr::create_shared(expr_node);
                 }
                 break;
             } else if (expr_node.fn.name.function_name == "coalesce") {
@@ -501,7 +501,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                     expr_node.short_circuit_evaluation) {
                     expr = ShortCircuitCoalesceExpr::create_shared(expr_node);
                 } else {
-                    expr = ShortCircuitCoalesceExpr::create_shared(expr_node);
+                    expr = VectorizedCoalesceExpr::create_shared(expr_node);
                 }
                 break;
             }
@@ -528,7 +528,11 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             if (!expr_node.__isset.case_expr) {
                 return Status::InternalError("Case expression not set in thrift node");
             }
-            expr = ShortCircuitCaseExpr::create_shared(expr_node);
+            if (expr_node.__isset.short_circuit_evaluation && expr_node.short_circuit_evaluation) {
+                expr = ShortCircuitCaseExpr::create_shared(expr_node);
+            } else {
+                expr = VCaseExpr::create_shared(expr_node);
+            }
             break;
         }
         case TExprNodeType::INFO_FUNC: {
