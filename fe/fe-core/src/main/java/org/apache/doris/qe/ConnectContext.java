@@ -1399,7 +1399,7 @@ public class ConnectContext {
             choseWay = "use session";
             if (LOG.isDebugEnabled()) {
                 LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
-                    sessionCluster, getCurrentUserIdentity(), choseWay);
+                        sessionCluster, getCurrentUserIdentity(), choseWay);
             }
             return sessionCluster;
         }
@@ -1410,7 +1410,7 @@ public class ConnectContext {
             choseWay = "user selection policy";
             if (LOG.isDebugEnabled()) {
                 LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
-                    cloudCluster, getCurrentUserIdentity(), choseWay);
+                        cloudCluster, getCurrentUserIdentity(), choseWay);
             }
             return cloudCluster;
         }
@@ -1421,7 +1421,7 @@ public class ConnectContext {
             choseWay = "user property";
             if (LOG.isDebugEnabled()) {
                 LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", userPropCluster,
-                    getCurrentUserIdentity(), choseWay);
+                        getCurrentUserIdentity(), choseWay);
             }
             this.cloudCluster = userPropCluster;
             return userPropCluster;
@@ -1436,13 +1436,13 @@ public class ConnectContext {
 
         if (Strings.isNullOrEmpty(policyCluster)) {
             List<String> cloudClusterNames
-                = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+                    = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
             LOG.warn("Can not get a valid compute group for user {} {} to use, all cluster: {}",
-                getCurrentUserIdentity(),
-                getQualifiedUser(), cloudClusterNames);
+                    getCurrentUserIdentity(),
+                    getQualifiedUser(), cloudClusterNames);
             ComputeGroupException exception = new ComputeGroupException(
-                "the user is not granted permission to the compute group",
-                ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
+                    "the user is not granted permission to the compute group",
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
             if (updateErr) {
                 getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
             }
@@ -1452,7 +1452,7 @@ public class ConnectContext {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", this.cloudCluster,
-                getCurrentUserIdentity(), choseWay);
+                    getCurrentUserIdentity(), choseWay);
         }
 
         return this.cloudCluster;
