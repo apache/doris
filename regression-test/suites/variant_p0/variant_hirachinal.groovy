@@ -30,6 +30,7 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
 
+    sql "set default_variant_enable_doc_mode = false"
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,

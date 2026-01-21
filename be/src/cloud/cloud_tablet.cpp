@@ -61,6 +61,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "util/debug_points.h"
+#include "util/stack_util.h"
 #include "vec/common/schema_util.h"
 
 namespace doris {

@@ -46,9 +46,6 @@ class DataDir;
 class Tablet;
 class FileWriterCreator;
 class SegmentCollector;
-namespace vectorized::schema_util {
-class LocalSchemaChangeRecorder;
-}
 
 struct RowsetWriterContext {
     RowsetWriterContext() : schema_lock(new std::mutex) {

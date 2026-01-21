@@ -18,7 +18,7 @@
 
 #include "util/string_util.h"
 #include "vec/columns/column_variant.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {

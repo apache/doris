@@ -176,7 +176,7 @@ public:
         /// Returns last inserted field.
         Field get_last_field() const;
 
-        void deserialize_from_sparse_column(const ColumnString* value, size_t row);
+        void deserialize_from_binary_column(const ColumnString* value, size_t row);
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
@@ -193,7 +193,7 @@ public:
         void add_new_column_part(DataTypePtr type);
 
         // Serialize the i-th row of the column into the sparse column.
-        void serialize_to_sparse_column(ColumnString* key, std::string_view path,
+        void serialize_to_binary_column(ColumnString* key, std::string_view path,
                                         ColumnString* value, size_t row);
 
         static DataTypeSerDeSPtr generate_data_serdes(DataTypePtr type, bool is_root = false);
@@ -279,6 +279,9 @@ private:
     WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
+    WrappedPtr serialized_doc_value_column = ColumnMap::create(
+            ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
+
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
     int32_t _max_subcolumns_count = 0;
 
@@ -326,6 +329,9 @@ public:
     // serialize one row to json format
     void serialize_one_row_to_json_format(int64_t row, BufferWritable& output, bool* is_null,
                                           const DataTypeSerDe::FormatOptions& options) const;
+
+    void serialize_from_doc_value_to_json_format(int64_t row, BufferWritable& output,
+                                                 bool* is_null) const;
 
     // Fill the `serialized_sparse_column`
     Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);
@@ -393,20 +399,24 @@ public:
 
     ColumnPtr get_sparse_column() const { return serialized_sparse_column; }
 
+    ColumnPtr get_doc_value_column() const { return serialized_doc_value_column; }
+
     // use sparse_subcolumns_schema to record sparse column's path info and type
-    static MutableColumnPtr create_sparse_column_fn() {
+    static MutableColumnPtr create_binary_column_fn() {
         return vectorized::ColumnMap::create(vectorized::ColumnString::create(),
                                              vectorized::ColumnString::create(),
                                              vectorized::ColumnArray::ColumnOffsets::create());
     }
 
-    static const DataTypePtr& get_sparse_column_type() {
+    static const DataTypePtr& get_binary_column_type() {
         static DataTypePtr type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
                                                                 std::make_shared<DataTypeString>());
         return type;
     }
 
     void set_sparse_column(ColumnPtr column) { serialized_sparse_column = column; }
+
+    void set_doc_value_column(ColumnPtr column) { serialized_doc_value_column = column; }
 
     void finalize(FinalizeMode mode);
 
@@ -546,6 +556,21 @@ public:
         return {&key, &value};
     }
 
+    std::pair<const ColumnString*, const ColumnString*> get_doc_value_data_paths_and_values()
+            const {
+        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
+        const auto& key = assert_cast<const ColumnString&>(column_map.get_keys());
+        const auto& value = assert_cast<const ColumnString&>(column_map.get_values());
+        return {&key, &value};
+    }
+
+    std::pair<ColumnString*, ColumnString*> get_doc_value_data_paths_and_values() {
+        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_value_column);
+        auto& key = assert_cast<ColumnString&>(column_map.get_keys());
+        auto& value = assert_cast<ColumnString&>(column_map.get_values());
+        return {&key, &value};
+    }
+
     ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() {
         auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
         return column_map.get_offsets();
@@ -555,6 +580,17 @@ public:
         const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
         return column_map.get_offsets();
     }
+
+    ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_value_column_offsets() {
+        auto& column_map = assert_cast<ColumnMap&>(*serialized_doc_value_column);
+        return column_map.get_offsets();
+    }
+
+    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_value_column_offsets() const {
+        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
+        return column_map.get_offsets();
+    }
+
     // Insert all the data from sparse data with specified path to sub column.
     static void fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
                                                   StringRef path,
@@ -566,7 +602,7 @@ public:
                                                        size_t start, size_t end);
 
     // Deserialize the i-th row of the column from the sparse column.
-    static std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
+    static std::pair<Field, FieldInfo> deserialize_from_binary_column(const ColumnString* value,
                                                                       size_t row);
 
     Status pick_subcolumns_to_sparse_column(
@@ -579,8 +615,6 @@ public:
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {
         _max_subcolumns_count = max_subcolumns_count;
     }
-
-    void clear_subcolumns_data();
 
     // Returns how many dynamic subcolumns are still allowed to be appended,
     // The remaining quota is `max - current`.
@@ -599,6 +633,17 @@ public:
                 subcolumns.size() - typed_path_count - nested_path_count - 1;
         return _max_subcolumns_count - current_subcolumns_count;
     }
+
+    void sort_doc_value_column();
+
+    // doc snapshot mode: only root column, and doc snapshot column is not empty
+    bool is_doc_mode() const;
+
+    void try_get_from_doc_value_column(size_t n, Field& res) const;
+
+    void insert_to_doc_value_column(const Field& field);
+
+    bool has_doc_value_column(size_t n) const;
 
 private:
     // May throw execption

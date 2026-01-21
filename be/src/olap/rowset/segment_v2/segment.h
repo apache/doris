@@ -74,6 +74,20 @@ class ColumnReaderCache;
 class ColumnMetaAccessor;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
+
+struct SparseColumnCache;
+using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
+
+// key is column path, value is the sparse column cache
+// now column path is only SPARSE_COLUMN_PATH, in the future, we can add more sparse column paths
+using PathToSparseColumnCache = std::unordered_map<std::string, SparseColumnCacheSPtr>;
+using PathToSparseColumnCacheUPtr = std::unique_ptr<PathToSparseColumnCache>;
+
+struct BinaryColumnCache;
+using BinaryColumnCacheSPtr = std::shared_ptr<BinaryColumnCache>;
+using PathToBinaryColumnCache = std::unordered_map<std::string, BinaryColumnCacheSPtr>;
+using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
+
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
@@ -115,7 +129,7 @@ public:
     // if variant_sparse_column_cache is nullptr, means the sparse column cache is not used
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
-                               const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                               const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
 
     Status new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,

@@ -101,6 +101,12 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
 
 struct ParseConfig {
     bool enable_flatten_nested = false;
+    enum class ParseTo {
+        OnlySubcolumns = 0,
+        OnlyDocValueColumn = 1,
+        BothSubcolumnsAndDocValueColumn = 2,
+    };
+    ParseTo parse_to = ParseTo::OnlySubcolumns;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document

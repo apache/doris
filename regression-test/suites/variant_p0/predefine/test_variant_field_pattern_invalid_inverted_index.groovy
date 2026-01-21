@@ -18,6 +18,8 @@
 suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
     def tableName = "test_variant_field_pattern_invalid_inverted_index"
 
+    sql " set default_variant_enable_doc_mode = true"
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     test {
         sql """
@@ -104,7 +106,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             CREATE TABLE ${tableName} (
                 `id` bigint NULL,
                 `var` variant<
-                    MATCH_NAME 'metrics.price' : decimal(10, 2)
+                    MATCH_NAME 'metrics.price' : double
                 > NULL,
                 INDEX idx_price (var) USING INVERTED PROPERTIES(
                     "field_pattern" = "metrics.price",
@@ -124,7 +126,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
             CREATE TABLE ${tableName} (
                 `id` bigint NULL,
                 `var` variant<
-                    MATCH_NAME 'metrics.day' : date
+                    MATCH_NAME 'metrics.day' : double
                 > NULL,
                 INDEX idx_day (var) USING INVERTED PROPERTIES(
                     "field_pattern" = "metrics.day",

@@ -34,7 +34,7 @@ suite("test_variant_external_meta_edge_cases", "nonConcurrent") {
     sql """
         CREATE TABLE test_empty_subcolumns (
             k bigint,
-            v variant
+            v variant<properties("variant_enable_doc_mode" = "false")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
