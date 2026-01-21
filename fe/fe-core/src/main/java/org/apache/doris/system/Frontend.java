@@ -54,6 +54,8 @@ public class Frontend implements Writable {
     private int queryPort;
     private int rpcPort;
     private int arrowFlightSqlPort;
+    private int httpPort = -1;
+    private int httpsPort = -1;
 
     private long replayedJournalId;
     private long lastStartupTime;
@@ -108,6 +110,14 @@ public class Frontend implements Writable {
         return arrowFlightSqlPort;
     }
 
+    public int getHttpPort() {
+        return httpPort;
+    }
+
+    public int getHttpsPort() {
+        return httpsPort;
+    }
+
     public boolean isAlive() {
         return isAlive;
     }
@@ -158,7 +168,7 @@ public class Frontend implements Writable {
 
     /**
      * handle Frontend's heartbeat response. Because the replayed journal id is very likely to be
-     * changed at each heartbeat response, so we simple return true if the heartbeat status is OK.
+     * changed at each heartbeat response, so we simply return true if the heartbeat status is OK.
      * But if heartbeat status is BAD, only return true if it is the first time to transfer from
      * alive to dead.
      */
@@ -178,6 +188,8 @@ public class Frontend implements Writable {
             queryPort = hbResponse.getQueryPort();
             rpcPort = hbResponse.getRpcPort();
             arrowFlightSqlPort = hbResponse.getArrowFlightSqlPort();
+            httpPort = hbResponse.getHttpPort();
+            httpsPort = hbResponse.getHttpsPort();
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
@@ -226,9 +238,5 @@ public class Frontend implements Writable {
 
     public HostInfo toHostInfo() {
         return new HostInfo(host, editLogPort);
-    }
-
-    public boolean isOldStyleNodeName() {
-        return nodeName.equals(host + "_" + editLogPort);
     }
 }

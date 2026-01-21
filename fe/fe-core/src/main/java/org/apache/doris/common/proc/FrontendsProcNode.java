@@ -132,7 +132,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getNodeName());
             info.add(fe.getHost());
             info.add(Integer.toString(fe.getEditLogPort()));
-            info.add(Integer.toString(Config.http_port));
+            info.add(Integer.toString(fe.getHttpPort()));
 
             if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add(Integer.toString(Config.query_port));

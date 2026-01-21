@@ -156,10 +156,15 @@ public class NetUtils {
         } else {
             pair = hostPort.split(":");
         }
-        if (pair.length != 2) {
+        // support host:port and host:port:secondPort
+        if (pair.length < 2 || pair.length > 3) {
             throw new AnalysisException("invalid host port: " + hostPort);
         }
-        return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
+        SystemInfoService.HostInfo hostInfo = new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
+        if (pair.length == 3) {
+            hostInfo.setSecondPort(Integer.valueOf(pair[2]));
+        }
+        return hostInfo;
     }
 
     /**
