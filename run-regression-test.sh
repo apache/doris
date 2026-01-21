@@ -31,6 +31,7 @@ Usage: $0 <shell_options> <framework_options>
      --clean    clean output of regression test framework
      --teamcity print teamcity service messages
      --run      run regression test. build framework if necessary
+     --skip-shade             skip maven-shade-plugin and run with classpath
 
   Optional framework_options:
      -s                                run a specified suite
@@ -72,11 +73,24 @@ Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
   "
     exit 1
 }
+
+is_truthy() {
+    case "$1" in
+    1 | true | TRUE | yes | YES | on | ON)
+        return 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
 ONLY_COMPILE=0
 CLEAN=0
 WRONG_CMD=0
 TEAMCITY=0
 RUN=0
+SKIP_SHADE=false
 if [[ "$#" == 0 ]]; then
     #default
     CLEAN=0
@@ -112,6 +126,10 @@ else
             RUN=1
             shift
             ;;
+        --skip-shade)
+            SKIP_SHADE=true
+            shift
+            ;;
         *)
             if [[ "${RUN}" -eq 0 ]] && [[ "${CLEAN}" -eq 0 ]]; then
                 WRONG_CMD=1
@@ -136,6 +154,10 @@ if ! "${MVN_CMD}" --version; then
     exit 1
 fi
 export MVN_CMD
+SKIP_SHADE_VALUE=false
+if is_truthy "${SKIP_SHADE}"; then
+    SKIP_SHADE_VALUE=true
+fi
 
 CONF_DIR="${DORIS_HOME}/regression-test/conf"
 if [[ -n "${CUSTOM_CONFIG_FILE}" ]] && [[ -f "${CUSTOM_CONFIG_FILE}" ]]; then
@@ -152,7 +174,12 @@ FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
 
 OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
 LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
-RUN_JAR="${OUTPUT_DIR}/lib/regression-test-*.jar"
+RUN_JAR_GLOB="${OUTPUT_DIR}/lib/regression-test-*.jar"
+CLASSPATH_FILE="${REGRESSION_TEST_BUILD_DIR}/classpath.txt"
+
+resolve_run_jar() {
+    ls -1 ${RUN_JAR_GLOB} 2>/dev/null | head -n 1 || true
+}
 if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
@@ -169,7 +196,8 @@ if [[ "${RUN}" -ne 1 ]]; then
     exit 0
 fi
 
-if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
+RUN_JAR_PATH="$(resolve_run_jar)"
+if [[ -z "${RUN_JAR_PATH}" ]]; then
     echo "===== Build Regression Test Framework ====="
 
     # echo "Build generated code"
@@ -179,11 +207,16 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
 
     cd "${DORIS_HOME}/regression-test/framework"
-    "${MVN_CMD}" package
+    MVN_ARGS=(package "-DskipShade=${SKIP_SHADE_VALUE}")
+    if is_truthy "${SKIP_SHADE}"; then
+        MVN_ARGS+=(dependency:build-classpath "-Dmdep.outputFile=${CLASSPATH_FILE}")
+    fi
+    "${MVN_CMD}" "${MVN_ARGS[@]}"
     cd "${DORIS_HOME}"
 
     mkdir -p "${OUTPUT_DIR}"/{lib,log}
     cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
+    RUN_JAR_PATH="$(resolve_run_jar)"
 
     echo "===== BUILD JAVA_UDF_SRC TO GENERATE JAR ====="
     mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
@@ -195,6 +228,19 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     mkdir -p "${DORIS_HOME}"/output/be/custom_lib/
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/fe/custom_lib/
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/be/custom_lib/
+    cd "${DORIS_HOME}"
+fi
+
+if [[ -z "${RUN_JAR_PATH}" ]]; then
+    echo "Error: regression-test jar not found under ${OUTPUT_DIR}/lib"
+    exit 1
+fi
+
+if is_truthy "${SKIP_SHADE}" && [[ ! -f "${CLASSPATH_FILE}" ]]; then
+    echo "===== Build Regression Test Framework Classpath ====="
+    cd "${DORIS_HOME}/regression-test/framework"
+    "${MVN_CMD}" -DskipShade="${SKIP_SHADE_VALUE}" -DskipTests dependency:build-classpath \
+        -Dmdep.outputFile="${CLASSPATH_FILE}"
     cd "${DORIS_HOME}"
 fi
 
@@ -267,12 +313,29 @@ if [[ "${TEAMCITY}" -eq 1 ]]; then
 fi
 
 if [[ "${ONLY_COMPILE}" -eq 0 ]]; then
-    "${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
-        -DLOG_PATH="${LOG_OUTPUT_FILE}" \
-        -Dfile.encoding="UTF-8" \
-        -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
-        ${JAVA_OPTS:+${JAVA_OPTS}} \
-        -jar ${RUN_JAR:+${RUN_JAR}} \
-        -cf "${CONFIG_FILE}" \
-        ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
+    if is_truthy "${SKIP_SHADE}"; then
+        if [[ ! -f "${CLASSPATH_FILE}" ]]; then
+            echo "Error: classpath file not found at ${CLASSPATH_FILE}"
+            exit 1
+        fi
+        CP="$(cat "${CLASSPATH_FILE}"):${RUN_JAR_PATH}"
+        "${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
+            -DLOG_PATH="${LOG_OUTPUT_FILE}" \
+            -Dfile.encoding="UTF-8" \
+            -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
+            ${JAVA_OPTS:+${JAVA_OPTS}} \
+            -cp "${CP}" \
+            org.apache.doris.regression.RegressionTest \
+            -cf "${CONFIG_FILE}" \
+            ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
+    else
+        "${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
+            -DLOG_PATH="${LOG_OUTPUT_FILE}" \
+            -Dfile.encoding="UTF-8" \
+            -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
+            ${JAVA_OPTS:+${JAVA_OPTS}} \
+            -jar "${RUN_JAR_PATH}" \
+            -cf "${CONFIG_FILE}" \
+            ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
+    fi
 fi
