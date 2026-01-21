@@ -246,22 +246,22 @@ public class CheckCastTest {
 
     @Test
     public void testVariantCastCompatibility() {
-        VariantType base = new VariantType(Lists.newArrayList(), 1, false, 10000, 0);
-        VariantType diffMax = new VariantType(Lists.newArrayList(), 5, false, 10000, 0);
+        VariantType base = new VariantType(Lists.newArrayList(), 1, false, 10000, 0, false, 0L, 64);
+        VariantType diffMax = new VariantType(Lists.newArrayList(), 5, false, 10000, 0, false, 0L, 64);
         Assertions.assertTrue(CheckCast.check(base, diffMax, true));
 
-        VariantType diffTyped = new VariantType(Lists.newArrayList(), 5, true, 10000, 0);
+        VariantType diffTyped = new VariantType(Lists.newArrayList(), 5, true, 10000, 0, false, 0L, 64);
         Assertions.assertFalse(CheckCast.check(base, diffTyped, true));
 
-        VariantType diffStats = new VariantType(Lists.newArrayList(), 5, false, 9999, 0);
+        VariantType diffStats = new VariantType(Lists.newArrayList(), 5, false, 9999, 0, false, 0L, 64);
         Assertions.assertFalse(CheckCast.check(base, diffStats, true));
 
-        VariantType diffShard = new VariantType(Lists.newArrayList(), 5, false, 10000, 3);
+        VariantType diffShard = new VariantType(Lists.newArrayList(), 5, false, 10000, 3, false, 0L, 64);
         Assertions.assertFalse(CheckCast.check(base, diffShard, true));
 
         List<VariantField> fields = Lists.newArrayList(
                 new VariantField("a", IntegerType.INSTANCE, ""));
-        VariantType diffFields = new VariantType(fields, 5, false, 10000, 0);
+        VariantType diffFields = new VariantType(fields, 5, false, 10000, 0, false, 0L, 64);
         Assertions.assertFalse(CheckCast.check(base, diffFields, true));
     }
 

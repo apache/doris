@@ -2493,7 +2493,7 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
             while (offset < end || demoted_idx < demoted_subcolumns.size()) {
                 if (offset >= end) {
                     auto& demoted = demoted_subcolumns[demoted_idx++];
-                    demoted.second.serialize_to_sparse_column(&new_keys, demoted.first, &new_values,
+                    demoted.second.serialize_to_binary_column(&new_keys, demoted.first, &new_values,
                                                               row);
                     continue;
                 }
@@ -2509,7 +2509,7 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
                 const std::string_view old_path_view(old_path_ref.data, old_path_ref.size);
                 const std::string_view demoted_path_view(demoted.first);
                 if (demoted_path_view < old_path_view) {
-                    demoted.second.serialize_to_sparse_column(&new_keys, demoted_path_view,
+                    demoted.second.serialize_to_binary_column(&new_keys, demoted_path_view,
                                                               &new_values, row);
                     ++demoted_idx;
                 } else if (demoted_path_view > old_path_view) {
@@ -2517,7 +2517,7 @@ Status ColumnVariant::adjust_max_subcolumns_count(int32_t target_max) {
                     new_values.insert_from(old_values, offset);
                     ++offset;
                 } else {
-                    demoted.second.serialize_to_sparse_column(&new_keys, demoted_path_view,
+                    demoted.second.serialize_to_binary_column(&new_keys, demoted_path_view,
                                                               &new_values, row);
                     ++demoted_idx;
                     ++offset;

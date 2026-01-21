@@ -441,6 +441,8 @@ public:
 
     void clear() override;
 
+    void clear_subcolumns_data();
+
     void resize(size_t n) override;
 
     std::string get_name() const override {
