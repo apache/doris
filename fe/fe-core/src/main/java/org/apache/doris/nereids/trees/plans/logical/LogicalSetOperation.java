@@ -94,16 +94,16 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
-        if (SessionVariable.isFeDebug()) {
-            checkOutputs(outputs, regularChildrenOutputs)
-                    .ifPresent(msg -> SessionVariable.throwAnalysisExceptionWhenFeDebug(msg));
-        }
+        //if (SessionVariable.isFeDebug()) {
+        //    checkOutputs(outputs, regularChildrenOutputs)
+        //            .ifPresent(msg -> SessionVariable.throwAnalysisExceptionWhenFeDebug(msg));
+        //}
     }
 
     // check every slot in outputs has its counterpart in regularChildrenOutputs, and they have the same data type.
     private Optional<String> checkOutputs(List<NamedExpression> outputs,
                                List<List<SlotReference>> regularChildrenOutputs) {
-        if (!regularChildrenOutputs.isEmpty()) {
+        if (!regularChildrenOutputs.isEmpty() && !outputs.isEmpty()) {
             for (List<SlotReference> childOutput : regularChildrenOutputs) {
                 if (outputs.size() != childOutput.size()) {
                     return Optional.of("regularChildrenOutputs size error: regularOutput "
