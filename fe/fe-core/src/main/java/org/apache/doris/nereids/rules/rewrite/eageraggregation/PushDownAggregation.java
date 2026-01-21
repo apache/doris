@@ -34,7 +34,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
-import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
@@ -161,7 +160,8 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         aggFunctions.add(aggTrue);
                         funcs.add(aggTrue);
                         if (!(body.getFalseValue() instanceof NullLiteral)) {
-                            AggregateFunction aggFalse = (AggregateFunction) aggFunction.withChildren(body.getFalseValue());
+                            AggregateFunction aggFalse =
+                                    (AggregateFunction) aggFunction.withChildren(body.getFalseValue());
                             aggFunctions.add(aggFalse);
                             funcs.add(aggFalse);
                         }

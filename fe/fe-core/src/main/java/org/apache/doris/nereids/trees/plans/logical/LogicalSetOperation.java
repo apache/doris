@@ -86,6 +86,9 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
                 Optional.empty(), children);
     }
 
+    /**
+     * constr
+     */
     public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> regularChildrenOutputs,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
@@ -109,7 +112,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
                     return Optional.of("regularChildrenOutputs size error: regularOutput "
                             + childOutput + " output: " + outputs);
                 }
-                for (int i = 0 ; i < childOutput.size(); i++) {
+                for (int i = 0; i < childOutput.size(); i++) {
                     DataType outputDataType = outputs.get(i).getDataType();
                     boolean outputNullable = outputs.get(i).nullable();
                     String outputInfo = outputNullable ? "+" : "-" + outputDataType;
@@ -120,7 +123,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
                             || outputNullable != childNullable) {
                         return Optional.of("regularChildrenOutputs data type is different from output. "
                                 + "regularOutput slot: " + childOutput.get(i)
-                                + "[" + childInfo +"], output: " + outputs.get(i) + "[" + outputInfo + "]");
+                                + "[" + childInfo + "], output: " + outputs.get(i) + "[" + outputInfo + "]");
                     }
                 }
             }

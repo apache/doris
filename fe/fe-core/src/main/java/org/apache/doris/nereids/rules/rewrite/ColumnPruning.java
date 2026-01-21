@@ -68,7 +68,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.IntStream;
 
 /**
  * ColumnPruning.
@@ -220,13 +219,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
         LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
-        List<Slot> originOutput = union.getOutput();
-        Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
-        List<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
-                .filter(index -> prunedOutput.contains(originOutput.get(index)))
-                .boxed()
-                .collect(ImmutableList.toImmutableList());
-
         ImmutableList.Builder<Plan> prunedChildren = ImmutableList.builder();
         ImmutableList.Builder<List<SlotReference>> prunedChildrenOutputs = ImmutableList.builder();
         for (int i = 0; i < prunedOutputUnion.arity(); i++) {
