@@ -44,6 +44,7 @@ class FileBlock {
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
     friend struct FileBlockCell;
+    friend class FileBlockTestAccessor;
 
 public:
     enum class State {
