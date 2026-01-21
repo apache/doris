@@ -358,6 +358,228 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
+    @Test
+    public void testUnionAllOrdersLineage() throws Exception {
+        String sql = "insert into " + dbTable("tgt_union_all_orders")
+                + " select o.o_orderkey as orderkey, o.o_totalprice as price, 'F' as tag"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderstatus = 'F'"
+                + " union all"
+                + " select l.l_orderkey, l.l_extendedprice, 'R' as tag"
+                + " from " + dbTable("lineitem") + " l"
+                + " where l.l_returnflag = 'R'";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_all_orders");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "tag",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.FILTER);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
+    }
+
+    @Test
+    public void testUnionDistinctCustLineage() throws Exception {
+        String sql = "insert into " + dbTable("tgt_union_distinct_cust")
+                + " select o.o_custkey as custkey"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderstatus = 'F'"
+                + " union"
+                + " select c.c_custkey"
+                + " from " + dbTable("customer") + " c"
+                + " where c.c_nationkey >= 0";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_distinct_cust");
+        assertDirectContainsAny(lineageInfo, "custkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "custkey", LineageInfo.IndirectLineageType.FILTER);
+        assertTableLineageContains(lineageInfo, "orders", "customer");
+    }
+
+    @Test
+    public void testUnionAllDerivedAggregateLineage() throws Exception {
+        String sql = "insert into " + dbTable("tgt_union_agg")
+                + " select custkey, sum(price) as total_price"
+                + " from ("
+                + " select o.o_custkey as custkey, o.o_totalprice as price"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderdate >= date '1994-01-01'"
+                + " union all"
+                + " select c.c_custkey, cast(c.c_nationkey as decimal(18,2))"
+                + " from " + dbTable("customer") + " c"
+                + " where c.c_nationkey >= 0"
+                + " ) u"
+                + " group by custkey";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_agg");
+        assertDirectContainsAny(lineageInfo, "custkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContains(lineageInfo, "total_price", LineageInfo.DirectLineageType.AGGREGATION);
+        assertIndirectContains(lineageInfo, "total_price", LineageInfo.IndirectLineageType.GROUP_BY);
+        assertTableLineageContains(lineageInfo, "orders", "customer");
+    }
+
+    @Test
+    public void testCteUnionJoinLineage() throws Exception {
+        String sql = "with order_keys as ("
+                + " select l.l_orderkey as orderkey"
+                + " from " + dbTable("lineitem") + " l"
+                + " where l.l_shipdate >= date '1996-01-01'"
+                + " union all"
+                + " select o.o_orderkey"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderstatus = 'F'"
+                + " )"
+                + " insert into " + dbTable("tgt_union_join")
+                + " select c.c_name as customer_name, o.o_orderstatus as order_status"
+                + " from " + dbTable("orders") + " o"
+                + " join order_keys k on o.o_orderkey = k.orderkey"
+                + " join " + dbTable("customer") + " c on o.o_custkey = c.c_custkey";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_join");
+        assertDirectContainsAny(lineageInfo, "customer_name",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "order_status",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "customer_name", LineageInfo.IndirectLineageType.JOIN);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem", "customer");
+    }
+
+    @Test
+    public void testUnionWindowLineage() throws Exception {
+        String sql = "insert into " + dbTable("tgt_union_window")
+                + " select orderkey, rn"
+                + " from ("
+                + " select o.o_orderkey as orderkey,"
+                + " row_number() over (partition by o.o_custkey order by o.o_orderdate desc) as rn"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderstatus = 'F'"
+                + " union all"
+                + " select l.l_orderkey,"
+                + " row_number() over (partition by l.l_orderkey order by l.l_shipdate desc) as rn"
+                + " from " + dbTable("lineitem") + " l"
+                + " where l.l_returnflag = 'R'"
+                + " ) u";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_window");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContains(lineageInfo, "rn", LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "rn", LineageInfo.IndirectLineageType.WINDOW);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
+    }
+
+    @Test
+    public void testUnionInSubqueryLineage() throws Exception {
+        String sql = "insert into " + dbTable("tgt_union_in")
+                + " select l.l_orderkey as orderkey, l.l_extendedprice as price"
+                + " from " + dbTable("lineitem") + " l"
+                + " where l.l_orderkey in ("
+                + " select o.o_orderkey"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderdate >= date '1995-01-01'"
+                + " union all"
+                + " select l2.l_orderkey"
+                + " from " + dbTable("lineitem") + " l2"
+                + " where l2.l_shipdate < date '1993-01-01'"
+                + " )";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_in");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertTableLineageContains(lineageInfo, "lineitem", "orders");
+    }
+
+    @Test
+    public void testUnionConditionalLineage() throws Exception {
+        String sql = "insert into " + dbTable("tgt_union_conditional")
+                + " select orderkey,"
+                + " case when orderstatus = 'F' then price else cast(0 as decimal(18,2)) end as final_price"
+                + " from ("
+                + " select o.o_orderkey as orderkey, o.o_totalprice as price, o.o_orderstatus as orderstatus"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderstatus = 'F'"
+                + " union all"
+                + " select l.l_orderkey, l.l_extendedprice, l.l_returnflag as orderstatus"
+                + " from " + dbTable("lineitem") + " l"
+                + " where l.l_returnflag = 'R'"
+                + " ) u";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_conditional");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContains(lineageInfo, "final_price", LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "final_price", LineageInfo.IndirectLineageType.CONDITIONAL);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
+    }
+
+    @Test
+    public void testCtasUnionAllLineage() throws Exception {
+        String sql = "create table " + dbTable("tgt_ctas_union")
+                + " distributed by hash(orderkey) buckets 1"
+                + " properties('replication_num'='1') as"
+                + " select orderkey, price, tag"
+                + " from ("
+                + " select o.o_orderkey as orderkey, o.o_totalprice as price, 'F' as tag"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderstatus = 'F'"
+                + " union all"
+                + " select l.l_orderkey, l.l_extendedprice, 'R' as tag"
+                + " from " + dbTable("lineitem") + " l"
+                + " where l.l_returnflag = 'R'"
+                + " ) u";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_ctas_union");
+        assertSourceCommand(lineageInfo, CreateTableCommand.class);
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "tag",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
+    }
+
+    @Test
+    public void testInsertOverwriteUnionAllSortLimitLineage() throws Exception {
+        String sql = "insert overwrite table " + dbTable("tgt_union_all_orders")
+                + " select orderkey, price, tag"
+                + " from ("
+                + " select o.o_orderkey as orderkey, o.o_totalprice as price, 'F' as tag"
+                + " from " + dbTable("orders") + " o"
+                + " where o.o_orderstatus = 'F'"
+                + " union all"
+                + " select l.l_orderkey, l.l_extendedprice, 'R' as tag"
+                + " from " + dbTable("lineitem") + " l"
+                + " where l.l_returnflag = 'R'"
+                + " ) u"
+                + " order by price desc"
+                + " limit 100";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_union_all_orders");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "tag",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.SORT);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
+    }
+
     private void createTpchSourceTables() throws Exception {
         createTables(
                 "create table " + dbTable("orders") + " ("
@@ -442,9 +664,42 @@ public class LineageInfoExtractorTest extends TestWithFeService {
                         + "nation_name varchar(25),"
                         + "revenue decimal(18,2)"
                         + ") distributed by hash(nation_name) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_union_all_orders") + " ("
+                        + "orderkey bigint,"
+                        + "price decimal(18,2),"
+                        + "tag varchar(8)"
+                        + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_union_distinct_cust") + " ("
+                        + "custkey bigint"
+                        + ") distributed by hash(custkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_union_agg") + " ("
+                        + "custkey bigint,"
+                        + "total_price decimal(18,2)"
+                        + ") distributed by hash(custkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_union_join") + " ("
+                        + "customer_name varchar(25),"
+                        + "order_status char(1)"
+                        + ") distributed by hash(customer_name) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_union_window") + " ("
+                        + "orderkey bigint,"
+                        + "rn bigint"
+                        + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_union_in") + " ("
+                        + "orderkey bigint,"
+                        + "price decimal(18,2)"
+                        + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_union_conditional") + " ("
+                        + "orderkey bigint,"
+                        + "final_price decimal(18,2)"
+                        + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
                 "create table " + dbTable("tgt_ctas_top10") + " ("
                         + "orderkey bigint,"
                         + "price decimal(18,2)"
+                        + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_ctas_union") + " ("
+                        + "orderkey bigint,"
+                        + "price decimal(18,2),"
+                        + "tag varchar(8)"
                         + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
                 "create table " + dbTable("tgt_ctas_join_filter") + " ("
                         + "orderkey bigint,"
@@ -467,7 +722,6 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         UUID uuid = UUID.randomUUID();
         connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,OLAP_SCAN_PARTITION_PRUNE");
         insertCommand.initPlan(connectContext, executor, false);
         Plan lineagePlan = insertCommand.getLineagePlan().orElse(null);
         Assertions.assertNotNull(lineagePlan);

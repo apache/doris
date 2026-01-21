@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.lineage;
 
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.lineage.LineageInfo.DirectLineageType;
 import org.apache.doris.nereids.lineage.LineageInfo.IndirectLineageType;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -59,6 +62,20 @@ import java.util.stream.Collectors;
  * This class traverses the plan tree and collects both direct and indirect lineage information.
  */
 public class LineageInfoExtractor {
+    /**
+     * Register analyze-plan hook for lineage extraction.
+     */
+    public static void registerAnalyzePlanHook(StatementContext statementContext, NereidsPlanner planner) {
+        if (statementContext == null || planner == null) {
+            return;
+        }
+        for (PlannerHook hook : statementContext.getPlannerHooks()) {
+            if (hook instanceof AnalyzePlanHook) {
+                return;
+            }
+        }
+        statementContext.addPlannerHook(new AnalyzePlanHook(planner));
+    }
 
     /**
      * Extract lineage information from a LineageEvent
@@ -319,6 +336,25 @@ public class LineageInfoExtractor {
 
         private boolean containsSlot(Expression expression) {
             return !expression.collectToList(Slot.class::isInstance).isEmpty();
+        }
+    }
+
+    private static class AnalyzePlanHook implements PlannerHook {
+        private final NereidsPlanner planner;
+
+        private AnalyzePlanHook(NereidsPlanner planner) {
+            this.planner = planner;
+        }
+
+        @Override
+        public void afterAnalyze(NereidsPlanner planner) {
+            if (planner == null || planner.getCascadesContext() == null) {
+                return;
+            }
+            Plan analyzed = planner.getCascadesContext().getRewritePlan();
+            if (analyzed != null) {
+                planner.setAnalyzedPlan(analyzed);
+            }
         }
     }
 }

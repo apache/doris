@@ -44,6 +44,7 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -269,9 +270,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
             insertExecutor = buildResult.executor;
             parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
-            if (buildResult.planner.getCascadesContext() != null) {
-                lineagePlan = Optional.ofNullable(buildResult.planner.getCascadesContext().getRewritePlan());
-            }
+            Plan analyzedPlan = buildResult.planner.getAnalyzedPlan();
+            lineagePlan = Optional.ofNullable(analyzedPlan);
             if (!needBeginTransaction) {
                 return insertExecutor;
             }
@@ -545,6 +545,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
         };
 
+        LineageInfoExtractor.registerAnalyzePlanHook(ctx.getStatementContext(), planner);
         // step 1, 2, 3
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         if (LOG.isDebugEnabled()) {

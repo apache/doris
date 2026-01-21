@@ -64,10 +64,12 @@ public class FastInsertIntoValuesPlanner extends NereidsPlanner {
             return;
         }
         CascadesContext cascadesContext = getCascadesContext();
+        getStatementContext().getPlannerHooks().forEach(hook -> hook.beforeAnalyze(this));
         keepOrShowPlanProcess(showPlanProcess, () -> {
             InsertIntoValuesAnalyzer analyzer = new InsertIntoValuesAnalyzer(cascadesContext, batchInsert);
             analyzer.execute();
         });
+        getStatementContext().getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
     }
 
     @Override
