@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
@@ -1324,7 +1325,8 @@ public class TypeCoercionUtils {
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
             commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
         } else {
-            commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
+            commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(),
+                    comparisonPredicate instanceof EqualTo);
         }
 
         if (commonType.isPresent()) {
