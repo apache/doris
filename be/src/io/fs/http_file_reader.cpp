@@ -345,9 +345,9 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
             size_t max_len = std::min(buf.size(), static_cast<size_t>(1024));
             error_body = buf.substr(0, max_len);
         }
-    
-        return Status::InternalError(
-                "HTTP request failed with status {}: {}.",http_status, error_body);
+
+        return Status::InternalError("HTTP request failed with status {}: {}.", http_status,
+                                     error_body);
     }
 
     if (buf.empty()) {
