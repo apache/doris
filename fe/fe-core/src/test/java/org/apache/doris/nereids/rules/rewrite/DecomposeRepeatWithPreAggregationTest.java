@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -369,6 +370,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 groupingSets,
                 (List) ImmutableList.of(a, b),
                 new SlotReference("grouping_id", IntegerType.INSTANCE),
+                RepeatType.GROUPING_SETS,
                 emptyRelation);
         LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(
                 ImmutableList.of(a, b),
@@ -459,6 +461,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                 originalGroupingSets,
                 (List) ImmutableList.of(a, b, c),
                 new SlotReference("grouping_id", IntegerType.INSTANCE),
+                RepeatType.GROUPING_SETS,
                 emptyRelation);
 
         List<List<Expression>> newGroupingSets = ImmutableList.of(
