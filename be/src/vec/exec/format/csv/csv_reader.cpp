@@ -1,4 +1,4 @@
-﻿// Licensed to the Apache Software Foundation (ASF) under one
+// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -311,82 +311,67 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
 
-    bool success = false;
     bool is_remove_bom = false;
-    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        while (rows < batch_size && !_line_reader_eof) {
-            const uint8_t* ptr = nullptr;
-            size_t size = 0;
-            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+    auto columns = block->mutate_columns();
+    bool is_count_agg = (_push_down_agg_type == TPushAggOp::type::COUNT);
 
-            // _skip_lines == 0 means this line is the actual data beginning line for the entire file
-            // is_remove_bom means _remove_bom should only execute once
-            if (_skip_lines == 0 && !is_remove_bom) {
-                ptr = _remove_bom(ptr, size);
-                is_remove_bom = true;
-            }
-
-            // _skip_lines > 0 means we do not need to remove bom
-            if (_skip_lines > 0) {
-                _skip_lines--;
-                is_remove_bom = true;
-                continue;
-            }
-            if (size == 0) {
-                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    ++rows;
-                }
-                // Read empty line, continue
-                continue;
-            }
-
-            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
-            ++rows;
-        }
-        auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
-            col->resize(rows);
-        }
-        block->set_columns(std::move(mutate_columns));
-    } else {
-        auto columns = block->mutate_columns();
-        while (rows < batch_size && !_line_reader_eof) {
-            const uint8_t* ptr = nullptr;
-            size_t size = 0;
-            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
-
-            // _skip_lines == 0 means this line is the actual data beginning line for the entire file
-            // is_remove_bom means _remove_bom should only execute once
-            if (!is_remove_bom && _skip_lines == 0) {
-                ptr = _remove_bom(ptr, size);
-                is_remove_bom = true;
-            }
-
-            // _skip_lines > 0 means we do not remove bom
-            if (_skip_lines > 0) {
-                _skip_lines--;
-                is_remove_bom = true;
-                continue;
-            }
-            if (size == 0) {
-                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    RETURN_IF_ERROR(_fill_empty_line(block, columns, &rows));
-                }
-                // Read empty line, continue
-                continue;
-            }
-
-            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
-            if (!success) {
-                continue;
-            }
-            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
-        }
-        block->set_columns(std::move(columns));
+    while (rows < batch_size && !_line_reader_eof) {
+        RETURN_IF_ERROR(_process_one_line(block, columns, &rows, &is_remove_bom, is_count_agg));
     }
 
-    *eof = (rows == 0);
+    if (is_count_agg) {
+        for (auto& col : columns) {
+            col->resize(rows);
+        }
+    }
+    block->set_columns(std::move(columns));
+
+    *eof = _line_reader_eof;
     *read_rows = rows;
+
+    return Status::OK();
+}
+
+Status CsvReader::_process_one_line(Block* block, MutableColumns& columns, size_t* rows,
+                                    bool* is_remove_bom, bool is_count_agg) {
+    const uint8_t* ptr = nullptr;
+    size_t size = 0;
+    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+
+    // _skip_lines == 0 means this line is the actual data beginning line for the entire file
+    // is_remove_bom means _remove_bom should only execute once
+    if (_skip_lines == 0 && !*is_remove_bom) {
+        ptr = _remove_bom(ptr, size);
+        *is_remove_bom = true;
+    }
+
+    // _skip_lines > 0 means we do not need to remove bom
+    if (_skip_lines > 0) {
+        _skip_lines--;
+        *is_remove_bom = true;
+        return Status::OK();
+    }
+    if (size == 0) {
+        if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
+            if (!is_count_agg) {
+                RETURN_IF_ERROR(_fill_empty_line(block, columns, rows));
+            }
+            ++(*rows);
+        }
+        // Read empty line, continue
+        return Status::OK();
+    }
+
+    bool success = false;
+    RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
+    if (!success) {
+        return Status::OK();
+    }
+
+    if (!is_count_agg) {
+        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, rows));
+    }
+    ++(*rows);
 
     return Status::OK();
 }
@@ -659,7 +644,6 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             RETURN_IF_ERROR(_deserialize_one_cell(_serdes[i], *col_ptr, value));
         }
     }
-    ++(*rows);
 
     return Status::OK();
 }
@@ -677,7 +661,7 @@ Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& 
         auto& null_column = assert_cast<ColumnNullable&>(*col_ptr);
         null_column.insert_data(nullptr, 0);
     }
-    ++(*rows);
+
     return Status::OK();
 }
 
