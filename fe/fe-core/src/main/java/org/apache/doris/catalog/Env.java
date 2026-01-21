@@ -1172,7 +1172,6 @@ public class Env {
         // init plugin manager
         pluginMgr.init();
         auditEventProcessor.start();
-        lineageEventProcessor.start();
 
         cloneClusterSnapshot();
 

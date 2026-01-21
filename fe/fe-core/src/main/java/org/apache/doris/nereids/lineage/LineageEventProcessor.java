@@ -23,13 +23,15 @@ import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.plugin.lineage.AbstractLineagePlugin;
 
-import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Processor that queues lineage events and dispatches them to lineage plugins.
@@ -41,7 +43,9 @@ public class LineageEventProcessor {
     private final PluginMgr pluginMgr;
     private List<Plugin> lineagePlugins;
     private long lastUpdateTime = 0;
-    private final BlockingQueue<LineageEvent> eventQueue = Queues.newLinkedBlockingDeque();
+    private final BlockingQueue<LineageEvent> eventQueue =
+            new LinkedBlockingDeque<>(Config.lineage_event_queue_size);
+    private final AtomicBoolean isInit = new AtomicBoolean(false);
     private Thread workerThread;
     private volatile boolean isStopped = false;
 
@@ -58,6 +62,10 @@ public class LineageEventProcessor {
      * Start the background worker thread.
      */
     public void start() {
+        if (!isInit.compareAndSet(false, true)) {
+            return;
+        }
+        isStopped = false;
         workerThread = new Thread(new Worker(), "LineageEventProcessor");
         workerThread.setDaemon(true);
         workerThread.start();
@@ -87,21 +95,18 @@ public class LineageEventProcessor {
         if (lineageEvent == null) {
             return false;
         }
-        boolean isAddSucc = true;
         try {
-            if (eventQueue.size() >= Config.lineage_event_queue_size) {
-                isAddSucc = false;
+            if (!eventQueue.offer(lineageEvent)) {
                 LOG.warn("the lineage event queue is full with size {}, discard the lineage event: {}",
                         eventQueue.size(), lineageEvent.getQueryId());
-            } else {
-                eventQueue.add(lineageEvent);
+                return false;
             }
+            return true;
         } catch (Exception e) {
-            isAddSucc = false;
             LOG.warn("encounter exception when handle lineage event {}, discard the event",
                     lineageEvent.getQueryId(), e);
+            return false;
         }
-        return isAddSucc;
     }
 
     /**
@@ -119,6 +124,9 @@ public class LineageEventProcessor {
                 if (lineagePlugins == null || System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
                     lineagePlugins = pluginMgr.getActivePluginList(PluginType.LINEAGE);
                     lastUpdateTime = System.currentTimeMillis();
+                    if (lineagePlugins == null) {
+                        lineagePlugins = Collections.emptyList();
+                    }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("update lineage plugins. num: {}", lineagePlugins.size());
                     }
@@ -133,9 +141,8 @@ public class LineageEventProcessor {
                     LOG.warn("encounter exception when getting lineage event from queue, ignore", e);
                     continue;
                 }
-
-                try {
-                    for (Plugin plugin : lineagePlugins) {
+                for (Plugin plugin : lineagePlugins) {
+                    try {
                         AbstractLineagePlugin lineagePlugin = (AbstractLineagePlugin) plugin;
                         if (!lineagePlugin.eventFilter()) {
                             continue;
@@ -146,9 +153,10 @@ public class LineageEventProcessor {
                             continue;
                         }
                         lineagePlugin.exec(lineageInfo);
+                    } catch (Exception e) {
+                        LOG.warn("encounter exception when processing lineage event {}, ignore",
+                                lineageEvent.getQueryId(), e);
                     }
-                } catch (Exception e) {
-                    LOG.warn("encounter exception when processing lineage events. ignore", e);
                 }
             }
         }

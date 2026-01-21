@@ -17,8 +17,12 @@
 
 package org.apache.doris.plugin.lineage;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.lineage.LineageInfo;
 import org.apache.doris.plugin.Plugin;
+import org.apache.doris.plugin.PluginContext;
+import org.apache.doris.plugin.PluginException;
+import org.apache.doris.plugin.PluginInfo;
 
 /**
  * An abstract base class for lineage plugins in Apache Doris.
@@ -35,6 +39,12 @@ public abstract class AbstractLineagePlugin extends Plugin {
 
     /** Return the only plugin name, this is used in fe.conf. activate_lineage_plugin conf */
     public abstract String getName();
+
+    @Override
+    public void init(PluginInfo info, PluginContext ctx) throws PluginException {
+        super.init(info, ctx);
+        Env.getCurrentEnv().getLineageEventProcessor().start();
+    }
 
     /**
      * Determines whether this plugin should handle the current query context.
