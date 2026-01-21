@@ -17,11 +17,14 @@
 
 package org.apache.doris.cdcclient.config;
 
+import org.apache.doris.cdcclient.exception.CommonException;
 import org.apache.doris.cdcclient.exception.StreamException;
 import org.apache.doris.cdcclient.model.rest.RestResponse;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseBody;
@@ -39,7 +42,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(StreamException.class)
     public Object streamExceptionHandler(StreamException e) {
+        // Directly throwing an exception allows curl to detect anomalies in the streaming response.
         log.error("Exception in streaming response, re-throwing to client", e);
         throw e;
+    }
+
+    @ExceptionHandler(CommonException.class)
+    public Object commonExceptionHandler(CommonException e) {
+        log.error("Unexpected common exception", e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage());
     }
 }

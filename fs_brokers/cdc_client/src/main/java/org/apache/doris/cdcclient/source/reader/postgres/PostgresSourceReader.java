@@ -174,16 +174,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.initial());
-        } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
-            configFactory.startupOptions(StartupOptions.earliest());
         } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.latest());
         } else if (ConfigUtil.isJson(startupMode)) {
             throw new RuntimeException("Unsupported json offset " + startupMode);
-        } else if (ConfigUtil.is13Timestamp(startupMode)) {
-            // start from timestamp
-            Long ts = Long.parseLong(startupMode);
-            configFactory.startupOptions(StartupOptions.timestamp(ts));
         } else {
             throw new RuntimeException("Unknown offset " + startupMode);
         }

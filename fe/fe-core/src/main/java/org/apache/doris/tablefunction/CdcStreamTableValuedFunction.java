@@ -28,8 +28,10 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,6 +43,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static String URI = "http://127.0.0.1:{}/api/fetchRecordStream";
     private final Map<String, String> originProps;
+
     public CdcStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         this.originProps = properties;
         processProps(properties);
@@ -89,7 +92,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        DataSourceType dataSourceType = DataSourceType.valueOf(processedParams.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        DataSourceType dataSourceType =
+                DataSourceType.valueOf(processedParams.get(DataSourceConfigKeys.TYPE).toUpperCase());
         JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(dataSourceType, processedParams);
         String database = StreamingJobUtils.getRemoteDbName(dataSourceType, processedParams);
         String table = processedParams.get(DataSourceConfigKeys.TABLE);

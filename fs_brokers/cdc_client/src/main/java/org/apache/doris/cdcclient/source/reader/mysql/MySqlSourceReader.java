@@ -552,8 +552,7 @@ public class MySqlSourceReader implements SourceReader {
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
-            // do not need set offset when initial
-            // configFactory.startupOptions(StartupOptions.initial());
+            configFactory.startupOptions(StartupOptions.initial());
         } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
             BinlogOffset binlogOffset =
@@ -573,7 +572,14 @@ public class MySqlSourceReader implements SourceReader {
             }
             if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
                     && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
-                BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
+                BinlogOffset binlogOffset =
+                        BinlogOffset.builder()
+                                .setBinlogFilePosition(
+                                        offsetMap.get(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY),
+                                        Long.parseLong(
+                                                offsetMap.get(
+                                                        BinlogOffset.BINLOG_POSITION_OFFSET_KEY)))
+                                .build();
                 configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
             } else {
                 throw new RuntimeException("Incorrect offset " + startupMode);

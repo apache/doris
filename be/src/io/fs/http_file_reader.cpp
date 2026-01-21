@@ -335,6 +335,21 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     long http_status = _client->get_http_status();
     VLOG(2) << "HTTP response: status=" << http_status << " received_bytes=" << buf.size();
 
+    // Check for HTTP error status codes (4xx, 5xx)
+    if (http_status >= 400) {
+        std::string error_body;
+        if (buf.empty()) {
+            error_body = "(empty response body)";
+        } else {
+            // Limit error message to 1024 bytes to avoid excessive logging
+            size_t max_len = std::min(buf.size(), static_cast<size_t>(1024));
+            error_body = buf.substr(0, max_len);
+        }
+    
+        return Status::InternalError(
+                "HTTP request failed with status {}: {}.",http_status, error_body);
+    }
+
     if (buf.empty()) {
         *bytes_read = buffer_offset;
         return Status::OK();

@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
@@ -39,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.ParquetKvMetad
 import org.apache.doris.nereids.trees.expressions.functions.table.ParquetMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
-import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;

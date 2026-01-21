@@ -24,8 +24,12 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+
 import java.util.Map;
 
+/**
+ * CdcStream TVF.
+ */
 public class CdcStream extends TableValuedFunction {
 
     public CdcStream(Properties tvfProperties) {

@@ -18,11 +18,13 @@
 package org.apache.doris.cdcclient.service;
 
 import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.exception.CommonException;
 import org.apache.doris.cdcclient.exception.StreamException;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
+import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
@@ -48,6 +50,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import io.debezium.data.Envelope;
@@ -93,18 +97,25 @@ public class PipelineCoordinator {
 
     /** return data for http_file_reader */
     public StreamingResponseBody fetchRecordStream(FetchRecordRequest fetchReq) throws Exception {
-        if (fetchReq.getTaskId() == null && fetchReq.getMeta() == null) {
-            LOG.info(
-                    "Generate initial meta for fetch record request, jobId={}, taskId={}",
-                    fetchReq.getJobId(),
-                    fetchReq.getTaskId());
-            // means the request did not originate from the job, only tvf
-            Map<String, Object> meta = generateMeta(fetchReq.getConfig());
-            fetchReq.setMeta(meta);
+        SourceReader sourceReader;
+        SplitReadResult readResult;
+        try {
+            if (fetchReq.getTaskId() == null && fetchReq.getMeta() == null) {
+                LOG.info(
+                        "Generate initial meta for fetch record request, jobId={}, taskId={}",
+                        fetchReq.getJobId(),
+                        fetchReq.getTaskId());
+                // means the request did not originate from the job, only tvf
+                Map<String, Object> meta = generateMeta(fetchReq.getConfig());
+                fetchReq.setMeta(meta);
+            }
+
+            sourceReader = Env.getCurrentEnv().getReader(fetchReq);
+            readResult = sourceReader.readSplitRecords(fetchReq);
+        } catch (Exception ex) {
+            throw new CommonException(ex);
         }
 
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchReq);
-        SplitReadResult readResult = sourceReader.readSplitRecords(fetchReq);
         return outputStream -> {
             try {
                 buildRecords(sourceReader, fetchReq, readResult, outputStream);
@@ -200,13 +211,21 @@ public class PipelineCoordinator {
         }
     }
 
-    private Map<String, Object> generateMeta(Map<String, String> cdcConfig) {
+    /** Generate split meta from request.offset */
+    private Map<String, Object> generateMeta(Map<String, String> cdcConfig)
+            throws JsonProcessingException {
         Map<String, Object> meta = new HashMap<>();
         String offset = cdcConfig.get(DataSourceConfigKeys.OFFSET);
-        if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)) {
+        if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(offset)) {
             meta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+        } else if (ConfigUtil.isJson(offset)) {
+            Map<String, String> startOffset =
+                    objectMapper.readValue(offset, new TypeReference<>() {});
+            meta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            meta.put("startingOffset", startOffset);
         } else {
-            throw new RuntimeException("Unsupported offset:" + offset);
+            throw new RuntimeException("Unsupported offset: " + offset);
         }
         return meta;
     }
