@@ -270,16 +270,14 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
         entry->set_length(meta_bytes.size());
     }
 
-    // After externalize_from_footer:
-    //  - footer.columns() should contain:
-    //      * non‑variant column uid=0
-    //      * root variant column uid=1, whose children_columns includes the sparse meta
     //  - "v1.key0" should be removed from footer.columns() and only exist in external meta.
-    ASSERT_EQ(footer.columns_size(), 2);
-    const ColumnMetaPB& kept0 = footer.columns(0);
-    const ColumnMetaPB& kept1 = footer.columns(1);
+    ASSERT_EQ(out_metas.size(), 3);
+    const ColumnMetaPB& kept0 = out_metas[0];
+    const ColumnMetaPB& kept1 = out_metas[1];
+    const ColumnMetaPB& kept2 = out_metas[2];
     EXPECT_EQ(kept0.unique_id(), 0);
     EXPECT_EQ(kept1.unique_id(), root_uid);
+    EXPECT_EQ(kept2.has_column_path_info(), true);
     // root should have embedded sparse children
     ASSERT_EQ(kept1.children_columns_size(), 1);
     const ColumnMetaPB& embedded_sparse = kept1.children_columns(0);

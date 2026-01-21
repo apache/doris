@@ -44,7 +44,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 
 namespace doris {
 
@@ -362,7 +362,7 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     if (tablet_schema()->num_variant_columns() > 0) {
         // merge extracted columns
         TabletSchemaSPtr merged_schema;
-        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+        static_cast<void>(vectorized::variant_util::get_least_common_schema(
                 {tablet_schema(), other.tablet_schema()}, nullptr, merged_schema));
         if (*_schema != *merged_schema) {
             set_tablet_schema(merged_schema);
