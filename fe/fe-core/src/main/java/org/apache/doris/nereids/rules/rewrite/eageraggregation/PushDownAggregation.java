@@ -149,21 +149,21 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 AggregateFunction aggFunction = (AggregateFunction) obj;
                 if (pushDownAggFunctionSet.contains(aggFunction.getClass())
                         && !aggFunction.isDistinct()) {
-                    if (aggFunction instanceof Sum && ((Sum) aggFunction).child() instanceof If) {
-                        If body = (If) ((Sum) aggFunction).child();
+                    if (aggFunction.child(0) instanceof If) {
+                        If body = (If) (aggFunction).child(0);
                         Set<Slot> valueSlots = Sets.newHashSet(body.getTrueValue().getInputSlots());
                         valueSlots.addAll(body.getFalseValue().getInputSlots());
                         if (body.getCondition().getInputSlots().stream().anyMatch(s -> valueSlots.contains(s))) {
                             // do not push down sum(if a then a else b)
                             return agg;
                         }
-                        Sum sumTrue = new Sum(body.getTrueValue());
-                        aggFunctions.add(sumTrue);
-                        funcs.add(sumTrue);
+                        AggregateFunction aggTrue = (AggregateFunction) aggFunction.withChildren(body.getTrueValue());
+                        aggFunctions.add(aggTrue);
+                        funcs.add(aggTrue);
                         if (!(body.getFalseValue() instanceof NullLiteral)) {
-                            Sum sumFalse = new Sum(body.getFalseValue());
-                            aggFunctions.add(sumFalse);
-                            funcs.add(sumFalse);
+                            AggregateFunction aggFalse = (AggregateFunction) aggFunction.withChildren(body.getFalseValue());
+                            aggFunctions.add(aggFalse);
+                            funcs.add(aggFalse);
                         }
                         groupKeys.addAll(body.getCondition().getInputSlots()
                                 .stream().map(slot -> (SlotReference) slot).collect(Collectors.toList()));

@@ -131,6 +131,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         PushDownAggContext childContext = context.withGroupKeys(childGroupByKeys);
+        if (!childContext.isValid()) {
+            return join;
+        }
         Statistics stats = join.right().getStats();
         if (stats == null) {
             stats = join.right().accept(derive, new StatsDerive.DeriveContext());
