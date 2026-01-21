@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cdc_stream_tvf", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
+suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_cdc_stream_tvf"
     def mysqlDb = "test_cdc_db"
