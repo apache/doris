@@ -59,7 +59,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.roaringbitmap.RoaringBitmap;
@@ -234,15 +233,15 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             List<SlotReference> regularChildOutputs = prunedOutputUnion.getRegularChildOutput(i);
 
             RoaringBitmap prunedChildOutputExprIds = new RoaringBitmap();
-            Builder<SlotReference> prunedChildOutputBuilder
-                    = ImmutableList.builderWithExpectedSize(regularChildOutputs.size());
-            for (Integer index : prunedOutputIndexes) {
-                SlotReference slot = regularChildOutputs.get(index);
-                prunedChildOutputBuilder.add(slot);
-                prunedChildOutputExprIds.add(slot.getExprId().asInt());
-            }
-
-            List<SlotReference> prunedChildOutput = prunedChildOutputBuilder.build();
+            //Builder<SlotReference> prunedChildOutputBuilder
+            //        = ImmutableList.builderWithExpectedSize(regularChildOutputs.size());
+            //for (Integer index : prunedOutputIndexes) {
+            //    SlotReference slot = regularChildOutputs.get(index);
+            //    prunedChildOutputBuilder.add(slot);
+            //    prunedChildOutputExprIds.add(slot.getExprId().asInt());
+            //}
+            regularChildOutputs.forEach(col -> prunedChildOutputExprIds.add(col.getExprId().asInt()));
+            List<SlotReference> prunedChildOutput = regularChildOutputs; //prunedChildOutputBuilder.build();
             Plan prunedChild = doPruneChild(
                     prunedOutputUnion, prunedOutputUnion.child(i), prunedChildOutputExprIds,
                     prunedChildOutput, true
@@ -420,15 +419,15 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 extractColumnIndex.add(i);
             }
         }
-
         ImmutableList.Builder<List<NamedExpression>> prunedConstantExprsList
                 = ImmutableList.builderWithExpectedSize(constantExprsList.size());
+        List<List<SlotReference>> prunedRegularChildrenOutputs =
+                Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
         if (prunedOutputs.isEmpty()) {
             // process prune all columns
             NamedExpression originSlot = originOutput.get(0);
             prunedOutputs = ImmutableList.of(new SlotReference(originSlot.getExprId(), originSlot.getName(),
                     TinyIntType.INSTANCE, false, originSlot.getQualifier()));
-            regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
             children = Lists.newArrayListWithCapacity(children.size());
             for (int i = 0; i < union.getArity(); i++) {
                 Plan child = union.child(i);
@@ -442,20 +441,28 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 } else {
                     project = new LogicalProject<>(newProjectOutput, child);
                 }
-                regularChildrenOutputs.add((List) project.getOutput());
+                prunedRegularChildrenOutputs.add((List) project.getOutput());
                 children.add(project);
             }
             for (int i = 0; i < constantExprsList.size(); i++) {
                 prunedConstantExprsList.add(ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))));
             }
         } else {
-            int len = extractColumnIndex.size();
+            int prunedOutputSize = extractColumnIndex.size();
             for (List<NamedExpression> row : constantExprsList) {
-                ImmutableList.Builder<NamedExpression> newRow = ImmutableList.builderWithExpectedSize(len);
+                ImmutableList.Builder<NamedExpression> newRow = ImmutableList.builderWithExpectedSize(prunedOutputSize);
                 for (int idx : extractColumnIndex) {
                     newRow.add(row.get(idx));
                 }
                 prunedConstantExprsList.add(newRow.build());
+            }
+
+            for (int childIdx = 0; childIdx < union.getRegularChildrenOutputs().size(); childIdx++) {
+                List<SlotReference> regular = Lists.newArrayListWithExpectedSize(prunedOutputSize);
+                for (int colIdx : extractColumnIndex) {
+                    regular.add(regularChildrenOutputs.get(childIdx).get(colIdx));
+                }
+                prunedRegularChildrenOutputs.add(regular);
             }
         }
 
@@ -463,7 +470,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return union;
         } else {
             return union.withNewOutputsChildrenAndConstExprsList(prunedOutputs, children,
-                    regularChildrenOutputs, prunedConstantExprsList.build());
+                    prunedRegularChildrenOutputs, prunedConstantExprsList.build());
         }
     }
 

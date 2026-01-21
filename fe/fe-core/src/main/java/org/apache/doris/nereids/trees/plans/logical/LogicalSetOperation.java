@@ -82,10 +82,8 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
      */
     public LogicalSetOperation(PlanType planType, Qualifier qualifier,
             List<NamedExpression> outputs, List<List<SlotReference>> regularChildrenOutputs, List<Plan> children) {
-        super(planType, children);
-        this.qualifier = qualifier;
-        this.outputs = ImmutableList.copyOf(outputs);
-        this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
+        this(planType, qualifier, outputs, regularChildrenOutputs, Optional.empty(),
+                Optional.empty(), children);
     }
 
     public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<NamedExpression> outputs,
@@ -96,6 +94,38 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
+        if (SessionVariable.isFeDebug()) {
+            checkOutputs(outputs, regularChildrenOutputs)
+                    .ifPresent(msg -> SessionVariable.throwAnalysisExceptionWhenFeDebug(msg));
+        }
+    }
+
+    // check every slot in outputs has its counterpart in regularChildrenOutputs, and they have the same data type.
+    private Optional<String> checkOutputs(List<NamedExpression> outputs,
+                               List<List<SlotReference>> regularChildrenOutputs) {
+        if (!regularChildrenOutputs.isEmpty()) {
+            for (List<SlotReference> childOutput : regularChildrenOutputs) {
+                if (outputs.size() != childOutput.size()) {
+                    return Optional.of("regularChildrenOutputs size error: regularOutput "
+                            + childOutput + " output: " + outputs);
+                }
+                for (int i = 0 ; i < childOutput.size(); i++) {
+                    DataType outputDataType = outputs.get(i).getDataType();
+                    boolean outputNullable = outputs.get(i).nullable();
+                    String outputInfo = outputNullable ? "+" : "-" + outputDataType;
+                    DataType childDataType = childOutput.get(i).getDataType();
+                    boolean childNullable = childOutput.get(i).nullable();
+                    String childInfo = childNullable ? "+" : "-" + childDataType;
+                    if (!outputDataType.equals(childDataType)
+                            || outputNullable != childNullable) {
+                        return Optional.of("regularChildrenOutputs data type is different from output. "
+                                + "regularOutput slot: " + childOutput.get(i)
+                                + "[" + childInfo +"], output: " + outputs.get(i) + "[" + outputInfo + "]");
+                    }
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     public List<List<SlotReference>> getRegularChildrenOutputs() {
