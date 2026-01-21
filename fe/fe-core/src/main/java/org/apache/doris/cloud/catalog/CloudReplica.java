@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
@@ -41,6 +42,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +50,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-public class CloudReplica extends Replica {
+public class CloudReplica extends Replica implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CloudReplica.class);
 
     // In the future, a replica may be mapped to multiple BEs in a cluster,
@@ -56,6 +58,8 @@ public class CloudReplica extends Replica {
     @SerializedName(value = "bes")
     private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends
             = new ConcurrentHashMap<String, List<Long>>();
+    @SerializedName(value = "be")
+    private ConcurrentHashMap<String, Long> primaryClusterToBackend = null;
     @SerializedName(value = "dbId")
     private long dbId = -1;
     @SerializedName(value = "tableId")
@@ -625,5 +629,19 @@ public class CloudReplica extends Replica {
             }
         });
         return result;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("convert CloudReplica: {}, primaryClusterToBackend: {}, primaryClusterToBackends: {}",
+                    this.getId(), this.primaryClusterToBackend, this.primaryClusterToBackends);
+        }
+        if (primaryClusterToBackend != null) {
+            for (Map.Entry<String, Long> entry : primaryClusterToBackend.entrySet()) {
+                primaryClusterToBackends.put(entry.getKey(), Lists.newArrayList(entry.getValue()));
+            }
+            this.primaryClusterToBackend = null;
+        }
     }
 }
