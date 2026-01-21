@@ -116,31 +116,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
             return ImmutableList.of();
         }
-        // If the origin attribute satisfies the group by key but does not meet the requirements, ban the plan.
-        // e.g. select count(distinct a) from t group by b;
-        // requiredChildProperty: a
-        // but the child is already distributed by b
-        // ban this plan
-        PhysicalProperties originChildProperty = originChildrenProperties.get(0);
         PhysicalProperties requiredChildProperty = requiredProperties.get(0);
-        PhysicalProperties hashSpec = PhysicalProperties.createHash(agg.getGroupByExpressions(), ShuffleType.REQUIRE);
-        GroupExpression child = children.get(0);
-        if (child.getPlan() instanceof PhysicalDistribute) {
-            PhysicalProperties properties = new PhysicalProperties(
-                    DistributionSpecAny.INSTANCE, originChildProperty.getOrderSpec());
-            Optional<Pair<Cost, GroupExpression>> pair = child.getOwnerGroup().getLowestCostPlan(properties);
-            // add null check
-            if (!pair.isPresent()) {
-                return ImmutableList.of();
-            }
-            GroupExpression distributeChild = pair.get().second;
-            PhysicalProperties distributeChildProperties = distributeChild.getOutputProperties(properties);
-            if (distributeChildProperties.satisfy(hashSpec)
-                    && !distributeChildProperties.satisfy(requiredChildProperty)) {
-                return ImmutableList.of();
-            }
-        }
-
         if (!agg.getAggregateParam().canBeBanned) {
             return visit(agg, context);
         }
