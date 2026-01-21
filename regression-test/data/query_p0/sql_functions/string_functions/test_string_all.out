@@ -965,6 +965,12 @@ S530	S530
 -- !soundex_330 --
 R163	R163
 
+-- !levenshtein_331 --
+0	3	2	1	1
+
+-- !levenshtein_332 --
+0	3	3	\N	\N
+
 -- !space_333 --
      
 
@@ -1411,4 +1417,3 @@ Hello	Test123
 
 -- !xpath_string_486 --
 123
-

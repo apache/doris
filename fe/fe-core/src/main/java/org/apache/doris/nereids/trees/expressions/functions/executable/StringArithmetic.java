@@ -1124,6 +1124,53 @@ public class StringArithmetic {
     }
 
     /**
+     * Executable arithmetic functions levenshtein
+     */
+    @ExecFunction(name = "levenshtein")
+    public static Expression levenshtein(StringLikeLiteral first, StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+
+        if (right.length > left.length) {
+            int[] tmp = left;
+            left = right;
+            right = tmp;
+        }
+
+        int m = left.length;
+        int n = right.length;
+        if (n == 0) {
+            return new IntegerLiteral(m);
+        }
+        if (m == 0) {
+            return new IntegerLiteral(n);
+        }
+
+        int[] prev = new int[n + 1];
+        int[] curr = new int[n + 1];
+        for (int j = 0; j <= n; j++) {
+            prev[j] = j;
+        }
+
+        for (int i = 1; i <= m; i++) {
+            curr[0] = i;
+            int leftChar = left[i - 1];
+            for (int j = 1; j <= n; j++) {
+                int cost = leftChar == right[j - 1] ? 0 : 1;
+                int insertCost = curr[j - 1] + 1;
+                int deleteCost = prev[j] + 1;
+                int replaceCost = prev[j - 1] + cost;
+                curr[j] = Math.min(insertCost, Math.min(deleteCost, replaceCost));
+            }
+            int[] tmp = prev;
+            prev = curr;
+            curr = tmp;
+        }
+
+        return new IntegerLiteral(prev[n]);
+    }
+
+    /**
      * Executable arithmetic functions make_set
      */
     @ExecFunction(name = "make_set")
