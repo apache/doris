@@ -112,14 +112,14 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
 }
 
 Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) {
-     DCHECK(_download_state != State::DOWNLOADED);
-     if (_downloaded_size == 0) {
-         _download_state = State::EMPTY;
-         _downloader_id = 0;
-         return Status::InternalError("Try to set empty block {} as downloaded",
-                                      _block_range.to_string());
-     }
-     Status status = _mgr->_storage->finalize(_key, this->_block_range.size());
+    DCHECK(_download_state != State::DOWNLOADED);
+    if (_downloaded_size == 0) {
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+        return Status::InternalError("Try to set empty block {} as downloaded",
+                                     _block_range.to_string());
+    }
+    Status status = _mgr->_storage->finalize(_key, this->_block_range.size());
     if (status.ok()) [[likely]] {
         _download_state = State::DOWNLOADED;
     } else {
