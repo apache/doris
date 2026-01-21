@@ -131,7 +131,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             if (groupKey instanceof SlotReference) {
                 groupKeys.add((SlotReference) groupKey);
             } else {
-                SessionVariable.throwRuntimeExceptionWhenFeDebug(
+                SessionVariable.throwAnalysisExceptionWhenFeDebug(
                         "PushDownAggregation failed: agg is not normalized\n "
                         + agg.treeString());
                 return agg;
@@ -244,7 +244,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         } catch (RuntimeException e) {
             String msg = "PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString();
             LOG.info(msg, e);
-            SessionVariable.throwRuntimeExceptionWhenFeDebug(msg);
+            SessionVariable.throwAnalysisExceptionWhenFeDebug(msg);
         }
         return agg;
     }

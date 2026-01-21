@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * PushDownAggContext
@@ -52,7 +53,7 @@ public class PushDownAggContext {
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
             boolean passThroughBigJoin) {
-        this.groupKeys = groupKeys;
+        this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
 

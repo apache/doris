@@ -205,14 +205,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
         for (SlotReference slot : context.getGroupKeys()) {
             if (!project.getOutputSet().contains(slot)) {
-                SessionVariable.throwRuntimeExceptionWhenFeDebug("eager agg failed: can not find group key("
+                SessionVariable.throwAnalysisExceptionWhenFeDebug("eager agg failed: can not find group key("
                         + slot + ") in " + project);
                 return false;
             }
         }
         for (Slot slot : context.getAggFunctionsInputSlots()) {
             if (!project.getOutputSet().contains(slot)) {
-                SessionVariable.throwRuntimeExceptionWhenFeDebug("eager agg failed: can not find aggFunc slot("
+                SessionVariable.throwAnalysisExceptionWhenFeDebug("eager agg failed: can not find aggFunc slot("
                         + slot + ") in " + project);
                 return false;
             }
@@ -334,7 +334,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             for (AggregateFunction func : context.getAggFunctions()) {
                 Alias alias = context.getAliasMap().get(func);
                 if (alias == null) {
-                    SessionVariable.throwRuntimeExceptionWhenFeDebug("push down agg failed. union: " + union
+                    SessionVariable.throwAnalysisExceptionWhenFeDebug("push down agg failed. union: " + union
                             + " context: " + context);
                     return union;
                 }
@@ -405,7 +405,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     }
                 }
                 if (!valid) {
-                    SessionVariable.throwRuntimeExceptionWhenFeDebug(
+                    SessionVariable.throwAnalysisExceptionWhenFeDebug(
                             "push agg failed. slot: " + "not found in " + project);
                     return project;
                 }
