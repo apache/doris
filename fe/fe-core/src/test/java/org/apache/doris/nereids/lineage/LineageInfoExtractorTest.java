@@ -214,6 +214,23 @@ public class LineageInfoExtractorTest extends TestWithFeService {
     }
 
     @Test
+    public void testConditionalIfLineage() throws Exception {
+        String sql = "insert into " + dbTable("tgt_conditional_if")
+                + " select o.o_orderkey as orderkey,"
+                + " if(o.o_orderstatus = 'F', l.l_extendedprice, cast(0 as decimal(18,2))) as final_price"
+                + " from " + dbTable("orders") + " o"
+                + " join " + dbTable("lineitem") + " l on o.o_orderkey = l.l_orderkey";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_conditional_if");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContains(lineageInfo, "final_price", LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "final_price", LineageInfo.IndirectLineageType.CONDITIONAL);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
+    }
+
+    @Test
     public void testConditionalCoalesceLineage() throws Exception {
         String sql = "insert into " + dbTable("tgt_conditional_coalesce")
                 + " select l.l_orderkey as orderkey,"
@@ -410,6 +427,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
                         + "running_sum decimal(18,2)"
                         + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
                 "create table " + dbTable("tgt_conditional_case") + " ("
+                        + "orderkey bigint,"
+                        + "final_price decimal(18,2)"
+                        + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_conditional_if") + " ("
                         + "orderkey bigint,"
                         + "final_price decimal(18,2)"
                         + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
