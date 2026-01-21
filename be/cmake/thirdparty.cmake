@@ -179,3 +179,25 @@ add_thirdparty(icudata LIB64)
 
 
 add_thirdparty(pugixml LIB64)
+
+# paimon-cpp libraries
+# Main paimon library
+add_thirdparty(paimon LIB64)
+# File format libraries
+add_thirdparty(paimon_parquet_file_format LIB64)
+# add_thirdparty(paimon_orc_file_format LIB64)
+# add_thirdparty(paimon_avro_file_format LIB64)
+add_thirdparty(paimon_blob_file_format LIB64)
+# File system libraries
+add_thirdparty(paimon_local_file_system LIB64)
+# Index libraries
+add_thirdparty(paimon_file_index LIB64)
+add_thirdparty(paimon_global_index LIB64)
+
+# paimon-cpp internal dependencies (renamed to avoid conflicts)
+# These are installed by build-thirdparty.sh with _paimon suffix
+add_thirdparty(roaring_bitmap_paimon LIB64)
+add_thirdparty(xxhash_paimon LIB64)
+# paimon-cpp built fmt v11 (renamed, not compatible with Doris's fmt v7)
+add_thirdparty(fmt_paimon LIB64)
+add_thirdparty(tbb_paimon LIB64)

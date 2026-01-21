@@ -1977,6 +1977,59 @@ build_pugixml() {
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
+# paimon-cpp
+build_paimon_cpp() {
+    check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    CXXFLAGS="-Wno-nontrivial-memcall" \
+    "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
+        -G "${GENERATOR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DPAIMON_BUILD_STATIC=ON \
+        -DPAIMON_ENABLE_ORC=OFF \
+        -DPAIMON_ENABLE_AVRO=OFF \
+        -DPAIMON_ENABLE_LANCE=OFF \
+        -DPAIMON_ENABLE_JINDO=OFF \
+        -DPAIMON_ENABLE_LUMINA=OFF \
+        -DCMAKE_EXE_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -lunwind -llzma" \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    # Install paimon-cpp internal dependencies with renamed versions
+    # These libraries are built but not installed by default
+    echo "Installing paimon-cpp internal dependencies..."
+
+    # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
+    if [ -f "release/libroaring_bitmap.a" ]; then
+        cp -v "release/libroaring_bitmap.a" "${TP_INSTALL_DIR}/lib64/libroaring_bitmap_paimon.a"
+    fi
+
+    # Install xxhash, renamed to avoid conflict with Doris's xxhash
+    if [ -f "release/libxxhash.a" ]; then
+        cp -v "release/libxxhash.a" "${TP_INSTALL_DIR}/lib64/libxxhash_paimon.a"
+    fi
+
+    # Install fmt v11 (from fmt_ep-install directory, renamed to avoid conflict with Doris's fmt v7)
+    if [ -f "fmt_ep-install/lib/libfmt.a" ]; then
+        cp -v "fmt_ep-install/lib/libfmt.a" "${TP_INSTALL_DIR}/lib64/libfmt_paimon.a"
+    fi
+
+    # Install tbb (from tbb_ep-install directory, renamed to avoid conflict with Doris's tbb)
+     if [ -f "tbb_ep-install/lib/libtbb.a" ]; then
+         cp -v "tbb_ep-install/lib/libtbb.a" "${TP_INSTALL_DIR}/lib64/libtbb_paimon.a"
+     fi
+
+    echo "Paimon-cpp internal dependencies installed successfully"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
@@ -2050,6 +2103,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        paimon_cpp
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
