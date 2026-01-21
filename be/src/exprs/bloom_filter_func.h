@@ -134,7 +134,8 @@ public:
 
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
 
-    virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results , const uint8_t* __restrict filter) = 0;
+    virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results,
+                                const uint8_t* __restrict filter) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
                                                 uint16_t* offsets, int number,
