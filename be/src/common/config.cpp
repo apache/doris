@@ -2130,6 +2130,11 @@ Status set_fuzzy_configs() {
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
             std::to_string(distribution2(*generator));
 
+    fuzzy_field_and_value["enable_query_segment_file_cache_prefetch"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_compaction_segment_file_cache_prefetch"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+
     // external
     if (config::fuzzy_test_type == "external") {
         std::uniform_int_distribution<int64_t> distribution3(0, 2);
