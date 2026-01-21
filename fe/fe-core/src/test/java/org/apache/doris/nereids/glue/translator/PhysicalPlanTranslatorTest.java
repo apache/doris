@@ -141,7 +141,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     @Test
     public void testRepeatInputOutputOrder() throws Exception {
-        String sql = "select grouping(a), grouping(b), grouping_id(a, b), b, a, b, a"
+        String sql = "select grouping(a), grouping(b), grouping_id(a, b), sum(a + 2 * b), sum(a + 3 * b) + grouping_id(b, a, b), b, a, b, a"
                 + " from test_db.t"
                 + " group by grouping sets((a, b), (), (b), (a, b), (a + b), (a * b))";
         PlanChecker.from(connectContext).checkPlannerResult(sql,
