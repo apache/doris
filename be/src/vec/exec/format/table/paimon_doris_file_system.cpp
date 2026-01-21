@@ -465,6 +465,8 @@ public:
     }
 
     Result<std::unique_ptr<FileStatus>> GetFileStatus(const std::string& path) const override {
+        ParsedUri uri = parse_uri(path);
+        doris::TFileType::type type = map_scheme_to_file_type(uri.scheme);
         PAIMON_ASSIGN_OR_RAISE(auto resolved, resolve_path(path));
         bool exists = false;
         doris::Status exists_status = resolved.first->exists(resolved.second, &exists);
@@ -472,7 +474,20 @@ public:
             return to_paimon_status(exists_status);
         }
         if (!exists) {
-            return Status::NotExist("path not exists: ", resolved.second);
+            if (type != doris::TFileType::FILE_S3) {
+                return Status::NotExist("path not exists: ", resolved.second);
+            }
+            std::vector<doris::io::FileInfo> files;
+            bool list_exists = false;
+            doris::Status list_status =
+                    resolved.first->list(resolved.second, false, &files, &list_exists);
+            if (!list_status.ok()) {
+                return to_paimon_status(list_status);
+            }
+            if (!list_exists && files.empty()) {
+                return Status::NotExist("path not exists: ", resolved.second);
+            }
+            return std::make_unique<DorisFileStatus>(resolved.second, true, 0, 0);
         }
         int64_t size = 0;
         doris::Status size_status = resolved.first->file_size(resolved.second, &size);
@@ -550,11 +565,23 @@ public:
     }
 
     Result<bool> Exists(const std::string& path) const override {
+        ParsedUri uri = parse_uri(path);
+        doris::TFileType::type type = map_scheme_to_file_type(uri.scheme);
         PAIMON_ASSIGN_OR_RAISE(auto resolved, resolve_path(path));
         bool exists = false;
         doris::Status status = resolved.first->exists(resolved.second, &exists);
         if (!status.ok()) {
             return to_paimon_status(status);
+        }
+        if (!exists && type == doris::TFileType::FILE_S3) {
+            std::vector<doris::io::FileInfo> files;
+            bool list_exists = false;
+            doris::Status list_status =
+                    resolved.first->list(resolved.second, false, &files, &list_exists);
+            if (!list_status.ok()) {
+                return to_paimon_status(list_status);
+            }
+            return list_exists || !files.empty();
         }
         return exists;
     }

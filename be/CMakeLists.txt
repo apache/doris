@@ -148,6 +148,7 @@ message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" OFF)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+set(PAIMON_USE_EXTERNAL_ORC OFF CACHE BOOL "Use Doris ORC for Paimon C++")
 
 # Allow env to override when reconfiguring (avoid picking /usr/local).
 if (DEFINED ENV{ENABLE_PAIMON_CPP})
@@ -155,6 +156,9 @@ if (DEFINED ENV{ENABLE_PAIMON_CPP})
 endif()
 if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_USE_EXTERNAL_ORC})
+    set(PAIMON_USE_EXTERNAL_ORC "$ENV{PAIMON_USE_EXTERNAL_ORC}" CACHE BOOL "" FORCE)
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -218,6 +222,9 @@ SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
+if(TARGET orc AND NOT TARGET orc::orc)
+    add_library(orc::orc ALIAS orc)
+endif()
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
 option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
@@ -558,20 +565,81 @@ set(COMMON_THIRDPARTY
 
 if (ENABLE_PAIMON_CPP)
     if (NOT PAIMON_HOME)
+        set(_paimon_default_home "${THIRDPARTY_DIR}/paimon-cpp")
+        if (EXISTS "${_paimon_default_home}/lib/cmake/Paimon/PaimonConfig.cmake")
+            set(PAIMON_HOME "${_paimon_default_home}" CACHE PATH "" FORCE)
+        endif()
+        unset(_paimon_default_home)
+    endif()
+    if (NOT PAIMON_HOME)
         message(FATAL_ERROR "ENABLE_PAIMON_CPP=ON but PAIMON_HOME is not set")
     endif()
     set(Paimon_DIR "${PAIMON_HOME}/lib/cmake/Paimon" CACHE PATH "" FORCE)
     find_package(Paimon CONFIG REQUIRED NO_DEFAULT_PATH)
     include_directories("${PAIMON_HOME}/include")
-    set(PAIMON_CPP_TARGETS
+    # Link glog after paimon static libs to satisfy RawLog__ in static link.
+    list(REMOVE_ITEM COMMON_THIRDPARTY glog)
+
+    # Paimon static library dependencies
+    set(paimon_fmt_lib "${PAIMON_HOME}/lib64/paimon_deps/libfmtd.a")
+    if (NOT EXISTS "${paimon_fmt_lib}")
+        set(paimon_fmt_lib "${PAIMON_HOME}/lib64/paimon_deps/libfmt.a")
+    endif()
+    add_library(paimon_fmt STATIC IMPORTED)
+    set_target_properties(paimon_fmt PROPERTIES IMPORTED_LOCATION "${paimon_fmt_lib}")
+    set(paimon_tbb_lib "${PAIMON_HOME}/lib64/paimon_deps/libtbb_debug.a")
+    if (NOT EXISTS "${paimon_tbb_lib}")
+        set(paimon_tbb_lib "${PAIMON_HOME}/lib64/paimon_deps/libtbb.a")
+    endif()
+    add_library(paimon_tbb STATIC IMPORTED)
+    set_target_properties(paimon_tbb PROPERTIES IMPORTED_LOCATION "${paimon_tbb_lib}")
+    add_library(paimon_roaring STATIC IMPORTED)
+    set_target_properties(paimon_roaring PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libroaring_bitmap.a")
+    add_library(paimon_xxhash STATIC IMPORTED)
+    set_target_properties(paimon_xxhash PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libxxhash.a")
+    add_library(paimon_arrow_dataset STATIC IMPORTED)
+    set_target_properties(paimon_arrow_dataset PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow_dataset.a")
+    add_library(paimon_arrow_acero STATIC IMPORTED)
+    set_target_properties(paimon_arrow_acero PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow_acero.a")
+    add_library(paimon_arrow STATIC IMPORTED)
+    set_target_properties(paimon_arrow PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow.a")
+    add_library(paimon_arrow_bundled_dependencies STATIC IMPORTED)
+    set_target_properties(paimon_arrow_bundled_dependencies PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow_bundled_dependencies.a")
+    add_library(paimon_parquet STATIC IMPORTED)
+    set_target_properties(paimon_parquet PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libparquet.a")
+    if(NOT PAIMON_USE_EXTERNAL_ORC)
+        add_library(paimon_orc STATIC IMPORTED)
+        set_target_properties(paimon_orc PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/liborc.a")
+    endif()
+
+    set(PAIMON_CPP_FACTORY_TARGETS
         paimon_static
-        paimon_orc_file_format_static
         paimon_parquet_file_format_static
         paimon_file_index_static
         paimon_global_index_static
         paimon_local_file_system_static
     )
-    list(APPEND COMMON_THIRDPARTY ${PAIMON_CPP_TARGETS})
+    if(PAIMON_USE_EXTERNAL_ORC)
+        list(APPEND PAIMON_CPP_FACTORY_TARGETS paimon_orc_file_format_static)
+    endif()
+    set(PAIMON_CPP_DEP_TARGETS
+        paimon_fmt
+        paimon_tbb
+        paimon_roaring
+        paimon_xxhash
+        paimon_parquet
+        paimon_arrow_dataset
+        paimon_arrow_acero
+        paimon_arrow
+        paimon_arrow_bundled_dependencies
+        glog
+    )
+    # Force-link factory libraries so static init registers file formats.
+    list(APPEND COMMON_THIRDPARTY
+        -Wl,--whole-archive
+        ${PAIMON_CPP_FACTORY_TARGETS}
+        -Wl,--no-whole-archive
+        ${PAIMON_CPP_DEP_TARGETS})
     message(STATUS "Paimon C++ enabled: ${PAIMON_HOME}")
 endif()
 

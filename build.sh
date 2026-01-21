@@ -664,6 +664,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+        ${ENABLE_PAIMON_CPP:+-DENABLE_PAIMON_CPP="${ENABLE_PAIMON_CPP}"} \
+        ${PAIMON_HOME:+-DPAIMON_HOME="${PAIMON_HOME}"} \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -887,12 +889,6 @@ EOF
 
     if [[ "${BUILD_INDEX_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/index_tool" "${DORIS_OUTPUT}/be/lib"/
-    fi
-
-    # Copy Paimon C++ shared libraries if PAIMON_HOME is set
-    if [[ -n "${PAIMON_HOME}" ]] && [[ -d "${PAIMON_HOME}/lib64" ]]; then
-        echo "Copying Paimon C++ libraries from ${PAIMON_HOME}/lib64 to ${DORIS_OUTPUT}/be/lib/"
-        cp -r -p "${PAIMON_HOME}"/lib64/libpaimon*.so "${DORIS_OUTPUT}/be/lib/" 2>/dev/null || true
     fi
 
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/

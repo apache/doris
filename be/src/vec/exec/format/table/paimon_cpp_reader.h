@@ -35,6 +35,7 @@
 
 namespace paimon {
 class TableRead;
+class Predicate;
 } // namespace paimon
 
 namespace doris {
@@ -62,6 +63,9 @@ public:
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
     Status close() override;
+    void set_predicate(std::shared_ptr<paimon::Predicate> predicate) {
+        _predicate = std::move(predicate);
+    }
 
 private:
     Status _init_paimon_reader();
@@ -80,6 +84,7 @@ private:
     std::shared_ptr<paimon::Split> _split;
     std::unique_ptr<paimon::TableRead> _table_read;
     std::unique_ptr<paimon::BatchReader> _batch_reader;
+    std::shared_ptr<paimon::Predicate> _predicate;
 
     std::unordered_map<std::string, uint32_t> _col_name_to_block_idx;
     int64_t _remaining_table_level_row_count = -1;

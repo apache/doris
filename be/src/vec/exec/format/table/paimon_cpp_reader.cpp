@@ -18,6 +18,7 @@
 #include "paimon_cpp_reader.h"
 
 #include <algorithm>
+#include <mutex>
 #include <utility>
 
 #include "arrow/c/bridge.h"
@@ -171,13 +172,38 @@ Status PaimonCppReader::_init_paimon_reader() {
     auto options = _build_options();
     auto read_columns = _build_read_columns();
 
-    std::string table_path = std::move(table_path_opt.value());
+    // Avoid moving strings across module boundaries to prevent allocator mismatches in ASAN builds.
+    std::string table_path = table_path_opt.value();
+    static std::once_flag options_log_once;
+    std::call_once(options_log_once, [&]() {
+        auto has_key = [&](const char* key) {
+            auto it = options.find(key);
+            return (it != options.end() && !it->second.empty()) ? "set" : "empty";
+        };
+        auto value_or = [&](const char* key) {
+            auto it = options.find(key);
+            return it != options.end() ? it->second : std::string("<unset>");
+        };
+        LOG(INFO) << "paimon-cpp options summary: table_path=" << table_path
+                  << " AWS_ACCESS_KEY=" << has_key("AWS_ACCESS_KEY")
+                  << " AWS_SECRET_KEY=" << has_key("AWS_SECRET_KEY")
+                  << " AWS_TOKEN=" << has_key("AWS_TOKEN")
+                  << " AWS_ENDPOINT=" << value_or("AWS_ENDPOINT")
+                  << " AWS_REGION=" << value_or("AWS_REGION")
+                  << " use_path_style=" << value_or("use_path_style")
+                  << " fs.oss.endpoint=" << value_or("fs.oss.endpoint")
+                  << " fs.s3a.endpoint=" << value_or("fs.s3a.endpoint");
+    });
     paimon::ReadContextBuilder builder(table_path);
     if (!read_columns.empty()) {
         builder.SetReadSchema(read_columns);
     }
     if (!options.empty()) {
         builder.SetOptions(options);
+    }
+    if (_predicate) {
+        builder.SetPredicate(_predicate);
+        builder.EnablePredicateFilter(true);
     }
 
     auto context_result = builder.Finish();
@@ -261,6 +287,29 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
             options[kv.first] = kv.second;
         }
     }
+
+    auto copy_if_missing = [&](const char* from_key, const char* to_key) {
+        if (options.find(to_key) != options.end()) {
+            return;
+        }
+        auto it = options.find(from_key);
+        if (it != options.end() && !it->second.empty()) {
+            options[to_key] = it->second;
+        }
+    };
+
+    // Map common OSS/S3 Hadoop configs to Doris S3 property keys.
+    copy_if_missing("fs.oss.accessKeyId", "AWS_ACCESS_KEY");
+    copy_if_missing("fs.oss.accessKeySecret", "AWS_SECRET_KEY");
+    copy_if_missing("fs.oss.sessionToken", "AWS_TOKEN");
+    copy_if_missing("fs.oss.endpoint", "AWS_ENDPOINT");
+    copy_if_missing("fs.oss.region", "AWS_REGION");
+    copy_if_missing("fs.s3a.access.key", "AWS_ACCESS_KEY");
+    copy_if_missing("fs.s3a.secret.key", "AWS_SECRET_KEY");
+    copy_if_missing("fs.s3a.session.token", "AWS_TOKEN");
+    copy_if_missing("fs.s3a.endpoint", "AWS_ENDPOINT");
+    copy_if_missing("fs.s3a.region", "AWS_REGION");
+    copy_if_missing("fs.s3a.path.style.access", "use_path_style");
 
     options[paimon::Options::FILE_SYSTEM] = "doris";
     return options;

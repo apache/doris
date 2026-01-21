@@ -68,6 +68,7 @@
 #include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_cpp_reader.h"
+#include "vec/exec/format/table/paimon_predicate_converter.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/remote_doris_reader.h"
@@ -999,6 +1000,13 @@ Status FileScanner::_get_next_reader() {
                     auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range, _params);
                     cpp_reader->set_push_down_agg_type(_get_push_down_agg_type());
+                    if (!_is_load && !_push_down_conjuncts.empty()) {
+                        PaimonPredicateConverter predicate_converter(_file_slot_descs, _state);
+                        auto predicate = predicate_converter.build(_push_down_conjuncts);
+                        if (predicate) {
+                            cpp_reader->set_predicate(std::move(predicate));
+                        }
+                    }
                     init_status = cpp_reader->init_reader();
                     _cur_reader = std::move(cpp_reader);
                 } else {
