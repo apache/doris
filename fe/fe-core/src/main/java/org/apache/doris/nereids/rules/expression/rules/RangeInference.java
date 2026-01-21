@@ -278,8 +278,14 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 // = (TA is not null or null) and (TA is not null)
                 // = TA is not null
                 // = IsNotNull(TA)
-                if (rangeValue.isRangeAll() && collector.hasIsNotNullValue()) {
-                    // skip this RangeAll
+                if (rangeValue.isRangeAll() && collector.isNotNullValueOpt.isPresent()) {
+                    // Notice that if collector has only isGenerateNotNullValueOpt, we should not keep the rangeAll here
+                    // for expression:  (Not(IsNull(TA)) OR NULL) AND GeneratedNot(IsNull(TA))
+                    // will be converted to RangeAll(TA) AND IsNotNullValue(TA, generated=true)
+                    // if we skip this RangeAll, the final result will be IsNotNullValue(TA, generated=true)
+                    // then convert back to expression: GeneratedNot(IsNull(TA)),
+                    // but later EliminateNotNull rule will remove this generated Not expression,
+                    // then the final result will be TRUE, which is wrong.
                     continue;
                 }
                 if (mergeRangeValueDesc == null) {
@@ -728,6 +734,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         protected abstract boolean nullable();
 
+        protected boolean nullForNullReference() {
+            return nullable();
+        }
+
         // X containsAll Y, means:
         // 1) when Y is TRUE, X is TRUE;
         // 2) when Y is FALSE, X can be any;
@@ -798,7 +808,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNotNullValue) {
                 return IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else {
                 return IntersectType.OTHERS;
             }
@@ -815,7 +825,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -881,7 +891,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             }
             return IntersectType.OTHERS;
         }
@@ -917,7 +927,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1005,7 +1015,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (other instanceof EmptyValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof RangeValue) {
-                return ((RangeValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else if (other instanceof DiscreteValue) {
                 Set<ComparableLiteral> otherValues = ((DiscreteValue) other).values;
                 for (ComparableLiteral value : otherValues) {
@@ -1017,7 +1027,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else {
                 return IntersectType.OTHERS;
             }
@@ -1026,7 +1036,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected UnionType getUnionType(ValueDesc other, int depth) {
             if (other instanceof RangeValue) {
-                return ((RangeValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             } else if (other instanceof NotDiscreteValue) {
                 boolean succ = true;
                 Set<ComparableLiteral> notDiscreteValues = ((NotDiscreteValue) other).values;
@@ -1044,7 +1054,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1113,7 +1123,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return reference.nullable() ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             }
             return IntersectType.OTHERS;
         }
@@ -1121,9 +1131,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected UnionType getUnionType(ValueDesc other, int depth) {
             if (other instanceof RangeValue) {
-                return ((RangeValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             } else if (other instanceof DiscreteValue) {
-                return ((DiscreteValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             } else if (other instanceof NotDiscreteValue) {
                 Set<ComparableLiteral> notDiscreteValues = ((NotDiscreteValue) other).values;
                 for (ComparableLiteral value : notDiscreteValues) {
@@ -1137,7 +1147,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                     return UnionType.TRUE;
                 }
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1183,7 +1193,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNotNullValue) {
                 return IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             }
             return IntersectType.OTHERS;
         }
@@ -1241,7 +1251,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             if (other instanceof EmptyValue || other instanceof IsNullValue) {
                 return IntersectType.FALSE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getIntersectType(this, depth);
+                return other.getIntersectType(this, depth);
             } else {
                 return IntersectType.OTHERS;
             }
@@ -1257,7 +1267,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else if (other instanceof IsNullValue) {
                 return UnionType.TRUE;
             } else if (other instanceof CompoundValue) {
-                return ((CompoundValue) other).getUnionType(this, depth);
+                return other.getUnionType(this, depth);
             }
             return UnionType.OTHERS;
         }
@@ -1321,6 +1331,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected boolean nullable() {
             return hasNullable;
+        }
+
+        @Override
+        protected boolean nullForNullReference() {
+            return reference.nullable() && !hasNoneNullable;
         }
 
         @Override
@@ -1395,25 +1410,47 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return IntersectType.OTHERS;
             }
             if (isAnd) {
-                boolean hasEmptyValueType = false;
+                // process A and ((B and C) or ...)
+                boolean hasEmptyValue = false;
+                boolean hasIsNotNull = false;
+                boolean allOtherNullForNullReference = true;
                 for (ValueDesc valueDesc : sourceValues) {
                     IntersectType type = valueDesc.getIntersectType(other, depth + 1);
                     if (type == IntersectType.FALSE) {
                         return type;
                     }
-                    hasEmptyValueType = hasEmptyValueType || type == IntersectType.EMPTY_VALUE;
+                    if (type == IntersectType.EMPTY_VALUE) {
+                        hasEmptyValue = true;
+                    } else {
+                        allOtherNullForNullReference = allOtherNullForNullReference && valueDesc.nullForNullReference();
+                    }
+                    hasIsNotNull = hasIsNotNull || valueDesc instanceof IsNotNullValue;
                 }
-                return hasEmptyValueType ? IntersectType.EMPTY_VALUE : IntersectType.OTHERS;
+                if (hasEmptyValue) {
+                    if (hasIsNotNull) {
+                        // EmptyValue and IsNotNull = FALSE
+                        return IntersectType.FALSE;
+                    }
+                    // A and ((B and C) or ...)
+                    // if A intersect B is EMPTY_VALUE, A intersect C is OTHERS, C is nullable
+                    if (allOtherNullForNullReference) {
+                        return IntersectType.EMPTY_VALUE;
+                    }
+                }
+                return IntersectType.OTHERS;
             } else {
-                boolean hasEmptyValueType = false;
+                // process A and (B or C) => A and B or A and C
+                boolean hasEmptyValue = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     IntersectType type = valueDesc.getIntersectType(other, depth + 1);
                     if (type == IntersectType.OTHERS) {
                         return type;
                     }
-                    hasEmptyValueType = hasEmptyValueType || type == IntersectType.EMPTY_VALUE;
+                    hasEmptyValue = hasEmptyValue || type == IntersectType.EMPTY_VALUE;
                 }
-                return hasEmptyValueType ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
+
+                // must hasEmptyValue or hasFalse
+                return hasEmptyValue ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             }
         }
 
@@ -1423,25 +1460,48 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 return UnionType.OTHERS;
             }
             if (isAnd) {
-                UnionType resultType = null;
+                // process `A or (B and C)`:  => (A or B) and (A or C)
+                boolean hasRangeAll = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     UnionType type = valueDesc.getUnionType(other, depth + 1);
                     if (type == UnionType.OTHERS) {
                         return type;
                     }
-                    if (resultType == null) {
-                        resultType = type;
-                    }
-                    if (resultType != type) {
-                        return UnionType.OTHERS;
-                    }
+                    hasRangeAll = hasRangeAll || type == UnionType.RANGE_ALL;
                 }
-                return resultType;
+                // must hasRangeAll or hasTrue
+                return hasRangeAll ? UnionType.RANGE_ALL : UnionType.TRUE;
             } else {
+                // process 'A or ((B or C) and ...)'
+                // then `this`: '(B or C)',  `other`: A
+                boolean hasRangeAll = false;
+                boolean hasIsNull = false;
+                boolean allOtherNullForNullReference = true;
                 for (ValueDesc valueDesc : sourceValues) {
                     UnionType type = valueDesc.getUnionType(other, depth + 1);
-                    if (type != UnionType.OTHERS) {
+                    if (type == UnionType.TRUE) {
                         return type;
+                    }
+                    if (type == UnionType.RANGE_ALL) {
+                        hasRangeAll = true;
+                    } else {
+                        allOtherNullForNullReference = allOtherNullForNullReference && valueDesc.nullForNullReference();
+                    }
+                    hasIsNull = hasIsNull || valueDesc instanceof IsNullValue;
+                }
+                if (hasRangeAll) {
+                    if (hasIsNull) {
+                        // A or ((B or C) and ....)
+                        // if A union B is RANGE_ALL, C is IsNull
+                        // then A or ((B or C) and ...) = A or (TRUE and ...)
+                        // RangeAll or IsNull = TRUE
+                        return UnionType.TRUE;
+                    }
+                    if (allOtherNullForNullReference) {
+                        // A or ((B or C) and ....)
+                        // if A union B is RANGE_ALL, and C is nullable
+                        // then A or ((B or C) and ...) = A or (Range.all() and ...)
+                        return UnionType.RANGE_ALL;
                     }
                 }
                 return UnionType.OTHERS;
@@ -1466,6 +1526,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         @Override
         protected boolean nullable() {
             return reference.nullable();
+        }
+
+        @Override
+        protected boolean nullForNullReference() {
+            return false;
         }
 
         @Override
