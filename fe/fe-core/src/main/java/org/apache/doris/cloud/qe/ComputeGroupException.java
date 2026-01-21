@@ -95,6 +95,10 @@ public class ComputeGroupException extends UserException {
         return msg +  ", ComputeGroupException: " + failedType + ", you can" + helpMsg();
     }
 
+    public FailedTypeEnum getFailedType() {
+        return failedType;
+    }
+
     @Override
     public String getMessage() {
         String message = errorCode + ", detailMessage = " + super.getMessage()
