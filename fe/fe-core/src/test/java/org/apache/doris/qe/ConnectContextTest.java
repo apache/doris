@@ -515,7 +515,6 @@ public class ConnectContextTest {
             ctx.setCloudCluster(null); // Clear session cluster
             ctx.cloudCluster = null; // Clear cached cluster
             ctx.setQualifiedUser("testUser"); // Set qualified user for getQualifiedUser() call
-            FakeEnv fakeEnv = new FakeEnv();
             FakeEnv.setEnv(env);
             FakeEnv.setSystemInfo(cloudSystemInfoService);
             new Expectations() {
@@ -542,7 +541,6 @@ public class ConnectContextTest {
             // This tests: "Choose an authorized cluster by policy if all preceding conditions failed"
             ctx.setCloudCluster(null); // Clear session cluster
             ctx.cloudCluster = null; // Clear cached cluster
-            fakeEnv = new FakeEnv();
             FakeEnv.setEnv(env);
             FakeEnv.setSystemInfo(cloudSystemInfoService);
             new Expectations() {
@@ -580,7 +578,6 @@ public class ConnectContextTest {
             // Test 6: Priority order - user this.cloudCluster over default takes precedence
             ctx.setCloudCluster(null); // Clear session cluster
             ctx.cloudCluster = "cached_cluster3"; // This should be ignored
-            fakeEnv = new FakeEnv();
             FakeEnv.setEnv(env);
             FakeEnv.setSystemInfo(cloudSystemInfoService);
             new Expectations() {
@@ -599,7 +596,6 @@ public class ConnectContextTest {
             // Test 7: No cluster available - should throw exception
             ctx.setCloudCluster(null);
             ctx.cloudCluster = null;
-            fakeEnv = new FakeEnv();
             FakeEnv.setEnv(env);
             FakeEnv.setSystemInfo(cloudSystemInfoService);
             new Expectations() {
