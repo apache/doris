@@ -87,9 +87,6 @@ public class LineageEventProcessor {
         if (lineageEvent == null) {
             return false;
         }
-        if (Config.activate_lineage_plugin == null || Config.activate_lineage_plugin.length == 0) {
-            return true;
-        }
         boolean isAddSucc = true;
         try {
             if (eventQueue.size() >= Config.lineage_event_queue_size) {

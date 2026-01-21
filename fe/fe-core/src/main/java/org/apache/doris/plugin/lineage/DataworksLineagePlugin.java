@@ -17,7 +17,6 @@
 
 package org.apache.doris.plugin.lineage;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DigitalVersion;

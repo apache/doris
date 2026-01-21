@@ -211,6 +211,12 @@ public class LineageInfoExtractor {
                     .collect(Collectors.toSet());
         }
 
+        /**
+         * Add indirect lineage information based on expressions
+         * @param type         the type of indirect lineage
+         * @param expressions the expressions contributing to indirect lineage, should be shuttled conjunction
+         * @param lineageInfo the lineage info to update
+         */
         private void addIndirectLineage(IndirectLineageType type,
                                         Set<Expression> expressions, LineageInfo lineageInfo) {
 
@@ -233,6 +239,8 @@ public class LineageInfoExtractor {
                     for (Expression expr : expressions) {
                         lineageInfo.addIndirectLineage(outputSlot, type, expr);
                     }
+                } else {
+                    lineageInfo.addDatasetIndirectLineage(type, expressions);
                 }
             }
         }

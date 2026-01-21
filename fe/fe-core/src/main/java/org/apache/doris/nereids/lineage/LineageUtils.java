@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.lineage;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
@@ -80,12 +82,6 @@ public final class LineageUtils {
         if (plan == null || ctx == null) {
             return null;
         }
-        if (Config.activate_lineage_plugin == null || Config.activate_lineage_plugin.length == 0) {
-            return null;
-        }
-        if (shouldSkipLineage(plan)) {
-            return null;
-        }
         String queryId = ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId());
         String queryText = executor == null ? "" : executor.getOriginStmtInString();
         String user = ctx.getQualifiedUser();
@@ -96,6 +92,34 @@ public final class LineageUtils {
                 timestampMs, durationMs);
         event.setLineageInfo(LineageInfoExtractor.extractLineageInfo(event));
         return event;
+    }
+
+    /**
+     * Submit lineage event if lineage plugins are enabled and command matches parsed statement.
+     *
+     * @param executor statement executor containing parsed statement
+     * @param lineagePlan optional lineage plan to use instead of current plan
+     * @param currentPlan current logical plan
+     * @param currentHandleClass current command class
+     */
+    public static void submitLineageEventIfNeeded(StmtExecutor executor, Optional<Plan> lineagePlan,
+                                            LogicalPlan currentPlan,
+                                            Class<? extends Command> currentHandleClass) {
+        if (!LineageUtils.isSameParsedCommand(executor, currentHandleClass)) {
+            return;
+        }
+        if (Config.activate_lineage_plugin == null || Config.activate_lineage_plugin.length == 0) {
+            return;
+        }
+        Plan plan = lineagePlan.orElse(currentPlan);
+        if (shouldSkipLineage(plan)) {
+            return;
+        }
+        LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, currentHandleClass,
+                executor.getContext(), executor);
+        if (lineageEvent != null) {
+            Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
+        }
     }
 
     private static boolean shouldSkipLineage(Plan plan) {

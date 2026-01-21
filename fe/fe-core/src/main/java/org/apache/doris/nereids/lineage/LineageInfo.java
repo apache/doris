@@ -244,7 +244,7 @@ public class LineageInfo {
      * Add indirect lineage for all output slots.
      * Stored as dataset-level indirect lineage to avoid duplication.
      */
-    public void addIndirectLineageForAll(IndirectLineageType type, Expression expr) {
+    public void addDatasetIndirectLineage(IndirectLineageType type, Expression expr) {
         datasetIndirectLineageMap.put(type, expr);
     }
 
@@ -252,9 +252,9 @@ public class LineageInfo {
      * Add indirect lineage for all output slots.
      * Stored as dataset-level indirect lineage to avoid duplication.
      */
-    public void addIndirectLineageForAll(IndirectLineageType type, Set<Expression> exprs) {
+    public void addDatasetIndirectLineage(IndirectLineageType type, Set<Expression> exprs) {
         for (Expression expr : exprs) {
-            addIndirectLineageForAll(type, expr);
+            addDatasetIndirectLineage(type, expr);
         }
     }
 

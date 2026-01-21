@@ -41,7 +41,6 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.lineage.LineageEvent;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -278,7 +277,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     .dropRunningRecord(targetTable.getDatabase().getId(), targetTable.getId());
             isRunning.set(false);
         }
-        submitLineageEventIfNeeded(ctx, executor);
+        LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
     }
 
     /**
@@ -431,17 +430,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 }
             }
             insertCtx.setStaticPartitionValues(staticPartitionValues);
-        }
-    }
-
-    private void submitLineageEventIfNeeded(ConnectContext ctx, StmtExecutor executor) {
-        if (!LineageUtils.isSameParsedCommand(executor, getClass())) {
-            return;
-        }
-        Plan plan = lineagePlan.orElseGet(() -> logicalQuery.orElse(originLogicalQuery));
-        LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, getClass(), ctx, executor);
-        if (lineageEvent != null) {
-            Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
         }
     }
 
