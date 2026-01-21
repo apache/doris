@@ -871,6 +871,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
 import org.apache.doris.nereids.trees.plans.commands.StartTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.SyncTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
@@ -7042,6 +7043,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSync(SyncContext ctx) {
         return new SyncCommand();
+    }
+
+    @Override
+    public Object visitSyncTable(DorisParser.SyncTableContext ctx) {
+        List<String> table = visitMultipartIdentifier(ctx.table);
+        return new SyncTableCommand(new TableNameInfo(table));
     }
 
     @Override
