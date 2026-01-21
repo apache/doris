@@ -361,7 +361,7 @@ under the License.
         <spring.version>3.5.7</spring.version>
         <spring-framework.version>6.2.12</spring-framework.version>
         <orc.version>1.8.4</orc.version>
-        <zookeeper.version>3.9.3</zookeeper.version>
+        <zookeeper.version>3.9.4</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.7.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
