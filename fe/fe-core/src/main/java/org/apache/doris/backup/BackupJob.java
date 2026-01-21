@@ -141,6 +141,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     private long commitSeq = 0;
 
+    private final Metric metric = new Metric();
+
     public BackupJob() {
         super(JobType.BACKUP);
     }
@@ -1068,6 +1070,12 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         if (!status.ok()) {
             return false;
         }
+
+        File file = new File(localFilePath);
+        if (file.exists() && file.isFile()) {
+            metric.metaUploadBytes += file.length();
+        }
+
         return true;
     }
 
@@ -1172,6 +1180,25 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         return new Snapshot(label, metaInfoFile, jobInfoFile, expiredAt, commitSeq);
     }
 
+    public void updateMetric(long taskId, long uploadBytes) {
+        metric.update(taskId, uploadBytes);
+    }
+
+    class Metric {
+        // for task upload
+        public Map<Long, Long> uploadMetricMap = new ConcurrentHashMap<>();
+        // for meta upload
+        public long metaUploadBytes = 0;
+
+        public void update(long taskId, long uploadBytes) {
+            uploadMetricMap.put(taskId, uploadBytes);
+        }
+
+        public long totalUploadBytes() {
+            return uploadMetricMap.values().stream().reduce(0L, Long::sum) + metaUploadBytes;
+        }
+    }
+
     public synchronized List<String> getInfo() {
         String unfinishedTaskIdsStr = unfinishedTaskIds.entrySet().stream()
                 .map(e -> "[" + e.getKey() + "=" + e.getValue() + "]")
@@ -1198,6 +1225,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(unfinishedTaskIdsStr);
         info.add(taskProgressStr);
+        info.add(String.valueOf(metric.totalUploadBytes()));
         info.add(taskErrMsgStr);
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
