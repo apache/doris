@@ -168,15 +168,15 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
         // Check if this is AWS MSK IAM authentication
         // Conditions: security.protocol = SASL_SSL and sasl.mechanism = OAUTHBEARER
         bool is_sasl_ssl = security_protocol_it != _custom_properties.end() &&
-                          security_protocol_it->second == "SASL_SSL";
+                           security_protocol_it->second == "SASL_SSL";
         bool is_oauthbearer = sasl_mechanism_it != _custom_properties.end() &&
-                             sasl_mechanism_it->second == "OAUTHBEARER";
+                              sasl_mechanism_it->second == "OAUTHBEARER";
 
         if (is_sasl_ssl && is_oauthbearer) {
             // This is AWS MSK IAM authentication
             // Default region is "us-east-1"
-            std::string aws_region = region_it != _custom_properties.end() 
-                                     ? region_it->second : "us-east-1";
+            std::string aws_region =
+                    region_it != _custom_properties.end() ? region_it->second : "us-east-1";
 
             // Extract broker hostname for token generation
             std::string broker_hostname = ctx->kafka_info->brokers;
@@ -199,7 +199,7 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
             // Check for explicit AK/SK credentials (highest priority)
             auto access_key_it = _custom_properties.find(PROP_AWS_ACCESS_KEY);
             auto secret_key_it = _custom_properties.find(PROP_AWS_SECRET_KEY);
-            if (access_key_it != _custom_properties.end() && 
+            if (access_key_it != _custom_properties.end() &&
                 secret_key_it != _custom_properties.end()) {
                 auth_config.access_key = access_key_it->second;
                 auth_config.secret_key = secret_key_it->second;

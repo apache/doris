@@ -48,13 +48,13 @@ public:
      * 5. Default credentials chain (environment variables, ~/.aws/credentials, etc.)
      */
     struct Config {
-        std::string region;                    // AWS region (e.g., "us-east-1")
-        std::string access_key;                // AWS Access Key ID (optional, explicit credentials)
-        std::string secret_key;                // AWS Secret Access Key (optional, explicit credentials)
-        std::string role_arn;                  // IAM role ARN (optional, for assume role)
-        std::string profile_name;              // AWS profile name (optional)
-        bool use_instance_profile = true;      // Use EC2 instance profile
-        int token_refresh_margin_ms = 60000;   // Refresh token 60s before expiry
+        std::string region;               // AWS region (e.g., "us-east-1")
+        std::string access_key;           // AWS Access Key ID (optional, explicit credentials)
+        std::string secret_key;           // AWS Secret Access Key (optional, explicit credentials)
+        std::string role_arn;             // IAM role ARN (optional, for assume role)
+        std::string profile_name;         // AWS profile name (optional)
+        bool use_instance_profile = true; // Use EC2 instance profile
+        int token_refresh_margin_ms = 60000; // Refresh token 60s before expiry
     };
 
     explicit AwsMskIamAuth(Config config);
@@ -91,7 +91,6 @@ public:
     Status get_credentials(Aws::Auth::AWSCredentials* credentials);
 
 private:
-
     // Create AWS credentials provider based on configuration
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider();
 
@@ -103,10 +102,9 @@ private:
     std::string _base64url_encode(const std::string& input);
 
     // Calculate AWS SigV4 signing key
-    std::string _calculate_signing_key(const std::string& secret_key,
-                                       const std::string& date_stamp, const std::string& region,
-                                       const std::string& service);
-    
+    std::string _calculate_signing_key(const std::string& secret_key, const std::string& date_stamp,
+                                       const std::string& region, const std::string& service);
+
     std::string _hmac_sha256(const std::string& key, const std::string& data);
 
     std::string _sha256(const std::string& data);
@@ -132,7 +130,8 @@ private:
  */
 class AwsMskIamOAuthCallback : public RdKafka::OAuthBearerTokenRefreshCb {
 public:
-    explicit AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> auth, std::string broker_hostname);
+    explicit AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> auth,
+                                    std::string broker_hostname);
 
     /**
      * Callback invoked by librdkafka to refresh OAuth token.

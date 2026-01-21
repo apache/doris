@@ -49,11 +49,12 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
 
     // 1. Explicit AK/SK credentials
     if (!_config.access_key.empty() && !_config.secret_key.empty()) {
-        LOG(INFO) << "Using explicit AWS credentials (Access Key ID: " 
+        LOG(INFO) << "Using explicit AWS credentials (Access Key ID: "
                   << _config.access_key.substr(0, 4) << "****)";
-        
-        Aws::Auth::AWSCredentials credentials(_config.access_key.c_str(), _config.secret_key.c_str());
-        
+
+        Aws::Auth::AWSCredentials credentials(_config.access_key.c_str(),
+                                              _config.secret_key.c_str());
+
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(credentials);
     }
 
@@ -116,8 +117,8 @@ Status AwsMskIamAuth::get_credentials(Aws::Auth::AWSCredentials* credentials) {
 
 bool AwsMskIamAuth::_should_refresh_credentials() {
     auto now = std::chrono::system_clock::now();
-    auto refresh_time = _credentials_expiry -
-                        std::chrono::milliseconds(_config.token_refresh_margin_ms);
+    auto refresh_time =
+            _credentials_expiry - std::chrono::milliseconds(_config.token_refresh_margin_ms);
     return now >= refresh_time || _cached_credentials.GetAWSAccessKeyId().empty();
 }
 
@@ -131,63 +132,60 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
 
     // AWS MSK IAM token is a base64-encoded presigned URL
     // Reference: https://github.com/aws/aws-msk-iam-sasl-signer-python
-    
+
     // Token expiry in seconds (3600 seconds = 1 hour, longer validity for routine load)
     static constexpr int TOKEN_EXPIRY_SECONDS = 3600;
-    
+
     // Build the endpoint URL
     std::string endpoint_url = "https://kafka." + _config.region + ".amazonaws.com/";
-    
+
     // Build credential scope
     std::string credential_scope =
             date_stamp + "/" + _config.region + "/kafka-cluster/aws4_request";
-    
+
     // Build the canonical query string (sorted alphabetically)
-    std::string canonical_query_string = "Action=kafka-cluster%3AConnect";  // URL-encoded :
-    
+    std::string canonical_query_string = "Action=kafka-cluster%3AConnect"; // URL-encoded :
+
     // Build the canonical headers
     std::string host = "kafka." + _config.region + ".amazonaws.com";
     std::string canonical_headers = "host:" + host + "\n";
     std::string signed_headers = "host";
-    
+
     // Build the canonical request
     std::string method = "GET";
     std::string uri = "/";
     std::string payload_hash = _sha256("");
-    
+
     std::string canonical_request = method + "\n" + uri + "\n" + canonical_query_string + "\n" +
                                     canonical_headers + "\n" + signed_headers + "\n" + payload_hash;
-    
+
     // Build the string to sign
     std::string algorithm = "AWS4-HMAC-SHA256";
     std::string canonical_request_hash = _sha256(canonical_request);
-    std::string string_to_sign = algorithm + "\n" + timestamp + "\n" + credential_scope + "\n" +
-                                 canonical_request_hash;
-    
+    std::string string_to_sign =
+            algorithm + "\n" + timestamp + "\n" + credential_scope + "\n" + canonical_request_hash;
+
     // Calculate signature
-    std::string signing_key = _calculate_signing_key(
-            std::string(credentials.GetAWSSecretKey()),
-            date_stamp, _config.region, "kafka-cluster");
+    std::string signing_key = _calculate_signing_key(std::string(credentials.GetAWSSecretKey()),
+                                                     date_stamp, _config.region, "kafka-cluster");
     std::string signature = _hmac_sha256_hex(signing_key, string_to_sign);
-    
+
     // Build the presigned URL with query parameters
     // Note: User-Agent should NOT be in the URL, it's an HTTP header
     // AWS official implementation adds User-Agent as header, not URL parameter
     std::stringstream url_ss;
     url_ss << endpoint_url << "?"
            << "Action=kafka-cluster%3AConnect"
-           << "&X-Amz-Algorithm=" << algorithm
-           << "&X-Amz-Credential=" << _url_encode(std::string(credentials.GetAWSAccessKeyId()) + "/" + credential_scope)
-           << "&X-Amz-Date=" << timestamp
-           << "&X-Amz-Expires=" << TOKEN_EXPIRY_SECONDS
-           << "&X-Amz-SignedHeaders=" << signed_headers
-           << "&X-Amz-Signature=" << signature;
+           << "&X-Amz-Algorithm=" << algorithm << "&X-Amz-Credential="
+           << _url_encode(std::string(credentials.GetAWSAccessKeyId()) + "/" + credential_scope)
+           << "&X-Amz-Date=" << timestamp << "&X-Amz-Expires=" << TOKEN_EXPIRY_SECONDS
+           << "&X-Amz-SignedHeaders=" << signed_headers << "&X-Amz-Signature=" << signature;
 
     std::string signed_url = url_ss.str();
-    
+
     // Base64url encode the signed URL (without padding)
     *token = _base64url_encode(signed_url);
-    
+
     // Token lifetime in milliseconds
     *token_lifetime_ms = TOKEN_EXPIRY_SECONDS * 1000;
 
@@ -212,7 +210,8 @@ std::string AwsMskIamAuth::_url_encode(const std::string& value) {
 
     for (char c : value) {
         // Keep alphanumeric and other accepted characters intact
-        if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
+        if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' ||
+            c == '~') {
             escaped << c;
         } else {
             // Any other characters are percent-encoded
@@ -229,31 +228,33 @@ std::string AwsMskIamAuth::_base64url_encode(const std::string& input) {
     // Standard base64 alphabet
     static const char* base64_chars =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    
+
     std::string result;
     result.reserve(((input.size() + 2) / 3) * 4);
-    
+
     const unsigned char* bytes = reinterpret_cast<const unsigned char*>(input.c_str());
     size_t len = input.size();
-    
+
     for (size_t i = 0; i < len; i += 3) {
         uint32_t n = static_cast<uint32_t>(bytes[i]) << 16;
         if (i + 1 < len) n |= static_cast<uint32_t>(bytes[i + 1]) << 8;
         if (i + 2 < len) n |= static_cast<uint32_t>(bytes[i + 2]);
-        
+
         result += base64_chars[(n >> 18) & 0x3F];
         result += base64_chars[(n >> 12) & 0x3F];
         if (i + 1 < len) result += base64_chars[(n >> 6) & 0x3F];
         if (i + 2 < len) result += base64_chars[n & 0x3F];
     }
-    
+
     // Convert to URL-safe base64 (replace + with -, / with _)
     // and remove padding (=)
     for (char& c : result) {
-        if (c == '+') c = '-';
-        else if (c == '/') c = '_';
+        if (c == '+')
+            c = '-';
+        else if (c == '/')
+            c = '_';
     }
-    
+
     return result;
 }
 
@@ -334,8 +335,8 @@ void AwsMskIamOAuthCallback::oauthbearer_token_refresh_cb(
     // Error string for oauthbearer_set_token
     std::string set_token_errstr;
 
-    RdKafka::ErrorCode err = handle->oauthbearer_set_token(
-            token, token_lifetime_ms, principal, extensions, set_token_errstr);
+    RdKafka::ErrorCode err = handle->oauthbearer_set_token(token, token_lifetime_ms, principal,
+                                                           extensions, set_token_errstr);
 
     if (err != RdKafka::ERR_NO_ERROR) {
         LOG(WARNING) << "Failed to set OAuth token: " << RdKafka::err2str(err)
