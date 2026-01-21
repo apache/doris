@@ -63,6 +63,8 @@ RIGHT_BRACE: '}';
 // Start of the keywords list
 //============================
 //--DORIS-KEYWORD-LIST-START
+
+META_SERVICES: 'META-SERVICES';
 ACCOUNT_LOCK: 'ACCOUNT_LOCK';
 ACCOUNT_UNLOCK: 'ACCOUNT_UNLOCK';
 ACTIONS: 'ACTIONS';
