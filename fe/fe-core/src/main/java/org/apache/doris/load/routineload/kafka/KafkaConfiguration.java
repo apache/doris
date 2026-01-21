@@ -58,9 +58,26 @@ public enum KafkaConfiguration {
     // - property.security.protocol = SASL_SSL
     // - property.sasl.mechanism = OAUTHBEARER
     // - property.aws.region = <your-region> (e.g., us-east-1)
-    // - property.aws.msk.iam.role.arn = <role-arn> (optional)
-    // - property.aws.profile.name = <profile> (optional)
+    // 
+    // Credential options (choose one):
+    // Option 1: Explicit AK/SK
+    // - property.aws.access.key = <access-key-id>
+    // - property.aws.secret.key = <secret-access-key>
+    // - property.aws.session.token = <session-token> (optional, for temporary credentials)
+    //
+    // Option 2: IAM Role (Assume Role)
+    // - property.aws.msk.iam.role.arn = <role-arn>
+    //
+    // Option 3: AWS Profile
+    // - property.aws.profile.name = <profile>
+    //
+    // Option 4: EC2 Instance Profile / ECS Task Role (default, no config needed)
+    //
+    // Option 5: Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
     public static final String AWS_REGION = "aws.region";
+    public static final String AWS_ACCESS_KEY = "aws.access.key";
+    public static final String AWS_SECRET_KEY = "aws.secret.key";
+    public static final String AWS_SESSION_TOKEN = "aws.session.token";
     public static final String AWS_MSK_IAM_ROLE_ARN = "aws.msk.iam.role.arn";
     public static final String AWS_PROFILE_NAME = "aws.profile.name";
     private final String name;

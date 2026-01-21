@@ -19,6 +19,9 @@
 
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/auth/STSCredentialsProvider.h>
+#include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/sts/STSClient.h>
 #include <aws/sts/model/AssumeRoleRequest.h>
 #include <openssl/hmac.h>
@@ -39,11 +42,29 @@ AwsMskIamAuth::AwsMskIamAuth(const Config& config) : _config(config) {
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_credentials_provider() {
     // Priority order:
-    // 1. Assume Role (if role_arn is specified)
-    // 2. Profile (if profile_name is specified)
-    // 3. Instance Profile (if use_instance_profile is true)
-    // 4. Default credentials chain (environment variables, ~/.aws/credentials, etc.)
+    // 1. Explicit AK/SK (if access_key and secret_key are provided)
+    // 2. Assume Role (if role_arn is specified)
+    // 3. Profile (if profile_name is specified)
+    // 4. Instance Profile (if use_instance_profile is true)
+    // 5. Default credentials chain (environment variables, ~/.aws/credentials, etc.)
 
+    // 1. Explicit AK/SK credentials
+    if (!_config.access_key.empty() && !_config.secret_key.empty()) {
+        LOG(INFO) << "Using explicit AWS credentials (Access Key ID: " 
+                  << _config.access_key.substr(0, 4) << "****)";
+        
+        Aws::Auth::AWSCredentials credentials;
+        credentials.SetAWSAccessKeyId(_config.access_key.c_str());
+        credentials.SetAWSSecretKey(_config.secret_key.c_str());
+        if (!_config.session_token.empty()) {
+            credentials.SetSessionToken(_config.session_token.c_str());
+            LOG(INFO) << "Using session token for temporary credentials";
+        }
+        
+        return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(credentials);
+    }
+
+    // 2. Assume Role
     if (!_config.role_arn.empty()) {
         // Use STS Assume Role
         LOG(INFO) << "Using AWS STS Assume Role: " << _config.role_arn;
@@ -61,17 +82,20 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, sts_client);
     }
 
+    // 3. AWS Profile
     if (!_config.profile_name.empty()) {
         LOG(INFO) << "Using AWS profile: " << _config.profile_name;
         return std::make_shared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>(
                 _config.profile_name.c_str());
     }
 
+    // 4. Instance Profile
     if (_config.use_instance_profile) {
         LOG(INFO) << "Using EC2 Instance Profile credentials";
         return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
     }
 
+    // 5. Default credentials chain
     LOG(INFO) << "Using default AWS credentials provider chain";
     return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 }
@@ -207,10 +231,10 @@ std::string AwsMskIamAuth::_calculate_signing_key(const std::string& secret_key,
 
 std::string AwsMskIamAuth::_hmac_sha256(const std::string& key, const std::string& data) {
     unsigned char* digest;
-    digest = HMAC(EVP_sha256(), key.c_str(), key.length(),
+    digest = HMAC(EVP_sha256(), key.c_str(), static_cast<int>(key.length()),
                   reinterpret_cast<const unsigned char*>(data.c_str()), data.length(), nullptr,
                   nullptr);
-    return std::string(reinterpret_cast<char*>(digest), SHA256_DIGEST_LENGTH);
+    return {reinterpret_cast<char*>(digest), SHA256_DIGEST_LENGTH};
 }
 
 std::string AwsMskIamAuth::_sha256(const std::string& data) {
@@ -267,12 +291,17 @@ void AwsMskIamOAuthCallback::oauthbearer_token_refresh_cb(
     // Extensions (optional additional fields)
     std::list<std::string> extensions;
 
-    RdKafka::ErrorCode err =
-            handle->oauthbearer_set_token(token, token_lifetime_ms, principal, extensions);
+    // Error string for oauthbearer_set_token
+    std::string set_token_errstr;
+
+    RdKafka::ErrorCode err = handle->oauthbearer_set_token(
+            token, token_lifetime_ms, principal, extensions, set_token_errstr);
 
     if (err != RdKafka::ERR_NO_ERROR) {
-        LOG(WARNING) << "Failed to set OAuth token: " << RdKafka::err2str(err);
-        handle->oauthbearer_set_token_failure(RdKafka::err2str(err));
+        LOG(WARNING) << "Failed to set OAuth token: " << RdKafka::err2str(err)
+                     << ", detail: " << set_token_errstr;
+        handle->oauthbearer_set_token_failure(set_token_errstr.empty() ? RdKafka::err2str(err)
+                                                                       : set_token_errstr);
         return;
     }
 

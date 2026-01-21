@@ -34,6 +34,8 @@ import lombok.Setter;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -47,6 +49,8 @@ import java.util.regex.Pattern;
  * Kafka data source properties
  */
 public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
+
+    private static final Logger LOG = LogManager.getLogger(KafkaDataSourceProperties.class);
 
     private static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
 
@@ -253,10 +257,20 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
      * Validate AWS MSK IAM authentication configuration.
      * When using AWS MSK with IAM authentication, the following properties should be configured:
      * - security.protocol = SASL_SSL
-     * - sasl.mechanism = OAUTHBEARER (recommended for AWS MSK IAM)
+     * - sasl.mechanism = OAUTHBEARER
      * - aws.region = <your-aws-region> (optional, defaults to us-east-1)
-     * - aws.msk.iam.role.arn = <role-arn> (optional, for assume role)
-     * - aws.profile.name = <profile-name> (optional, for using AWS profiles)
+     * 
+     * Credential options (choose one):
+     * - Option 1: Explicit AK/SK
+     *   - aws.access.key = <access-key-id>
+     *   - aws.secret.key = <secret-access-key>
+     *   - aws.session.token = <session-token> (optional)
+     * - Option 2: IAM Role (Assume Role)
+     *   - aws.msk.iam.role.arn = <role-arn>
+     * - Option 3: AWS Profile
+     *   - aws.profile.name = <profile-name>
+     * - Option 4: EC2 Instance Profile / ECS Task Role (default)
+     * - Option 5: Environment variables
      * 
      * This method provides helpful error messages for common misconfigurations.
      */
@@ -265,9 +279,13 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         String saslMechanism = customKafkaProperties.get(KafkaConfiguration.SASL_MECHANISM);
         
         // Check if AWS MSK IAM authentication is being used
-        boolean isAwsMskIam = customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN)
-                || customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME)
-                || customKafkaProperties.containsKey("aws.region");
+        boolean hasAwsRegion = customKafkaProperties.containsKey(KafkaConfiguration.AWS_REGION);
+        boolean hasAccessKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_ACCESS_KEY);
+        boolean hasSecretKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_SECRET_KEY);
+        boolean hasRoleArn = customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN);
+        boolean hasProfileName = customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME);
+        
+        boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn || hasProfileName;
         
         // If AWS-related property is set, validate the complete configuration
         if (isAwsMskIam) {
@@ -296,14 +314,30 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                         + "Use OAUTHBEARER and Doris will handle AWS IAM token generation.");
             }
             
-            // Log configuration details
-            if (customKafkaProperties.containsKey("aws.region")) {
-                LOG.info("AWS MSK IAM authentication configured for region: {}", 
-                    customKafkaProperties.get("aws.region"));
+            // Validate explicit AK/SK configuration - both must be provided together
+            if (hasAccessKey != hasSecretKey) {
+                throw new AnalysisException("When using explicit AWS credentials, "
+                        + "both 'property.aws.access.key' and 'property.aws.secret.key' must be provided together.");
             }
-            if (customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN)) {
+            
+            // Log configuration details
+            if (hasAwsRegion) {
+                LOG.info("AWS MSK IAM authentication configured for region: {}", 
+                    customKafkaProperties.get(KafkaConfiguration.AWS_REGION));
+            } else {
+                LOG.info("AWS MSK IAM authentication using default region: us-east-1");
+            }
+            
+            if (hasAccessKey && hasSecretKey) {
+                LOG.info("AWS MSK IAM using explicit credentials (Access Key ID provided)");
+            } else if (hasRoleArn) {
                 LOG.info("AWS MSK IAM role configured: {}", 
                     customKafkaProperties.get(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN));
+            } else if (hasProfileName) {
+                LOG.info("AWS MSK IAM using AWS profile: {}", 
+                    customKafkaProperties.get(KafkaConfiguration.AWS_PROFILE_NAME));
+            } else {
+                LOG.info("AWS MSK IAM using default credentials chain (Instance Profile / Environment Variables)");
             }
         }
         

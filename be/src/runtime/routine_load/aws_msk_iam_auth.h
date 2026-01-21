@@ -46,12 +46,22 @@ class AwsMskIamAuth {
 public:
     /**
      * Configuration for AWS MSK IAM authentication
+     * 
+     * Credential priority order:
+     * 1. Explicit AK/SK (if access_key and secret_key are provided)
+     * 2. Assume Role (if role_arn is specified)
+     * 3. AWS Profile (if profile_name is specified)
+     * 4. EC2 Instance Profile / ECS Task Role (if use_instance_profile is true)
+     * 5. Default credentials chain (environment variables, ~/.aws/credentials, etc.)
      */
     struct Config {
         std::string region;                    // AWS region (e.g., "us-east-1")
+        std::string access_key;                // AWS Access Key ID (optional, explicit credentials)
+        std::string secret_key;                // AWS Secret Access Key (optional, explicit credentials)
+        std::string session_token;             // AWS Session Token (optional, for temporary credentials)
         std::string role_arn;                  // IAM role ARN (optional, for assume role)
         std::string profile_name;              // AWS profile name (optional)
-        bool use_instance_profile = true;     // Use EC2 instance profile
+        bool use_instance_profile = true;      // Use EC2 instance profile
         int token_refresh_margin_ms = 60000;   // Refresh token 60s before expiry
     };
 

@@ -50,6 +50,9 @@ static const std::string PROP_GROUP_ID = "group.id";
 static const std::string PROP_SECURITY_PROTOCOL = "security.protocol";
 static const std::string PROP_SASL_MECHANISM = "sasl.mechanism";
 static const std::string PROP_AWS_REGION = "aws.region";
+static const std::string PROP_AWS_ACCESS_KEY = "aws.access.key";
+static const std::string PROP_AWS_SECRET_KEY = "aws.secret.key";
+static const std::string PROP_AWS_SESSION_TOKEN = "aws.session.token";
 static const std::string PROP_AWS_ROLE_ARN = "aws.msk.iam.role.arn";
 static const std::string PROP_AWS_PROFILE = "aws.profile.name";
 // init kafka consumer will only set common configs such as
@@ -147,64 +150,99 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     }
 
     // Check if AWS MSK IAM authentication is enabled
-    auto security_protocol_it = _custom_properties.find(PROP_SECURITY_PROTOCOL);
-    auto sasl_mechanism_it = _custom_properties.find(PROP_SASL_MECHANISM);
-
-    if (security_protocol_it != _custom_properties.end() &&
-        security_protocol_it->second == "SASL_SSL" && sasl_mechanism_it != _custom_properties.end() &&
-        sasl_mechanism_it->second == "OAUTHBEARER") {
+    // AWS MSK IAM authentication requires:
+    // 1. security.protocol = SASL_SSL
+    // 2. sasl.mechanism = OAUTHBEARER
+    // 3. aws.region is set (optional, defaults to us-east-1)
+    //
+    // Supported credential sources (in priority order):
+    // 1. Assume Role (if aws.msk.iam.role.arn is specified)
+    // 2. AWS Profile (if aws.profile.name is specified)
+    // 3. EC2 Instance Profile / ECS Task Role
+    // 4. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)
+    // 5. Default credentials chain (~/.aws/credentials, etc.)
+    {
+        auto security_protocol_it = _custom_properties.find(PROP_SECURITY_PROTOCOL);
+        auto sasl_mechanism_it = _custom_properties.find(PROP_SASL_MECHANISM);
+        auto region_it = _custom_properties.find(PROP_AWS_REGION);
 
         // Check if this is AWS MSK IAM authentication
-        // AWS MSK IAM authentication requires:
-        // 1. security.protocol = SASL_SSL
-        // 2. sasl.mechanism = OAUTHBEARER
-        // 3. aws.region is set (or can be inferred)
-        
-        auto region_it = _custom_properties.find(PROP_AWS_REGION);
-        std::string aws_region = region_it != _custom_properties.end() ? region_it->second : "us-east-1";
+        // Conditions: security.protocol = SASL_SSL and sasl.mechanism = OAUTHBEARER
+        bool is_sasl_ssl = security_protocol_it != _custom_properties.end() &&
+                          security_protocol_it->second == "SASL_SSL";
+        bool is_oauthbearer = sasl_mechanism_it != _custom_properties.end() &&
+                             sasl_mechanism_it->second == "OAUTHBEARER";
 
-        // Extract broker hostname for token generation
-        std::string broker_hostname = ctx->kafka_info->brokers;
-        if (broker_hostname.find(',') != std::string::npos) {
-            // Multiple brokers, use the first one
-            broker_hostname = broker_hostname.substr(0, broker_hostname.find(','));
+        if (is_sasl_ssl && is_oauthbearer) {
+            // This is AWS MSK IAM authentication
+            // Default region is "us-east-1"
+            std::string aws_region = region_it != _custom_properties.end() 
+                                     ? region_it->second : "us-east-1";
+
+            // Extract broker hostname for token generation
+            std::string broker_hostname = ctx->kafka_info->brokers;
+            if (broker_hostname.find(',') != std::string::npos) {
+                // Multiple brokers, use the first one
+                broker_hostname = broker_hostname.substr(0, broker_hostname.find(','));
+            }
+            // Remove port if present
+            if (broker_hostname.find(':') != std::string::npos) {
+                broker_hostname = broker_hostname.substr(0, broker_hostname.find(':'));
+            }
+
+            LOG(INFO) << "Enabling AWS MSK IAM authentication for broker: " << broker_hostname
+                      << ", region: " << aws_region;
+
+            // Create AWS MSK IAM auth configuration
+            AwsMskIamAuth::Config auth_config;
+            auth_config.region = aws_region;
+
+            // Check for explicit AK/SK credentials (highest priority)
+            auto access_key_it = _custom_properties.find(PROP_AWS_ACCESS_KEY);
+            auto secret_key_it = _custom_properties.find(PROP_AWS_SECRET_KEY);
+            if (access_key_it != _custom_properties.end() && 
+                secret_key_it != _custom_properties.end()) {
+                auth_config.access_key = access_key_it->second;
+                auth_config.secret_key = secret_key_it->second;
+                LOG(INFO) << "Using explicit AWS credentials";
+                
+                // Check for session token (for temporary credentials)
+                auto session_token_it = _custom_properties.find(PROP_AWS_SESSION_TOKEN);
+                if (session_token_it != _custom_properties.end()) {
+                    auth_config.session_token = session_token_it->second;
+                    LOG(INFO) << "Using session token for temporary credentials";
+                }
+            }
+
+            // Check for IAM Role ARN (for STS Assume Role)
+            auto role_arn_it = _custom_properties.find(PROP_AWS_ROLE_ARN);
+            if (role_arn_it != _custom_properties.end()) {
+                auth_config.role_arn = role_arn_it->second;
+                LOG(INFO) << "Using IAM role: " << auth_config.role_arn;
+            }
+
+            // Check for AWS Profile
+            auto profile_it = _custom_properties.find(PROP_AWS_PROFILE);
+            if (profile_it != _custom_properties.end()) {
+                auth_config.profile_name = profile_it->second;
+                LOG(INFO) << "Using AWS profile: " << auth_config.profile_name;
+            }
+
+            // Create the AWS MSK IAM authenticator
+            _aws_msk_iam_auth = std::make_shared<AwsMskIamAuth>(auth_config);
+            _aws_msk_oauth_callback =
+                    std::make_unique<AwsMskIamOAuthCallback>(_aws_msk_iam_auth, broker_hostname);
+
+            // Set the OAuth callback for librdkafka
+            // librdkafka will call this callback when it needs to refresh the token
+            if (conf->set("oauthbearer_token_refresh_cb", _aws_msk_oauth_callback.get(), errstr) !=
+                RdKafka::Conf::CONF_OK) {
+                LOG(WARNING) << "PAUSE: failed to set OAuth callback: " << errstr;
+                return Status::InternalError("PAUSE: failed to set OAuth callback: " + errstr);
+            }
+
+            LOG(INFO) << "AWS MSK IAM authentication enabled successfully";
         }
-        // Remove port if present
-        if (broker_hostname.find(':') != std::string::npos) {
-            broker_hostname = broker_hostname.substr(0, broker_hostname.find(':'));
-        }
-
-        LOG(INFO) << "Enabling AWS MSK IAM authentication for broker: " << broker_hostname
-                  << ", region: " << aws_region;
-
-        // Create AWS MSK IAM auth
-        AwsMskIamAuth::Config auth_config;
-        auth_config.region = aws_region;
-
-        auto role_arn_it = _custom_properties.find(PROP_AWS_ROLE_ARN);
-        if (role_arn_it != _custom_properties.end()) {
-            auth_config.role_arn = role_arn_it->second;
-            LOG(INFO) << "Using IAM role: " << auth_config.role_arn;
-        }
-
-        auto profile_it = _custom_properties.find(PROP_AWS_PROFILE);
-        if (profile_it != _custom_properties.end()) {
-            auth_config.profile_name = profile_it->second;
-            LOG(INFO) << "Using AWS profile: " << auth_config.profile_name;
-        }
-
-        _aws_msk_iam_auth = std::make_shared<AwsMskIamAuth>(auth_config);
-        _aws_msk_oauth_callback =
-                std::make_unique<AwsMskIamOAuthCallback>(_aws_msk_iam_auth, broker_hostname);
-
-        // Set the OAuth callback
-        if (conf->set("oauthbearer_token_refresh_cb", _aws_msk_oauth_callback.get(), errstr) !=
-            RdKafka::Conf::CONF_OK) {
-            LOG(WARNING) << "PAUSE: failed to set OAuth callback: " << errstr;
-            return Status::InternalError("PAUSE: failed to set OAuth callback: " + errstr);
-        }
-
-        LOG(INFO) << "AWS MSK IAM authentication enabled successfully";
     }
 
     // create consumer
