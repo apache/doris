@@ -154,8 +154,6 @@ Status OlapScanner::prepare() {
     _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
     _slot_id_to_col_type = local_state->_slot_id_to_col_type;
     _score_runtime = local_state->_score_runtime;
-
-    _score_runtime = local_state->_score_runtime;
     // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
 

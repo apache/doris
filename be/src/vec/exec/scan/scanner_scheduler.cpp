@@ -382,6 +382,10 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
         return;
     }
 
+    if (free_block->rows() == 0) {
+        return;
+    }
+
     size_t idx = 0;
     for (const auto& entry : *free_block) {
         // Virtual column must be materialized on the end of SegmentIterator's next batch method.

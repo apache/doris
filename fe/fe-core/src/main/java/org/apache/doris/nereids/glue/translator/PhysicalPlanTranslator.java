@@ -893,6 +893,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (olapScan.getScoreLimit().isPresent()) {
             olapScanNode.setScoreSortLimit(olapScan.getScoreLimit().get());
         }
+        if (olapScan.getScoreRangeInfo().isPresent()) {
+            olapScanNode.setScoreRangeInfo(olapScan.getScoreRangeInfo().get());
+        }
 
         // translate ann topn info
         if (!olapScan.getAnnOrderKeys().isEmpty()) {
