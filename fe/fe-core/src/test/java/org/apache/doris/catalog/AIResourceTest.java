@@ -333,4 +333,29 @@ public class AIResourceTest {
         Assert.assertEquals("ANTHROPIC", anthropicResource.getProperty(AIProperties.PROVIDER_TYPE));
         Assert.assertEquals("LOCAL", localResource.getProperty(AIProperties.PROVIDER_TYPE));
     }
+
+    @Test
+    public void testDimensionsValidation() throws Exception {
+        Map<String, String> props = new HashMap<>(aiProperties);
+        AIResource resource = new AIResource("test-dimensions");
+        // default dimensions should be set
+        resource.setProperties(ImmutableMap.copyOf(props));
+        FeConstants.runningUnitTest = true;
+        Assert.assertEquals(AIProperties.DEFAULT_DIMENSIONS, resource.getProperty(AIProperties.DIMENSIONS));
+    
+        // modify dimensions
+        Map<String, String> modify = new HashMap<>();
+        modify.put(AIProperties.DIMENSIONS, "1536");
+        resource.modifyProperties(modify);
+        Assert.assertEquals("1536", resource.getProperty(AIProperties.DIMENSIONS));
+    
+        // modify other properties without dimensions 
+        modify.clear();
+        modify.put(AIProperties.MAX_RETRIES, "1");
+        modify.put(AIProperties.TEMPERATURE, "0.8");
+        resource.modifyProperties(modify);
+        Assert.assertEquals("1", resource.getProperty(AIProperties.MAX_RETRIES));
+        Assert.assertEquals("0.8", resource.getProperty(AIProperties.TEMPERATURE));
+        Assert.assertEquals("1536", resource.getProperty(AIProperties.DIMENSIONS));
+    }
 }
