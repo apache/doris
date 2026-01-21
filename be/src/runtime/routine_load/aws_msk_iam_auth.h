@@ -65,29 +65,29 @@ public:
         int token_refresh_margin_ms = 60000;   // Refresh token 60s before expiry
     };
 
-    explicit AwsMskIamAuth(const Config& config);
+    explicit AwsMskIamAuth(Config config);
     ~AwsMskIamAuth() = default;
 
     /**
      * Generate AWS MSK IAM authentication token.
      * 
-     * The token is a JSON string containing:
-     * {
-     *   "version": "2020_10_22",
-     *   "host": "<broker-hostname>",
-     *   "user-agent": "doris-msk-iam-auth",
-     *   "action": "kafka-cluster:Connect",
-     *   "x-amz-algorithm": "AWS4-HMAC-SHA256",
-     *   "x-amz-credential": "<access-key>/<date>/<region>/kafka-cluster/aws4_request",
-     *   "x-amz-date": "<timestamp>",
-     *   "x-amz-security-token": "<session-token>",  // if using temporary credentials
-     *   "x-amz-signature": "<signature>",
-     *   "x-amz-signedheaders": "host"
-     * }
+     * The token is a base64url-encoded presigned URL following AWS SigV4 format:
+     * https://kafka.<region>.amazonaws.com/?Action=kafka-cluster:Connect
+     *   &X-Amz-Algorithm=AWS4-HMAC-SHA256
+     *   &X-Amz-Credential=<access-key>/<date>/<region>/kafka-cluster/aws4_request
+     *   &X-Amz-Date=<timestamp>
+     *   &X-Amz-Expires=900
+     *   &X-Amz-SignedHeaders=host
+     *   &X-Amz-Signature=<signature>
+     *   &X-Amz-Security-Token=<session-token>  // if using temporary credentials
+     *   &User-Agent=doris-msk-iam-auth/1.0
      * 
-     * @param broker_hostname The MSK broker hostname
-     * @param token_lifetime_ms Output: token lifetime in milliseconds
-     * @return Status and the generated token string
+     * Reference: https://github.com/aws/aws-msk-iam-sasl-signer-python
+     * 
+     * @param broker_hostname The MSK broker hostname (used for logging, not in token)
+     * @param token Output: base64url-encoded signed URL token
+     * @param token_lifetime_ms Output: token lifetime in milliseconds (default 900000ms = 15min)
+     * @return Status indicating success or failure
      */
     Status generate_token(const std::string& broker_hostname, std::string* token,
                           int64_t* token_lifetime_ms);
@@ -105,11 +105,19 @@ private:
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider();
 
     /**
-     * Generate AWS Signature Version 4
+     * HMAC-SHA256 returning hex string
      */
-    std::string _generate_signature_v4(const Aws::Auth::AWSCredentials& credentials,
-                                       const std::string& broker_hostname,
-                                       const std::string& timestamp);
+    std::string _hmac_sha256_hex(const std::string& key, const std::string& data);
+
+    /**
+     * URL encode a string
+     */
+    std::string _url_encode(const std::string& value);
+
+    /**
+     * Base64url encode without padding (RFC 4648)
+     */
+    std::string _base64url_encode(const std::string& input);
 
     /**
      * Calculate AWS SigV4 signing key
@@ -158,8 +166,7 @@ private:
  */
 class AwsMskIamOAuthCallback : public RdKafka::OAuthBearerTokenRefreshCb {
 public:
-    explicit AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> auth,
-                                    const std::string& broker_hostname);
+    explicit AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> auth, std::string broker_hostname);
 
     /**
      * Callback invoked by librdkafka to refresh OAuth token.

@@ -29,14 +29,13 @@
 
 #include <chrono>
 #include <iomanip>
-#include <nlohmann/json.hpp>
 #include <sstream>
 
 #include "common/logging.h"
 
 namespace doris {
 
-AwsMskIamAuth::AwsMskIamAuth(const Config& config) : _config(config) {
+AwsMskIamAuth::AwsMskIamAuth(Config config) : _config(std::move(config)) {
     _credentials_provider = _create_credentials_provider();
 }
 
@@ -136,85 +135,138 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     std::string timestamp = _get_timestamp();
     std::string date_stamp = _get_date_stamp(timestamp);
 
-    // Build the token JSON
-    nlohmann::json token_json;
-    token_json["version"] = "2020_10_22";
-    token_json["host"] = broker_hostname;
-    token_json["user-agent"] = "doris-msk-iam-auth/1.0";
-    token_json["action"] = "kafka-cluster:Connect";
-
-    // AWS SigV4 fields
-    token_json["x-amz-algorithm"] = "AWS4-HMAC-SHA256";
-
+    // AWS MSK IAM token is a base64-encoded presigned URL
+    // Reference: https://github.com/aws/aws-msk-iam-sasl-signer-python
+    
+    // Token expiry in seconds (default 900 seconds = 15 minutes, as per AWS implementation)
+    static constexpr int TOKEN_EXPIRY_SECONDS = 900;
+    
+    // Build the endpoint URL
+    std::string endpoint_url = "https://kafka." + _config.region + ".amazonaws.com/";
+    
+    // Build credential scope
     std::string credential_scope =
             date_stamp + "/" + _config.region + "/kafka-cluster/aws4_request";
-    token_json["x-amz-credential"] =
-            credentials.GetAWSAccessKeyId().c_str() + std::string("/") + credential_scope;
-
-    token_json["x-amz-date"] = timestamp;
-
+    
+    // Build the canonical query string (sorted alphabetically)
+    std::string canonical_query_string = "Action=kafka-cluster%3AConnect";  // URL-encoded :
+    
+    // Build the canonical headers
+    std::string host = "kafka." + _config.region + ".amazonaws.com";
+    std::string canonical_headers = "host:" + host + "\n";
+    std::string signed_headers = "host";
+    
+    // Build the canonical request
+    std::string method = "GET";
+    std::string uri = "/";
+    std::string payload_hash = _sha256("");
+    
+    std::string canonical_request = method + "\n" + uri + "\n" + canonical_query_string + "\n" +
+                                    canonical_headers + "\n" + signed_headers + "\n" + payload_hash;
+    
+    // Build the string to sign
+    std::string algorithm = "AWS4-HMAC-SHA256";
+    std::string canonical_request_hash = _sha256(canonical_request);
+    std::string string_to_sign = algorithm + "\n" + timestamp + "\n" + credential_scope + "\n" +
+                                 canonical_request_hash;
+    
+    // Calculate signature
+    std::string signing_key = _calculate_signing_key(
+            std::string(credentials.GetAWSSecretKey().c_str()),
+            date_stamp, _config.region, "kafka-cluster");
+    std::string signature = _hmac_sha256_hex(signing_key, string_to_sign);
+    
+    // Build the presigned URL with query parameters
+    std::stringstream url_ss;
+    url_ss << endpoint_url << "?"
+           << "Action=kafka-cluster%3AConnect"
+           << "&X-Amz-Algorithm=" << algorithm
+           << "&X-Amz-Credential=" << _url_encode(std::string(credentials.GetAWSAccessKeyId().c_str()) + "/" + credential_scope)
+           << "&X-Amz-Date=" << timestamp
+           << "&X-Amz-Expires=" << TOKEN_EXPIRY_SECONDS
+           << "&X-Amz-SignedHeaders=" << signed_headers
+           << "&X-Amz-Signature=" << signature;
+    
     // Add session token if using temporary credentials
     if (!credentials.GetSessionToken().empty()) {
-        token_json["x-amz-security-token"] = credentials.GetSessionToken().c_str();
+        url_ss << "&X-Amz-Security-Token=" << _url_encode(std::string(credentials.GetSessionToken().c_str()));
     }
+    
+    // Add user agent
+    url_ss << "&User-Agent=" << _url_encode("doris-msk-iam-auth/1.0");
+    
+    std::string signed_url = url_ss.str();
+    
+    // Base64url encode the signed URL (without padding)
+    *token = _base64url_encode(signed_url);
+    
+    // Token lifetime in milliseconds
+    *token_lifetime_ms = TOKEN_EXPIRY_SECONDS * 1000;
 
-    token_json["x-amz-signedheaders"] = "host";
-
-    // Generate signature
-    std::string signature = _generate_signature_v4(credentials, broker_hostname, timestamp);
-    token_json["x-amz-signature"] = signature;
-
-    *token = token_json.dump();
-
-    // Token lifetime is 1 hour (AWS IAM credentials default lifetime)
-    // Subtract refresh margin to ensure we refresh before expiry
-    *token_lifetime_ms = 3600000 - _config.token_refresh_margin_ms;
-
-    if (VLOG_IS_ON(2)) {
-        VLOG(2) << "Generated AWS MSK IAM token for broker: " << broker_hostname;
-    }
+    VLOG_NOTICE << "Generated AWS MSK IAM token for region: " << _config.region;
 
     return Status::OK();
 }
 
-std::string AwsMskIamAuth::_generate_signature_v4(const Aws::Auth::AWSCredentials& credentials,
-                                                  const std::string& broker_hostname,
-                                                  const std::string& timestamp) {
-    std::string date_stamp = _get_date_stamp(timestamp);
-
-    // Step 1: Create canonical request
-    std::string method = "GET";
-    std::string uri = "/";
-    std::string query_string = "Action=kafka-cluster:Connect";
-    std::string headers = "host:" + broker_hostname + "\n";
-    std::string signed_headers = "host";
-    std::string payload_hash = _sha256(""); // Empty payload
-
-    std::string canonical_request = method + "\n" + uri + "\n" + query_string + "\n" + headers +
-                                    "\n" + signed_headers + "\n" + payload_hash;
-
-    // Step 2: Create string to sign
-    std::string algorithm = "AWS4-HMAC-SHA256";
-    std::string credential_scope =
-            date_stamp + "/" + _config.region + "/kafka-cluster/aws4_request";
-    std::string canonical_request_hash = _sha256(canonical_request);
-
-    std::string string_to_sign = algorithm + "\n" + timestamp + "\n" + credential_scope + "\n" +
-                                 canonical_request_hash;
-
-    // Step 3: Calculate signature
-    std::string signing_key = _calculate_signing_key(credentials.GetAWSSecretKey().c_str(),
-                                                     date_stamp, _config.region, "kafka-cluster");
-
-    std::string signature_bytes = _hmac_sha256(signing_key, string_to_sign);
-
-    // Convert to hex string
+std::string AwsMskIamAuth::_hmac_sha256_hex(const std::string& key, const std::string& data) {
+    std::string raw = _hmac_sha256(key, data);
     std::stringstream ss;
-    for (unsigned char c : signature_bytes) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
+    for (unsigned char c : raw) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+    }
+    return ss.str();
+}
+
+std::string AwsMskIamAuth::_url_encode(const std::string& value) {
+    std::ostringstream escaped;
+    escaped.fill('0');
+    escaped << std::hex;
+
+    for (char c : value) {
+        // Keep alphanumeric and other accepted characters intact
+        if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
+            escaped << c;
+        } else {
+            // Any other characters are percent-encoded
+            escaped << std::uppercase;
+            escaped << '%' << std::setw(2) << static_cast<int>(static_cast<unsigned char>(c));
+            escaped << std::nouppercase;
+        }
     }
 
-    return ss.str();
+    return escaped.str();
+}
+
+std::string AwsMskIamAuth::_base64url_encode(const std::string& input) {
+    // Standard base64 alphabet
+    static const char* base64_chars =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    
+    std::string result;
+    result.reserve(((input.size() + 2) / 3) * 4);
+    
+    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(input.c_str());
+    size_t len = input.size();
+    
+    for (size_t i = 0; i < len; i += 3) {
+        uint32_t n = static_cast<uint32_t>(bytes[i]) << 16;
+        if (i + 1 < len) n |= static_cast<uint32_t>(bytes[i + 1]) << 8;
+        if (i + 2 < len) n |= static_cast<uint32_t>(bytes[i + 2]);
+        
+        result += base64_chars[(n >> 18) & 0x3F];
+        result += base64_chars[(n >> 12) & 0x3F];
+        if (i + 1 < len) result += base64_chars[(n >> 6) & 0x3F];
+        if (i + 2 < len) result += base64_chars[n & 0x3F];
+    }
+    
+    // Convert to URL-safe base64 (replace + with -, / with _)
+    // and remove padding (=)
+    for (char& c : result) {
+        if (c == '+') c = '-';
+        else if (c == '/') c = '_';
+    }
+    
+    return result;
 }
 
 std::string AwsMskIamAuth::_calculate_signing_key(const std::string& secret_key,
@@ -242,8 +294,8 @@ std::string AwsMskIamAuth::_sha256(const std::string& data) {
     SHA256(reinterpret_cast<const unsigned char*>(data.c_str()), data.length(), hash);
 
     std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+    for (unsigned char i : hash) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)i;
     }
     return ss.str();
 }
@@ -267,11 +319,11 @@ std::string AwsMskIamAuth::_get_date_stamp(const std::string& timestamp) {
 // AwsMskIamOAuthCallback implementation
 
 AwsMskIamOAuthCallback::AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> auth,
-                                               const std::string& broker_hostname)
-        : _auth(auth), _broker_hostname(broker_hostname) {}
+                                               std::string broker_hostname)
+        : _auth(std::move(auth)), _broker_hostname(std::move(broker_hostname)) {}
 
 void AwsMskIamOAuthCallback::oauthbearer_token_refresh_cb(
-        RdKafka::Handle* handle, const std::string& oauthbearer_config) {
+        RdKafka::Handle* handle, const std::string& /*oauthbearer_config*/) {
     std::string token;
     int64_t token_lifetime_ms;
 

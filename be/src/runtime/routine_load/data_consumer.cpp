@@ -133,7 +133,7 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     // if not specified group id, generate a random one.
     // ATTN: In the new version, we have set a group.id on the FE side for jobs that have not set a groupid,
     // but in order to ensure compatibility, we still do a check here.
-    if (_custom_properties.find(PROP_GROUP_ID) == _custom_properties.end()) {
+    if (!_custom_properties.contains(PROP_GROUP_ID)) {
         std::stringstream ss;
         ss << BackendOptions::get_localhost() << "_";
         std::string group_id = ss.str() + UniqueId::gen_uid().to_string();
