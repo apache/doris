@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
@@ -5990,9 +5991,9 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public static void throwRuntimeExceptionWhenFeDebug(String msg) {
+    public static void throwAnalysisExceptionWhenFeDebug(String msg) {
         if (isFeDebug()) {
-            throw new RuntimeException(msg);
+            throw new AnalysisException(msg);
         }
     }
 
