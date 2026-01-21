@@ -1441,16 +1441,15 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             } else {
                 // process A and (B or C) => A and B or A and C
                 boolean hasEmptyValue = false;
-                boolean hasFalse = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     IntersectType type = valueDesc.getIntersectType(other, depth + 1);
                     if (type == IntersectType.OTHERS) {
                         return type;
                     }
                     hasEmptyValue = hasEmptyValue || type == IntersectType.EMPTY_VALUE;
-                    hasFalse = hasFalse || type == IntersectType.FALSE;
                 }
 
+                // must hasEmptyValue or hasFalse
                 return hasEmptyValue ? IntersectType.EMPTY_VALUE : IntersectType.FALSE;
             }
         }
@@ -1462,16 +1461,15 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             }
             if (isAnd) {
                 // process `A or (B and C)`:  => (A or B) and (A or C)
-                boolean hasTrue = false;
                 boolean hasRangeAll = false;
                 for (ValueDesc valueDesc : sourceValues) {
                     UnionType type = valueDesc.getUnionType(other, depth + 1);
                     if (type == UnionType.OTHERS) {
                         return type;
                     }
-                    hasTrue = hasTrue || type == UnionType.TRUE;
                     hasRangeAll = hasRangeAll || type == UnionType.RANGE_ALL;
                 }
+                // must hasRangeAll or hasTrue
                 return hasRangeAll ? UnionType.RANGE_ALL : UnionType.TRUE;
             } else {
                 // process 'A or ((B or C) and ...)'
