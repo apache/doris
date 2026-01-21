@@ -2539,14 +2539,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputPlanFragment = repeat.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(repeat.child(0));
 
-        Set<NamedExpression> outputSets = ImmutableSet.copyOf(repeat.getOutputExpressions());
         List<Expression> flattenGroupingExpressions = repeat.getGroupByExpressions();
         Set<Slot> preRepeatExpressions = Sets.newLinkedHashSet();
-        // keep group by expression comes first
+        // keep group by expression coming first
         for (Expression groupByExpr : flattenGroupingExpressions) {
-            Slot groupBySlot = (Slot) groupByExpr;
-            Preconditions.checkState(outputSets.contains(groupBySlot));
-            preRepeatExpressions.add(groupBySlot);
+            // NormalizeRepeat had converted group by expression to slot
+            preRepeatExpressions.add((Slot) groupByExpr);
         }
 
         // add aggregate function used expressions
@@ -2560,7 +2558,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(expr -> ExpressionTranslator.translate(expr, context))
                 .collect(ImmutableList.toImmutableList());
 
-        // outputSlots's order need same with preRepeatExprs, then grouping id, then grouping function slots
+        // outputSlots's order must match preRepeatExprs, then grouping id, then grouping function slots
         ImmutableList.Builder<Slot> outputSlotsBuilder
                 = ImmutableList.builderWithExpectedSize(repeat.getOutputExpressions().size() + 1);
         outputSlotsBuilder.addAll(preRepeatExpressions);
