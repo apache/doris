@@ -52,13 +52,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
         LOG(INFO) << "Using explicit AWS credentials (Access Key ID: " 
                   << _config.access_key.substr(0, 4) << "****)";
         
-        Aws::Auth::AWSCredentials credentials;
-        credentials.SetAWSAccessKeyId(_config.access_key.c_str());
-        credentials.SetAWSSecretKey(_config.secret_key.c_str());
-        if (!_config.session_token.empty()) {
-            credentials.SetSessionToken(_config.session_token.c_str());
-            LOG(INFO) << "Using session token for temporary credentials";
-        }
+        Aws::Auth::AWSCredentials credentials(_config.access_key.c_str(), _config.secret_key.c_str());
         
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(credentials);
     }
@@ -138,8 +132,8 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     // AWS MSK IAM token is a base64-encoded presigned URL
     // Reference: https://github.com/aws/aws-msk-iam-sasl-signer-python
     
-    // Token expiry in seconds (default 900 seconds = 15 minutes, as per AWS implementation)
-    static constexpr int TOKEN_EXPIRY_SECONDS = 900;
+    // Token expiry in seconds (3600 seconds = 1 hour, longer validity for routine load)
+    static constexpr int TOKEN_EXPIRY_SECONDS = 3600;
     
     // Build the endpoint URL
     std::string endpoint_url = "https://kafka." + _config.region + ".amazonaws.com/";
@@ -172,29 +166,23 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     
     // Calculate signature
     std::string signing_key = _calculate_signing_key(
-            std::string(credentials.GetAWSSecretKey().c_str()),
+            std::string(credentials.GetAWSSecretKey()),
             date_stamp, _config.region, "kafka-cluster");
     std::string signature = _hmac_sha256_hex(signing_key, string_to_sign);
     
     // Build the presigned URL with query parameters
+    // Note: User-Agent should NOT be in the URL, it's an HTTP header
+    // AWS official implementation adds User-Agent as header, not URL parameter
     std::stringstream url_ss;
     url_ss << endpoint_url << "?"
            << "Action=kafka-cluster%3AConnect"
            << "&X-Amz-Algorithm=" << algorithm
-           << "&X-Amz-Credential=" << _url_encode(std::string(credentials.GetAWSAccessKeyId().c_str()) + "/" + credential_scope)
+           << "&X-Amz-Credential=" << _url_encode(std::string(credentials.GetAWSAccessKeyId()) + "/" + credential_scope)
            << "&X-Amz-Date=" << timestamp
            << "&X-Amz-Expires=" << TOKEN_EXPIRY_SECONDS
            << "&X-Amz-SignedHeaders=" << signed_headers
            << "&X-Amz-Signature=" << signature;
-    
-    // Add session token if using temporary credentials
-    if (!credentials.GetSessionToken().empty()) {
-        url_ss << "&X-Amz-Security-Token=" << _url_encode(std::string(credentials.GetSessionToken().c_str()));
-    }
-    
-    // Add user agent
-    url_ss << "&User-Agent=" << _url_encode("doris-msk-iam-auth/1.0");
-    
+
     std::string signed_url = url_ss.str();
     
     // Base64url encode the signed URL (without padding)

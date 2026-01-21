@@ -52,7 +52,6 @@ static const std::string PROP_SASL_MECHANISM = "sasl.mechanism";
 static const std::string PROP_AWS_REGION = "aws.region";
 static const std::string PROP_AWS_ACCESS_KEY = "aws.access.key";
 static const std::string PROP_AWS_SECRET_KEY = "aws.secret.key";
-static const std::string PROP_AWS_SESSION_TOKEN = "aws.session.token";
 static const std::string PROP_AWS_ROLE_ARN = "aws.msk.iam.role.arn";
 static const std::string PROP_AWS_PROFILE = "aws.profile.name";
 // init kafka consumer will only set common configs such as
@@ -205,13 +204,6 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
                 auth_config.access_key = access_key_it->second;
                 auth_config.secret_key = secret_key_it->second;
                 LOG(INFO) << "Using explicit AWS credentials";
-                
-                // Check for session token (for temporary credentials)
-                auto session_token_it = _custom_properties.find(PROP_AWS_SESSION_TOKEN);
-                if (session_token_it != _custom_properties.end()) {
-                    auth_config.session_token = session_token_it->second;
-                    LOG(INFO) << "Using session token for temporary credentials";
-                }
             }
 
             // Check for IAM Role ARN (for STS Assume Role)

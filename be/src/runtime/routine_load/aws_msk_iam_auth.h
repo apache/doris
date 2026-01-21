@@ -34,13 +34,6 @@ namespace doris {
  * This class generates SASL/OAUTHBEARER tokens for AWS MSK IAM authentication.
  * It uses AWS SDK for C++ to obtain IAM credentials and generates signed tokens
  * that can be used with librdkafka's OAUTHBEARER mechanism.
- * 
- * The token format follows AWS MSK IAM authentication protocol:
- * - Token is a JSON object containing AWS signature v4 authentication
- * - Includes AWS access key, secret key, session token (if using temporary credentials)
- * - Token lifetime is tied to the IAM credentials lifetime (typically 1-12 hours)
- * 
- * Thread-safe: Yes (uses mutex for credential refresh)
  */
 class AwsMskIamAuth {
 public:
@@ -58,7 +51,6 @@ public:
         std::string region;                    // AWS region (e.g., "us-east-1")
         std::string access_key;                // AWS Access Key ID (optional, explicit credentials)
         std::string secret_key;                // AWS Secret Access Key (optional, explicit credentials)
-        std::string session_token;             // AWS Session Token (optional, for temporary credentials)
         std::string role_arn;                  // IAM role ARN (optional, for assume role)
         std::string profile_name;              // AWS profile name (optional)
         bool use_instance_profile = true;      // Use EC2 instance profile
@@ -86,7 +78,7 @@ public:
      * 
      * @param broker_hostname The MSK broker hostname (used for logging, not in token)
      * @param token Output: base64url-encoded signed URL token
-     * @param token_lifetime_ms Output: token lifetime in milliseconds (default 900000ms = 15min)
+     * @param token_lifetime_ms Output: token lifetime in milliseconds (3600000ms = 1 hour)
      * @return Status indicating success or failure
      */
     Status generate_token(const std::string& broker_hostname, std::string* token,
@@ -99,56 +91,30 @@ public:
     Status get_credentials(Aws::Auth::AWSCredentials* credentials);
 
 private:
-    /**
-     * Create AWS credentials provider based on configuration
-     */
+
+    // Create AWS credentials provider based on configuration
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider();
 
-    /**
-     * HMAC-SHA256 returning hex string
-     */
+    // HMAC-SHA256 returning hex string
     std::string _hmac_sha256_hex(const std::string& key, const std::string& data);
 
-    /**
-     * URL encode a string
-     */
     std::string _url_encode(const std::string& value);
 
-    /**
-     * Base64url encode without padding (RFC 4648)
-     */
     std::string _base64url_encode(const std::string& input);
 
-    /**
-     * Calculate AWS SigV4 signing key
-     */
+    // Calculate AWS SigV4 signing key
     std::string _calculate_signing_key(const std::string& secret_key,
                                        const std::string& date_stamp, const std::string& region,
                                        const std::string& service);
-
-    /**
-     * HMAC-SHA256 helper
-     */
+    
     std::string _hmac_sha256(const std::string& key, const std::string& data);
 
-    /**
-     * SHA256 hash helper
-     */
     std::string _sha256(const std::string& data);
 
-    /**
-     * Get current timestamp in ISO8601 format
-     */
     std::string _get_timestamp();
 
-    /**
-     * Get date stamp from timestamp
-     */
     std::string _get_date_stamp(const std::string& timestamp);
 
-    /**
-     * Check if credentials need refresh
-     */
     bool _should_refresh_credentials();
 
     Config _config;
