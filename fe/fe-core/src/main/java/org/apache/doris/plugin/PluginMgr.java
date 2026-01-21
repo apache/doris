@@ -29,7 +29,7 @@ import org.apache.doris.plugin.PluginLoader.PluginStatus;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
-import org.apache.doris.plugin.lineage.DataworksLineagePlugin;
+import org.apache.doris.plugin.lineage.DefaultLineagePlugin;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -128,9 +128,9 @@ public class PluginMgr implements Writable {
         }
 
         // lineage plugins
-        DataworksLineagePlugin dataworksLineagePlugin = new DataworksLineagePlugin();
-        if (!registerBuiltinPlugin(dataworksLineagePlugin.getPluginInfo(), dataworksLineagePlugin)) {
-            LOG.warn("failed to register dataworks lineage plugin");
+        DefaultLineagePlugin defaultLineagePlugin = new DefaultLineagePlugin();
+        if (!registerBuiltinPlugin(defaultLineagePlugin.getPluginInfo(), defaultLineagePlugin)) {
+            LOG.warn("failed to register default lineage plugin");
         }
 
         // other builtin plugins

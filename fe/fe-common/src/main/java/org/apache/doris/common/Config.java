@@ -138,36 +138,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
-    @ConfField(description = {"启用的数据血缘插件列表，如 dataworks, openlineage",
-            "Active lineage plugins, e.g. dataworks, openlineage"})
+    @ConfField(description = {"启用的数据血缘插件列表",
+            "Active lineage plugins"})
     public static String[] activate_lineage_plugin = {};
-
-    @ConfField(description = {"Dataworks 血缘日志文件的存放路径，用于存放 dataworks_lineage.log。",
-            "The path of the Dataworks lineage log file, used to store dataworks_lineage.log"})
-    public static String lineage_dataworks_log_dir = System.getenv("LOG_DIR");
-
-    @ConfField(description = {"Dataworks 血缘日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
-            "The maximum number of Dataworks lineage log files. "
-                    + "After exceeding this number, the oldest log file will be deleted"})
-    public static int lineage_dataworks_roll_num = 90;
-
-    @ConfField(description = {"Dataworks 血缘日志文件的最大大小，单位 MB",
-            "The max size of a single Dataworks lineage log file, in MB"})
-    public static int lineage_dataworks_roll_maxsize = 1024;
-
-    @ConfField(description = {"Dataworks 血缘日志文件的切分周期", "The split cycle of the Dataworks lineage log file"},
-            options = {"DAY", "HOUR"})
-    public static String lineage_dataworks_log_roll_interval = "DAY";
-
-    @ConfField(description = {
-            "Dataworks 血缘日志文件的最大存活时间。超过这个时间后，日志文件会被删除。支持的格式包括：7d, 10h, 60m, 120s",
-            "The maximum survival time of the Dataworks lineage log file. After exceeding this time, the log file "
-                    + "will be deleted. Supported formats include: 7d, 10h, 60m, 120s"})
-    public static String lineage_dataworks_log_delete_age = "30d";
-
-    @ConfField(description = {"Dataworks 血缘采集范围，table/column 或为空(不采集)",
-            "Dataworks lineage collection scope, table/column or empty (disabled)"})
-    public static String lineage_dataworks_enabled_scope = "";
 
     @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
             + "如果关闭这个选项，不再使用文件记录日志。",
@@ -3283,7 +3256,7 @@ public class Config extends ConfigBase {
     @ConfField public static int info_sys_accumulated_file_size = 4;
     @ConfField public static int warn_sys_accumulated_file_size = 2;
     @ConfField public static int audit_sys_accumulated_file_size = 4;
-    @ConfField public static int lineage_dataworks_sys_accumulated_file_size = 4;
+    @ConfField public static int lineage_default_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String deploy_mode = "";
