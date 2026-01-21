@@ -862,6 +862,12 @@ enum TPushAggOp {
 	COUNT_ON_INDEX = 4
 }
 
+struct TScoreRangeInfo {
+  // Score range filter parameters for BM25 range queries like score() > 0.5
+  1: optional Opcodes.TExprOpcode op
+  2: optional double threshold
+}
+
 struct TOlapScanNode {
   1: required Types.TTupleId tuple_id
   2: required list<string> key_column_name
@@ -887,6 +893,7 @@ struct TOlapScanNode {
   20: optional i64 score_sort_limit
   21: optional TSortInfo ann_sort_info
   22: optional i64 ann_sort_limit
+  23: optional TScoreRangeInfo score_range_info
 }
 
 struct TEqJoinCondition {
