@@ -19,11 +19,17 @@ package org.apache.doris.nereids.lineage;
 
 import org.apache.doris.nereids.lineage.LineageInfo.DirectLineageType;
 import org.apache.doris.nereids.lineage.LineageInfo.IndirectLineageType;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -41,6 +47,7 @@ import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +84,7 @@ public class LineageInfoExtractor {
 
         // Step 2: Extract indirect lineage by traversing plan tree
         LineageCollector collector = new LineageCollector(replaceContext.getExprIdExpressionMap());
+        collector.collectExpressionLineage(lineageInfo, replaceContext.getExprIdExpressionMap());
         plan.accept(collector, lineageInfo);
         return lineageInfo;
     }
@@ -128,6 +136,11 @@ public class LineageInfoExtractor {
 
         public LineageCollector(Map<ExprId, Expression> exprIdExpressionMap) {
             this.exprIdExpressionMap = exprIdExpressionMap;
+        }
+
+        private void collectExpressionLineage(LineageInfo lineageInfo, Map<ExprId, Expression> exprIdExpressionMap) {
+            collectWindowLineage(lineageInfo, exprIdExpressionMap);
+            collectConditionalLineage(lineageInfo, exprIdExpressionMap);
         }
 
         @Override
@@ -200,7 +213,7 @@ public class LineageInfoExtractor {
             return super.visitLogicalDeferMaterializeTopN(topN, lineageInfo);
         }
 
-        private Set<Expression> shuttleExpressions(List<? extends Expression> expressions,
+        private Set<Expression> shuttleExpressions(Collection<? extends Expression> expressions,
                                                    Map<ExprId, Expression> exprIdExpressionMap) {
             if (expressions == null || expressions.isEmpty()) {
                 return new HashSet<>();
@@ -243,6 +256,69 @@ public class LineageInfoExtractor {
                     lineageInfo.addDatasetIndirectLineage(type, expressions);
                 }
             }
+        }
+
+        private void collectWindowLineage(LineageInfo lineageInfo, Map<ExprId, Expression> exprIdExpressionMap) {
+            Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap =
+                    lineageInfo.getDirectLineageMap();
+            for (Map.Entry<SlotReference, SetMultimap<DirectLineageType, Expression>> entry
+                    : directLineageMap.entrySet()) {
+                SlotReference outputSlot = entry.getKey();
+                Set<Expression> windowInputs = new HashSet<>();
+                for (Expression expr : entry.getValue().values()) {
+                    for (Object windowExpr : expr.collectToList(WindowExpression.class::isInstance)) {
+                        WindowExpression windowExpression = (WindowExpression) windowExpr;
+                        windowInputs.addAll(windowExpression.getPartitionKeys());
+                        for (OrderExpression orderExpression : windowExpression.getOrderKeys()) {
+                            windowInputs.add(orderExpression.child());
+                        }
+                    }
+                }
+                for (Expression input : shuttleExpressions(windowInputs, exprIdExpressionMap)) {
+                    if (containsSlot(input)) {
+                        lineageInfo.addIndirectLineage(outputSlot, IndirectLineageType.WINDOW, input);
+                    }
+                }
+            }
+        }
+
+        private void collectConditionalLineage(LineageInfo lineageInfo, Map<ExprId, Expression> exprIdExpressionMap) {
+            Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap =
+                    lineageInfo.getDirectLineageMap();
+            for (Map.Entry<SlotReference, SetMultimap<DirectLineageType, Expression>> entry
+                    : directLineageMap.entrySet()) {
+                SlotReference outputSlot = entry.getKey();
+                Set<Expression> conditionalInputs = new HashSet<>();
+                for (Expression expr : entry.getValue().values()) {
+                    conditionalInputs.addAll(extractConditionalExpressions(expr));
+                }
+                for (Expression input : shuttleExpressions(conditionalInputs, exprIdExpressionMap)) {
+                    if (containsSlot(input)) {
+                        lineageInfo.addIndirectLineage(outputSlot, IndirectLineageType.CONDITIONAL, input);
+                    }
+                }
+            }
+        }
+
+        private Set<Expression> extractConditionalExpressions(Expression expression) {
+            Set<Expression> conditions = new HashSet<>();
+            for (Object expr : expression.collectToList(CaseWhen.class::isInstance)) {
+                CaseWhen caseWhen = (CaseWhen) expr;
+                for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+                    conditions.add(whenClause.getOperand());
+                }
+            }
+            for (Object expr : expression.collectToList(If.class::isInstance)) {
+                conditions.add(((If) expr).getCondition());
+            }
+            for (Object expr : expression.collectToList(Coalesce.class::isInstance)) {
+                conditions.addAll(((Coalesce) expr).children());
+            }
+            return conditions;
+        }
+
+        private boolean containsSlot(Expression expression) {
+            return !expression.collectToList(Slot.class::isInstance).isEmpty();
         }
     }
 }

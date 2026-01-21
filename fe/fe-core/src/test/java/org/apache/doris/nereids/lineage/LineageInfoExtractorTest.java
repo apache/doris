@@ -169,6 +169,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "orderkey",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "rn", LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "rn", LineageInfo.IndirectLineageType.WINDOW);
         assertTableLineageContains(lineageInfo, "orders");
     }
 
@@ -188,6 +189,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "orderkey",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "running_sum", LineageInfo.DirectLineageType.AGGREGATION);
+        assertIndirectContains(lineageInfo, "running_sum", LineageInfo.IndirectLineageType.WINDOW);
         assertTableLineageContains(lineageInfo, "lineitem");
     }
 
@@ -207,6 +209,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "orderkey",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "final_price", LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "final_price", LineageInfo.IndirectLineageType.CONDITIONAL);
         assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
@@ -222,6 +225,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "orderkey",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "ship_info", LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "ship_info", LineageInfo.IndirectLineageType.CONDITIONAL);
         assertTableLineageContains(lineageInfo, "lineitem");
     }
 
