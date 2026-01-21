@@ -77,7 +77,7 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
         if (!runtimeFiltersV2.isEmpty()) {
             rfV2 = runtimeFiltersV2.toString();
         }
-        return Utils.toSqlString("PhysicalJdbcScan",
+        return Utils.toSqlString("PhysicalJdbcScan[" + id.asInt() + "]",
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "alias", tableAlias,
                 "output", getOutput(),
