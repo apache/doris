@@ -100,6 +100,7 @@ import java.util.Map.Entry;
 import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -120,11 +121,17 @@ public class AnalysisManager implements Writable {
     public static final int COLUMN_QUEUE_SIZE = 1000;
     public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
-    // Map<TableName, Set<Pair<IndexName, ColumnName>>>
-    public final Map<TableNameInfo, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableNameInfo, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableNameInfo, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableNameInfo, Set<Pair<String, String>>> veryLowPriorityJobs = new LinkedHashMap<>();
+    // Priority queues for table analysis jobs, sorted by query frequency
+    // Use PriorityQueue to ensure frequently queried tables are analyzed first
+    public final Queue<PriorityTableJob> highPriorityJobs = new PriorityQueue<>();
+    public final Queue<PriorityTableJob> midPriorityJobs = new PriorityQueue<>();
+    public final Queue<PriorityTableJob> lowPriorityJobs = new PriorityQueue<>();
+    public final Queue<PriorityTableJob> veryLowPriorityJobs = new PriorityQueue<>();
+    // Map to track existing jobs and merge columns for the same table
+    private final Map<TableNameInfo, PriorityTableJob> highPriorityJobMap = new ConcurrentHashMap<>();
+    private final Map<TableNameInfo, PriorityTableJob> midPriorityJobMap = new ConcurrentHashMap<>();
+    private final Map<TableNameInfo, PriorityTableJob> lowPriorityJobMap = new ConcurrentHashMap<>();
+    private final Map<TableNameInfo, PriorityTableJob> veryLowPriorityJobMap = new ConcurrentHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -587,16 +594,18 @@ public class AnalysisManager implements Writable {
         return result;
     }
 
-    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableNameInfo, Set<Pair<String, String>>> jobMap,
+    protected List<AutoAnalysisPendingJob> getPendingJobs(Queue<PriorityTableJob> jobQueue,
             JobPriority priority, TableNameInfo tableNameInfo) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
-        synchronized (jobMap) {
-            for (Entry<TableNameInfo, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
-                TableNameInfo table = entry.getKey();
+        synchronized (jobQueue) {
+            // Create a copy to avoid modifying the original queue
+            List<PriorityTableJob> jobs = new ArrayList<>(jobQueue);
+            for (PriorityTableJob job : jobs) {
+                TableNameInfo table = job.getTableNameInfo();
                 if (tableNameInfo == null
                         || matchesFilter(tableNameInfo, table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
-                            table.getDb(), table.getTbl(), entry.getValue(), priority));
+                            table.getDb(), table.getTbl(), job.getColumns(), priority));
                 }
             }
         }
@@ -1479,6 +1488,11 @@ public class AnalysisManager implements Writable {
                 if (database != null) {
                     CatalogIf catalog = database.getCatalog();
                     if (catalog != null) {
+                        // Record query statistics for priority-based scheduling
+                        TableNameInfo tableNameInfo = new TableNameInfo(
+                                catalog.getName(), database.getFullName(), table.getName());
+                        TableQueryStats.getInstance().recordQuery(tableNameInfo);
+                        
                         queue.offer(new QueryColumn(catalog.getId(), database.getId(),
                                 table.getId(), optionalColumn.get().getName()));
                         if (LOG.isDebugEnabled()) {
