@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_medium_allocation_mode") {
+    if (isCloudMode()) {
+        return
+    }
     def tableName = "test_alter_partition_medium_mode"
     def tableTableName = "test_alter_table_medium_mode"
     
