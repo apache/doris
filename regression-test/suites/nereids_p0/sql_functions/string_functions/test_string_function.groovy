@@ -256,6 +256,17 @@ suite("test_string_function") {
     qt_soundex """SELECT SOUNDEX('Wang');"""
     qt_soundex """SELECT SOUNDEX(NULL);"""
 
+    qt_levenshtein """SELECT LEVENSHTEIN('', '');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('kitten', 'sitting');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('flaw', 'lawn');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abc', 'abc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abc', '');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('', 'abc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN(NULL, 'abc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abc', NULL);"""
+    qt_levenshtein """SELECT LEVENSHTEIN('你好', '你们');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('数据库', '数据');"""
+
     // non-ASCII test for soundex
     qt_soundex """SELECT SOUNDEX('ApacheDoris非 ASCII 测试');"""
     test{

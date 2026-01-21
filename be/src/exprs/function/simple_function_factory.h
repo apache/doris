@@ -120,6 +120,7 @@ void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
 void register_function_binary(SimpleFunctionFactory& factory);
+void register_function_levenshtein(SimpleFunctionFactory& factory);
 void register_function_soundex(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
@@ -356,6 +357,7 @@ public:
             register_function_ai(instance);
             register_function_score(instance);
             register_function_binary(instance);
+            register_function_levenshtein(instance);
             register_function_soundex(instance);
             register_function_json_transform(instance);
             register_function_json_hash(instance);

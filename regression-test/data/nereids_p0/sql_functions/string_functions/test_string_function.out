@@ -569,6 +569,36 @@ W520
 -- !soundex --
 \N
 
+-- !levenshtein --
+0
+
+-- !levenshtein --
+3
+
+-- !levenshtein --
+2
+
+-- !levenshtein --
+0
+
+-- !levenshtein --
+3
+
+-- !levenshtein --
+3
+
+-- !levenshtein --
+\N
+
+-- !levenshtein --
+\N
+
+-- !levenshtein --
+1
+
+-- !levenshtein --
+1
+
 -- !soundex --
 A123
 
@@ -578,4 +608,3 @@ A123
 3	\N
 4	0
 5	0
-

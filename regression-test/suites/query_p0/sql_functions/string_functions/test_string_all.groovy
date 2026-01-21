@@ -753,6 +753,12 @@ suite("string_functions_all") {
     testFoldConst("SELECT soundex('R@b-e123rt'), soundex('Robert');")
     // SOUNDEX tests with non-ASCII characters - Skipped (not supported)
 
+    // LEVENSHTEIN tests
+    qt_levenshtein_331 "SELECT levenshtein('', ''), levenshtein('kitten', 'sitting'), levenshtein('flaw', 'lawn'), levenshtein('你好', '你们'), levenshtein('数据库', '数据');"
+    testFoldConst("SELECT levenshtein('', ''), levenshtein('kitten', 'sitting'), levenshtein('flaw', 'lawn'), levenshtein('你好', '你们'), levenshtein('数据库', '数据');")
+    qt_levenshtein_332 "SELECT levenshtein('abc', 'abc'), levenshtein('abc', ''), levenshtein('', 'abc'), levenshtein(NULL, 'abc'), levenshtein('abc', NULL);"
+    testFoldConst("SELECT levenshtein('abc', 'abc'), levenshtein('abc', ''), levenshtein('', 'abc'), levenshtein(NULL, 'abc'), levenshtein('abc', NULL);")
+
     // SPACE tests
     qt_space_333 "SELECT space(5);"
     testFoldConst("SELECT space(5);")

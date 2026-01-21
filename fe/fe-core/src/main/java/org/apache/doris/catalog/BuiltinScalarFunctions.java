@@ -316,6 +316,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Levenshtein;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -881,6 +882,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(LastQueryId.class, "last_query_id"),
             scalar(Lcm.class, "lcm"),
             scalar(Least.class, "least"),
+            scalar(Levenshtein.class, "levenshtein"),
             scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length", "octet_length"),
             scalar(Crc32.class, "crc32"),
