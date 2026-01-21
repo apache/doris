@@ -29,23 +29,33 @@ Test Description:
 
 
 suite('test_create_partition_idempotence', 'docker') {
-    if (!isCloudMode()) {
-        logger.info("Skip test_create_partition_idempotence, only run in cloud mode")
-        return
-    }
-
+    // cloud mode
     def options = new ClusterOptions()
     options.feConfigs += [
-        'enable_debug_points = true',
+        'enable_debug_points=true',
+        'sys_log_verbose_modules=org.apache.doris',
     ]
     options.cloudMode = true
     options.beNum = 3 
 
     docker(options) {
-        def sourceTable = "test_partition_source_table"
-        sql "DROP TABLE IF EXISTS ${sourceTable}"
+        sql """ set parallel_pipeline_task_num = 2 """
+        sql """ set load_stream_per_node = 2 """
+
+        def sourceTable1 = "test_partition_source_table_positive"
+        def tableName1 = "test_partition_idempotence_table_positive"
+        def sourceTable2 = "test_partition_source_table_negative"
+        def tableName2 = "test_partition_idempotence_table_negative"
+
+        sql "DROP TABLE IF EXISTS ${sourceTable1}"
+        sql "DROP TABLE IF EXISTS ${tableName1}"
+        sql "DROP TABLE IF EXISTS ${sourceTable2}"
+        sql "DROP TABLE IF EXISTS ${tableName2}"
+
+        // create table
+
         sql """
-            CREATE TABLE ${sourceTable} (
+            CREATE TABLE ${sourceTable1} (
                 `date` DATE NOT NULL,
                 `id` INT,
                 `value` VARCHAR(100)
@@ -56,39 +66,80 @@ suite('test_create_partition_idempotence', 'docker') {
             );
         """
 
-        sql """ INSERT INTO ${sourceTable} VALUES ("2025-11-04", 1, "test1"); """
-        sql """ INSERT INTO ${sourceTable} SELECT "2025-11-04", number, "test" FROM numbers("number" = "20000"); """
-
-        def tableName = "test_partition_idempotence_table"
-        sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE ${sourceTable2} (
                 `date` DATE NOT NULL,
                 `id` INT,
                 `value` VARCHAR(100)
             )
-            AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
-            DISTRIBUTED BY HASH(id) BUCKETS 10
+            DISTRIBUTED BY HASH(`date`) BUCKETS 2
             PROPERTIES (
                 "replication_num" = "1"
             );
         """
 
-        sql """ set parallel_pipeline_task_num = 2 """
-        sql """ set load_stream_per_node = 2 """
+        sql """
+            CREATE TABLE ${tableName1} (
+                `date` DATE NOT NULL,
+                `id` INT,
+                `value` VARCHAR(100)
+            )
+            AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
+            DISTRIBUTED BY HASH(id) BUCKETS 4
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+
+        sql """
+            CREATE TABLE ${tableName2} (
+                `date` DATE NOT NULL,
+                `id` INT,
+                `value` VARCHAR(100)
+            )
+            AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
+            DISTRIBUTED BY HASH(id) BUCKETS 4
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+
+        sql """ INSERT INTO ${sourceTable1} VALUES ("2025-11-04", 1, "test1"); """
+        sql """ INSERT INTO ${sourceTable1} SELECT "2025-11-04", number, "test" FROM numbers("number" = "20000"); """
+
+        sql """ INSERT INTO ${sourceTable2} VALUES ("2025-11-04", 1, "test1"); """
+        sql """ INSERT INTO ${sourceTable2} SELECT "2025-11-04", number, "test" FROM numbers("number" = "20000"); """
 
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
-    
-        sql """ INSERT INTO ${tableName} SELECT * FROM ${sourceTable}; """
+        try {
+            sql """ INSERT INTO ${tableName1} SELECT * FROM ${sourceTable1}; """
+            
+            def result = sql "SELECT count(DISTINCT `date`) FROM ${tableName1}"
+            assertEquals(1, result[0][0])
+            
+            def count = sql "SELECT count(*) FROM ${tableName1}"
+            assertEquals(20001, count[0][0])
+            
+        } catch (Exception e) {
+            logger.error("failed: ${e.message}")
+            throw e
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+        }
 
-        GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
-
-        def result = sql "SELECT count(DISTINCT `date`) FROM ${tableName}"
-        logger.info("Distinct date count: ${result}")
-        assertEquals(1, result[0][0])
-
-        def count = sql "SELECT count(*) FROM ${tableName}"
-        logger.info("Total row count: ${count}")
-        assertEquals(20001, count[0][0])
+        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+        GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.DisableCache")
+        try {
+            sql """ INSERT INTO ${tableName2} SELECT * FROM ${sourceTable2}; """
+            assertEquals(1, 2, "should failed")
+        } catch (Exception e) {
+            if (e.message.contains("ALREADY_EXIST") || e.message.contains("rowset already exists")) {
+            } else {
+                assertEquals(2, 3, "unknown fail: ${e.message}")
+            }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.DisableCache")
+        }
     }
 }

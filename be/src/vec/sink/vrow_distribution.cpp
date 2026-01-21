@@ -183,6 +183,10 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
     std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
+    if (_state && _state->get_query_ctx()) {
+        // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
+        request.__set_query_id(_state->get_query_ctx()->query_id());
+    }
 
     VLOG_NOTICE << "auto detect replace partition request: " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
