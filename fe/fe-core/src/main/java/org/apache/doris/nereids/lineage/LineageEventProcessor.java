@@ -47,7 +47,6 @@ public class LineageEventProcessor {
             new LinkedBlockingDeque<>(Config.lineage_event_queue_size);
     private final AtomicBoolean isInit = new AtomicBoolean(false);
     private Thread workerThread;
-    private volatile boolean isStopped = false;
 
     /**
      * Create a lineage event processor.
@@ -65,24 +64,9 @@ public class LineageEventProcessor {
         if (!isInit.compareAndSet(false, true)) {
             return;
         }
-        isStopped = false;
         workerThread = new Thread(new Worker(), "LineageEventProcessor");
         workerThread.setDaemon(true);
         workerThread.start();
-    }
-
-    /**
-     * Stop the background worker thread.
-     */
-    public void stop() {
-        isStopped = true;
-        if (workerThread != null) {
-            try {
-                workerThread.join();
-            } catch (InterruptedException e) {
-                LOG.warn("join worker join failed.", e);
-            }
-        }
     }
 
     /**
@@ -119,7 +103,7 @@ public class LineageEventProcessor {
         @Override
         public void run() {
             LineageEvent lineageEvent;
-            while (!isStopped) {
+            while (true) {
                 // update lineage plugin list every UPDATE_PLUGIN_INTERVAL_MS.
                 if (lineagePlugins == null || System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
                     lineagePlugins = pluginMgr.getActivePluginList(PluginType.LINEAGE);
@@ -153,7 +137,7 @@ public class LineageEventProcessor {
                             continue;
                         }
                         lineagePlugin.exec(lineageInfo);
-                    } catch (Exception e) {
+                    } catch (Throwable e) {
                         LOG.warn("encounter exception when processing lineage event {}, ignore",
                                 lineageEvent.getQueryId(), e);
                     }
