@@ -223,9 +223,7 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
         }
 
         int64_t timestamp = 0;
-        if (!col_data[row_id].unix_timestamp(&timestamp, UTC)) {
-            return Status::InternalError("get unix timestamp error.");
-        }
+        col_data[row_id].unix_timestamp(&timestamp, UTC);
 
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = col_data[row_id].microsecond() * micro_to_nano_second;
