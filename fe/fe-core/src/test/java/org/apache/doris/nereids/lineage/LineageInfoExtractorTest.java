@@ -75,6 +75,8 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_join_customer");
+        assertDirectContainsAny(lineageInfo, "customer_name",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertIndirectContains(lineageInfo, "customer_name",
                 LineageInfo.IndirectLineageType.JOIN, LineageInfo.IndirectLineageType.FILTER);
         assertTableLineageContains(lineageInfo, "orders", "customer");
@@ -89,6 +91,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_filter_only");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.FILTER);
         assertIndirectContains(lineageInfo, "price", LineageInfo.IndirectLineageType.FILTER);
         assertTableLineageContains(lineageInfo, "lineitem");
@@ -105,6 +111,9 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_group_sum");
+        assertDirectContainsAny(lineageInfo, "custkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContains(lineageInfo, "total_price", LineageInfo.DirectLineageType.AGGREGATION);
         assertIndirectContains(lineageInfo, "total_price",
                 LineageInfo.IndirectLineageType.JOIN,
                 LineageInfo.IndirectLineageType.FILTER,
@@ -122,6 +131,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_group_only");
+        assertDirectContains(lineageInfo, "total_price", LineageInfo.DirectLineageType.AGGREGATION);
         assertIndirectContains(lineageInfo, "total_price",
                 LineageInfo.IndirectLineageType.JOIN,
                 LineageInfo.IndirectLineageType.GROUP_BY);
@@ -138,6 +148,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_sort_limit");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.SORT);
         assertIndirectContains(lineageInfo, "price", LineageInfo.IndirectLineageType.SORT);
         assertTableLineageContains(lineageInfo, "lineitem");
@@ -229,6 +243,9 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_region_revenue");
+        assertDirectContainsAny(lineageInfo, "nation_name",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContains(lineageInfo, "revenue", LineageInfo.DirectLineageType.AGGREGATION);
         assertIndirectContains(lineageInfo, "revenue",
                 LineageInfo.IndirectLineageType.JOIN,
                 LineageInfo.IndirectLineageType.FILTER,
@@ -249,8 +266,34 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_ctas_top10");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.SORT);
         assertTableLineageContains(lineageInfo, "orders");
+    }
+
+    @Test
+    public void testCtasJoinFilterLineage() throws Exception {
+        String sql = "create table " + dbTable("tgt_ctas_join_filter")
+                + " distributed by hash(orderkey) buckets 1"
+                + " properties('replication_num'='1') as"
+                + " select o.o_orderkey as orderkey, l.l_extendedprice as price"
+                + " from " + dbTable("orders") + " o"
+                + " join " + dbTable("lineitem") + " l on o.o_orderkey = l.l_orderkey"
+                + " where o.o_orderstatus = 'F'";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_ctas_join_filter");
+        assertSourceCommand(lineageInfo, CreateTableCommand.class);
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertIndirectContains(lineageInfo, "price",
+                LineageInfo.IndirectLineageType.JOIN, LineageInfo.IndirectLineageType.FILTER);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
     @Test
@@ -263,9 +306,35 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         LineageInfo lineageInfo = buildLineageInfo(sql);
 
         assertTargetTable(lineageInfo, "tgt_sort_limit");
+        assertDirectContainsAny(lineageInfo, "orderkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContainsAny(lineageInfo, "price",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.SORT);
         assertIndirectContains(lineageInfo, "price", LineageInfo.IndirectLineageType.SORT);
         assertTableLineageContains(lineageInfo, "lineitem");
+    }
+
+    @Test
+    public void testInsertOverwriteGroupByLineage() throws Exception {
+        String sql = "insert overwrite table " + dbTable("tgt_group_sum")
+                + " select o.o_custkey as custkey, sum(l.l_extendedprice) as total_price"
+                + " from " + dbTable("orders") + " o"
+                + " join " + dbTable("lineitem") + " l on o.o_orderkey = l.l_orderkey"
+                + " where l.l_returnflag = 'R'"
+                + " group by o.o_custkey";
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+
+        assertTargetTable(lineageInfo, "tgt_group_sum");
+        assertSourceCommand(lineageInfo, InsertOverwriteTableCommand.class);
+        assertDirectContainsAny(lineageInfo, "custkey",
+                LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
+        assertDirectContains(lineageInfo, "total_price", LineageInfo.DirectLineageType.AGGREGATION);
+        assertIndirectContains(lineageInfo, "total_price",
+                LineageInfo.IndirectLineageType.JOIN,
+                LineageInfo.IndirectLineageType.FILTER,
+                LineageInfo.IndirectLineageType.GROUP_BY);
+        assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
     private void createTpchSourceTables() throws Exception {
@@ -351,6 +420,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
                 "create table " + dbTable("tgt_ctas_top10") + " ("
                         + "orderkey bigint,"
                         + "price decimal(18,2)"
+                        + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');",
+                "create table " + dbTable("tgt_ctas_join_filter") + " ("
+                        + "orderkey bigint,"
+                        + "price decimal(18,2)"
                         + ") distributed by hash(orderkey) buckets 1 properties('replication_num'='1');"
         );
     }
@@ -409,6 +482,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
     private void assertTargetTable(LineageInfo lineageInfo, String tableName) {
         Assertions.assertNotNull(lineageInfo.getTargetTable());
         Assertions.assertEquals(tableName, lineageInfo.getTargetTable().getName());
+    }
+
+    private void assertSourceCommand(LineageInfo lineageInfo, Class<? extends Command> sourceCommand) {
+        Assertions.assertEquals(sourceCommand, lineageInfo.getSourceCommand());
     }
 
     private void assertTableLineageContains(LineageInfo lineageInfo, String... tableNames) {
