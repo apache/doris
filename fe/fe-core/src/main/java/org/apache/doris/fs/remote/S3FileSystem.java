@@ -75,10 +75,22 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     @Override
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly, int maxFileCount) {
+        S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
+        return objStorage.globList(remotePath, result, fileNameOnly, maxFileCount);
+    }
+
+    @Override
     public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
             long fileSizeLimit, long fileNumLimit) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         return objStorage.globListWithLimit(remotePath, result, startFile, fileSizeLimit, fileNumLimit);
+    }
+
+    public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
+            long fileSizeLimit, long fileNumLimit, int maxFileCount) {
+        S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
+        return objStorage.globListWithLimit(remotePath, result, startFile, fileSizeLimit, fileNumLimit, maxFileCount);
     }
 
     @Override

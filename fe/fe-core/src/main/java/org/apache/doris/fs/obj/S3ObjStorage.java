@@ -533,7 +533,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * Copy from `AzureObjStorage.GlobList`
      */
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        GlobListResult globListResult = globListInternal(remotePath, result, fileNameOnly, null, -1, -1);
+        return globList(remotePath, result, fileNameOnly, -1);
+    }
+
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly, int maxFileCount) {
+        GlobListResult globListResult = globListInternal(remotePath, result, fileNameOnly, null, -1, -1, maxFileCount);
         return globListResult.getStatus();
     }
 
@@ -549,7 +553,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      */
     public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
             long fileSizeLimit, long fileNumLimit) {
-        return globListInternal(remotePath, result, false, startFile, fileSizeLimit, fileNumLimit);
+        return globListInternal(remotePath, result, false, startFile, fileSizeLimit, fileNumLimit, -1);
+    }
+
+    public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
+            long fileSizeLimit, long fileNumLimit, int maxFileCount) {
+        return globListInternal(remotePath, result, false, startFile, fileSizeLimit, fileNumLimit, maxFileCount);
     }
 
     /**
@@ -560,7 +569,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * Copy from `AzureObjStorage.GlobList`
      */
     private GlobListResult globListInternal(String remotePath, List<RemoteFile> result, boolean fileNameOnly,
-            String startFile, long fileSizeLimit, long fileNumLimit) {
+            String startFile, long fileSizeLimit, long fileNumLimit, int maxFileCount) {
         long roundCnt = 0;
         long elementCnt = 0;
         long matchCnt = 0;
@@ -650,6 +659,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         if (hasLimits && reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
                             reachLimit = true;
                             break;
+                        }
+
+                        // Check max file count limit
+                        if (maxFileCount > 0 && result.size() >= maxFileCount) {
+                            LOG.warn("Reached max S3 list objects count limit: {}, current file count: {}, path: {}",
+                                    maxFileCount, result.size(), remotePath);
+                            return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
+                                    String.format("Too many files in directory %s (>= %d). "
+                                            + "The max file count limit is enforced to avoid OOM (Out of Memory). "
+                                            + "Please check if the directory is correct or adjust the session variable "
+                                            + "'max_s3_list_objects_count'.",
+                                            remotePath, maxFileCount)));
                         }
 
                         objPath = objPath.getParent();

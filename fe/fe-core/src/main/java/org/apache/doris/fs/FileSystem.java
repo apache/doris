@@ -116,6 +116,19 @@ public interface FileSystem {
     Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
 
     /**
+     * List files in remotePath by wildcard with max file count limit <br/>
+     * @param remotePath remote path
+     * @param result All eligible files under the path
+     * @param fileNameOnly for {@link RemoteFile}'name: whether the full path is included.
+     *                     true: only contains file name, false: contains full path
+     * @param maxFileCount max file count limit, -1 means no limit
+     * @return
+     */
+    default Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly, int maxFileCount) {
+        return globList(remotePath, result, fileNameOnly);
+    }
+
+    /**
      * List files in remotePath <br/>
      * @param remotePath remote path
      * @param result All eligible files under the path
