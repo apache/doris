@@ -517,7 +517,12 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
 
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
     auto cache = FileCacheFactory::instance()->_path_to_cache[cache_base_path];
-
+    for (int i = 0; i < 100; i++) {
+        if (cache->get_async_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     FileReaderSPtr local_reader;
     ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
     io::FileReaderOptions opts;
