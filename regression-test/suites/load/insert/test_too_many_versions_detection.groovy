@@ -16,7 +16,7 @@
 // under the License.
 import java.sql.SQLException
 
-suite("too_many_versions_detection") {
+suite("too_many_versions_detection", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
