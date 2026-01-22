@@ -425,6 +425,7 @@ struct TQueryOptions {
   184: optional i32 cte_max_recursion_depth;
 
   185: optional bool enable_parquet_file_page_cache = true;
+  186: optional bool enable_aggregate_function_null_v2 = false;
 
   186: optional bool enable_streaming_agg_force_passthrough;
 

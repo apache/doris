@@ -806,7 +806,7 @@ public:
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena& arena,
-                                 size_t num_rows) const override {
+                                 size_t num_rows) const {
         if constexpr (Data::IsFixedLength) {
             const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
@@ -815,7 +815,8 @@ public:
                 data[i] = column_data[i];
             }
         } else {
-            Base::deserialize_from_column(places, column, arena, num_rows);
+            this->deserialize_vec(places, assert_cast<const ColumnString*>(&column), arena,
+                                  num_rows);
         }
     }
 
@@ -844,20 +845,6 @@ public:
             }
         } else {
             Base::streaming_agg_serialize_to_column(columns, dst, num_rows, arena);
-        }
-    }
-
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena& arena) const override {
-        if constexpr (Data::IsFixedLength) {
-            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-            auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
-            const size_t num_rows = column.size();
-            for (size_t i = 0; i != num_rows; ++i) {
-                this->data(place).change_if_better(column_data[i], arena);
-            }
-        } else {
-            Base::deserialize_and_merge_from_column(place, column, arena);
         }
     }
 
