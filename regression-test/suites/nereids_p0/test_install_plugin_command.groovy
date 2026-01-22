@@ -17,18 +17,39 @@
 
 suite("test_install_plugin_command", "nereids_p0") {
     def pluginFile = new File(context.config.dataPath, "plugin_test/auditdemo.zip").getAbsolutePath()
-    def pluginSource = "\"${pluginFile}\""
     def pluginName = "audit_plugin_demo"
     def pluginProperties = "\"md5sum\"=\"f7280e8be71fd565a18c80d02b8c446f\""
 
+    // Get all FE hosts to copy plugin file
+    def feHosts = sql_return_maparray("show frontends").collect { it.Host }
+    def randomSuffix = UUID.randomUUID().toString().replaceAll("-", "")
+    def remoteTmpPath = "/tmp/auditdemo_${randomSuffix}.zip"
+
     try {
-        // Install the plugin
+        // Copy plugin file to all FE machines when regression-test and FE are on different machines
+        feHosts.each { feHost ->
+            scpFiles("root", feHost, pluginFile, remoteTmpPath, false)
+        }
+
+        // Install the plugin using remote path
         checkNereidsExecute """
-            INSTALL PLUGIN FROM ${pluginSource} 
+            INSTALL PLUGIN FROM "${remoteTmpPath}"
             PROPERTIES (${pluginProperties})
         """
 
     } finally {
+        // Clean up temporary plugin files on all FE machines
+        feHosts.each { feHost ->
+            try {
+                def rmCmd = "rm -f ${remoteTmpPath}"
+                def process = ["ssh", "-o", "StrictHostKeyChecking=no", "root@${feHost}", rmCmd].execute()
+                process.waitForOrKill(5000) // Wait max 5 seconds
+                logger.info("Cleaned up temporary file ${remoteTmpPath} on ${feHost}")
+            } catch (Exception e) {
+                logger.warn("Failed to clean up temporary file on ${feHost}: ${e.message}")
+            }
+        }
+
         checkNereidsExecute """
             UNINSTALL PLUGIN ${pluginName}
         """
