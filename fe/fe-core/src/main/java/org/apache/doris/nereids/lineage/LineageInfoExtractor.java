@@ -60,10 +60,24 @@ import java.util.stream.Collectors;
 /**
  * Extract lineage information from a Plan tree.
  * This class traverses the plan tree and collects both direct and indirect lineage information.
+ *
+ * <p>Example SQL used below:
+ * INSERT INTO tgt_region_revenue
+ * SELECT n.n_name AS nation_name,
+ *        SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
+ * FROM customer c
+ * JOIN orders o ON c.c_custkey = o.o_custkey
+ * JOIN lineitem l ON o.o_orderkey = l.l_orderkey
+ * JOIN nation n ON c.c_nationkey = n.n_nationkey
+ * JOIN region r ON n.n_regionkey = r.r_regionkey
+ * WHERE r.r_name = 'ASIA'
+ * GROUP BY n.n_name;
  */
 public class LineageInfoExtractor {
     /**
      * Register analyze-plan hook for lineage extraction.
+     *
+     * <p>Using the example SQL above, this is called before planner.plan(...) so the analyzed plan can be captured.
      */
     public static void registerAnalyzePlanHook(StatementContext statementContext, NereidsPlanner planner) {
         if (statementContext == null || planner == null) {
@@ -74,7 +88,7 @@ public class LineageInfoExtractor {
                 return;
             }
         }
-        statementContext.addPlannerHook(new AnalyzePlanHook(planner));
+        statementContext.addPlannerHook(new AnalyzePlanHook());
     }
 
     /**
@@ -82,6 +96,7 @@ public class LineageInfoExtractor {
      *
      * @param plan the plan to extract lineage from
      * @return the extracted lineage information
+     *     <p>Using the example SQL above, this records direct lineage, indirect lineage, and table lineage.
      */
     public static LineageInfo extractLineageInfo(Plan plan) {
         LineageInfo lineageInfo = new LineageInfo();
@@ -97,7 +112,10 @@ public class LineageInfoExtractor {
     }
 
     /**
-     * Extract direct lineage from plan output expressions
+     * Extract direct lineage from plan output expressions.
+     *
+     * <p>Using the example SQL above, nation_name is IDENTITY from n.n_name and
+     * revenue is AGGREGATION from SUM(l.l_extendedprice * (1 - l.l_discount)).
      */
     private static ExpressionLineageReplacer.ExpressionReplaceContext extractDirectLineage(Plan plan,
                                                                                            LineageInfo lineageInfo) {
@@ -120,7 +138,9 @@ public class LineageInfoExtractor {
     }
 
     /**
-     * Determine the direct lineage type based on expression structure
+     * Determine the direct lineage type based on expression structure.
+     *
+     * <p>Using the example SQL above, SUM(...) is AGGREGATION and n.n_name is IDENTITY.
      */
     private static DirectLineageType determineDirectLineageType(Expression expr) {
         // Check if expression contains aggregate function
@@ -141,15 +161,30 @@ public class LineageInfoExtractor {
     private static class LineageCollector extends DefaultPlanVisitor<Void, LineageInfo> {
         private final Map<ExprId, Expression> exprIdExpressionMap;
 
+        /**
+         * Create a collector with a map for shuttling expressions.
+         *
+         * <p>Using the example SQL above, this map resolves aliases like nation_name -> n.n_name.
+         */
         public LineageCollector(Map<ExprId, Expression> exprIdExpressionMap) {
             this.exprIdExpressionMap = exprIdExpressionMap;
         }
 
+        /**
+         * Collect indirect lineage based on expressions embedded in direct lineage.
+         *
+         * <p>Using the example SQL above, this is a no-op for WINDOW/CONDITIONAL but is still executed.
+         */
         private void collectExpressionLineage(LineageInfo lineageInfo, Map<ExprId, Expression> exprIdExpressionMap) {
             collectWindowLineage(lineageInfo, exprIdExpressionMap);
             collectConditionalLineage(lineageInfo, exprIdExpressionMap);
         }
 
+        /**
+         * Capture target table/columns from the sink.
+         *
+         * <p>Using the example SQL above, target table is tgt_region_revenue.
+         */
         @Override
         public Void visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, LineageInfo lineageInfo) {
             if (lineageInfo.getTargetTable() == null) {
@@ -159,6 +194,11 @@ public class LineageInfoExtractor {
             return super.visitLogicalTableSink(logicalTableSink, lineageInfo);
         }
 
+        /**
+         * Collect table lineage from scan nodes.
+         *
+         * <p>Using the example SQL above, tableLineageSet includes customer, orders, lineitem, nation, region.
+         */
         @Override
         public Void visitLogicalCatalogRelation(LogicalCatalogRelation relation, LineageInfo lineageInfo) {
             // Collect table lineage
@@ -166,6 +206,11 @@ public class LineageInfoExtractor {
             return null;
         }
 
+        /**
+         * Collect JOIN indirect lineage from join conditions.
+         *
+         * <p>Using the example SQL above, JOIN inputs include o.o_orderkey, l.l_orderkey, and other join keys.
+         */
         @Override
         public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, LineageInfo lineageInfo) {
             Set<Expression> joinConditions = new HashSet<>();
@@ -177,6 +222,11 @@ public class LineageInfoExtractor {
             return super.visitLogicalJoin(join, lineageInfo);
         }
 
+        /**
+         * Collect FILTER indirect lineage from WHERE/HAVING predicates.
+         *
+         * <p>Using the example SQL above, r.r_name is a FILTER input from WHERE r.r_name = 'ASIA'.
+         */
         @Override
         public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, LineageInfo lineageInfo) {
             Set<Expression> predicates = new HashSet<>(filter.getConjuncts());
@@ -185,6 +235,11 @@ public class LineageInfoExtractor {
             return super.visitLogicalFilter(filter, lineageInfo);
         }
 
+        /**
+         * Collect GROUP_BY indirect lineage from group keys.
+         *
+         * <p>Using the example SQL above, n.n_name is a GROUP_BY input.
+         */
         @Override
         public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, LineageInfo lineageInfo) {
             Set<Expression> shuttled = shuttleExpressions(aggregate.getGroupByExpressions(), exprIdExpressionMap);
@@ -192,6 +247,11 @@ public class LineageInfoExtractor {
             return super.visitLogicalAggregate(aggregate, lineageInfo);
         }
 
+        /**
+         * Collect SORT indirect lineage from ORDER BY.
+         *
+         * <p>Using the example SQL above, there is no ORDER BY, so no SORT inputs are collected.
+         */
         @Override
         public Void visitLogicalSort(LogicalSort<? extends Plan> sort, LineageInfo lineageInfo) {
             List<Expression> sortExprs = new ArrayList<>();
@@ -201,6 +261,11 @@ public class LineageInfoExtractor {
             return super.visitLogicalSort(sort, lineageInfo);
         }
 
+        /**
+         * Collect SORT indirect lineage from TopN order keys.
+         *
+         * <p>Using the example SQL above, there is no TopN, so no SORT inputs are collected.
+         */
         @Override
         public Void visitLogicalTopN(LogicalTopN<? extends Plan> topN, LineageInfo lineageInfo) {
             List<Expression> sortExprs = new ArrayList<>();
@@ -210,6 +275,11 @@ public class LineageInfoExtractor {
             return super.visitLogicalTopN(topN, lineageInfo);
         }
 
+        /**
+         * Collect SORT indirect lineage from defer-materialize TopN.
+         *
+         * <p>Using the example SQL above, there is no defer-materialize TopN.
+         */
         @Override
         public Void visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
                                                      LineageInfo lineageInfo) {
@@ -220,6 +290,11 @@ public class LineageInfoExtractor {
             return super.visitLogicalDeferMaterializeTopN(topN, lineageInfo);
         }
 
+        /**
+         * Shuttle expressions to replace exprIds with their resolved expressions.
+         *
+         * <p>Using the example SQL above, nation_name is shuttled to n.n_name.
+         */
         private Set<Expression> shuttleExpressions(Collection<? extends Expression> expressions,
                                                    Map<ExprId, Expression> exprIdExpressionMap) {
             if (expressions == null || expressions.isEmpty()) {
@@ -232,10 +307,12 @@ public class LineageInfoExtractor {
         }
 
         /**
-         * Add indirect lineage information based on expressions
-         * @param type         the type of indirect lineage
+         * Add indirect lineage information based on expressions.
+         *
+         * @param type the type of indirect lineage
          * @param expressions the expressions contributing to indirect lineage, should be shuttled conjunction
          * @param lineageInfo the lineage info to update
+         *     <p>Using the example SQL above, FILTER on r.r_name applies to dataset-level if not in direct lineage.
          */
         private void addIndirectLineage(IndirectLineageType type,
                                         Set<Expression> expressions, LineageInfo lineageInfo) {
@@ -265,6 +342,11 @@ public class LineageInfoExtractor {
             }
         }
 
+        /**
+         * Collect WINDOW indirect lineage from window partition/order keys.
+         *
+         * <p>Using the example SQL above, there are no window expressions.
+         */
         private void collectWindowLineage(LineageInfo lineageInfo, Map<ExprId, Expression> exprIdExpressionMap) {
             Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap =
                     lineageInfo.getDirectLineageMap();
@@ -289,6 +371,11 @@ public class LineageInfoExtractor {
             }
         }
 
+        /**
+         * Collect CONDITIONAL indirect lineage from CASE/IF/COALESCE conditions.
+         *
+         * <p>Using the example SQL above, there are no conditional expressions.
+         */
         private void collectConditionalLineage(LineageInfo lineageInfo, Map<ExprId, Expression> exprIdExpressionMap) {
             Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap =
                     lineageInfo.getDirectLineageMap();
@@ -307,6 +394,11 @@ public class LineageInfoExtractor {
             }
         }
 
+        /**
+         * Extract conditional expressions from CASE/IF/COALESCE.
+         *
+         * <p>Using the example SQL above, this returns an empty set.
+         */
         private Set<Expression> extractConditionalExpressions(Expression expression) {
             Set<Expression> conditions = new HashSet<>();
             for (Object expr : expression.collectToList(CaseWhen.class::isInstance)) {
@@ -324,18 +416,30 @@ public class LineageInfoExtractor {
             return conditions;
         }
 
+        /**
+         * Check whether an expression contains any slot references.
+         *
+         * <p>Using the example SQL above, n.n_name contains slots while literals do not.
+         */
         private boolean containsSlot(Expression expression) {
             return !expression.collectToList(Slot.class::isInstance).isEmpty();
         }
     }
 
     private static class AnalyzePlanHook implements PlannerHook {
-        private final NereidsPlanner planner;
-
-        private AnalyzePlanHook(NereidsPlanner planner) {
-            this.planner = planner;
+        /**
+         * Hook that captures analyzed plan into the planner for later lineage use.
+         *
+         * <p>Using the example SQL above, this avoids rewrite-time pruning that could drop scans.
+         */
+        private AnalyzePlanHook() {
         }
 
+        /**
+         * Record analyzed plan after analyzer completes.
+         *
+         * <p>Using the example SQL above, the analyzed plan keeps table scans for lineage extraction.
+         */
         @Override
         public void afterAnalyze(NereidsPlanner planner) {
             if (planner == null || planner.getCascadesContext() == null) {

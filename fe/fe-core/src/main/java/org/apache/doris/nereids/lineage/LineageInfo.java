@@ -21,8 +21,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
@@ -39,21 +37,42 @@ import java.util.Set;
  * */
 public class LineageInfo {
 
+    /*
+     * Example SQL used below:
+     * INSERT INTO tgt_region_revenue
+     * SELECT n.n_name AS nation_name,
+     *        SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
+     * FROM customer c
+     * JOIN orders o ON c.c_custkey = o.o_custkey
+     * JOIN lineitem l ON o.o_orderkey = l.l_orderkey
+     * JOIN nation n ON c.c_nationkey = n.n_nationkey
+     * JOIN region r ON n.n_regionkey = r.r_regionkey
+     * WHERE r.r_name = 'ASIA'
+     * GROUP BY n.n_name;
+     */
+
     // the key is the output slot, the value is the shuttled expression which output slot depend directly
     // this is dependent on the ExpressionUtils.shuttleExpressionWithLineage
+    // Example: nation_name -> {IDENTITY: n.n_name}, revenue -> {AGGREGATION: SUM(l.l_extendedprice * (1-l.l_discount))}
     private Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap;
     // inDirectLineageMap stores expressions that indirectly affect output slots. These expressions,
     // which indirectly impact output slots, are categorized as IndirectLineageType.
+    // Example: nation_name -> {GROUP_BY: n.n_name} (intersects direct slots), revenue may have no per-output indirects.
     private Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> inDirectLineageMap;
     // datasetIndirectLineageMap stores expressions that affect the whole dataset (e.g. filter, join).
+    // Example: FILTER {r.r_name = 'ASIA'}, JOIN {o.o_orderkey = l.l_orderkey}, GROUP_BY {n.n_name} (dataset-level).
     private SetMultimap<IndirectLineageType, Expression> datasetIndirectLineageMap;
     // tableLineageSet stores tables that the plan depends on
+    // Example: {customer, orders, lineitem, nation, region}.
     private Set<TableIf> tableLineageSet;
     // target table for this lineage event
+    // Example: tgt_region_revenue.
     private TableIf targetTable;
     // target columns for this lineage event
+    // Example: [nation_name, revenue].
     private List<Slot> targetColumns;
     // query metadata
+    // Example: {sourceCommand=InsertIntoTableCommand, queryId=..., database=lineage_tpch}.
     private LineageContext context;
 
     /**
@@ -102,7 +121,16 @@ public class LineageInfo {
     }
 
     /**
-     * Get all lineage info
+     * Get merged indirect lineage info for each output slot.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>If dataset-level FILTER has {l_shipdate >= '1995-01-01'} and
+     *       output slot price has GROUP_BY {l_orderkey}, the merged result for price
+     *       contains both FILTER and GROUP_BY expressions.</li>
+     *   <li>If dataset-level SORT has {l_shipdate} and output slot orderkey has no
+     *       per-output indirect lineage, the merged result for orderkey still contains SORT.</li>
+     * </ul>
      */
     public Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> getInDirectLineageMap() {
         if (datasetIndirectLineageMap.isEmpty()) {
@@ -205,22 +233,6 @@ public class LineageInfo {
         for (Expression expr : exprs) {
             addDatasetIndirectLineage(type, expr);
         }
-    }
-
-    /**
-     * Generate a slot-to-expression lineage map for the plan outputs.
-     *
-     * @param plan plan to extract lineage from
-     * @return map from output slot to lineage expression
-     */
-    public static Map<SlotReference, Expression> generateLineageMap(Plan plan) {
-        List<Slot> output = plan.getOutput();
-        Map<SlotReference, Expression> lineageMap = new HashMap<>();
-        List<? extends Expression> expressions = ExpressionUtils.shuttleExpressionWithLineage(output, plan);
-        for (int i = 0; i < output.size(); i++) {
-            lineageMap.put((SlotReference) output.get(i), expressions.get(i));
-        }
-        return lineageMap;
     }
 
     @Override

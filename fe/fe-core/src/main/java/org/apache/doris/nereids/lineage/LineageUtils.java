@@ -83,7 +83,6 @@ public final class LineageUtils {
      * @param sourceCommand the command type for the event
      * @param ctx connect context holding query metadata
      * @param executor statement executor for query text
-     * @return lineage event or null if lineage is disabled
      */
     public static LineageEvent buildLineageEvent(Plan plan, Class<? extends Command> sourceCommand,
             ConnectContext ctx, StmtExecutor executor) {
@@ -134,7 +133,7 @@ public final class LineageUtils {
         }
     }
 
-    private static boolean shouldSkipLineage(Plan plan) {
+    public static boolean shouldSkipLineage(Plan plan) {
         if (isValuesOnly(plan)) {
             return true;
         }

@@ -30,10 +30,13 @@ public class LineageContext {
     private String queryId;
     private String queryText;
     private String user;
+    // Current session database for the query context; not necessarily the target table database.
     private String database;
+    // Current session catalog for the query context; not necessarily the target table catalog.
     private String catalog;
     private long timestampMs;
     private long durationMs;
+    // External catalog properties referenced by the query (sanitized).
     private Map<String, Map<String, String>> externalCatalogProperties;
 
     /**

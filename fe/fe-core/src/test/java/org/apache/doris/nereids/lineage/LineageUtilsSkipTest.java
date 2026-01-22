@@ -114,6 +114,9 @@ public class LineageUtilsSkipTest extends TestWithFeService {
         command.initPlan(connectContext, executor, false);
         Plan lineagePlan = command.getLineagePlan().orElse(null);
         Assertions.assertNotNull(lineagePlan);
+        if (LineageUtils.shouldSkipLineage(lineagePlan)) {
+            return null;
+        }
         return LineageUtils.buildLineageEvent(lineagePlan, command.getClass(), connectContext, executor);
     }
 }

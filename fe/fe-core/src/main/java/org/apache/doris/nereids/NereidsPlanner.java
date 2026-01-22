@@ -42,7 +42,6 @@ import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
-import org.apache.doris.nereids.lineage.LineageInfo;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -297,7 +296,6 @@ public class NereidsPlanner extends Planner {
 
         // rule-based optimize
         rewrite(showRewriteProcess(explainLevel, showPlanProcess));
-        LineageInfo.generateLineageMap(cascadesContext.getRewritePlan());
         // try to pre mv rewrite
         preMaterializedViewRewrite();
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
