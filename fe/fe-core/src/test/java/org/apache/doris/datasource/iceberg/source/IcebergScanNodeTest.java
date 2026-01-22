@@ -31,7 +31,6 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.util.Collections;
-import java.util.List;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
