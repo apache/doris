@@ -74,7 +74,10 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
                     { config.lower_case = ""; })
     config.stop_words = node.match_predicate.parser_stopwords;
 
-    // Step 2: Use config to create analyzer (factory method)
+    // Step 2: Use config to create analyzer (factory method).
+    // Always create analyzer based on parser_type for slow path (tables without index).
+    // For index path, FullTextIndexReader will check analyzer_name to decide whether
+    // to use this analyzer or fallback to index's own analyzer.
     _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
 
     // Step 3: Create runtime context (only extract runtime-needed info)

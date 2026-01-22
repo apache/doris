@@ -319,13 +319,16 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                 if (!search_str.empty()) {
                     query_info.term_infos.emplace_back(search_str);
                 }
-            } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
+            } else if (analyzer_ctx != nullptr && !analyzer_ctx->analyzer_name.empty() &&
+                       analyzer_ctx->analyzer != nullptr) {
+                // User explicitly specified USING ANALYZER, use that analyzer
                 auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
                         analyzer_ctx->char_filter_map);
                 reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
                 query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                         reader, analyzer_ctx->analyzer.get());
             } else {
+                // No USING ANALYZER specified, use index's own analyzer
                 query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                         search_str, _index_meta.properties());
             }
