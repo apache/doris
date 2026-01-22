@@ -506,6 +506,9 @@ message TxnInfoPB {
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
     optional bool versioned_read = 20;  // whether to read versioned keys
+    // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
+    // This is used for lazy commit to reduce contention during transaction commit.
+    // The delete bitmap locks will be extended and removed during lazy commit phase.
     optional bool defer_deleting_pending_delete_bitmaps = 21;
 }
 
