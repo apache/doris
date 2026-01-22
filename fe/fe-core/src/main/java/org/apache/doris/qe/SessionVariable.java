@@ -1210,7 +1210,7 @@ public class SessionVariable implements Serializable, Writable {
     public String lcTimeNames = "en_US";
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
-    public int exchangeInstanceParallel = 100;
+    public int exchangeInstanceParallel = 256;
 
     @VariableMgr.VarAttr(name = SQL_SAFE_UPDATES)
     public int sqlSafeUpdates = 0;
@@ -1224,7 +1224,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
-    public int batchSize = 4064;
+    public int batchSize = 8160;
 
     // 16352 + 16 + 16 = 16384
     @VariableMgr.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
