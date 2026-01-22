@@ -42,15 +42,23 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     protected Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups;
     protected BrokerDesc brokerDesc;
+    protected int maxFileCount = -1;
 
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
                                  Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
                                  BrokerDesc brokerDesc, Priority priority) {
+        this(loadTaskCallback, aggKeyToBrokerFileGroups, brokerDesc, priority, -1);
+    }
+
+    public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
+                                 Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
+                                 BrokerDesc brokerDesc, Priority priority, int maxFileCount) {
         super(loadTaskCallback, TaskType.PENDING, priority);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
         this.brokerDesc = brokerDesc;
+        this.maxFileCount = maxFileCount;
         this.failMsg = new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL);
     }
 
@@ -95,7 +103,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                     long groupFileSize = 0;
                     List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                     for (String path : fileGroup.getFilePaths()) {
-                        BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+                        BrokerUtil.parseFile(path, brokerDesc, fileStatuses, maxFileCount);
                     }
                     if (!fileStatuses.isEmpty()) {
                         fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses);

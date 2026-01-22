@@ -162,7 +162,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 String endpoint = storageProperties.getEndpoint();
                 S3Util.validateAndTestEndpoint(endpoint);
             }
-            
+
             int maxFileCount = -1;
             if (brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
                 ConnectContext ctx = ConnectContext.get();
@@ -170,7 +170,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     maxFileCount = ctx.getSessionVariable().maxS3ListObjectsCount;
                 }
             }
-            
+
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses, maxFileCount);
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);

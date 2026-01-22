@@ -1015,7 +1015,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = MAX_S3_LIST_OBJECTS_COUNT, needForward = true, description = {
             "S3 list操作返回的最大文件数量，-1表示无限制",
             "Max number of files to list from S3. -1 means no limitation."})
-    public int maxS3ListObjectsCount = Config.max_s3_list_objects_count;
+    public int maxS3ListObjectsCount = 1000;
 
     @VariableMgr.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;

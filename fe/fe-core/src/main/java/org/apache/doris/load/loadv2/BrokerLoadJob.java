@@ -92,6 +92,7 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     private boolean enableMemTableOnSinkNode = false;
     private int batchSize = 0;
+    private int maxS3ListObjectsCount = -1;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -108,9 +109,11 @@ public class BrokerLoadJob extends BulkLoadJob {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
         if (ConnectContext.get() != null) {
-            enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
-            enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
-            batchSize = ConnectContext.get().getSessionVariable().brokerLoadBatchSize;
+            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+            enableProfile = sessionVariable.enableProfile();
+            enableMemTableOnSinkNode = sessionVariable.enableMemtableOnSinkNode;
+            batchSize = sessionVariable.brokerLoadBatchSize;
+            maxS3ListObjectsCount = sessionVariable.maxS3ListObjectsCount;
         }
     }
 
@@ -119,8 +122,12 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(type, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
-            enableProfile = true;
+        if (ConnectContext.get() != null) {
+            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+            if (sessionVariable.enableProfile()) {
+                enableProfile = true;
+            }
+            maxS3ListObjectsCount = sessionVariable.maxS3ListObjectsCount;
         }
     }
 
@@ -145,7 +152,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     protected LoadTask createPendingTask() {
-        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority());
+        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority(),
+                maxS3ListObjectsCount);
     }
 
     /**
