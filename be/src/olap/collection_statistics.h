@@ -23,6 +23,7 @@
 #include "common/be_mock_util.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
+#include "olap/tablet_reader.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -33,6 +34,7 @@ namespace io {
 class FileSystem;
 using FileSystemSPtr = std::shared_ptr<FileSystem>;
 struct IOContext;
+struct FileCacheStatistics;
 } // namespace io
 
 struct RowSetSplits;
@@ -43,6 +45,8 @@ using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class TabletIndex;
 class TabletSchema;
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
+
+class TabletReader;
 
 struct TermInfoComparer {
     bool operator()(const segment_v2::TermInfo& lhs, const segment_v2::TermInfo& rhs) const {
@@ -61,10 +65,8 @@ public:
     CollectionStatistics() = default;
     virtual ~CollectionStatistics() = default;
 
-    Status collect(RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
-                   const TabletSchemaSPtr& tablet_schema,
-                   const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
-                   io::IOContext* io_ctx);
+    Status collect(const TabletReader::ReaderParams& reader_params,
+                   io::FileCacheStatistics* file_cache_stats);
 
     MOCK_FUNCTION float get_or_calculate_idf(const std::wstring& lucene_col_name,
                                              const std::wstring& term);
