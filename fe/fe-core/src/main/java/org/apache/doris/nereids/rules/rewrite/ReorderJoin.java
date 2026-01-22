@@ -85,7 +85,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class))
             .whenNot(filter -> filter.child() instanceof LogicalJoin
-                    && ((LogicalJoin<?, ?>) filter.child()).isMarkJoin())
+                    && (((LogicalJoin<?, ?>) filter.child()).isMarkJoin())
+                        || ((LogicalJoin<?, ?>) filter.child()).getJoinType().isAsofJoin())
             .thenApply(ctx -> {
                 if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
                         || ctx.cascadesContext.isLeadingDisableJoinReorder()
@@ -162,7 +163,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             join = (LogicalJoin<?, ?>) plan;
         }
 
-        if (join.isMarkJoin()) {
+        if (join.isMarkJoin() || join.getJoinType().isAsofJoin()) {
             return plan;
         }
 
