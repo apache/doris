@@ -30,6 +30,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 
@@ -122,10 +123,8 @@ public class CloudPartition extends Partition {
             return true;
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            return true;
-        }
-        long cacheExpirationMs = ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs;
+        long cacheExpirationMs = ctx == null ? VariableMgr.getDefaultSessionVariable().cloudPartitionVersionCacheTtlMs
+                : ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs;
         if (cacheExpirationMs <= 0) { // always expired
             return true;
         }

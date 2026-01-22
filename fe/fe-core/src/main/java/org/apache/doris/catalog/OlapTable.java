@@ -62,6 +62,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
@@ -3292,10 +3293,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return true;
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            return true;
-        }
-        long cacheExpirationMs = ctx.getSessionVariable().cloudTableVersionCacheTtlMs;
+        long cacheExpirationMs = ctx == null ? VariableMgr.getDefaultSessionVariable().cloudTableVersionCacheTtlMs
+                : ctx.getSessionVariable().cloudTableVersionCacheTtlMs;
         if (cacheExpirationMs <= 0) { // always expired
             return true;
         }
