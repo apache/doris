@@ -53,6 +53,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -109,8 +110,9 @@ public class LineageInfoExtractor {
 
         // Step 2: Extract indirect lineage and set lineage by traversing plan tree
         LineageCollector collector = new LineageCollector(replaceContext.getExprIdExpressionMap());
-        collector.collectExpressionLineage(lineageInfo, replaceContext.getExprIdExpressionMap());
         plan.accept(collector, lineageInfo);
+
+        collector.collectExpressionLineage(lineageInfo, replaceContext.getExprIdExpressionMap());
         return lineageInfo;
     }
 
@@ -328,7 +330,8 @@ public class LineageInfoExtractor {
                         continue;
                     }
                     SlotReference childOutput = childOutputs.get(outputIndex);
-                    Expression shuttled = shuttleExpression(childOutput, exprIdExpressionMap);
+                    Expression shuttled = shuttleExpressionThroughPlan(union.child(childIndex),
+                            childOutput, exprIdExpressionMap);
                     DirectLineageType type = determineDirectLineageType(shuttled);
                     updatedLineage.put(type, shuttled);
                 }
@@ -428,12 +431,21 @@ public class LineageInfoExtractor {
                     .collect(Collectors.toSet());
         }
 
-        private Expression shuttleExpression(Expression expression,
-                                             Map<ExprId, Expression> exprIdExpressionMap) {
-            if (expression == null) {
-                return null;
+        /**
+         * Shuttle a target expression through a specific child plan to resolve aliases.
+         *
+         * <p>Using the example SQL above, this resolves UNION child output slots to their base expressions.
+         */
+        private Expression shuttleExpressionThroughPlan(Plan plan, Expression expression,
+                                                        Map<ExprId, Expression> exprIdExpressionMap) {
+            if (plan == null || expression == null) {
+                return expression;
             }
-            return expression.accept(ExpressionReplacer.INSTANCE, exprIdExpressionMap);
+            ExpressionLineageReplacer.ExpressionReplaceContext context =
+                    new ExpressionLineageReplacer.ExpressionReplaceContext(Collections.singletonList(expression));
+            exprIdExpressionMap.putAll(context.getExprIdExpressionMap());
+            plan.accept(ExpressionLineageReplacer.INSTANCE, context);
+            return context.getReplacedExpressions().get(0);
         }
 
         /**
