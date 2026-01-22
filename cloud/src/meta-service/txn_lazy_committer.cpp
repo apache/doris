@@ -576,7 +576,8 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
         // Remove delete bitmap locks if deferring deletion
         if (defer_deleting_pending_delete_bitmaps) {
             for (int64_t table_id : txn_info.table_ids()) {
-                std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+                std::string lock_key =
+                        meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
                 // Read the lock first to check if it still belongs to the current txn
                 std::string lock_val;
                 TxnErrorCode err = txn->get(lock_key, &lock_val);
@@ -590,8 +591,7 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
                                       << " table_id=" << table_id << " txn_id=" << txn_id;
                         } else {
                             LOG(WARNING) << "delete bitmap lock is held by another txn, "
-                                         << "lock_key=" << hex(lock_key)
-                                         << " table_id=" << table_id
+                                         << "lock_key=" << hex(lock_key) << " table_id=" << table_id
                                          << " expected_txn_id=" << txn_id
                                          << " actual_lock_id=" << lock_info.lock_id();
                         }
