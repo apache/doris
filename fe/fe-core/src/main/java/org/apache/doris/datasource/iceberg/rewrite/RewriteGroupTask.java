@@ -285,8 +285,8 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         // 2. Use available BE count passed from constructor
         int availableBeCount = this.availableBeCount;
 
-        // 3. Get default parallelism from session variable
-        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum();
+        // 3. Get default parallelism from session variable (pipeline task num)
+        int defaultParallelism = getDefaultPipelineParallelism();
 
         // 4. Determine strategy based on expected file count
         boolean useGather = false;
@@ -314,6 +314,16 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 availableBeCount, defaultParallelism, optimalParallelism, useGather);
 
         return new RewriteStrategy(optimalParallelism, useGather);
+    }
+
+    private int getDefaultPipelineParallelism() {
+        int parallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        if (parallelPipelineTaskNum > 0) {
+            return parallelPipelineTaskNum;
+        }
+        int minPipelineExecutorSize = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+        int autoInstance = (minPipelineExecutorSize + 1) / 2;
+        return Math.min(autoInstance, connectContext.getSessionVariable().maxInstanceNum);
     }
 
     /**

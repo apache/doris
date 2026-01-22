@@ -52,8 +52,7 @@ public class RewriteGroupTaskTest {
     @Mock
     private ConnectContext mockConnectContext;
 
-    @Mock
-    private SessionVariable mockSessionVariable;
+    private SessionVariable sessionVariable;
 
     @Mock
     private FileScanTask mockFileScanTask;
@@ -77,8 +76,10 @@ public class RewriteGroupTaskTest {
         MockitoAnnotations.openMocks(this);
 
         // Setup common mocks
-        Mockito.when(mockConnectContext.getSessionVariable()).thenReturn(mockSessionVariable);
-        Mockito.when(mockSessionVariable.getParallelExecInstanceNum()).thenReturn(8);
+        sessionVariable = new SessionVariable();
+        sessionVariable.parallelPipelineTaskNum = 8;
+        sessionVariable.maxInstanceNum = 64;
+        Mockito.when(mockConnectContext.getSessionVariable()).thenReturn(sessionVariable);
 
         // Mock Env and SystemInfoService
         mockedStaticEnv = Mockito.mockStatic(Env.class);
@@ -309,7 +310,7 @@ public class RewriteGroupTaskTest {
 
         Mockito.when(mockGroup.getTotalSize()).thenReturn(totalSize);
         Mockito.when(mockGroup.getTasks()).thenReturn(Collections.singletonList(mockFileScanTask));
-        Mockito.when(mockSessionVariable.getParallelExecInstanceNum()).thenReturn(100);
+        sessionVariable.parallelPipelineTaskNum = 100;
 
         RewriteGroupTask task = new RewriteGroupTask(
                 mockGroup, 1L, mockTable, mockConnectContext,

@@ -540,7 +540,8 @@ suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,exte
     assertTrue(aliveBeCount > 0, "No alive backend found for rewrite test")
 
     // Use a large parallelism cap to make BE count the main limiter
-    sql """set parallel_exec_instance_num=64"""
+    int pipelineParallelism = 64
+    sql """set parallel_pipeline_task_num=${pipelineParallelism}"""
 
     // Compute total size and derive target file size to ensure expectedFileCount > aliveBeCount
     List<List<Object>> filesBeforeLimit = sql """
@@ -568,7 +569,7 @@ suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,exte
     """
 
     int addedFilesCountLimit = rewriteLimitResult[0][1] as int
-    int expectedUpper = Math.min((int) expectedFileCount, Math.min(aliveBeCount, 64))
+    int expectedUpper = Math.min((int) expectedFileCount, Math.min(aliveBeCount, pipelineParallelism))
     assertTrue(addedFilesCountLimit > 0, "Expected added files count > 0 after rewrite")
     assertTrue(addedFilesCountLimit <= expectedUpper,
         "addedFilesCount=${addedFilesCountLimit}, expectedUpper=${expectedUpper}, "
