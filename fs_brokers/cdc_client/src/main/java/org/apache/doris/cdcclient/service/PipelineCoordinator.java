@@ -193,7 +193,6 @@ public class PipelineCoordinator {
             taskOffsetCache.put(fetchRecord.getTaskId(), lastMeta);
         }
 
-        sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
         if (!isLong(fetchRecord.getJobId())) {
             // TVF requires closing the window after each execution,
             // while PG requires dropping the slot.

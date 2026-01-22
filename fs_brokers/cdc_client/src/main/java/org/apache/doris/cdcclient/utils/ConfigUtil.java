@@ -106,7 +106,7 @@ public class ConfigUtil {
                     .map(t -> schema + "." + t.trim())
                     .toArray(String[]::new);
         } else if (StringUtils.isNotEmpty(table)) {
-            Preconditions.checkArgument(!table.contains(","), "table only support one table");
+            Preconditions.checkArgument(!table.contains(","), "table only supports one table");
             return new String[] {schema + "." + table.trim()};
         } else {
             return new String[0];

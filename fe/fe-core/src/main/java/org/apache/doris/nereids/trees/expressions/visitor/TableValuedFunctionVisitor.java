@@ -82,7 +82,7 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(http, context);
     }
 
-    default R visitPostgresCdc(CdcStream cdcStream, C context) {
+    default R visitCdcStream(CdcStream cdcStream, C context) {
         return visitTableValuedFunction(cdcStream, context);
     }
 

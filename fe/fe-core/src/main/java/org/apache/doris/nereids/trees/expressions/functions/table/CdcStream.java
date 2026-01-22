@@ -54,6 +54,6 @@ public class CdcStream extends TableValuedFunction {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitPostgresCdc(this, context);
+        return visitor.visitCdcStream(this, context);
     }
 }

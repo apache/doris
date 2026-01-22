@@ -21,7 +21,7 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
-    def pgPassword = "postgres"
+    def pgPassword = "123456"
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
