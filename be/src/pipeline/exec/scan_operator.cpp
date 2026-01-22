@@ -364,7 +364,15 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                     auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
                     {
                         Defer attach_defer = [&]() {
-                            if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
+                            // eos is true means triggered short-circuit in predicate pushdown, predicates may empty
+                            if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper() &&
+                                !_eos) {
+                                if (_slot_id_to_predicates[slot->id()].empty()) {
+                                    return Status::InternalError(
+                                            "No predicate generated for runtime filter "
+                                            "from expr: {}",
+                                            root->debug_string());
+                                }
                                 auto* rf_expr =
                                         assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
                                 _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
