@@ -42,15 +42,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.ExpressionReplacer;
 
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -104,7 +107,7 @@ public class LineageInfoExtractor {
         // Step 1: Extract direct lineage using shuttleExpressionWithLineage
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext = extractDirectLineage(plan, lineageInfo);
 
-        // Step 2: Extract indirect lineage by traversing plan tree
+        // Step 2: Extract indirect lineage and set lineage by traversing plan tree
         LineageCollector collector = new LineageCollector(replaceContext.getExprIdExpressionMap());
         collector.collectExpressionLineage(lineageInfo, replaceContext.getExprIdExpressionMap());
         plan.accept(collector, lineageInfo);
@@ -160,6 +163,7 @@ public class LineageInfoExtractor {
      */
     private static class LineageCollector extends DefaultPlanVisitor<Void, LineageInfo> {
         private final Map<ExprId, Expression> exprIdExpressionMap;
+        private Map<ExprId, ExprId> valueExprIdToKeyExprId;
 
         /**
          * Create a collector with a map for shuttling expressions.
@@ -291,6 +295,124 @@ public class LineageInfoExtractor {
         }
 
         /**
+         * Replace UNION outputs in direct lineage using child outputs.
+         *
+         * <p>Using the example SQL above, there is no UNION, so this is a no-op; when UNION exists, each child
+         * contributes to direct lineage.
+         */
+        @Override
+        public Void visitLogicalUnion(LogicalUnion union, LineageInfo lineageInfo) {
+            if (union == null || union.children().isEmpty()) {
+                return null;
+            }
+            Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap =
+                    lineageInfo.getDirectLineageMap();
+            if (directLineageMap == null || directLineageMap.isEmpty()) {
+                return null;
+            }
+            List<Slot> unionOutputs = union.getOutput();
+            for (int outputIndex = 0; outputIndex < unionOutputs.size(); outputIndex++) {
+                Slot outputSlot = unionOutputs.get(outputIndex);
+                if (!(outputSlot instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference outputSlotRef = (SlotReference) outputSlot;
+                SlotReference directLineageSlot = resolveDirectLineageOutputSlot(outputSlotRef, directLineageMap);
+                if (directLineageSlot == null) {
+                    continue;
+                }
+                SetMultimap<DirectLineageType, Expression> updatedLineage = HashMultimap.create();
+                for (int childIndex = 0; childIndex < union.children().size(); childIndex++) {
+                    List<SlotReference> childOutputs = union.getRegularChildOutput(childIndex);
+                    if (outputIndex >= childOutputs.size()) {
+                        continue;
+                    }
+                    SlotReference childOutput = childOutputs.get(outputIndex);
+                    Expression shuttled = shuttleExpression(childOutput, exprIdExpressionMap);
+                    DirectLineageType type = determineDirectLineageType(shuttled);
+                    updatedLineage.put(type, shuttled);
+                }
+                if (!updatedLineage.isEmpty()) {
+                    directLineageMap.put(directLineageSlot, updatedLineage);
+                }
+            }
+            return super.visitLogicalUnion(union, lineageInfo);
+        }
+
+        /**
+         * Resolve which output slot in directLineageMap should be replaced for a UNION output.
+         *
+         * <p>Using the example SQL above, this walks exprIdExpressionMap values to find the matching output slot key.
+         */
+        private SlotReference resolveDirectLineageOutputSlot(SlotReference outputSlotRef,
+                Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap) {
+            if (outputSlotRef == null || exprIdExpressionMap == null || exprIdExpressionMap.isEmpty()) {
+                return null;
+            }
+            if (directLineageMap == null || directLineageMap.isEmpty()) {
+                return null;
+            }
+            ExprId exprId = findExprIdByValue(outputSlotRef);
+            Set<ExprId> visited = new HashSet<>();
+            while (exprId != null && visited.add(exprId)) {
+                SlotReference directLineageSlot = findDirectLineageKeyByExprId(exprId, directLineageMap);
+                if (directLineageSlot != null) {
+                    return directLineageSlot;
+                }
+                exprId = findExprIdByValueExprId(exprId);
+            }
+            return null;
+        }
+
+        private Map<ExprId, ExprId> getValueExprIdToKeyExprId() {
+            if (valueExprIdToKeyExprId != null) {
+                return valueExprIdToKeyExprId;
+            }
+            Map<ExprId, ExprId> mapping = new HashMap<>();
+            for (Map.Entry<ExprId, Expression> entry : exprIdExpressionMap.entrySet()) {
+                Expression value = entry.getValue();
+                if (value instanceof SlotReference) {
+                    ExprId valueExprId = ((SlotReference) value).getExprId();
+                    mapping.putIfAbsent(valueExprId, entry.getKey());
+                }
+            }
+            valueExprIdToKeyExprId = mapping;
+            return valueExprIdToKeyExprId;
+        }
+
+        private ExprId findExprIdByValue(SlotReference valueSlot) {
+            if (valueSlot == null) {
+                return null;
+            }
+            return findExprIdByValueExprId(valueSlot.getExprId());
+        }
+
+        private ExprId findExprIdByValueExprId(ExprId valueExprId) {
+            if (valueExprId == null) {
+                return null;
+            }
+            return getValueExprIdToKeyExprId().get(valueExprId);
+        }
+
+        /**
+         * Find the directLineageMap key whose exprId matches the given exprId.
+         *
+         * <p>Using the example SQL above, this returns the output slot that should be replaced.
+         */
+        private SlotReference findDirectLineageKeyByExprId(ExprId exprId,
+                Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap) {
+            if (exprId == null || directLineageMap == null || directLineageMap.isEmpty()) {
+                return null;
+            }
+            for (SlotReference slot : directLineageMap.keySet()) {
+                if (slot.getExprId().equals(exprId)) {
+                    return slot;
+                }
+            }
+            return null;
+        }
+
+        /**
          * Shuttle expressions to replace exprIds with their resolved expressions.
          *
          * <p>Using the example SQL above, nation_name is shuttled to n.n_name.
@@ -304,6 +426,14 @@ public class LineageInfoExtractor {
                     .map(original ->
                             original.accept(ExpressionReplacer.INSTANCE, exprIdExpressionMap))
                     .collect(Collectors.toSet());
+        }
+
+        private Expression shuttleExpression(Expression expression,
+                                             Map<ExprId, Expression> exprIdExpressionMap) {
+            if (expression == null) {
+                return null;
+            }
+            return expression.accept(ExpressionReplacer.INSTANCE, exprIdExpressionMap);
         }
 
         /**
