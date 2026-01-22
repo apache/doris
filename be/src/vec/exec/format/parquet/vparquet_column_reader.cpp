@@ -119,6 +119,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                element_reader, max_buf_size, col_offsets, true, column_ids,
                                filter_column_ids));
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+        element_reader->set_column_in_nested();
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
         array_reader->_filter_column_ids = filter_column_ids;
         reader.reset(array_reader.release());
@@ -150,6 +151,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         }
 
         auto map_reader = MapColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+        key_reader->set_column_in_nested();
+        value_reader->set_column_in_nested();
         RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
         map_reader->_filter_column_ids = filter_column_ids;
         reader.reset(map_reader.release());
@@ -175,6 +178,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                 skip_reader->_filter_column_ids = filter_column_ids;
                 child_readers[child.name] = std::move(skip_reader);
             }
+            child_readers[child.name]->set_column_in_nested();
         }
         // If all children are SkipReadingReader, force the first child to call create
         if (non_skip_reader_idx == -1) {
@@ -182,6 +186,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size, col_offsets, in_collection,
                                    column_ids, filter_column_ids));
+            child_reader->set_column_in_nested();
             child_readers[field->children[0].name] = std::move(child_reader);
         }
         auto struct_reader = StructColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
@@ -195,7 +200,6 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                                                       : nullptr;
 
         const tparquet::ColumnChunk& chunk = row_group.columns[physical_index];
-
         if (in_collection) {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<true, false>::create_unique(
@@ -345,9 +349,6 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                     return Status::InternalError("Failed to decode definition level.");
                 }
 
-                for (int i = 0; i < loop_read; i++) {
-                    _def_levels.emplace_back(def_level);
-                }
                 bool is_null = def_level < _field_schema->definition_level;
                 if (!(prev_is_null ^ is_null)) {
                     null_map.emplace_back(0);
@@ -362,14 +363,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                 prev_is_null = is_null;
                 has_read += loop_read;
             }
-        } else {
-            _def_levels.resize(_def_levels.size() + num_values, 0);
         }
     } else {
         if (_chunk_reader->max_def_level() > 0) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        _def_levels.resize(_def_levels.size() + num_values, 0);
         data_column = doris_column->assume_mutable();
     }
     if (null_map.size() == 0) {
@@ -548,7 +546,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     _rep_levels.clear();
     *read_rows = 0;
 
-    if constexpr (IN_COLLECTION) {
+    if (_in_nested) {
         RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, filter_map, batch_size,
                                             read_rows, eof, is_dict_filter));
         return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
@@ -562,7 +560,6 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     } else {
         right_row = _chunk_reader->page_end_row();
     }
-    auto before_filter_map_index = _filter_map_index;
 
     do {
         // generate the row ranges that should be read
@@ -628,18 +625,6 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
             RETURN_IF_ERROR(_chunk_reader->next_page());
         }
     }
-
-    if (filter_map.has_filter()) {
-        size_t new_rep_sz = 0;
-        for (size_t idx = before_filter_map_index; idx < _filter_map_index; idx++) {
-            if (filter_map.filter_map_data()[idx]) {
-                _def_levels[new_rep_sz] = _def_levels[idx - before_filter_map_index];
-                new_rep_sz++;
-            }
-        }
-        _def_levels.resize(new_rep_sz);
-    }
-    _rep_levels.resize(_def_levels.size(), 0);
 
     return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
                                is_dict_filter);
