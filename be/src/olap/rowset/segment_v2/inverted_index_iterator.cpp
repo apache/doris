@@ -31,10 +31,9 @@ namespace doris::segment_v2 {
 InvertedIndexIterator::InvertedIndexIterator() = default;
 
 std::string InvertedIndexIterator::ensure_normalized_key(const std::string& analyzer_key) {
-    // normalize_analyzer_key handles all cases consistently:
-    // - empty string -> __default__
-    // - "none" -> stays as "none" (distinct from __default__, means no tokenization)
-    // - other values -> lowercase normalized
+    // Simple normalization: lowercase, empty stays empty.
+    // Empty means "user did not specify" (auto-select mode).
+    // Non-empty means "user specified this analyzer" (exact match mode).
     return normalize_analyzer_key(analyzer_key);
 }
 
@@ -69,11 +68,11 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("inverted index bypass");
     });
 
-    // analyzer_key from param is expected to be pre-normalized; select_best_reader
-    // will normalize again if needed, but this avoids redundant work when already normalized.
-    const std::string& analyzer_name = (i_param->analyzer_ctx != nullptr)
-                                               ? i_param->analyzer_ctx->analyzer_name
-                                               : INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+    // analyzer_name from analyzer_ctx: what user specified in USING ANALYZER clause.
+    // Empty means "user did not specify" (BE auto-selects index).
+    // Non-empty means "user specified this analyzer" (BE exact matches).
+    const std::string& analyzer_name =
+            (i_param->analyzer_ctx != nullptr) ? i_param->analyzer_ctx->analyzer_name : "";
     auto reader =
             DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type, analyzer_name));
     if (UNLIKELY(reader == nullptr)) {
@@ -123,12 +122,14 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 }
 
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
-    auto reader = DORIS_TRY(select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY));
+    // For null bitmap, use any available reader (empty = auto-select)
+    auto reader = DORIS_TRY(select_best_reader(""));
     return reader->read_null_bitmap(_context, cache_handle, nullptr);
 }
 
 Result<bool> InvertedIndexIterator::has_null() {
-    auto reader = DORIS_TRY(select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY));
+    // For has_null check, use any available reader (empty = auto-select)
+    auto reader = DORIS_TRY(select_best_reader(""));
     return reader->has_null();
 }
 

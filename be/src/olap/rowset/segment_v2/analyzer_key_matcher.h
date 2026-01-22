@@ -48,13 +48,13 @@ struct AnalyzerMatchResult {
 // Stateless - all methods are static.
 //
 // Matching strategy:
-// 1. If key is __default__ (or empty), return all readers for query-type-based selection
-// 2. If key is explicit, try exact match
+// 1. If key is empty (user did not specify), return all readers for query-type-based selection
+// 2. If key is non-empty (user specified), try exact match
 // 3. If explicit key with no match, return empty (caller decides whether to bypass)
 class AnalyzerKeyMatcher {
 public:
     // Match analyzer key against reader entries.
-    // @param analyzer_key: Normalized analyzer key (lowercase, trimmed)
+    // @param analyzer_key: Normalized analyzer key (lowercase, or empty for auto-select)
     // @param entries: Available reader entries
     // @param key_index: Index mapping analyzer_key -> entry indices
     // @return MatchResult with candidates and fallback flag
@@ -62,19 +62,14 @@ public:
             std::string_view analyzer_key, const std::vector<ReaderEntry>& entries,
             const std::unordered_map<std::string, std::vector<size_t>>& key_index);
 
-    // Check if analyzer key is explicitly specified (not default).
-    // Explicit means user wrote "USING ANALYZER xxx" or "field$xxx:value".
-    // @param key: Normalized analyzer key
-    // @return true if key is non-empty and not __default__
-    static bool is_explicit(std::string_view key) {
-        return !key.empty() && key != INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
-    }
+    // Check if analyzer key is explicitly specified by user.
+    // Empty string means "user did not specify" (auto-select mode).
+    // Non-empty means "user wrote USING ANALYZER xxx".
+    static bool is_explicit(std::string_view key) { return !key.empty(); }
 
-    // Check if fallback is allowed for this key.
-    // Only __default__ key allows fallback to all readers.
-    static bool allows_fallback(std::string_view key) {
-        return key.empty() || key == INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
-    }
+    // Check if fallback (returning all readers) is allowed for this key.
+    // Only empty key (user did not specify) allows fallback.
+    static bool allows_fallback(std::string_view key) { return key.empty(); }
 };
 
 } // namespace doris::segment_v2

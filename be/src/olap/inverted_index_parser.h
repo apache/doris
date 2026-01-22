@@ -99,42 +99,32 @@ const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression
 const std::string INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
 const std::string INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 const std::string INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
-const std::string INVERTED_INDEX_DEFAULT_ANALYZER_KEY = "__default__";
 
-// Normalize an analyzer name to a standardized key format (lowercase, trimmed).
-// Used for consistent lookup in multi-analyzer index scenarios.
+// Normalize an analyzer name to a standardized key format (lowercase).
+// Empty string stays empty (means "user did not specify").
+// Non-empty string is lowercased (means "user specified this analyzer").
 std::string normalize_analyzer_key(std::string_view analyzer);
 
 // Runtime context for analyzer
 // Contains only the fields needed at runtime
 struct InvertedIndexAnalyzerCtx {
-    // Used by execute_column path to determine if tokenization should be skipped
+    // analyzer_name: what user specified in USING ANALYZER clause
+    // Empty means user did not specify (BE auto-selects index)
+    // Non-empty means user explicitly specified (BE exact matches)
     std::string analyzer_name;
+
+    // parser_type: determined from index properties, used for slow path tokenization
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
 
     // Used for creating reader and tokenization
     CharFilterMap char_filter_map;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
 
-    // Helper method: returns true if tokenization should be performed
-    // For PARSER_NONE (builtin "none" analyzer), no tokenization is performed.
-    // For custom analyzers (parser_type=PARSER_NONE but analyzer_name is a custom name),
-    // tokenization is performed using the custom analyzer.
-    // For "__default__" analyzer_name, returns true to let the caller use index properties
-    // to decide the actual analyzer (fallback to index-configured analyzer).
-    bool should_tokenize() const {
-        if (parser_type != InvertedIndexParserType::PARSER_NONE) {
-            return true;
-        }
-        if (analyzer_name.empty()) {
-            return false;
-        }
-        auto normalized = normalize_analyzer_key(analyzer_name);
-        // Only "none" should skip tokenization.
-        // "__default__" means use index-configured analyzer, so we should return true
-        // to let the caller fallback to index properties for tokenization.
-        return normalized != INVERTED_INDEX_PARSER_NONE;
-    }
+    // Returns true if tokenization should be performed.
+    // Decision is based on parser_type (from index properties):
+    // - PARSER_NONE: no tokenization (keyword/exact match)
+    // - Other parsers: tokenize using that parser
+    bool should_tokenize() const { return parser_type != InvertedIndexParserType::PARSER_NONE; }
 };
 using InvertedIndexAnalyzerCtxSPtr = std::shared_ptr<InvertedIndexAnalyzerCtx>;
 
@@ -188,10 +178,16 @@ std::string build_analyzer_key_from_properties(
 struct AnalyzerConfig {
     std::string custom_analyzer;
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_NONE;
-    std::string analyzer_key = INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+    // analyzer_key: what user specified in USING ANALYZER clause
+    // Empty means "user did not specify" (BE auto-selects)
+    // Non-empty means "user specified this analyzer" (BE exact matches)
+    std::string analyzer_key;
 
     // Check if this is a custom analyzer (not builtin)
     bool is_custom() const { return !custom_analyzer.empty(); }
+
+    // Check if user explicitly specified an analyzer
+    bool is_user_specified() const { return !analyzer_key.empty(); }
 };
 
 // Parser for analyzer configuration from Thrift TMatchPredicate.
@@ -200,7 +196,7 @@ struct AnalyzerConfig {
 class AnalyzerConfigParser {
 public:
     // Parse from raw analyzer name and parser type string (extracted from Thrift).
-    // @param analyzer_name: User-specified analyzer name (may be custom or builtin).
+    // @param analyzer_name: User-specified analyzer name (may be custom or builtin, or empty).
     // @param parser_type_str: Parser type string like "chinese", "standard", etc.
     [[nodiscard]] static AnalyzerConfig parse(const std::string& analyzer_name,
                                               const std::string& parser_type_str);
@@ -211,7 +207,7 @@ public:
 private:
     static std::string normalize_to_lower(const std::string& value);
 
-    // Compute normalized analyzer_key from raw value, defaulting to __default__ if empty.
+    // Compute normalized analyzer_key from raw value.
     static std::string compute_analyzer_key(const std::string& value);
 };
 

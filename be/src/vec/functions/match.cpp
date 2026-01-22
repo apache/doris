@@ -197,24 +197,32 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     if (analyzer_ctx == nullptr) {
         return query_tokens;
     }
+
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(analyzer_ctx->parser_type);
+
+    // Decision is based on parser_type (from index properties):
+    // - PARSER_NONE: no tokenization (keyword/exact match)
+    // - Other parsers: tokenize using the analyzer
     if (!analyzer_ctx->should_tokenize()) {
+        // Keyword index or no tokenization needed
         // Don't add empty string as token - empty query should match nothing
         if (!match_query_str.empty()) {
             query_tokens.emplace_back(match_query_str);
         }
         return query_tokens;
     }
-    // If analyzer is nullptr, fall back to no tokenization.
-    // This can happen with older FE versions that send "__default__" for keyword indexes.
+
+    // Safety check: if analyzer is nullptr but tokenization is expected, fall back to no tokenization
     if (analyzer_ctx->analyzer == nullptr) {
-        VLOG_DEBUG << "Analyzer is nullptr in slow path, falling back to no tokenization";
+        VLOG_DEBUG << "Analyzer is nullptr, falling back to no tokenization";
         if (!match_query_str.empty()) {
             query_tokens.emplace_back(match_query_str);
         }
         return query_tokens;
     }
+
+    // Tokenize using the analyzer
     auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
             analyzer_ctx->char_filter_map);
     reader->init(match_query_str.data(), (int)match_query_str.size(), true);
@@ -231,27 +239,29 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
     if (analyzer_ctx == nullptr) {
         return data_tokens;
     }
+
+    // Determine tokenization strategy based on parser_type
+    const bool should_tokenize =
+            analyzer_ctx->should_tokenize() && analyzer_ctx->analyzer != nullptr;
+
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-            if (!analyzer_ctx->should_tokenize() || analyzer_ctx->analyzer == nullptr) {
-                // Fall back to no tokenization if analyzer is nullptr
+            if (!should_tokenize) {
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                     analyzer_ctx->char_filter_map);
             reader->init(str_ref.data, (int)str_ref.size, true);
-
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                             reader, analyzer_ctx->analyzer.get());
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        if (!analyzer_ctx->should_tokenize() || analyzer_ctx->analyzer == nullptr) {
-            // Fall back to no tokenization if analyzer is nullptr
+        if (!should_tokenize) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(

@@ -135,20 +135,13 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
     const std::string& analyzer_name = config->analyzer_name;
 
     // Handle empty analyzer name - use builtin analyzer based on parser_type.
+    // This is the common case when user does not specify USING ANALYZER.
     if (analyzer_name.empty()) {
         return create_builtin_analyzer(config->parser_type, config->parser_mode, config->lower_case,
                                        config->stop_words);
     }
 
-    // "__default__" is used for backwards compatibility. Create a standard analyzer
-    // so that slow path (match.cpp) can still tokenize queries. For index path,
-    // the inverted_index_reader.cpp will fall back to _index_meta.properties()
-    // when custom analyzers are configured on the index.
-    if (analyzer_name == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
-        return create_builtin_analyzer(InvertedIndexParserType::PARSER_STANDARD,
-                                       config->parser_mode, config->lower_case, config->stop_words);
-    }
-
+    // Check if it's a builtin analyzer name (english, chinese, standard, etc.)
     if (is_builtin_analyzer(analyzer_name)) {
         InvertedIndexParserType parser_type =
                 get_inverted_index_parser_type_from_string(analyzer_name);
@@ -156,6 +149,7 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
                                        config->stop_words);
     }
 
+    // Custom analyzer - look up in policy manager
     auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
     if (!index_policy_mgr) {
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,

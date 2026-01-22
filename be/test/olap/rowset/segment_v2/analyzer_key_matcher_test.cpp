@@ -23,14 +23,18 @@
 
 namespace doris::segment_v2 {
 
+// New design:
+// - Empty string "" means "user did not specify" (BE auto-selects index)
+// - Non-empty string means "user specified this analyzer" (exact match)
+// - "__default__" is no longer special - it's just another explicit key
+
 class AnalyzerKeyMatcherTest : public testing::Test {
 protected:
     void SetUp() override {
         // Create test entries
         entries_.push_back({InvertedIndexReaderType::FULLTEXT, "chinese", nullptr});
         entries_.push_back({InvertedIndexReaderType::FULLTEXT, "english", nullptr});
-        entries_.push_back({InvertedIndexReaderType::STRING_TYPE,
-                            INVERTED_INDEX_DEFAULT_ANALYZER_KEY, nullptr});
+        entries_.push_back({InvertedIndexReaderType::STRING_TYPE, "", nullptr}); // empty key reader
 
         // Build index
         for (size_t i = 0; i < entries_.size(); ++i) {
@@ -61,22 +65,12 @@ TEST_F(AnalyzerKeyMatcherTest, ExactMatchEnglish) {
     EXPECT_FALSE(result.used_fallback);
 }
 
-// Test default key returns all readers for query-type-based selection
-TEST_F(AnalyzerKeyMatcherTest, DefaultKeyReturnsAll) {
-    auto result =
-            AnalyzerKeyMatcher::match(INVERTED_INDEX_DEFAULT_ANALYZER_KEY, entries_, key_index_);
-
-    // __default__ means "no specific analyzer requested", so return all readers
-    // to allow query-type-based selection (e.g., FULLTEXT for MATCH, STRING_TYPE for EQUAL)
-    EXPECT_FALSE(result.empty());
-    EXPECT_EQ(result.size(), 3);
-    EXPECT_TRUE(result.used_fallback);
-}
-
-TEST_F(AnalyzerKeyMatcherTest, EmptyKeyFallbacksToAll) {
+// Test empty string returns all readers for query-type-based selection
+TEST_F(AnalyzerKeyMatcherTest, EmptyKeyReturnsAll) {
     auto result = AnalyzerKeyMatcher::match("", entries_, key_index_);
 
-    // Empty key should fallback to all readers
+    // Empty string means "no specific analyzer requested", so return all readers
+    // to allow query-type-based selection (e.g., FULLTEXT for MATCH, STRING_TYPE for EQUAL)
     EXPECT_FALSE(result.empty());
     EXPECT_EQ(result.size(), 3);
     EXPECT_TRUE(result.used_fallback);
@@ -94,16 +88,19 @@ TEST_F(AnalyzerKeyMatcherTest, ExplicitKeyNoMatchReturnsEmpty) {
 TEST_F(AnalyzerKeyMatcherTest, IsExplicit) {
     EXPECT_TRUE(AnalyzerKeyMatcher::is_explicit("chinese"));
     EXPECT_TRUE(AnalyzerKeyMatcher::is_explicit("english"));
-    EXPECT_FALSE(AnalyzerKeyMatcher::is_explicit(INVERTED_INDEX_DEFAULT_ANALYZER_KEY));
-    EXPECT_FALSE(AnalyzerKeyMatcher::is_explicit(""));
+    EXPECT_TRUE(AnalyzerKeyMatcher::is_explicit("none")); // "none" is explicit
+    EXPECT_TRUE(AnalyzerKeyMatcher::is_explicit(
+            "__default__")); // "__default__" is explicit (just another key)
+    EXPECT_FALSE(AnalyzerKeyMatcher::is_explicit("")); // Only empty is not explicit
 }
 
 // Test allows_fallback
 TEST_F(AnalyzerKeyMatcherTest, AllowsFallback) {
-    EXPECT_TRUE(AnalyzerKeyMatcher::allows_fallback(INVERTED_INDEX_DEFAULT_ANALYZER_KEY));
-    EXPECT_TRUE(AnalyzerKeyMatcher::allows_fallback(""));
+    EXPECT_TRUE(AnalyzerKeyMatcher::allows_fallback("")); // Only empty allows fallback
     EXPECT_FALSE(AnalyzerKeyMatcher::allows_fallback("chinese"));
     EXPECT_FALSE(AnalyzerKeyMatcher::allows_fallback("english"));
+    EXPECT_FALSE(AnalyzerKeyMatcher::allows_fallback("none"));
+    EXPECT_FALSE(AnalyzerKeyMatcher::allows_fallback("__default__")); // Not special anymore
 }
 
 // Test empty entries
@@ -145,11 +142,11 @@ TEST_F(AnalyzerKeyMatcherMultiEntryTest, MatchReturnsAllWithSameKey) {
     }
 }
 
-// Test default key fallback when no exact match
+// Test empty key fallback when no exact match
 class AnalyzerKeyMatcherFallbackTest : public testing::Test {
 protected:
     void SetUp() override {
-        // Only non-default entries (no __default__ key)
+        // Only specific entries (no empty key)
         entries_.push_back({InvertedIndexReaderType::FULLTEXT, "chinese", nullptr});
         entries_.push_back({InvertedIndexReaderType::FULLTEXT, "english", nullptr});
 
@@ -162,11 +159,10 @@ protected:
     std::unordered_map<std::string, std::vector<size_t>> key_index_;
 };
 
-TEST_F(AnalyzerKeyMatcherFallbackTest, DefaultKeyFallbacksToAll) {
-    auto result =
-            AnalyzerKeyMatcher::match(INVERTED_INDEX_DEFAULT_ANALYZER_KEY, entries_, key_index_);
+TEST_F(AnalyzerKeyMatcherFallbackTest, EmptyKeyFallbacksToAll) {
+    auto result = AnalyzerKeyMatcher::match("", entries_, key_index_);
 
-    // When __default__ is requested but no exact match exists, fallback to all
+    // When empty string is requested, fallback to all readers
     EXPECT_FALSE(result.empty());
     EXPECT_EQ(result.size(), 2);
     EXPECT_TRUE(result.used_fallback);
@@ -175,17 +171,17 @@ TEST_F(AnalyzerKeyMatcherFallbackTest, DefaultKeyFallbacksToAll) {
 TEST_F(AnalyzerKeyMatcherFallbackTest, ExplicitKeyNoFallback) {
     auto result = AnalyzerKeyMatcher::match("japanese", entries_, key_index_);
 
-    // Explicit key (not __default__) should not fallback
+    // Explicit key (not empty) should not fallback
     EXPECT_TRUE(result.empty());
     EXPECT_FALSE(result.used_fallback);
 }
 
-// Test "none" analyzer is distinct from __default__
+// Test "none" analyzer is an explicit key (no tokenization index)
 class AnalyzerKeyMatcherNoneAnalyzerTest : public testing::Test {
 protected:
     void SetUp() override {
-        entries_.push_back({InvertedIndexReaderType::STRING_TYPE,
-                            INVERTED_INDEX_DEFAULT_ANALYZER_KEY, nullptr});
+        // Entry with empty key (default/no properties) and entry with "none" key
+        entries_.push_back({InvertedIndexReaderType::STRING_TYPE, "", nullptr});
         entries_.push_back(
                 {InvertedIndexReaderType::STRING_TYPE, INVERTED_INDEX_PARSER_NONE, nullptr});
 
@@ -198,7 +194,7 @@ protected:
     std::unordered_map<std::string, std::vector<size_t>> key_index_;
 };
 
-TEST_F(AnalyzerKeyMatcherNoneAnalyzerTest, NoneIsDistinctFromDefault) {
+TEST_F(AnalyzerKeyMatcherNoneAnalyzerTest, NoneIsDistinctFromEmpty) {
     // "none" is an explicit analyzer key, should do exact match
     auto result_none = AnalyzerKeyMatcher::match(INVERTED_INDEX_PARSER_NONE, entries_, key_index_);
     EXPECT_FALSE(result_none.empty());
@@ -206,12 +202,11 @@ TEST_F(AnalyzerKeyMatcherNoneAnalyzerTest, NoneIsDistinctFromDefault) {
     EXPECT_EQ(result_none.candidates[0]->analyzer_key, INVERTED_INDEX_PARSER_NONE);
     EXPECT_FALSE(result_none.used_fallback);
 
-    // __default__ means "no specific analyzer", should return all readers
-    auto result_default =
-            AnalyzerKeyMatcher::match(INVERTED_INDEX_DEFAULT_ANALYZER_KEY, entries_, key_index_);
-    EXPECT_FALSE(result_default.empty());
-    EXPECT_EQ(result_default.size(), 2); // Should return both entries
-    EXPECT_TRUE(result_default.used_fallback);
+    // Empty string means "no specific analyzer", should return all readers
+    auto result_empty = AnalyzerKeyMatcher::match("", entries_, key_index_);
+    EXPECT_FALSE(result_empty.empty());
+    EXPECT_EQ(result_empty.size(), 2); // Should return both entries
+    EXPECT_TRUE(result_empty.used_fallback);
 }
 
 TEST_F(AnalyzerKeyMatcherNoneAnalyzerTest, NoneIsExplicit) {

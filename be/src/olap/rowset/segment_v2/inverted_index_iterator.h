@@ -76,8 +76,8 @@ private:
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
 
-    // Normalize and validate analyzer_key, returning normalized form.
-    // Empty input returns INVERTED_INDEX_DEFAULT_ANALYZER_KEY.
+    // Normalize analyzer_key to lowercase.
+    // Empty input stays empty (means "user did not specify").
     static std::string ensure_normalized_key(const std::string& analyzer_key);
 
     // Select best reader for text (string) columns.

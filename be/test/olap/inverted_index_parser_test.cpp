@@ -265,16 +265,27 @@ TEST_F(InvertedIndexParserTest, TestGetAnalyzerNameFromProperties) {
 
 TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxShouldTokenize) {
     InvertedIndexAnalyzerCtx ctx;
+
+    // New design: should_tokenize() only depends on parser_type
+    // PARSER_NONE means no tokenization (keyword index)
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name.clear();
     EXPECT_FALSE(ctx.should_tokenize());
 
+    // Any parser other than NONE means tokenization
     ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
     EXPECT_TRUE(ctx.should_tokenize());
 
+    ctx.parser_type = InvertedIndexParserType::PARSER_CHINESE;
+    EXPECT_TRUE(ctx.should_tokenize());
+
+    ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
+    EXPECT_TRUE(ctx.should_tokenize());
+
+    // Even with custom_analyzer name, PARSER_NONE means no tokenization
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name = "custom_analyzer";
-    EXPECT_TRUE(ctx.should_tokenize());
+    EXPECT_FALSE(ctx.should_tokenize());
 }
 
 // Test constants
@@ -319,17 +330,18 @@ TEST_F(InvertedIndexParserTest, TestConstants) {
     EXPECT_EQ(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "char_filter_pattern");
     EXPECT_EQ(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "char_filter_replacement");
 
-    // Test default analyzer key constant
-    EXPECT_EQ(INVERTED_INDEX_DEFAULT_ANALYZER_KEY, "__default__");
+    // Note: INVERTED_INDEX_DEFAULT_ANALYZER_KEY has been removed in the new design.
+    // Empty string now means "user did not specify" (BE auto-selects index).
 }
 
 // ============================================================================
 // normalize_analyzer_key Tests
+// New design: empty string stays empty, non-empty gets lowercased
 // ============================================================================
 
 TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_EmptyInput) {
-    // Empty string normalizes to __default__ for consistent handling
-    EXPECT_EQ(normalize_analyzer_key(""), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    // New design: empty string stays empty (means "user did not specify")
+    EXPECT_EQ(normalize_analyzer_key(""), "");
 }
 
 TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_UppercaseToLowercase) {
@@ -344,9 +356,10 @@ TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_MixedCase) {
     EXPECT_EQ(normalize_analyzer_key("My_Custom_Analyzer"), "my_custom_analyzer");
 }
 
-TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_DefaultKey) {
-    EXPECT_EQ(normalize_analyzer_key("__default__"), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
-    EXPECT_EQ(normalize_analyzer_key("__DEFAULT__"), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_NoneParser) {
+    // "none" is a distinct key - means keyword index (no tokenization)
+    EXPECT_EQ(normalize_analyzer_key("none"), "none");
+    EXPECT_EQ(normalize_analyzer_key("NONE"), "none");
 }
 
 TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_AlreadyLowercase) {
@@ -356,12 +369,13 @@ TEST_F(InvertedIndexParserTest, NormalizeAnalyzerKey_AlreadyLowercase) {
 
 // ============================================================================
 // build_analyzer_key_from_properties Tests
+// New design: returns actual parser/analyzer name, empty means no properties
 // ============================================================================
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_EmptyProperties) {
     std::map<std::string, std::string> properties;
-    // Empty properties defaults to "none" parser, which normalizes to __default__
-    EXPECT_EQ(build_analyzer_key_from_properties(properties), INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    // Empty properties = empty key (no explicit configuration)
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "");
 }
 
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomAnalyzer) {
@@ -410,7 +424,8 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomOverridesPa
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_EmptyInput) {
     auto config = AnalyzerConfigParser::parse("", "");
-    EXPECT_EQ(config.analyzer_key, INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    // New design: empty input gives empty analyzer_key (means "user did not specify")
+    EXPECT_EQ(config.analyzer_key, "");
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
     EXPECT_TRUE(config.custom_analyzer.empty());
     EXPECT_FALSE(config.is_custom());

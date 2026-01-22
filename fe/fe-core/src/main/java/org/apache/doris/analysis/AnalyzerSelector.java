@@ -26,117 +26,174 @@ import java.util.Map;
 
 /**
  * Helper for selecting the analyzer that should be attached to a MATCH predicate.
- * The current implementation is intentionally simple so that future rule-based
- * selection can plug in without touching the planner surface again.
+ *
+ * <p>Design principles:
+ * <ul>
+ *   <li>FE transmits user intent clearly to BE</li>
+ *   <li>Empty string = user did not specify analyzer (BE chooses)</li>
+ *   <li>Non-empty string = user explicitly specified analyzer (BE exact matches)</li>
+ * </ul>
+ *
+ * <p>This simple protocol eliminates ambiguity between "no preference" and "none" analyzer.
  */
 public final class AnalyzerSelector {
 
     private AnalyzerSelector() {
     }
 
+    /**
+     * Select analyzer configuration based on index and user request.
+     *
+     * @param index            The inverted index (may be null if table has no index)
+     * @param requestedAnalyzer User-specified analyzer from USING ANALYZER clause (may be null)
+     * @return Selection containing analyzer and parser information
+     */
     public static Selection select(Index index, String requestedAnalyzer) {
         Map<String, String> properties = index == null ? Collections.emptyMap() : index.getProperties();
         return select(properties, requestedAnalyzer, index == null);
     }
 
+    /**
+     * Select analyzer configuration from properties map.
+     * Used when Index object is not available.
+     */
     public static Selection select(Map<String, String> properties, String requestedAnalyzer) {
-        // When called directly with properties (not through Index overload),
-        // assume an index exists if properties is provided (even if empty).
         return select(properties, requestedAnalyzer, properties == null);
     }
 
-    private static Selection select(Map<String, String> properties, String requestedAnalyzer, boolean noIndexExists) {
-        String normalizedRequest = normalize(requestedAnalyzer);
-        String preferredAnalyzer = selectDefaultAnalyzer(properties);
-        String rawParser = InvertedIndexUtil.getInvertedIndexParser(properties);
-
-        // For tables without index, use english parser which provides more aggressive
-        // tokenization (splits on all non-letter characters) for slow path matching.
-        // Note: empty properties with an existing index means keyword index (parser=none).
-        String parser = noIndexExists
-                ? InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH
-                : rawParser;
-
-        if (!Strings.isNullOrEmpty(normalizedRequest)) {
-            return new Selection(normalizedRequest, parser, true);
+    private static Selection select(Map<String, String> properties, String requestedAnalyzer, boolean noIndex) {
+        if (properties == null) {
+            properties = Collections.emptyMap();
         }
 
-        String resolvedAnalyzer;
-        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            // Use custom analyzer from index properties
-            resolvedAnalyzer = preferredAnalyzer;
-        } else if (!Strings.isNullOrEmpty(parser)
-                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
-            // Use builtin parser (english, chinese, standard, etc.)
-            resolvedAnalyzer = parser;
+        // 1. Normalize user request
+        String userAnalyzer = normalize(requestedAnalyzer);
+
+        // 2. Get index configuration
+        String indexParser = InvertedIndexUtil.getInvertedIndexParser(properties);
+        String indexCustomAnalyzer = InvertedIndexUtil.getPreferredAnalyzer(properties);
+
+        // 3. Determine parser for slow path tokenization
+        //    - No index: use english (more aggressive tokenization)
+        //    - Has index with explicit parser: use index's configured parser
+        //    - Has index with custom analyzer (no explicit parser): use english
+        //      (custom analyzer implies fulltext tokenization)
+        //    - Has index but no analyzer/parser: use none (keyword matching)
+        String parser;
+        if (noIndex) {
+            parser = InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH;
+        } else if (!Strings.isNullOrEmpty(indexParser)
+                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(indexParser)) {
+            parser = indexParser;
+        } else if (!Strings.isNullOrEmpty(indexCustomAnalyzer)) {
+            // Custom analyzer exists but no explicit parser
+            // Use english for slow-path tokenization since custom analyzer implies fulltext
+            parser = InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH;
         } else {
-            // Keyword index (parser=none) - no tokenization needed
-            resolvedAnalyzer = "";
+            parser = InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE;
         }
-        return new Selection(resolvedAnalyzer, parser, false);
+
+        // 4. Create selection
+        //    - userAnalyzer: what user explicitly specified (empty if not specified)
+        //    - indexAnalyzer: what the index is configured with (for slow path fallback)
+        String indexAnalyzer = determineIndexAnalyzer(indexCustomAnalyzer, indexParser);
+
+        return new Selection(userAnalyzer, indexAnalyzer, parser, !Strings.isNullOrEmpty(userAnalyzer));
+    }
+
+    /**
+     * Determine the analyzer configured on the index.
+     * Priority: custom analyzer > builtin parser (if not "none")
+     */
+    private static String determineIndexAnalyzer(String customAnalyzer, String parser) {
+        if (!Strings.isNullOrEmpty(customAnalyzer)) {
+            return customAnalyzer.trim().toLowerCase();
+        }
+        if (!Strings.isNullOrEmpty(parser)
+                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
+            return parser.trim().toLowerCase();
+        }
+        // Keyword index (parser=none) or no analyzer configured
+        return "";
     }
 
     private static String normalize(String analyzer) {
-        // Policy names are case-insensitive, convert to lowercase for consistent lookup
         return analyzer == null ? "" : analyzer.trim().toLowerCase();
     }
 
-    private static String selectDefaultAnalyzer(Map<String, String> properties) {
-        // Placeholder for future rule-based selection. At the moment we simply
-        // reuse the analyzer attached to the index, if any.
-        return InvertedIndexUtil.getPreferredAnalyzer(properties);
-    }
-
+    /**
+     * Result of analyzer selection.
+     *
+     * <p>Key semantics:
+     * <ul>
+     *   <li>{@link #effectiveAnalyzerName()}: What to send to BE for index selection</li>
+     *   <li>{@link #parser()}: Parser type for slow path tokenization</li>
+     * </ul>
+     */
     public static final class Selection {
-        private final String analyzer;
+        // User explicitly specified analyzer (empty if not specified)
+        private final String userAnalyzer;
+        // Analyzer configured on index (empty for keyword index)
+        private final String indexAnalyzer;
+        // Parser type for slow path
         private final String parser;
+        // Whether user explicitly specified an analyzer
         private final boolean explicit;
 
-        private Selection(String analyzer, String parser, boolean explicit) {
-            this.analyzer = normalize(analyzer);
-            String normalizedParser = normalize(parser);
-            this.parser = Strings.isNullOrEmpty(normalizedParser)
+        private Selection(String userAnalyzer, String indexAnalyzer, String parser, boolean explicit) {
+            this.userAnalyzer = userAnalyzer;
+            this.indexAnalyzer = indexAnalyzer;
+            this.parser = Strings.isNullOrEmpty(parser)
                     ? InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE
-                    : normalizedParser;
+                    : parser.trim().toLowerCase();
             this.explicit = explicit;
         }
 
+        /**
+         * Get the analyzer to use. For backwards compatibility, returns either
+         * the user-specified analyzer or the index-configured analyzer.
+         */
         public String analyzer() {
-            return analyzer;
+            return !Strings.isNullOrEmpty(userAnalyzer) ? userAnalyzer : indexAnalyzer;
         }
 
+        /**
+         * Get the parser type for slow path tokenization.
+         */
         public String parser() {
             return parser;
         }
 
+        /**
+         * Whether user explicitly specified an analyzer via USING ANALYZER clause.
+         */
         public boolean explicit() {
             return explicit;
         }
 
         /**
-         * Computes the effective analyzer name for BE execution.
-         * - If we have a specific analyzer name (custom or builtin), return that name.
-         *   This ensures BE can create/use the correct analyzer for both index path
-         *   and slow path (full scan).
-         * - For keyword index (parser=none, no custom analyzer), return empty string
-         *   to signal BE should not tokenize.
-         * - If explicit: use the user-specified analyzer (e.g., "none", "chinese")
-         *   This tells BE to use the exact index with that analyzer key.
+         * Compute the analyzer name to send to BE.
+         *
+         * <p>Protocol:
+         * <ul>
+         *   <li>User specified analyzer → send that analyzer name (BE will exact match)</li>
+         *   <li>User did not specify → send empty string (BE will auto-select)</li>
+         * </ul>
+         *
+         * <p>This simple protocol clearly distinguishes:
+         * <ul>
+         *   <li>"MATCH(col, 'query')" → empty string → BE chooses best index</li>
+         *   <li>"MATCH(col, 'query') USING ANALYZER none" → "none" → BE uses keyword index</li>
+         *   <li>"MATCH(col, 'query') USING ANALYZER chinese" → "chinese" → BE uses chinese index</li>
+         * </ul>
+         *
+         * @param hasIndex      Whether the table has an inverted index
+         * @param fallbackParser Unused, kept for API compatibility
+         * @return Analyzer name for BE, or empty string if not specified
          */
         public String effectiveAnalyzerName(boolean hasIndex, String fallbackParser) {
-            // If we have a specific analyzer name (from index properties or explicit),
-            // return it so BE can create/use the correct analyzer.
-            if (!Strings.isNullOrEmpty(analyzer)) {
-                return analyzer;
-            }
-            // No analyzer means keyword index or no index - in either case, the parser
-            // field already indicates what to do (parser=english for no index, parser=none
-            // for keyword index). Return empty string to let BE use parser_type for decisions.
-            if (!explicit) {
-                return "";
-            }
-            return Strings.isNullOrEmpty(fallbackParser) ? "" : fallbackParser;
+            // Simple and clear: return what user specified, or empty if not specified
+            return userAnalyzer;
         }
     }
 }
-

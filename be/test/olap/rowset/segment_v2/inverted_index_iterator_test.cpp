@@ -87,7 +87,9 @@ protected:
             const std::string& analyzer_key,
             InvertedIndexReaderType type = InvertedIndexReaderType::FULLTEXT) {
         std::map<std::string, std::string> properties;
-        if (!analyzer_key.empty() && analyzer_key != INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
+        // New design: empty string means "user did not specify", non-empty means explicit.
+        // We only set properties when analyzer_key is non-empty.
+        if (!analyzer_key.empty()) {
             if (AnalyzerConfigParser::is_builtin_analyzer(analyzer_key)) {
                 properties[INVERTED_INDEX_PARSER_KEY] = analyzer_key;
             } else {
@@ -102,8 +104,8 @@ protected:
 
 // ensure_normalized_key tests
 TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_EmptyInput) {
-    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key(""),
-              INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    // New design: empty string stays empty (means "user did not specify")
+    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key(""), "");
 }
 
 TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_Uppercase) {
@@ -114,9 +116,10 @@ TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_MixedCase) {
     EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("ChInEsE"), "chinese");
 }
 
-TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_DefaultKey) {
-    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("__default__"),
-              INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_NonEmptyString) {
+    // Non-empty strings are normalized to lowercase
+    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("__default__"), "__default__");
+    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("NONE"), "none");
 }
 
 // add_reader tests
@@ -138,7 +141,7 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     InvertedIndexIterator iterator;
     auto reader1 = create_mock_reader("chinese");
     auto reader2 = create_mock_reader("english");
-    auto reader3 = create_mock_reader(""); // empty key normalizes to __default__
+    auto reader3 = create_mock_reader(""); // empty key stays empty (no properties set)
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader1);
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader2);
@@ -153,29 +156,29 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     EXPECT_TRUE(result2.has_value());
     EXPECT_EQ(result2.value(), reader2);
 
-    // __default__ is a fallback key - it returns all readers for query-type-based selection.
+    // Empty string = fallback mode (user did not specify).
     // The simple select_best_reader(key) overload returns the first candidate.
-    // This is by design: __default__ means "no preference, let system choose".
-    auto result3 = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    // This is by design: empty means "no preference, let system choose".
+    auto result3 = iterator.select_best_reader("");
     EXPECT_TRUE(result3.has_value());
     // Don't assert specific reader - fallback mode returns first available
 }
 
-// Test that "none" is treated as a distinct analyzer key
+// Test that "none" is treated as a distinct analyzer key (not empty string)
 TEST_F(InvertedIndexIteratorTest, AddReader_NoneAnalyzerIsDistinct) {
     InvertedIndexIterator iterator;
-    auto default_reader = create_mock_reader("");  // normalizes to __default__
-    auto none_reader = create_mock_reader("none"); // stays as "none"
+    auto empty_reader = create_mock_reader("");    // empty key (no properties)
+    auto none_reader = create_mock_reader("none"); // explicit "none" key
 
-    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, default_reader);
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, empty_reader);
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, none_reader);
 
-    // Query for __default__ should return default_reader
-    auto result_default = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
-    EXPECT_TRUE(result_default.has_value());
-    EXPECT_EQ(result_default.value(), default_reader);
+    // Query with empty string = fallback mode, returns first available
+    auto result_empty = iterator.select_best_reader("");
+    EXPECT_TRUE(result_empty.has_value());
+    // Don't assert which reader - fallback mode returns first available
 
-    // Query for "none" should return none_reader (not default_reader)
+    // Query for "none" should return none_reader (exact match)
     auto result_none = iterator.select_best_reader(INVERTED_INDEX_PARSER_NONE);
     EXPECT_TRUE(result_none.has_value());
     EXPECT_EQ(result_none.value(), none_reader);
@@ -192,14 +195,15 @@ TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_ExactMatch) {
     EXPECT_EQ(result.value(), reader);
 }
 
-TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_FallbackToDefault) {
+TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_FallbackWithEmptyKey) {
     InvertedIndexIterator iterator;
-    auto default_reader = create_mock_reader("");
-    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, default_reader);
+    auto empty_reader = create_mock_reader("");
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, empty_reader);
 
-    auto result = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    // Empty string = fallback mode, returns available reader
+    auto result = iterator.select_best_reader("");
     EXPECT_TRUE(result.has_value());
-    EXPECT_EQ(result.value(), default_reader);
+    EXPECT_EQ(result.value(), empty_reader);
 }
 
 TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_FallbackToAny) {
@@ -207,7 +211,8 @@ TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_FallbackToAny) {
     auto chinese_reader = create_mock_reader("chinese");
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, chinese_reader);
 
-    auto result = iterator.select_best_reader(INVERTED_INDEX_DEFAULT_ANALYZER_KEY);
+    // Empty string = fallback mode, returns any available reader
+    auto result = iterator.select_best_reader("");
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), chinese_reader);
 }
@@ -216,6 +221,30 @@ TEST_F(InvertedIndexIteratorTest, FindReaderCandidates_EmptyReaders) {
     InvertedIndexIterator iterator;
     auto result = iterator.select_best_reader("chinese");
     EXPECT_FALSE(result.has_value());
+}
+
+// Test: explicit analyzer that doesn't exist returns error
+TEST_F(InvertedIndexIteratorTest, ExplicitAnalyzer_NotFound_ReturnsBypass) {
+    InvertedIndexIterator iterator;
+    auto chinese_reader = create_mock_reader("chinese");
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, chinese_reader);
+
+    // Query for "english" (explicit) but only "chinese" exists
+    auto result = iterator.select_best_reader("english");
+    EXPECT_FALSE(result.has_value());
+    // Error should be INVERTED_INDEX_BYPASS
+}
+
+// Test: empty string (user did not specify) returns any available reader
+TEST_F(InvertedIndexIteratorTest, EmptyString_NoSpecifiedAnalyzer_ReturnsAny) {
+    InvertedIndexIterator iterator;
+    auto chinese_reader = create_mock_reader("chinese");
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, chinese_reader);
+
+    // Empty = fallback mode, should return the chinese_reader
+    auto result = iterator.select_best_reader("");
+    EXPECT_TRUE(result.has_value());
+    EXPECT_EQ(result.value(), chinese_reader);
 }
 
 // select_best_reader with column_type tests

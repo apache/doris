@@ -179,32 +179,27 @@ std::string get_analyzer_name_from_properties(
 }
 
 std::string normalize_analyzer_key(std::string_view analyzer) {
+    // Simple normalization: lowercase, or empty if input is empty.
+    // Empty string means "user did not specify" - BE will auto-select.
+    // Non-empty string means "user specified this analyzer" - BE will exact match.
     if (analyzer.empty()) {
-        return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+        return "";
     }
-    auto normalized = to_lower(std::string(analyzer));
-    if (normalized == INVERTED_INDEX_DEFAULT_ANALYZER_KEY) {
-        return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
-    }
-    // "none" is a distinct analyzer key meaning no tokenization (keyword/exact match).
-    // It is NOT normalized to __default__ because:
-    // 1. FE now sends "__default__" when no USING ANALYZER is specified
-    // 2. FE sends "none" only when user explicitly writes "USING ANALYZER none"
-    // 3. Index created with parser=none has "none" key, distinct from __default__
-    return normalized;
+    return to_lower(std::string(analyzer));
 }
 
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.empty()) {
-        return INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
-    }
+    // Build analyzer key from index properties for reader registration.
+    // This determines how the index is stored/identified.
 
+    // 1. Check for custom analyzer name
     auto custom_it = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
     if (custom_it != properties.end() && !custom_it->second.empty()) {
-        return normalize_analyzer_key(custom_it->second);
+        return to_lower(custom_it->second);
     }
 
+    // 2. Fall back to parser type
     std::string parser;
     auto parser_it = properties.find(INVERTED_INDEX_PARSER_KEY);
     if (parser_it != properties.end()) {
@@ -216,8 +211,11 @@ std::string build_analyzer_key_from_properties(
         }
     }
 
-    // normalize_analyzer_key handles empty and "none" parser consistently
-    return normalize_analyzer_key(parser);
+    // 3. Return normalized parser or "" for no explicit configuration
+    if (parser.empty()) {
+        return ""; // No explicit parser - empty key means "no configuration"
+    }
+    return to_lower(parser);
 }
 
 // ============================================================================
@@ -237,20 +235,20 @@ bool AnalyzerConfigParser::is_builtin_analyzer(const std::string& normalized_nam
 }
 
 std::string AnalyzerConfigParser::compute_analyzer_key(const std::string& value) {
-    auto normalized = normalize_analyzer_key(value);
-    return normalized.empty() ? INVERTED_INDEX_DEFAULT_ANALYZER_KEY : normalized;
+    // Simple: just lowercase, empty stays empty
+    return normalize_analyzer_key(value);
 }
 
 AnalyzerConfig AnalyzerConfigParser::parse(const std::string& analyzer_name,
                                            const std::string& parser_type_str) {
     AnalyzerConfig config;
 
-    // Try to determine parser type from parser_type_str first
+    // Determine parser type from parser_type_str (from index properties)
     auto parser_type = get_inverted_index_parser_type_from_string(parser_type_str);
     const std::string normalized_analyzer = normalize_to_lower(analyzer_name);
 
     // If parser_type_str didn't yield a valid type, try analyzer_name
-    if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+    if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN && !normalized_analyzer.empty()) {
         parser_type = get_inverted_index_parser_type_from_string(normalized_analyzer);
     }
 
@@ -260,21 +258,25 @@ AnalyzerConfig AnalyzerConfigParser::parse(const std::string& analyzer_name,
     if (!analyzer_name.empty() && !analyzer_is_builtin) {
         config.custom_analyzer = analyzer_name;
         config.parser_type = InvertedIndexParserType::PARSER_NONE;
-        config.analyzer_key = compute_analyzer_key(analyzer_name);
+        config.analyzer_key = normalize_to_lower(analyzer_name);
     } else {
-        // Case 2: builtin analyzer or no analyzer specified
+        // Case 2: builtin analyzer or user did not specify analyzer
         config.custom_analyzer.clear();
-        config.parser_type = (parser_type == InvertedIndexParserType::PARSER_UNKNOWN)
-                                     ? InvertedIndexParserType::PARSER_NONE
-                                     : parser_type;
 
-        // Determine analyzer_key from available names
-        if (!analyzer_name.empty()) {
-            config.analyzer_key = compute_analyzer_key(analyzer_name);
-        } else if (!parser_type_str.empty()) {
-            config.analyzer_key = compute_analyzer_key(parser_type_str);
+        // Use parser_type from index properties for slow path tokenization
+        if (parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+            config.parser_type = InvertedIndexParserType::PARSER_NONE;
         } else {
-            config.analyzer_key = INVERTED_INDEX_DEFAULT_ANALYZER_KEY;
+            config.parser_type = parser_type;
+        }
+
+        // analyzer_key: what user specified (for index selection)
+        // Empty means "user did not specify", BE will auto-select
+        if (normalized_analyzer.empty() && parser_type != InvertedIndexParserType::PARSER_UNKNOWN) {
+            // No analyzer name but valid parser type - use parser type as key
+            config.analyzer_key = inverted_index_parser_type_to_string(parser_type);
+        } else {
+            config.analyzer_key = normalized_analyzer;
         }
     }
 
