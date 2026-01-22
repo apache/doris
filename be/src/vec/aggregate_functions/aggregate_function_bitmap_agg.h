@@ -146,17 +146,6 @@ public:
         }
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const override {
-        auto& col = assert_cast<const ColumnBitmap&>(column);
-        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
-        auto* src = col.get_data().data();
-        auto* data = &(this->data(places));
-        for (size_t i = 0; i != num_rows; ++i) {
-            data[i].value = src[i];
-        }
-    }
-
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColumnBitmap&>(*dst);
@@ -164,17 +153,6 @@ public:
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             data[i] = this->data(places[i] + offset).value;
-        }
-    }
-
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
-        auto& col = assert_cast<const ColumnBitmap&>(column);
-        const size_t num_rows = column.size();
-        auto* data = col.get_data().data();
-
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).value |= data[i];
         }
     }
 
