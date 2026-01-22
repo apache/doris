@@ -29,15 +29,19 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -50,23 +54,34 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     private final List<Slot> generatorOutput;
     // mapping with function.
     private final List<List<String>> expandColumnAlias;
+    private final List<Expression> conjuncts;
 
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, CHILD_TYPE child) {
-        this(generators, generatorOutput, ImmutableList.of(), Optional.empty(), Optional.empty(), child);
+        this(generators, generatorOutput, ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, List<List<String>> expandColumnAlias,
             CHILD_TYPE child) {
-        this(generators, generatorOutput, expandColumnAlias, Optional.empty(), Optional.empty(), child);
+        this(generators, generatorOutput, expandColumnAlias, ImmutableList.of(),
+                Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, List<List<String>> expandColumnAlias,
+                           List<Expression> conjuncts, CHILD_TYPE child) {
+        this(generators, generatorOutput, expandColumnAlias, conjuncts,
+                Optional.empty(), Optional.empty(), child);
+    }
+
+    public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, List<List<String>> expandColumnAlias,
+            List<Expression> conjuncts,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_GENERATE, groupExpression, logicalProperties, child);
         this.generators = Utils.fastToImmutableList(generators);
         this.generatorOutput = Utils.fastToImmutableList(generatorOutput);
         this.expandColumnAlias = Utils.fastToImmutableList(expandColumnAlias);
+        this.conjuncts = Utils.fastToImmutableList(conjuncts);
     }
 
     public List<Function> getGenerators() {
@@ -81,10 +96,14 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return expandColumnAlias;
     }
 
+    public List<Expression> getConjuncts() {
+        return conjuncts;
+    }
+
     @Override
     public LogicalGenerate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, children.get(0));
+        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts, children.get(0));
     }
 
     @Override
@@ -94,7 +113,18 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return generators;
+        return new ImmutableList.Builder<Expression>()
+                .addAll(generators)
+                .addAll(conjuncts)
+                .build();
+    }
+
+    @Override
+    public Set<Slot> getInputSlots() {
+        Set<Slot> slots = new HashSet<>();
+        slots.addAll(PlanUtils.fastGetInputSlots(generators));
+        slots.addAll(PlanUtils.fastGetInputSlots(conjuncts));
+        return Sets.difference(slots, Sets.newHashSet(generatorOutput));
     }
 
     /**
@@ -106,12 +136,12 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         for (int i = 0; i < generators.size(); i++) {
             newGeneratorOutput.add(generatorOutput.get(i).withNullable(generators.get(i).nullable()));
         }
-        return new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias, child());
+        return new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias, conjuncts, child());
     }
 
     @Override
     public LogicalGenerate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias,
+        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts,
                 groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
@@ -119,7 +149,7 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias,
+        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts,
                 groupExpression, logicalProperties, children.get(0));
     }
 
@@ -144,6 +174,7 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return Utils.toSqlStringSkipNull("LogicalGenerate",
                 "generators", generators,
                 "generatorOutput", generatorOutput,
+                "conjuncts", conjuncts,
                 "stats", statistics
         );
     }
@@ -166,6 +197,11 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
                 .append(
                         expandColumnAlias.get(0).stream().collect(Collectors.joining(", "))
                 );
+        if (!conjuncts.isEmpty()) {
+            sb.append(" WHERE ")
+                    .append(conjuncts.stream().map(Expression::toDigest).collect(Collectors.joining(" AND ")));
+        }
+
         return sb.toString();
     }
 
@@ -179,12 +215,13 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         }
         LogicalGenerate<?> that = (LogicalGenerate<?>) o;
         return generators.equals(that.generators)
-                && generatorOutput.equals(that.generatorOutput);
+                && generatorOutput.equals(that.generatorOutput)
+                && conjuncts.equals(that.conjuncts);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(generators, generatorOutput);
+        return Objects.hash(generators, generatorOutput, conjuncts);
     }
 
     @Override
