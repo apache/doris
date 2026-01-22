@@ -34,6 +34,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -480,8 +481,13 @@ public:
         const std::string _name;
     };
 
-    // Create a runtime profile object with 'name'.
-    RuntimeProfile(const std::string& name, bool is_averaged_profile = false);
+    // Public constructor (delegates to the private one with default metadata/timestamp).
+    RuntimeProfile(std::string name, bool is_averaged_profile = false)
+        : RuntimeProfile(std::move(name), is_averaged_profile, -1, -1) {}
+
+    // Public constructor (delegates to the private one with is_averaged_profile=false).
+    RuntimeProfile(std::string name, int64_t metadata, int64_t timestamp)
+        : RuntimeProfile(std::move(name), false, metadata, timestamp) {}
 
     ~RuntimeProfile();
 
@@ -568,9 +574,9 @@ public:
     // the value will be updated.
     void add_info_string(const std::string& key, const std::string& value);
 
-    // Returns a pointer to the info string value for 'key'.  Returns nullptr if
+    // Returns the info string value for 'key' as an optional.  Returns std::nullopt if
     // the key does not exist.
-    const std::string* get_info_string(const std::string& key);
+    std::optional<std::string> get_info_string(const std::string& key);
 
     // Returns the counter for the total elapsed time.
     Counter* total_time_counter() { return &_counter_total_time; }
@@ -598,12 +604,12 @@ public:
     // Divides all counters by n
     void divide(int n);
 
-    RuntimeProfile* get_child(std::string name);
+    std::optional<RuntimeProfile*> get_child(const std::string& name);
 
-    void get_children(std::vector<RuntimeProfile*>* children) const;
+    std::vector<RuntimeProfile*> get_children() const;
 
     // Gets all profiles in tree, including this one.
-    void get_all_children(std::vector<RuntimeProfile*>* children);
+    std::vector<RuntimeProfile*> get_all_children();
 
     // Returns the number of counters in this profile
     int num_counters() const { return cast_set<int>(_counter_map.size()); }
@@ -647,6 +653,9 @@ public:
     void clear_children();
 
 private:
+    // Private delegating target constructor that handles all common initialization.
+    RuntimeProfile(std::string name, bool is_averaged_profile, int64_t metadata, int64_t timestamp);
+
     // RuntimeProfileCounterTreeNode needs to access the counter map and child counter map
     friend class RuntimeProfileCounterTreeNode;
     // Pool for allocated counters. Usually owned by the creator of this

@@ -67,14 +67,14 @@ std::unique_ptr<RuntimeProfile> RuntimeProfile::from_proto(const PRuntimeProfile
     return res;
 }
 
-RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile)
-        : _pool(new ObjectPool()),
-          _name(name),
-          _metadata(-1),
-          _timestamp(-1),
-          _is_averaged_profile(is_averaged_profile),
-          _counter_total_time(TUnit::TIME_NS, 0, 3),
-          _local_time_percent(0) {
+RuntimeProfile::RuntimeProfile(std::string name, bool is_averaged_profile, int64_t metadata, int64_t timestamp)
+    : _pool(new ObjectPool()),
+      _name(std::move(name)),
+      _metadata(metadata),
+      _timestamp(timestamp),
+      _is_averaged_profile(is_averaged_profile),
+      _counter_total_time(TUnit::TIME_NS, 0, 3),
+      _local_time_percent(0) {
     // TotalTime counter has level3 to disable it from plan profile, because
     // it contains its child running time, we use exec time instead.
     _counter_map["TotalTime"] = &_counter_total_time;
@@ -92,59 +92,43 @@ void RuntimeProfile::merge(const RuntimeProfile* other) {
 
     // Merge this level
     {
-        CounterMap::iterator dst_iter;
-        CounterMap::const_iterator src_iter;
         std::lock_guard<std::mutex> l(_counter_map_lock);
         std::lock_guard<std::mutex> m(other->_counter_map_lock);
 
-        for (src_iter = other->_counter_map.begin(); src_iter != other->_counter_map.end();
-             ++src_iter) {
-            dst_iter = _counter_map.find(src_iter->first);
-
-            if (dst_iter == _counter_map.end()) {
-                _counter_map[src_iter->first] = _pool->add(src_iter->second->clone());
-            } else {
-                DCHECK(dst_iter->second->type() == src_iter->second->type());
-
-                if (dst_iter->second->type() == TUnit::DOUBLE_VALUE) {
-                    double new_val =
-                            dst_iter->second->double_value() + src_iter->second->double_value();
-                    dst_iter->second->set(new_val);
+        for (const auto& [other_name, other_counter] : other->_counter_map) {
+            if (auto iter = _counter_map.find(other_name); iter != _counter_map.end()) {
+                auto* this_counter = iter->second;
+                CHECK_EQ(this_counter->type(), other_counter->type()) << "Cannot merge counter with the different types";
+                if (this_counter->type() == TUnit::DOUBLE_VALUE) {
+                    this_counter->set(this_counter->double_value() + other_counter->double_value());
                 } else {
-                    dst_iter->second->update(src_iter->second->value());
+                    this_counter->update(other_counter->value());
                 }
+            } else {
+                _counter_map[other_name] = _pool->add(other_counter->clone());
             }
         }
 
-        ChildCounterMap::const_iterator child_counter_src_itr;
-
-        for (child_counter_src_itr = other->_child_counter_map.begin();
-             child_counter_src_itr != other->_child_counter_map.end(); ++child_counter_src_itr) {
-            _child_counter_map[child_counter_src_itr->first].insert(
-                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
+        for (const auto & [parent_name, children_names] : other->_child_counter_map) {
+            _child_counter_map[parent_name].insert(children_names.begin(), children_names.end());
         }
     }
 
+    // Recursively merge children with matching names
     {
         std::lock_guard<std::mutex> l(_children_lock);
         std::lock_guard<std::mutex> m(other->_children_lock);
 
-        // Recursively merge children with matching names
-        for (int i = 0; i < other->_children.size(); ++i) {
-            RuntimeProfile* other_child = other->_children[i].first;
-            ChildMap::iterator j = _child_map.find(other_child->_name);
+        for (const auto & [other_child, indent] : other->_children) {
             RuntimeProfile* child = nullptr;
-
-            if (j != _child_map.end()) {
-                child = j->second;
+            if (auto iter = _child_map.find(other_child->_name); iter != _child_map.end()) {
+                child = iter->second;
             } else {
-                child = _pool->add(new RuntimeProfile(other_child->_name));
+                child = _pool->add(new RuntimeProfile(other_child->_name, 
+                                        other_child->_metadata, other_child->_timestamp));
                 child->_local_time_percent = other_child->_local_time_percent;
-                child->_metadata = other_child->_metadata;
-                child->_timestamp = other_child->_timestamp;
-                bool indent_other_child = other->_children[i].second;
                 _child_map[child->_name] = child;
-                _children.push_back(std::make_pair(child, indent_other_child));
+                _children.emplace_back(child, indent);
             }
 
             child->merge(other_child);
@@ -167,76 +151,62 @@ void RuntimeProfile::update(const PRuntimeProfileTree& proto_profile) {
 void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* idx) {
     DCHECK_LT(*idx, nodes.size());
     const TRuntimeProfileNode& node = nodes[*idx];
+
+    // update this level
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
-        // update this level
-        std::map<std::string, Counter*>::iterator dst_iter;
 
-        for (int i = 0; i < node.counters.size(); ++i) {
-            const TCounter& tcounter = node.counters[i];
-            CounterMap::iterator j = _counter_map.find(tcounter.name);
-
-            if (j == _counter_map.end()) {
-                _counter_map[tcounter.name] =
-                        _pool->add(new Counter(tcounter.type, tcounter.value));
+        for (const auto& tcounter : node.counters) {
+            const std::string& name = tcounter.name;
+            if (auto iter = _counter_map.find(name); iter != _counter_map.end()) {
+                CHECK_EQ(iter->second->type(), tcounter.type)
+                        << "Cannot update counters with the same name (" << name
+                        << ") but different types.";
+                        iter->second->set(tcounter.value);
             } else {
-                if (j->second->type() != tcounter.type) {
-                    LOG(ERROR) << "Cannot update counters with the same name (" << j->first
-                               << ") but different types.";
-                } else {
-                    j->second->set(tcounter.value);
-                }
+                _counter_map[name] =
+                        _pool->add(new Counter(tcounter.type, tcounter.value));
             }
         }
 
-        ChildCounterMap::const_iterator child_counter_src_itr;
-
-        for (child_counter_src_itr = node.child_counters_map.begin();
-             child_counter_src_itr != node.child_counters_map.end(); ++child_counter_src_itr) {
-            _child_counter_map[child_counter_src_itr->first].insert(
-                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
+        for (const auto& [parent_name, children_names] : node.child_counters_map) {
+            _child_counter_map[parent_name].insert(children_names.begin(), children_names.end());
         }
     }
 
+    // Look for existing info strings and update in place. If there are new strings, add them to the end of the display order.
     {
         std::lock_guard<std::mutex> l(_info_strings_lock);
         const InfoStrings& info_strings = node.info_strings;
+
         for (const std::string& key : node.info_strings_display_order) {
-            // Look for existing info strings and update in place. If there
-            // are new strings, add them to the end of the display order.
             // TODO: Is nodes.info_strings always a superset of
             // _info_strings? If so, can just copy the display order.
-            InfoStrings::const_iterator it = info_strings.find(key);
+            auto it = info_strings.find(key);
             DCHECK(it != info_strings.end());
-            InfoStrings::iterator existing = _info_strings.find(key);
-
-            if (existing == _info_strings.end()) {
+            if (auto existing = _info_strings.find(key); existing != _info_strings.end()) {
+                _info_strings[key] = it->second;
+            } else {
                 _info_strings.insert(std::make_pair(key, it->second));
                 _info_strings_display_order.push_back(key);
-            } else {
-                _info_strings[key] = it->second;
             }
         }
     }
 
+    // update children with matching names; create new ones if they don't match
     ++*idx;
     {
         std::lock_guard<std::mutex> l(_children_lock);
-
-        // update children with matching names; create new ones if they don't match
         for (int i = 0; i < node.num_children; ++i) {
-            const TRuntimeProfileNode& tchild = nodes[*idx];
-            ChildMap::iterator j = _child_map.find(tchild.name);
+            const auto& tchild = nodes[*idx];
             RuntimeProfile* child = nullptr;
 
-            if (j != _child_map.end()) {
-                child = j->second;
+            if (const auto& iter =  _child_map.find(tchild.name); iter != _child_map.end()) {
+                child = iter->second;
             } else {
-                child = _pool->add(new RuntimeProfile(tchild.name));
-                child->_metadata = tchild.metadata;
-                child->_timestamp = tchild.timestamp;
+                child = _pool->add(new RuntimeProfile(tchild.name, tchild.metadata, tchild.timestamp));
                 _child_map[tchild.name] = child;
-                _children.push_back(std::make_pair(child, tchild.indent));
+                _children.emplace_back(child, tchild.indent);
             }
 
             child->update(nodes, idx);
@@ -249,33 +219,35 @@ void RuntimeProfile::update(const google::protobuf::RepeatedPtrField<PRuntimePro
     DCHECK_LT(*idx, nodes.size());
     const PRuntimeProfileNode& node = nodes.Get(*idx);
 
+    // update this level
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
 
         for (const auto& pcounter : node.counters()) {
             const std::string& name = pcounter.name();
-            auto j = _counter_map.find(name);
 
-            if (j == _counter_map.end()) {
-                _counter_map[name] =
-                        _pool->add(new Counter(unit_to_thrift(pcounter.type()), pcounter.value()));
-            } else {
-                if (unit_to_proto(j->second->type()) != pcounter.type()) {
-                    LOG(ERROR) << "Cannot update counters with the same name (" << name
-                               << ") but different types.";
+            if (auto iter = _counter_map.find(name); iter != _counter_map.find(name)) {
+                if (unit_to_proto(iter->second->type()) != pcounter.type()) {
+                    CHECK_EQ(unit_to_proto(iter->second->type()), pcounter.type())
+                        << "Cannot update counters with the same name ("
+                        << name << ") but different types.";
                 } else {
-                    j->second->set(pcounter.value());
+                    iter->second->set(pcounter.value());
                 }
+            } else {
+                _counter_map[name] =
+                _pool->add(new Counter(unit_to_thrift(pcounter.type()), pcounter.value()));
             }
         }
 
-        for (const auto& kv : node.child_counters_map()) {
-            for (const auto& child_name : kv.second.child_counters()) {
-                _child_counter_map[kv.first].insert(child_name);
+        for (const auto& [parent_name, children_names] : node.child_counters_map()) {
+            for (const auto& child_name : children_names.child_counters()) {
+                _child_counter_map[parent_name].insert(child_name);
             }
         }
     }
 
+    // Look for existing info strings and update in place. If there are new strings, add them to the end of the display order.
     {
         std::lock_guard<std::mutex> l(_info_strings_lock);
         const auto& info_map = node.info_strings();
@@ -283,32 +255,27 @@ void RuntimeProfile::update(const google::protobuf::RepeatedPtrField<PRuntimePro
         for (const std::string& key : node.info_strings_display_order()) {
             auto it = info_map.find(key);
             DCHECK(it != info_map.end());
-
-            auto existing = _info_strings.find(key);
-            if (existing == _info_strings.end()) {
+            if (auto existing = _info_strings.find(key); existing != _info_strings.end()) {
+                _info_strings[key] = it->second;
+            } else {
                 _info_strings.insert(std::make_pair(key, it->second));
                 _info_strings_display_order.push_back(key);
-            } else {
-                _info_strings[key] = it->second;
             }
         }
     }
 
+    // update children with matching names; create new ones if they don't match
     ++*idx;
-
     {
         std::lock_guard<std::mutex> l(_children_lock);
         for (int i = 0; i < node.num_children(); ++i) {
             const PRuntimeProfileNode& pchild = nodes.Get(*idx);
             RuntimeProfile* child = nullptr;
 
-            auto j = _child_map.find(pchild.name());
-            if (j != _child_map.end()) {
-                child = j->second;
+            if (const auto& iter =  _child_map.find(pchild.name()); iter != _child_map.end()) {
+                child = iter->second;
             } else {
-                child = _pool->add(new RuntimeProfile(pchild.name()));
-                child->_metadata = pchild.metadata();
-                child->_timestamp = pchild.timestamp();
+                child = _pool->add(new RuntimeProfile(pchild.name(), pchild.metadata(), pchild.timestamp()));
                 _child_map[pchild.name()] = child;
                 _children.emplace_back(child, pchild.indent());
             }
@@ -320,25 +287,28 @@ void RuntimeProfile::update(const google::protobuf::RepeatedPtrField<PRuntimePro
 
 void RuntimeProfile::divide(int n) {
     DCHECK_GT(n, 0);
-    std::map<std::string, Counter*>::iterator iter;
+
+    // divide this
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
 
-        for (iter = _counter_map.begin(); iter != _counter_map.end(); ++iter) {
-            if (iter->second->type() == TUnit::DOUBLE_VALUE) {
-                iter->second->set(iter->second->double_value() / n);
+        for (auto & [_, counter] : _counter_map) {
+            if (counter->type() == TUnit::DOUBLE_VALUE) {
+                counter->set(counter->double_value() / n);
             } else {
-                int64_t value = iter->second->_value.load();
+                auto value = counter->_value.load();
                 value = value / n;
-                iter->second->_value.store(value);
+                counter->_value.store(value);
             }
         }
     }
+
+    // divide children
     {
         std::lock_guard<std::mutex> l(_children_lock);
 
-        for (ChildMap::iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
-            i->second->divide(n);
+        for (auto & [_, child_profile] : _child_map) {
+            child_profile->divide(n);
         }
     }
 }
@@ -361,27 +331,27 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
     int64_t total_child_time = 0;
     std::lock_guard<std::mutex> l(_children_lock);
 
-    for (int i = 0; i < _children.size(); ++i) {
-        total_child_time += _children[i].first->total_time_counter()->value();
+    for (auto & [child_profile, _] : _children) {
+        total_child_time += child_profile->total_time_counter()->value();
     }
 
-    int64_t local_time = total_time_counter()->value() - total_child_time;
+    auto local_time = total_time_counter()->value() - total_child_time;
     // Counters have some margin, set to 0 if it was negative.
     local_time = std::max<int64_t>(0L, local_time);
     _local_time_percent = static_cast<double>(local_time) / static_cast<double>(total);
     _local_time_percent = std::min(1.0, _local_time_percent) * 100;
 
     // Recurse on children
-    for (int i = 0; i < _children.size(); ++i) {
-        _children[i].first->compute_time_in_profile(total);
+    for (auto & [child_profile, _] : _children) {
+        child_profile->compute_time_in_profile(total);
     }
 }
 
 RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool indent, bool prepend) {
     std::lock_guard<std::mutex> l(_children_lock);
-    DCHECK(_child_map.find(name) == _child_map.end()) << ", name: " << name;
+    DCHECK(!_child_map.contains(name)) << ", name: " << name;
     RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
-    if (this->is_set_metadata()) {
+    if (is_set_metadata()) {
         child->set_metadata(this->metadata());
     }
 
@@ -399,9 +369,9 @@ void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, Runtim
     _child_map[child->_name] = child;
 
     if (loc == nullptr) {
-        _children.push_back(std::make_pair(child, indent));
+        _children.emplace_back(child, indent);
     } else {
-        for (ChildVector::iterator it = _children.begin(); it != _children.end(); ++it) {
+        for (auto it = _children.begin(); it != _children.end(); ++it) {
             if (it->first == loc) {
                 _children.insert(it, std::make_pair(child, indent));
                 return;
@@ -416,56 +386,54 @@ void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfil
     add_child_unlock(child, indent, loc);
 }
 
-RuntimeProfile* RuntimeProfile::get_child(std::string name) {
+std::optional<RuntimeProfile*> RuntimeProfile::get_child(const std::string& name) {
     std::lock_guard<std::mutex> l(_children_lock);
-    auto it = _child_map.find(name);
-
-    if (it == _child_map.end()) {
-        return nullptr;
+    if (auto it = _child_map.find(name); it != _child_map.end()) {
+        return it->second;
     }
-
-    return it->second;
+    return std::nullopt;
 }
 
-void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) const {
-    children->clear();
+std::vector<RuntimeProfile*> RuntimeProfile::get_children() const {
     std::lock_guard<std::mutex> l(_children_lock);
+    std::vector<RuntimeProfile*> children;
+    children.reserve(_child_map.size());
 
-    for (ChildMap::const_iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
-        children->push_back(i->second);
+    for (const auto& [_, child_profile] : _child_map) {
+        children.push_back(child_profile);
     }
+    return children;
 }
 
-void RuntimeProfile::get_all_children(std::vector<RuntimeProfile*>* children) {
+std::vector<RuntimeProfile*> RuntimeProfile::get_all_children() {
     std::lock_guard<std::mutex> l(_children_lock);
+    std::vector<RuntimeProfile*> children;
 
-    for (ChildMap::iterator i = _child_map.begin(); i != _child_map.end(); ++i) {
-        children->push_back(i->second);
-        i->second->get_all_children(children);
+    for (auto& [_, child_profile] : _child_map) {
+        children.push_back(child_profile);
+        auto child_children = child_profile->get_all_children();
+        children.insert(children.end(), child_children.begin(), child_children.end());
     }
+    return children;
 }
 
 void RuntimeProfile::add_info_string(const std::string& key, const std::string& value) {
     std::lock_guard<std::mutex> l(_info_strings_lock);
-    InfoStrings::iterator it = _info_strings.find(key);
-
-    if (it == _info_strings.end()) {
+    if (auto it = _info_strings.find(key); it != _info_strings.end()) {
+        it->second = value;
+    } else {
         _info_strings.insert(std::make_pair(key, value));
         _info_strings_display_order.push_back(key);
-    } else {
-        it->second = value;
     }
 }
 
-const std::string* RuntimeProfile::get_info_string(const std::string& key) {
+std::optional<std::string> RuntimeProfile::get_info_string(const std::string& key) {
     std::lock_guard<std::mutex> l(_info_strings_lock);
-    InfoStrings::const_iterator it = _info_strings.find(key);
-
-    if (it == _info_strings.end()) {
-        return nullptr;
+    if (auto it = _info_strings.find(key); it != _info_strings.end()) {
+        return it->second;
     }
 
-    return &it->second;
+    return std::nullopt;
 }
 
 RuntimeProfile::HighWaterMarkCounter* RuntimeProfile::AddHighWaterMarkCounter(
@@ -473,7 +441,7 @@ RuntimeProfile::HighWaterMarkCounter* RuntimeProfile::AddHighWaterMarkCounter(
         int64_t level) {
     DCHECK_EQ(_is_averaged_profile, false);
     std::lock_guard<std::mutex> l(_counter_map_lock);
-    if (_counter_map.find(name) != _counter_map.end()) {
+    if (_counter_map.contains(name)) {
         return reinterpret_cast<RuntimeProfile::HighWaterMarkCounter*>(_counter_map[name]);
     }
     DCHECK(parent_counter_name == ROOT_COUNTER ||
@@ -490,7 +458,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
                                                      int64_t level) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
-    if (_counter_map.find(name) != _counter_map.end()) {
+    if (_counter_map.contains(name)) {
         return _counter_map[name];
     }
 
