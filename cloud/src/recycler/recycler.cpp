@@ -2799,6 +2799,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
             return -1;
         }
         if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
+        if (!tablet_keys.empty() &&
+            std::ranges::all_of(tablet_keys, [](const auto& k) { return k.first.empty(); })) {
+            return -1;
+        }
         // sort the vector using key's order
         std::sort(tablet_keys.begin(), tablet_keys.end(),
                   [](const auto& prev, const auto& last) { return prev.first < last.first; });
