@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
@@ -50,20 +49,12 @@ public class LineageInfo {
     private SetMultimap<IndirectLineageType, Expression> datasetIndirectLineageMap;
     // tableLineageSet stores tables that the plan depends on
     private Set<TableIf> tableLineageSet;
-    // sourceCommand indicates the type of data manipulation operation that generated this lineage information
-    // such as InsertIntoCommand, InsertOverwriteCommand, etc.
-    private Class<? extends Command> sourceCommand;
     // target table for this lineage event
     private TableIf targetTable;
     // target columns for this lineage event
     private List<Slot> targetColumns;
-    // query metadata`
-    private String queryId;
-    private String queryText;
-    private String user;
-    private String database;
-    private long timestampMs;
-    private long durationMs;
+    // query metadata
+    private LineageContext context;
 
     /**
      * Indirect lineage type - expressions that indirectly affect output slots
@@ -154,14 +145,6 @@ public class LineageInfo {
         this.tableLineageSet.add(table);
     }
 
-    public Class<? extends Command> getSourceCommand() {
-        return sourceCommand;
-    }
-
-    public void setSourceCommand(Class<? extends Command> sourceCommand) {
-        this.sourceCommand = sourceCommand;
-    }
-
     public TableIf getTargetTable() {
         return targetTable;
     }
@@ -178,52 +161,18 @@ public class LineageInfo {
         this.targetColumns = targetColumns;
     }
 
-    public String getQueryId() {
-        return queryId;
+    /**
+     * Get lineage context metadata.
+     */
+    public LineageContext getContext() {
+        return context;
     }
 
-    public void setQueryId(String queryId) {
-        this.queryId = queryId;
-    }
-
-    public String getQueryText() {
-        return queryText;
-    }
-
-    public void setQueryText(String queryText) {
-        this.queryText = queryText;
-    }
-
-    public String getUser() {
-        return user;
-    }
-
-    public void setUser(String user) {
-        this.user = user;
-    }
-
-    public String getDatabase() {
-        return database;
-    }
-
-    public void setDatabase(String database) {
-        this.database = database;
-    }
-
-    public long getTimestampMs() {
-        return timestampMs;
-    }
-
-    public void setTimestampMs(long timestampMs) {
-        this.timestampMs = timestampMs;
-    }
-
-    public long getDurationMs() {
-        return durationMs;
-    }
-
-    public void setDurationMs(long durationMs) {
-        this.durationMs = durationMs;
+    /**
+     * Set lineage context metadata.
+     */
+    public void setContext(LineageContext context) {
+        this.context = context;
     }
 
     /**
@@ -278,8 +227,7 @@ public class LineageInfo {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("LineageInfo{\n");
-        sb.append("  sourceCommand=").append(sourceCommand != null ? sourceCommand.getSimpleName() : "null")
-                .append(",\n");
+        sb.append("  context=").append(context).append(",\n");
         sb.append("  tableLineageSet=").append(tableLineageSet).append(",\n");
         sb.append("  directLineageMap=").append(directLineageMap).append(",\n");
         sb.append("  inDirectLineageMap=").append(inDirectLineageMap).append(",\n");

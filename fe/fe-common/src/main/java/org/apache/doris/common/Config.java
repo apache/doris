@@ -138,8 +138,8 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
-    @ConfField(description = {"启用的数据血缘插件列表",
-            "Active lineage plugins"})
+    @ConfField(description = {"启用的数据血缘插件列表，需要填写 AbstractLineagePlugin.getName () 返回的名称，",
+            "Active lineage plugins, need to fill in the name returned by AbstractLineagePlugin.getName()"})
     public static String[] activate_lineage_plugin = {};
 
     @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
@@ -3256,7 +3256,6 @@ public class Config extends ConfigBase {
     @ConfField public static int info_sys_accumulated_file_size = 4;
     @ConfField public static int warn_sys_accumulated_file_size = 2;
     @ConfField public static int audit_sys_accumulated_file_size = 4;
-    @ConfField public static int lineage_default_sys_accumulated_file_size = 4;
 
     @ConfField
     public static String deploy_mode = "";
@@ -3518,7 +3517,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
 
-    @ConfField(mutable = true, description = {"血缘事件队列最大长度", "Max size of lineage event queue"})
+    @ConfField(mutable = true, description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
+            "Max size of lineage event queue， events will be discarded when exceeded"})
     public static int lineage_event_queue_size = 50000;
 
     @ConfField(mutable = true, description = {

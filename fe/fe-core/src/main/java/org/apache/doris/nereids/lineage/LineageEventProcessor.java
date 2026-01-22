@@ -81,14 +81,16 @@ public class LineageEventProcessor {
         }
         try {
             if (!eventQueue.offer(lineageEvent)) {
+                String queryId = getQueryId(lineageEvent);
                 LOG.warn("the lineage event queue is full with size {}, discard the lineage event: {}",
-                        eventQueue.size(), lineageEvent.getQueryId());
+                        eventQueue.size(), queryId);
                 return false;
             }
             return true;
         } catch (Exception e) {
+            String queryId = getQueryId(lineageEvent);
             LOG.warn("encounter exception when handle lineage event {}, discard the event",
-                    lineageEvent.getQueryId(), e);
+                    queryId, e);
             return false;
         }
     }
@@ -133,16 +135,24 @@ public class LineageEventProcessor {
                         }
                         LineageInfo lineageInfo = lineageEvent.getLineageInfo();
                         if (lineageInfo == null) {
-                            LOG.warn("lineage info is null for event {}, skip", lineageEvent.getQueryId());
+                            LOG.warn("lineage info is null for event {}, skip", getQueryId(lineageEvent));
                             continue;
                         }
                         lineagePlugin.exec(lineageInfo);
                     } catch (Throwable e) {
                         LOG.warn("encounter exception when processing lineage event {}, ignore",
-                                lineageEvent.getQueryId(), e);
+                                getQueryId(lineageEvent), e);
                     }
                 }
             }
         }
+    }
+
+    private static String getQueryId(LineageEvent lineageEvent) {
+        if (lineageEvent == null || lineageEvent.getLineageInfo() == null) {
+            return "";
+        }
+        LineageContext context = lineageEvent.getLineageInfo().getContext();
+        return context == null ? "" : context.getQueryId();
     }
 }

@@ -23,6 +23,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -36,7 +39,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Utility methods for lineage event construction and filtering.
@@ -82,16 +90,20 @@ public final class LineageUtils {
         if (plan == null || ctx == null) {
             return null;
         }
+        LineageInfo lineageInfo = LineageInfoExtractor.extractLineageInfo(plan);
         String queryId = ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId());
         String queryText = executor == null ? "" : executor.getOriginStmtInString();
         String user = ctx.getQualifiedUser();
         String database = ctx.getDatabase() == null ? "" : ctx.getDatabase();
+        String catalog = ctx.getDefaultCatalog() == null ? "" : ctx.getDefaultCatalog();
         long timestampMs = System.currentTimeMillis();
         long durationMs = ctx.getStartTime() > 0 ? (timestampMs - ctx.getStartTime()) : 0;
-        LineageEvent event = new LineageEvent(plan, sourceCommand, queryId, queryText, user, database,
+        LineageContext context = new LineageContext(sourceCommand, queryId, queryText, user, database,
                 timestampMs, durationMs);
-        event.setLineageInfo(LineageInfoExtractor.extractLineageInfo(event));
-        return event;
+        context.setCatalog(catalog);
+        context.setExternalCatalogProperties(collectExternalCatalogProperties(lineageInfo));
+        lineageInfo.setContext(context);
+        return new LineageEvent(lineageInfo);
     }
 
     /**
@@ -152,5 +164,63 @@ public final class LineageUtils {
         String dbName = targetTable.getDatabase().getFullName();
         return InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(catalogName)
                 && FeConstants.INTERNAL_DB_NAME.equalsIgnoreCase(dbName);
+    }
+
+    private static Map<String, Map<String, String>> collectExternalCatalogProperties(LineageInfo lineageInfo) {
+        if (lineageInfo == null) {
+            return Collections.emptyMap();
+        }
+        Set<TableIf> tables = new HashSet<>();
+        if (lineageInfo.getTableLineageSet() != null) {
+            tables.addAll(lineageInfo.getTableLineageSet());
+        }
+        if (lineageInfo.getTargetTable() != null) {
+            tables.add(lineageInfo.getTargetTable());
+        }
+        if (tables.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Map<String, String>> externalCatalogs = new LinkedHashMap<>();
+        for (TableIf table : tables) {
+            if (table == null || table.getDatabase() == null || table.getDatabase().getCatalog() == null) {
+                continue;
+            }
+            CatalogIf<?> catalog = table.getDatabase().getCatalog();
+            if (catalog.isInternalCatalog()) {
+                continue;
+            }
+            String catalogName = catalog.getName();
+            if (externalCatalogs.containsKey(catalogName)) {
+                continue;
+            }
+            Map<String, String> properties = new LinkedHashMap<>();
+            if (catalog.getType() != null) {
+                properties.put("type", catalog.getType());
+            }
+            properties.putAll(sanitizeCatalogProperties(catalog));
+            externalCatalogs.put(catalogName, properties);
+        }
+        return externalCatalogs;
+    }
+
+    private static Map<String, String> sanitizeCatalogProperties(CatalogIf<?> catalog) {
+        Map<String, String> sanitized = new LinkedHashMap<>();
+        if (catalog == null || catalog.getProperties() == null) {
+            return sanitized;
+        }
+        for (Map.Entry<String, String> entry : catalog.getProperties().entrySet()) {
+            String key = entry.getKey();
+            if (key == null) {
+                continue;
+            }
+            if (PrintableMap.HIDDEN_KEY.contains(key) || PrintableMap.SENSITIVE_KEY.contains(key)) {
+                continue;
+            }
+            if (catalog instanceof ExternalCatalog && ExternalCatalog.HIDDEN_PROPERTIES.contains(key)) {
+                continue;
+            }
+            sanitized.put(key, entry.getValue());
+        }
+        return sanitized;
     }
 }

@@ -764,7 +764,8 @@ public class LineageInfoExtractorTest extends TestWithFeService {
     }
 
     private void assertSourceCommand(LineageInfo lineageInfo, Class<? extends Command> sourceCommand) {
-        Assertions.assertEquals(sourceCommand, lineageInfo.getSourceCommand());
+        Assertions.assertNotNull(lineageInfo.getContext());
+        Assertions.assertEquals(sourceCommand, lineageInfo.getContext().getSourceCommand());
     }
 
     private void assertTableLineageContains(LineageInfo lineageInfo, String... tableNames) {

@@ -78,23 +78,13 @@ public class LineageInfoExtractor {
     }
 
     /**
-     * Extract lineage information from a LineageEvent
+     * Extract lineage information from a plan.
      *
-     * @param lineageEvent the event containing plan and source command info
+     * @param plan the plan to extract lineage from
      * @return the extracted lineage information
      */
-    public static LineageInfo extractLineageInfo(LineageEvent lineageEvent) {
+    public static LineageInfo extractLineageInfo(Plan plan) {
         LineageInfo lineageInfo = new LineageInfo();
-        Plan plan = lineageEvent.getPlan();
-
-        // Set source command type
-        lineageInfo.setSourceCommand(lineageEvent.getSourceCommand());
-        lineageInfo.setQueryId(lineageEvent.getQueryId());
-        lineageInfo.setQueryText(lineageEvent.getQueryText());
-        lineageInfo.setUser(lineageEvent.getUser());
-        lineageInfo.setDatabase(lineageEvent.getDatabase());
-        lineageInfo.setTimestampMs(lineageEvent.getTimestampMs());
-        lineageInfo.setDurationMs(lineageEvent.getDurationMs());
 
         // Step 1: Extract direct lineage using shuttleExpressionWithLineage
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext = extractDirectLineage(plan, lineageInfo);
