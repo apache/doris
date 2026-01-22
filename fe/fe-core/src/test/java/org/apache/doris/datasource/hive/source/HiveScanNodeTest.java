@@ -19,7 +19,7 @@ package org.apache.doris.datasource.hive.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.planner.PlanNodeId;

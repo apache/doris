@@ -24,6 +24,7 @@ import org.apache.doris.qe.SessionVariable;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -53,14 +54,20 @@ public class IcebergScanNodeTest {
         TestIcebergScanNode node = new TestIcebergScanNode(sv);
 
         DataFile dataFile = Mockito.mock(DataFile.class);
-        Mockito.when(dataFile.contentSizeInBytes()).thenReturn(10_000L * MB);
         Mockito.when(dataFile.fileSizeInBytes()).thenReturn(10_000L * MB);
         FileScanTask task = Mockito.mock(FileScanTask.class);
         Mockito.when(task.file()).thenReturn(dataFile);
+        Mockito.when(task.length()).thenReturn(10_000L * MB);
 
-        Method method = IcebergScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", Iterable.class);
-        method.setAccessible(true);
-        long target = (long) method.invoke(node, Collections.singletonList(task));
-        Assert.assertEquals(100 * MB, target);
+        try (org.mockito.MockedStatic<ScanTaskUtil> mockedScanTaskUtil =
+                Mockito.mockStatic(ScanTaskUtil.class)) {
+            mockedScanTaskUtil.when(() -> ScanTaskUtil.contentSizeInBytes(dataFile))
+                    .thenReturn(10_000L * MB);
+
+            Method method = IcebergScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", Iterable.class);
+            method.setAccessible(true);
+            long target = (long) method.invoke(node, Collections.singletonList(task));
+            Assert.assertEquals(100 * MB, target);
+        }
     }
 }

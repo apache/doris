@@ -365,7 +365,8 @@ public class HiveScanNode extends FileQueryScanNode {
             for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                 totalFileSize += status.getLength();
                 if (!exceedInitialThreshold
-                        && totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                        && totalFileSize >= sessionVariable.getMaxSplitSize()
+                                * sessionVariable.getMaxInitialSplitNum()) {
                     exceedInitialThreshold = true;
                 }
             }

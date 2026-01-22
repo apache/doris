@@ -29,8 +29,8 @@ import org.apache.doris.qe.SessionVariable;
 
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
-import org.apache.paimon.io.RawFile;
 import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.DataSplit;
 import org.junit.Assert;
 import org.junit.Test;
