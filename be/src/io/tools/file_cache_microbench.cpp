@@ -2662,12 +2662,8 @@ int main(int argc, char* argv[]) {
     };
     periodiccally_log_thread = std::thread {periodiccally_log};
 
-    try {
-        HttpServer http_server;
-        http_server.start(doris_home);
-    } catch (const std::exception& e) {
-        LOG(ERROR) << "Error in HTTP server: " << e.what();
-    }
+    HttpServer http_server;
+    http_server.start(doris_home);
 
     if (periodiccally_log_thread.joinable()) {
         {
