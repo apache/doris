@@ -368,10 +368,10 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                             if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper() &&
                                 !_eos) {
                                 if (_slot_id_to_predicates[slot->id()].empty()) {
-                                    return Status::InternalError(
-                                            "No predicate generated for runtime filter "
-                                            "from expr: {}",
-                                            root->debug_string());
+                                    throw Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "No predicate generated for runtime filter "
+                                                    "from expr: {}",
+                                                    root->debug_string());
                                 }
                                 auto* rf_expr =
                                         assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
