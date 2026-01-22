@@ -485,4 +485,53 @@ test_registry_task_duration_standard_deviation{instance="test",type="create_tabl
         registry.deregister_entity(entity);
     }
 }
+TEST_F(MetricsTest, PrometheusDuplicateTypeFix) {
+    MetricRegistry registry("test_registry");
+
+    // We use a specific scope {} to match the official coding style
+    {
+        // 1. Create the first entity and register a metric with a group name
+        auto entity1 = registry.register_entity("entity1");
+        // Using MetricPrototype is the "official way" in Doris metrics_test
+        MetricPrototype requests_type(MetricType::COUNTER, MetricUnit::OPERATIONS, "requests_total",
+                                      "", "engine_requests");
+        IntCounter* m1 = (IntCounter*)entity1->register_metric<IntCounter>(&requests_type);
+        m1->increment(1);
+
+        // 2. Create the second entity and register a metric with a DIFFERENT name to break continuity
+        auto entity2 = registry.register_entity("entity2");
+        MetricPrototype other_type(MetricType::COUNTER, MetricUnit::OPERATIONS, "other_metric", "",
+                                   "");
+        IntCounter* m2 = (IntCounter*)entity2->register_metric<IntCounter>(&other_type);
+        m2->increment(5);
+
+        // 3. Create the third entity and register the SAME group name metric again
+        // In the old logic, this would trigger a duplicate # TYPE line
+        auto entity3 = registry.register_entity("entity3");
+        IntCounter* m3 = (IntCounter*)entity3->register_metric<IntCounter>(&requests_type);
+        m3->increment(10);
+
+        // Execute export
+        std::string output = registry.to_prometheus();
+
+        // Verification: Count the occurrences of "# TYPE test_registry_engine_requests counter"
+        // In your official snippet, the format is: # TYPE {registry_name}_{group_name} {type}
+        std::string target_type_line = "# TYPE test_registry_engine_requests counter";
+
+        int occurrences = 0;
+        size_t pos = 0;
+        while ((pos = output.find(target_type_line, pos)) != std::string::npos) {
+            occurrences++;
+            pos += target_type_line.length();
+        }
+
+        // Must be exactly 1
+        EXPECT_EQ(1, occurrences) << "Duplicate TYPE line detected for interleaved metrics!";
+
+        // Cleanup: Following the official style to deregister entities
+        registry.deregister_entity(entity1);
+        registry.deregister_entity(entity2);
+        registry.deregister_entity(entity3);
+    }
+}
 } // namespace doris
