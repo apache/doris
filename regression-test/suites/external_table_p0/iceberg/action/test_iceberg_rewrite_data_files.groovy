@@ -492,4 +492,87 @@ suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,exte
     assertTrue(northRecords[0][0] == 3, "NORTH region should still have 3 records")
     
     logger.info("Specific partition rewrite test completed successfully")
+
+    // =====================================================================================
+    // Test Case 4: Rewrite respects BE count and parallelism cap on output files
+    // Dynamically computes expected upper bound using alive BE count in regression env
+    // =====================================================================================
+    logger.info("Starting rewrite output file count cap test case")
+
+    def table_name_limit = "test_rewrite_file_count_cap"
+    sql """DROP TABLE IF EXISTS ${db_name}.${table_name_limit}"""
+    sql """
+        CREATE TABLE ${db_name}.${table_name_limit} (
+            id INT,
+            payload STRING
+        ) ENGINE=iceberg
+    """
+
+    // Insert multiple small batches to generate multiple data files
+    (1..10).each { batch ->
+        int base = (batch - 1) * 5
+        sql """
+            INSERT INTO ${db_name}.${table_name_limit} VALUES
+            (${base + 1}, lpad('x', 1024, 'x')),
+            (${base + 2}, lpad('x', 1024, 'x')),
+            (${base + 3}, lpad('x', 1024, 'x')),
+            (${base + 4}, lpad('x', 1024, 'x')),
+            (${base + 5}, lpad('x', 1024, 'x'))
+        """
+    }
+
+    // Get alive BE count (fallback to total count if Alive column missing)
+    def backends = sql_return_maparray "SHOW BACKENDS"
+    def aliveBeCount = backends.findAll { be ->
+        def aliveVal = be.Alive
+        if (aliveVal == null) {
+            aliveVal = be.IsAlive
+        }
+        if (aliveVal == null) {
+            aliveVal = be.alive
+        }
+        return aliveVal != null && aliveVal.toString().equalsIgnoreCase("true")
+    }.size()
+    if (aliveBeCount == 0 && backends.size() > 0) {
+        logger.warn("SHOW BACKENDS does not report Alive, fallback to total count")
+        aliveBeCount = backends.size()
+    }
+    assertTrue(aliveBeCount > 0, "No alive backend found for rewrite test")
+
+    // Use a large parallelism cap to make BE count the main limiter
+    sql """set parallel_exec_instance_num=64"""
+
+    // Compute total size and derive target file size to ensure expectedFileCount > aliveBeCount
+    List<List<Object>> filesBeforeLimit = sql """
+        SELECT file_size_in_bytes FROM ${table_name_limit}\$files
+    """
+    assertTrue(filesBeforeLimit.size() > 0, "Expected at least 1 file before rewrite")
+    long totalSize = filesBeforeLimit.inject(0L) { acc, row -> acc + (row[0] as long) }
+    assertTrue(totalSize > 0, "Total size should be > 0 before rewrite")
+
+    long targetFileSize = Math.max(1L, (long) Math.floor(totalSize / (aliveBeCount + 1)))
+    long expectedFileCount = (long) Math.ceil(totalSize * 1.0 / targetFileSize)
+    if (expectedFileCount <= aliveBeCount) {
+        targetFileSize = 1L
+        expectedFileCount = totalSize
+    }
+
+    def rewriteLimitResult = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.${table_name_limit}
+        EXECUTE rewrite_data_files(
+            "target-file-size-bytes" = "${targetFileSize}",
+            "min-input-files" = "1",
+            "rewrite-all" = "true",
+            "max-file-group-size-bytes" = "1099511627776"
+        )
+    """
+
+    int addedFilesCountLimit = rewriteLimitResult[0][1] as int
+    int expectedUpper = Math.min((int) expectedFileCount, Math.min(aliveBeCount, 64))
+    assertTrue(addedFilesCountLimit > 0, "Expected added files count > 0 after rewrite")
+    assertTrue(addedFilesCountLimit <= expectedUpper,
+        "addedFilesCount=${addedFilesCountLimit}, expectedUpper=${expectedUpper}, "
+        + "aliveBeCount=${aliveBeCount}, expectedFileCount=${expectedFileCount}")
+
+    logger.info("Rewrite output file count cap test completed successfully")
 }
