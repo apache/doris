@@ -41,7 +41,7 @@ import java.util.UUID;
 
 public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunction {
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static String URI = "http://127.0.0.1:{}/api/fetchRecordStream";
+    private static final String URI = "http://127.0.0.1:{}/api/fetchRecordStream";
     private final Map<String, String> originProps;
 
     public CdcStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
@@ -83,6 +83,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.JDBC_URL), "jdbc_url is required");
         Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.TYPE), "type is required");
         Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.TABLE), "table is required");
+        Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.OFFSET), "offset is required");
     }
 
     private void generateFileStatus() {

@@ -210,7 +210,10 @@ public class PipelineCoordinator {
         }
     }
 
-    /** Generate split meta from request.offset */
+    /**
+     * Generate split meta from request.offset. This only applies to TVF, so initial is not
+     * supported because initial requires a job to obtain split information.
+     */
     private Map<String, Object> generateMeta(Map<String, String> cdcConfig)
             throws JsonProcessingException {
         Map<String, Object> meta = new HashMap<>();
@@ -440,6 +443,7 @@ public class PipelineCoordinator {
     }
 
     public Map<String, String> getOffsetWithTaskId(String taskId) {
-        return taskOffsetCache.get(taskId);
+        Map<String, String> taskOffset = taskOffsetCache.remove(taskId);
+        return taskOffset == null ? new HashMap<>() : taskOffset;
     }
 }

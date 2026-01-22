@@ -89,11 +89,6 @@ public class ClientController {
         return pipelineCoordinator.fetchRecordStream(recordReq);
     }
 
-    @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)
-    public Object getTaskIdOffset(@PathVariable String taskId) {
-        return RestResponse.success(pipelineCoordinator.getOffsetWithTaskId(taskId));
-    }
-
     /** Fetch records from source reader and Write records to backend */
     @RequestMapping(path = "/api/writeRecords", method = RequestMethod.POST)
     public Object writeRecord(@RequestBody WriteRecordRequest recordReq) {
@@ -137,5 +132,10 @@ public class ClientController {
     @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
     public Object getFailReason(@PathVariable("taskId") String taskId) {
         return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
+    }
+
+    @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)
+    public Object getTaskIdOffset(@PathVariable String taskId) {
+        return RestResponse.success(pipelineCoordinator.getOffsetWithTaskId(taskId));
     }
 }
