@@ -302,9 +302,6 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                 int col_id = AggSharedState::get_slot_column_id(
                         Base::_shared_state->aggregate_evaluators[i]);
                 auto column = block->get_by_position(col_id).column;
-                if (column->is_nullable()) {
-                    column = ((vectorized::ColumnNullable*)column.get())->get_nested_column_ptr();
-                }
 
                 size_t buffer_size =
                         Base::_shared_state->aggregate_evaluators[i]->function()->size_of_data() *
@@ -354,10 +351,6 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                                 Base::_shared_state->aggregate_evaluators[i]);
                     }
                     auto column = block->get_by_position(col_id).column;
-                    if (column->is_nullable()) {
-                        column = ((vectorized::ColumnNullable*)column.get())
-                                         ->get_nested_column_ptr();
-                    }
 
                     size_t buffer_size = Base::_shared_state->aggregate_evaluators[i]
                                                  ->function()
@@ -412,9 +405,6 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
             int col_id = AggSharedState::get_slot_column_id(
                     Base::_shared_state->aggregate_evaluators[i]);
             auto column = block->get_by_position(col_id).column;
-            if (column->is_nullable()) {
-                column = ((vectorized::ColumnNullable*)column.get())->get_nested_column_ptr();
-            }
 
             SCOPED_TIMER(_deserialize_data_timer);
             Base::_shared_state->aggregate_evaluators[i]
