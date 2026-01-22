@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "vec/columns/column_string.h"
+#include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized {

@@ -384,6 +384,12 @@ DEFINE_mInt32(trash_file_expire_time_sec, "0");
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
 DEFINE_mBool(disable_segment_cache, "false");
+// Enable checking segment rows consistency between rowset meta and segment footer
+DEFINE_mBool(enable_segment_rows_consistency_check, "false");
+DEFINE_mBool(enable_segment_rows_check_core, "false");
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DEFINE_mBool(fail_when_segment_rows_not_in_rowset_meta, "false");
 DEFINE_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
@@ -1175,6 +1181,8 @@ DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 
+DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
+
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
@@ -1607,18 +1615,7 @@ DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
-DEFINE_Validator(omp_threads_limit, [](const int config) -> bool {
-    if (config > 0) {
-        omp_threads_limit = config;
-        return true;
-    }
-    CpuInfo::init();
-    int core_cap = config::num_cores > 0 ? config::num_cores : CpuInfo::num_cores();
-    core_cap = std::max(1, core_cap);
-    // Use at most 80% of the available CPU cores.
-    omp_threads_limit = std::max(1, core_cap * 4 / 5);
-    return true;
-});
+
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 

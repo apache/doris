@@ -432,6 +432,12 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
 DECLARE_mBool(disable_segment_cache);
+// Enable checking segment rows consistency between rowset meta and segment footer
+DECLARE_mBool(enable_segment_rows_consistency_check);
+DECLARE_mBool(enable_segment_rows_check_core);
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DECLARE_mBool(fail_when_segment_rows_not_in_rowset_meta);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size
@@ -1215,6 +1221,8 @@ DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+
+DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

@@ -1127,6 +1127,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
 
+    // recursive cte is in form of union[all], and in visitSetOperation method, we try to reduceToLogicalPlanTree
+    // for UNION. We should not do it for recursive cte, so this flag is to indicate if we meet recursive cte
     private boolean isInRecursiveCteContext = false;
 
     public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
@@ -4937,7 +4939,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         int variantSparseHashShardCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantSparseHashShardCount();
 
+        boolean enableVariantDocMode = ConnectContext.get() == null ? false :
+                ConnectContext.get().getSessionVariable().getDefaultVariantEnableDocMode();
+        long variantDocMaterializationMinRows = ConnectContext.get() == null ? 0L :
+                ConnectContext.get().getSessionVariable().getDefaultVariantDocMaterializationMinRows();
+        int variantDocHashShardCount = ConnectContext.get() == null ? 128 :
+                ConnectContext.get().getSessionVariable().getDefaultVariantDocHashShardCount();
+
         try {
+            // validate properties: variant_enable_doc_mode cannot be set together with other properties
+            PropertyAnalyzer.validateVariantProperties(properties);
+
             variantMaxSubcolumnsCount = PropertyAnalyzer
                                         .analyzeVariantMaxSubcolumnsCount(properties, variantMaxSubcolumnsCount);
             enableTypedPathsToSparse = PropertyAnalyzer
@@ -4946,8 +4958,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         properties, variantMaxSparseColumnStatisticsSize);
             variantSparseHashShardCount =
                     PropertyAnalyzer.analyzeVariantSparseHashShardCount(properties, variantSparseHashShardCount);
+            enableVariantDocMode = PropertyAnalyzer
+                    .analyzeEnableVariantDocMode(properties, enableVariantDocMode);
+            variantDocMaterializationMinRows = PropertyAnalyzer
+                    .analyzeVariantDocMaterializationMinRows(properties, variantDocMaterializationMinRows);
+            variantDocHashShardCount = PropertyAnalyzer
+                    .analyzeVariantDocHashShardCount(properties, variantDocHashShardCount);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
+        }
+
+        // When doc mode is enabled, disable subcolumn extraction and sparse column features
+        if (enableVariantDocMode) {
+            // Disable sparse column features
+            variantMaxSubcolumnsCount = 0;
+            enableTypedPathsToSparse = false;
+            variantMaxSparseColumnStatisticsSize = 0;
+            variantSparseHashShardCount = 0;
+            // Validate that all typed fields use data types supported in doc mode
+            // document mode only supports string, integral, float, and boolean types
+            for (VariantField field : fields) {
+                DataType dataType = field.getDataType();
+                if (dataType.isArrayType()) {
+                    ArrayType arrayType = (ArrayType) dataType;
+                    DataType elementType = arrayType.getItemType();
+                    if (!isSupportedVariantDocModeType(elementType)) {
+                        throw new NotSupportedException("data type " + arrayType.toSql()
+                                + " is not supported when variant_enable_doc_mode is true");
+                    }
+                } else if (!isSupportedVariantDocModeType(dataType)) {
+                    throw new NotSupportedException("data type " + dataType.toSql()
+                            + " is not supported when variant_enable_doc_mode is true");
+                }
+            }
+        } else {
+            // When doc mode is disabled, clear doc mode specific settings
+            variantDocMaterializationMinRows = 0;
+            variantDocHashShardCount = 0;
         }
 
         if (!properties.isEmpty()) {
@@ -4955,11 +5002,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                    variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount);
+                    variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
+                    enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
+    }
+
+    private static boolean isSupportedVariantDocModeType(DataType type) {
+        return type.isStringLikeType() || type.isIntegralType() || type.isFloatLikeType() || type.isBooleanType();
     }
 
     @Override
@@ -9446,7 +9501,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.retainTime() != null) {
             DorisParser.TimeValueWithUnitContext time = ctx.retainTime().timeValueWithUnit();
             if (time != null) {
-                retainTime = Optional.of(visitTimeValueWithUnit(time));
+                long retainTimeMs = visitTimeValueWithUnit(time);
+                if (retainTimeMs <= 0) {
+                    throw new IllegalArgumentException(
+                        "RETAIN time value must be greater than 0, got: " + retainTimeMs + " ms");
+                }
+                retainTime = Optional.of(retainTimeMs);
             }
         }
 
@@ -9455,11 +9515,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.retentionSnapshot() != null) {
             DorisParser.RetentionSnapshotContext retentionSnapshotContext = ctx.retentionSnapshot();
             if (retentionSnapshotContext.minSnapshotsToKeep() != null) {
-                numSnapshots = Optional.of(
-                    Integer.parseInt(retentionSnapshotContext.minSnapshotsToKeep().value.getText()));
+                int snapshotsCount = Integer.parseInt(
+                        retentionSnapshotContext.minSnapshotsToKeep().value.getText());
+                if (snapshotsCount <= 0) {
+                    throw new IllegalArgumentException(
+                        "Snapshot count (SNAPSHOTS) value must be greater than 0, got: " + snapshotsCount);
+                }
+                numSnapshots = Optional.of(snapshotsCount);
             }
             if (retentionSnapshotContext.timeValueWithUnit() != null) {
-                retention = Optional.of(visitTimeValueWithUnit(retentionSnapshotContext.timeValueWithUnit()));
+                long retentionMs = visitTimeValueWithUnit(retentionSnapshotContext.timeValueWithUnit());
+                if (retentionMs <= 0) {
+                    throw new IllegalArgumentException(
+                        "Retention time value must be greater than 0, got: " + retentionMs + " ms");
+                }
+                retention = Optional.of(retentionMs);
             }
         }
         return new BranchOptions(snapshotId, retainTime, numSnapshots, retention);
@@ -9497,7 +9567,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.retainTime() != null) {
             DorisParser.TimeValueWithUnitContext time = ctx.retainTime().timeValueWithUnit();
             if (time != null) {
-                retainTime = Optional.of(visitTimeValueWithUnit(time));
+                long retainTimeMs = visitTimeValueWithUnit(time);
+                if (retainTimeMs <= 0) {
+                    throw new IllegalArgumentException(
+                        "RETAIN time value must be greater than 0, got: " + retainTimeMs + " ms");
+                }
+                retainTime = Optional.of(retainTimeMs);
             }
         }
 

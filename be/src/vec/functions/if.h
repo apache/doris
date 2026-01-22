@@ -41,7 +41,7 @@ namespace doris::vectorized {
 template <PrimitiveType PType>
 struct NumIfImpl {
 private:
-    using Type = typename PrimitiveTypeTraits<PType>::ColumnItemType;
+    using Type = typename PrimitiveTypeTraits<PType>::CppType;
     using ArrayCond = PaddedPODArray<UInt8>;
     using Array = PaddedPODArray<Type>;
     using ColVecT = typename PrimitiveTypeTraits<PType>::ColumnType;

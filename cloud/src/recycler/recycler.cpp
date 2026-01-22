@@ -1752,7 +1752,10 @@ int InstanceRecycler::abort_job_for_related_rowset(const RowsetMetaCloudPB& rows
 
     TabletIndexPB tablet_idx;
     int ret = get_tablet_idx(txn_kv_.get(), instance_id_, rowset_meta.tablet_id(), tablet_idx);
-    if (ret != 0) {
+    if (ret == 1) {
+        // tablet maybe recycled, directly return 0
+        return 0;
+    } else if (ret != 0) {
         LOG(WARNING) << "failed to get tablet index, tablet_id=" << rowset_meta.tablet_id()
                      << " instance_id=" << instance_id_ << " ret=" << ret;
         return ret;

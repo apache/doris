@@ -538,7 +538,6 @@ set(DORIS_LINK_LIBS
     Runtime
     RuntimeFilter
     Service
-    Udf
     Util
     DorisGen
     Webserver
@@ -934,7 +933,6 @@ add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
-add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
