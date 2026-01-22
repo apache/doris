@@ -300,9 +300,6 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             // Small data volume: use GATHER to write to single node
             useGather = true;
             optimalParallelism = 1;
-            LOG.info("[Rewrite Task] taskId: {}, using GATHER distribution for small data. "
-                            + "totalSize: {} bytes, expectedFileCount: {}",
-                    taskId, totalSize, expectedFileCount);
         } else {
             // Larger data volume: limit parallelism based on expected file count
             optimalParallelism = Math.max(1,

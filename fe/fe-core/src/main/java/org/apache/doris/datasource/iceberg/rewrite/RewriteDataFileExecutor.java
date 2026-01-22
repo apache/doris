@@ -22,8 +22,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -70,8 +72,9 @@ public class RewriteDataFileExecutor {
         RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
 
         // Get available BE count once before creating tasks
-        // This avoids calling getBackendsNumber() in each task during multi-threaded execution
-        int availableBeCount = Env.getCurrentSystemInfo().getBackendsNumber(true);
+        // This avoids calling getBackendsNumber() in each task during multi-threaded execution.
+        // Use compute group from connect context to align with actual BE selection for queries.
+        int availableBeCount = getAvailableBeCount();
 
         // Create tasks with callbacks
         for (RewriteDataGroup group : groups) {
@@ -156,6 +159,18 @@ public class RewriteDataFileExecutor {
             LOG.warn("Wait for tasks completion was interrupted", e);
             throw new UserException("Wait for tasks completion was interrupted", e);
         }
+    }
+
+    private int getAvailableBeCount() throws UserException {
+        ComputeGroup computeGroup = connectContext.getComputeGroup();
+        List<Backend> backends = computeGroup.getBackendList();
+        int availableBeCount = 0;
+        for (Backend backend : backends) {
+            if (backend.isAlive()) {
+                availableBeCount++;
+            }
+        }
+        return availableBeCount;
     }
 
     /**
