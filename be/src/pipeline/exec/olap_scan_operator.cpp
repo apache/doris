@@ -888,21 +888,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                auto key = iter->first;
-                                _slot_id_to_value_range.erase(key);
-
-                                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
-                                for (const auto& it : _slot_id_to_predicates[key]) {
-                                    if (it->type() == PredicateType::NOT_IN_LIST ||
-                                        it->type() == PredicateType::NE) {
-                                        new_predicates.push_back(it);
-                                    }
-                                }
-                                if (new_predicates.empty()) {
-                                    _slot_id_to_predicates.erase(key);
-                                } else {
-                                    _slot_id_to_predicates[key] = new_predicates;
-                                }
+                                _slot_id_to_value_range.erase(iter->first);
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
