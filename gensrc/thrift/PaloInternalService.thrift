@@ -424,6 +424,10 @@ struct TQueryOptions {
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
 
+  185: optional i64 in_set_to_bitset_max_size;
+
+  186: optional i64 in_set_to_bitset_max_range;
+
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
