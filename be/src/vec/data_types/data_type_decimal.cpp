@@ -294,16 +294,14 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
     auto max_precision = use_v2 ? max_decimal_precision<TYPE_DECIMALV2>()
                                 : max_decimal_precision<TYPE_DECIMAL256>();
     if (precision_value < min_decimal_precision() || precision_value > max_precision) {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Wrong precision {}, min: {}, max: {}", precision_value,
-                               min_decimal_precision(), max_precision);
+        LOG(FATAL) << "Wrong precision " << precision_value << ", min: " << min_decimal_precision()
+                   << ", max: " << max_precision;
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Negative scales and scales larger than precision are not "
-                               "supported, scale_value: {}, precision_value: {}",
-                               scale_value, precision_value);
+        LOG(FATAL) << "Negative scales and scales larger than precision are not "
+                   << "supported, scale_value: " << scale_value
+                   << ", precision_value: " << precision_value;
     }
 
     if (use_v2) {
