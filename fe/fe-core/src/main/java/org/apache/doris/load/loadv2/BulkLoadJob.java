@@ -109,14 +109,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS,
                                     Long.toString(var.getAutoProfileThresholdMs()));
             sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(var.getProfileLevel()));
-            sessionVariables.put(SessionVariable.MAX_S3_LIST_OBJECTS_COUNT,
-                                    Integer.toString(var.maxS3ListObjectsCount));
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
             sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, Long.toString(-1));
             sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(1));
-            sessionVariables.put(SessionVariable.MAX_S3_LIST_OBJECTS_COUNT,
-                                    Integer.toString(Config.max_s3_list_objects_count));
         }
     }
 
