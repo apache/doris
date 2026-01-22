@@ -18,14 +18,13 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
+import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.catalog.Catalog;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
@@ -35,27 +34,7 @@ import java.util.Map;
 
 public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergProperties {
 
-    @ConnectorProperty(names = {"s3tables.credentials-provider-type"},
-            required = false,
-            description = "The AWS credentials provider type for S3Tables catalog. "
-                    + "Options: DEFAULT, ENV, SYSTEM_PROPERTIES, WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE. "
-                    + "When explicit credentials (access_key/secret_key) are provided, they take precedence. "
-                    + "When no explicit credentials are provided, this determines how credentials are resolved.")
-    private String s3tablesCredentialsProviderType = "";
-
-    @ConnectorProperty(names = {"s3tables.assume-role.arn", "s3.role_arn"},
-            required = false,
-            description = "The IAM role ARN to assume for cross-account access. "
-                    + "When set, uses STS AssumeRole to get temporary credentials.")
-    private String s3tablesAssumeRoleArn = "";
-
-    @ConnectorProperty(names = {"s3tables.assume-role.external-id", "s3.external_id"},
-            required = false,
-            description = "The external ID for STS AssumeRole, used for cross-account access security.")
-    private String s3tablesAssumeRoleExternalId = "";
-
     private S3Properties s3Properties;
-    private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
     public IcebergS3TablesMetaStoreProperties(Map<String, String> props) {
         super(props);
@@ -70,13 +49,6 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         s3Properties = S3Properties.of(origProps);
-        initAwsCredentialsProviderMode();
-    }
-
-    private void initAwsCredentialsProviderMode() {
-        if (StringUtils.isNotBlank(s3tablesCredentialsProviderType)) {
-            awsCredentialsProviderMode = AwsCredentialsProviderMode.fromString(s3tablesCredentialsProviderType);
-        }
     }
 
     @Override
@@ -92,8 +64,8 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
             return catalog;
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize S3TablesCatalog for Iceberg. "
-                    + "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion()
-                    + ", msg: " + ExceptionUtils.getRootCauseMessage(e), e);
+                + "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion()
+                + ", msg: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -116,19 +88,18 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
             if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
                 props.put("client.credentials-provider.s3.session-token", s3Properties.getSessionToken());
             }
-        } else if (StringUtils.isNotBlank(s3tablesAssumeRoleArn)) {
-            // Use AssumeRoleAwsClientFactory for cross-account access
-            props.put("client.factory", "org.apache.iceberg.aws.AssumeRoleAwsClientFactory");
-            props.put("client.assume-role.arn", s3tablesAssumeRoleArn);
-            props.put("client.assume-role.region", s3Properties.getRegion());
-            if (StringUtils.isNotBlank(s3tablesAssumeRoleExternalId)) {
-                props.put("client.assume-role.external-id", s3tablesAssumeRoleExternalId);
+            return;
+        }
+
+        if (StringUtils.isNotBlank(s3Properties.getS3IAMRole())) {
+            props.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
+            props.put("aws.region", s3Properties.getRegion());
+            props.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, s3Properties.getRegion());
+            props.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, s3Properties.getS3IAMRole());
+            props.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, s3Properties.getRegion());
+            if (StringUtils.isNotBlank(s3Properties.getS3ExternalId())) {
+                props.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, s3Properties.getS3ExternalId());
             }
-        } else if (awsCredentialsProviderMode != null) {
-            // Use configured credentials provider when no explicit credentials
-            String providerClassName = AwsCredentialsProviderFactory.getV2ClassName(
-                    awsCredentialsProviderMode, false);
-            props.put("client.credentials-provider", providerClassName);
         }
         // If none of the above is set, S3TablesCatalog will fail
         // with a clear error message asking for credentials configuration
@@ -137,7 +108,7 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     private void checkInitialized() {
         if (s3Properties == null) {
             throw new IllegalStateException("S3Properties not initialized."
-                    + " Please call initNormalizeAndCheckProps() before using.");
+                + " Please call initNormalizeAndCheckProps() before using.");
         }
     }
 }

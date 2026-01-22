@@ -20,8 +20,6 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -32,7 +30,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
@@ -156,27 +156,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
     private String icebergRestSocketTimeoutMs = "60000";
 
-    @ConnectorProperty(names = {"iceberg.rest.credentials-provider-type"},
-            required = false,
-            description = "The AWS credentials provider type for REST catalog authentication. "
-                    + "Options: DEFAULT, ENV, SYSTEM_PROPERTIES, WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE. "
-                    + "When explicit credentials (access-key-id/secret-access-key) are provided, they take precedence. "
-                    + "When no explicit credentials are provided, this determines how credentials are resolved.")
-    private String icebergRestCredentialsProviderType = "";
-
-    @ConnectorProperty(names = {"iceberg.rest.assume-role.arn", "s3.role_arn"},
-            required = false,
-            description = "The IAM role ARN to assume for cross-account access. "
-                    + "When set, uses STS AssumeRole to get temporary credentials.")
-    private String icebergRestAssumeRoleArn = "";
-
-    @ConnectorProperty(names = {"iceberg.rest.assume-role.external-id", "s3.external_id"},
-            required = false,
-            description = "The external ID for STS AssumeRole, used for cross-account access security.")
-    private String icebergRestAssumeRoleExternalId = "";
-
     private S3Properties s3Properties;
-    private AwsCredentialsProviderMode awsCredentialsProviderMode;
 
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
@@ -207,15 +187,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         super.initNormalizeAndCheckProps();
         s3Properties = S3Properties.of(origProps);
         validateSecurityType();
-        initAwsCredentialsProviderMode();
         buildRules().validate();
         initIcebergRestCatalogProperties();
-    }
-
-    private void initAwsCredentialsProviderMode() {
-        if (Strings.isNotBlank(icebergRestCredentialsProviderType)) {
-            awsCredentialsProviderMode = AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
-        }
     }
 
     @Override
@@ -227,7 +200,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Security.valueOf(icebergRestSecurityType.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid security type: " + icebergRestSecurityType
-                    + ". Supported values are: none, oauth2");
+                + ". Supported values are: none, oauth2");
         }
     }
 
@@ -340,26 +313,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                     && StringUtils.isNotBlank(s3Properties.getSecretKey());
 
             if (hasExplicitCredentials) {
-                icebergRestCatalogProperties.put("rest.access-key-id", s3Properties.getAccessKey());
-                icebergRestCatalogProperties.put("rest.secret-access-key", s3Properties.getSecretKey());
-            } else if (Strings.isNotBlank(icebergRestAssumeRoleArn)) {
-                // Use AssumeRoleAwsClientFactory for cross-account access
-                icebergRestCatalogProperties.put("client.factory",
-                        "org.apache.iceberg.aws.AssumeRoleAwsClientFactory");
-                icebergRestCatalogProperties.put("client.assume-role.arn", icebergRestAssumeRoleArn);
-                icebergRestCatalogProperties.put("client.assume-role.region", icebergRestSigningRegion);
-                if (Strings.isNotBlank(icebergRestAssumeRoleExternalId)) {
-                    icebergRestCatalogProperties.put("client.assume-role.external-id",
-                            icebergRestAssumeRoleExternalId);
+                icebergRestCatalogProperties.put(AwsProperties.REST_ACCESS_KEY_ID, s3Properties.getAccessKey());
+                icebergRestCatalogProperties.put(AwsProperties.REST_SECRET_ACCESS_KEY, s3Properties.getSecretKey());
+                if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
+                    icebergRestCatalogProperties.put(AwsProperties.REST_SESSION_TOKEN, s3Properties.getSessionToken());
                 }
-            } else if (awsCredentialsProviderMode != null) {
-                // Use configured credentials provider when no explicit credentials
-                String providerClassName = AwsCredentialsProviderFactory.getV2ClassName(
-                        awsCredentialsProviderMode, false);
-                icebergRestCatalogProperties.put("rest.credentials-provider", providerClassName);
             }
-            // If none of the above is set, Iceberg will fail
-            // with a clear error message asking for credentials configuration
         }
     }
 
@@ -426,6 +385,21 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
         if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
             options.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
+        }
+        //IAM Assume Role
+        if (s3Properties instanceof S3Properties) {
+            S3Properties awsProperties = (S3Properties) s3Properties;
+            if (StringUtils.isBlank(awsProperties.getS3IAMRole())) {
+                return;
+            }
+            options.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
+            options.put("aws.region", awsProperties.getRegion());
+            options.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, awsProperties.getRegion());
+            options.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, awsProperties.getS3IAMRole());
+            options.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, awsProperties.getRegion());
+            if (StringUtils.isNotBlank(awsProperties.getS3ExternalId())) {
+                options.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, awsProperties.getS3ExternalId());
+            }
         }
     }
 
