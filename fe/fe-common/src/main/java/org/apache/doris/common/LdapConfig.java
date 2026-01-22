@@ -157,4 +157,11 @@ public class LdapConfig extends ConfigBase {
      */
     @ConfigBase.ConfField
     public static boolean ldap_pool_test_while_idle = true;
+
+    /**
+     * Flag to enable usage of LDAPS.
+     */
+    @Deprecated
+    @ConfigBase.ConfField
+    public static boolean ldap_use_ssl = false;
 }
