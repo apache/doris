@@ -602,8 +602,11 @@ if (ENABLE_PAIMON_CPP)
     set_target_properties(paimon_arrow_acero PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow_acero.a")
     add_library(paimon_arrow STATIC IMPORTED)
     set_target_properties(paimon_arrow PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow.a")
-    add_library(paimon_arrow_bundled_dependencies STATIC IMPORTED)
-    set_target_properties(paimon_arrow_bundled_dependencies PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow_bundled_dependencies.a")
+    set(paimon_arrow_bundled_deps_lib "${PAIMON_HOME}/lib64/paimon_deps/libarrow_bundled_dependencies.a")
+    if (EXISTS "${paimon_arrow_bundled_deps_lib}")
+        add_library(paimon_arrow_bundled_dependencies STATIC IMPORTED)
+        set_target_properties(paimon_arrow_bundled_dependencies PROPERTIES IMPORTED_LOCATION "${paimon_arrow_bundled_deps_lib}")
+    endif()
     add_library(paimon_parquet STATIC IMPORTED)
     set_target_properties(paimon_parquet PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libparquet.a")
     if(NOT PAIMON_USE_EXTERNAL_ORC)
@@ -630,9 +633,11 @@ if (ENABLE_PAIMON_CPP)
         paimon_arrow_dataset
         paimon_arrow_acero
         paimon_arrow
-        paimon_arrow_bundled_dependencies
-        glog
     )
+    if (TARGET paimon_arrow_bundled_dependencies)
+        list(APPEND PAIMON_CPP_DEP_TARGETS paimon_arrow_bundled_dependencies)
+    endif()
+    list(APPEND PAIMON_CPP_DEP_TARGETS glog)
     # Force-link factory libraries so static init registers file formats.
     list(APPEND COMMON_THIRDPARTY
         -Wl,--whole-archive
