@@ -932,7 +932,8 @@ TEST_F(HybridSetTest, TryConvertToBitsetTooLargeRange) {
     MockRuntimeState state;
     TQueryOptions query_options;
     query_options.__set_in_set_to_bitset_max_size(100);
-    query_options.__set_in_set_to_bitset_max_range(500); // max range is 500, but actual range is 1000
+    query_options.__set_in_set_to_bitset_max_range(
+            500); // max range is 500, but actual range is 1000
     state.set_query_options(query_options);
 
     auto result = set->try_convert_to_bitset(&state);
