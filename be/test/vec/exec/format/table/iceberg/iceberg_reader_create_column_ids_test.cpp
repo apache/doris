@@ -672,7 +672,7 @@ protected:
         }
 
         // Setup runtime state
-        RuntimeState runtime_state((TQueryGlobals()));
+        RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
 
         // Setup scan parameters
         TFileScanRangeParams scan_params;
@@ -727,7 +727,7 @@ protected:
         }
 
         // Setup runtime state
-        RuntimeState runtime_state((TQueryGlobals()));
+        RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
 
         // Setup scan parameters
         TFileScanRangeParams scan_params;

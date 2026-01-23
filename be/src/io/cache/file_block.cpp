@@ -113,7 +113,12 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
 
 Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) {
     DCHECK(_download_state != State::DOWNLOADED);
-    DCHECK_NE(_downloaded_size, 0);
+    if (_downloaded_size == 0) {
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+        return Status::InternalError("Try to set empty block {} as downloaded",
+                                     _block_range.to_string());
+    }
     Status status = _mgr->_storage->finalize(_key, this->_block_range.size());
     if (status.ok()) [[likely]] {
         _download_state = State::DOWNLOADED;
@@ -147,7 +152,15 @@ Status FileBlock::append(Slice data) {
 }
 
 Status FileBlock::finalize() {
-    if (_downloaded_size != 0 && _downloaded_size != _block_range.size()) {
+    if (_downloaded_size == 0) {
+        std::lock_guard block_lock(_mutex);
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+        _cv.notify_all();
+        return Status::InternalError("Try to finalize an empty file block {}",
+                                     _block_range.to_string());
+    }
+    if (_downloaded_size != _block_range.size()) {
         SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
         size_t old_size = _block_range.size();
         _block_range.right = _block_range.left + _downloaded_size - 1;
@@ -184,19 +197,6 @@ Status FileBlock::change_cache_type_lock(FileCacheType new_type,
     }
     _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
     _key.meta.type = new_type;
-    return Status::OK();
-}
-
-Status FileBlock::update_expiration_time(uint64_t expiration_time) {
-    std::lock_guard block_lock(_mutex);
-    if (_download_state == State::DOWNLOADED) {
-        auto st = _mgr->_storage->change_key_meta_expiration(_key, expiration_time,
-                                                             _block_range.size());
-        if (!st.ok()) {
-            return st;
-        }
-    }
-    _key.meta.expiration_time = expiration_time;
     return Status::OK();
 }
 

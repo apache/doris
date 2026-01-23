@@ -34,10 +34,10 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -86,40 +86,36 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
 
         // For partitioned tables, do selective partition refresh
         // For non-partitioned tables, do full table cache invalidation
-        List<String> affectedPartitionNames = null;
+        List<String> modifiedPartNames = Lists.newArrayList();
+        List<String> newPartNames = Lists.newArrayList();
         if (hmsTable.isPartitionedTable() && partitionUpdates != null && !partitionUpdates.isEmpty()) {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-            cache.refreshAffectedPartitions(hmsTable, partitionUpdates);
-
-            // Collect partition names for edit log
-            affectedPartitionNames = new ArrayList<>();
-            for (THivePartitionUpdate update : partitionUpdates) {
-                String partitionName = update.getName();
-                if (partitionName != null && !partitionName.isEmpty()) {
-                    affectedPartitionNames.add(partitionName);
-                }
-            }
+            cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
         } else {
             // Non-partitioned table or no partition updates, do full table refresh
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(hmsTable);
         }
 
         // Write edit log to notify other FEs
+        long updateTime = System.currentTimeMillis();
+        hmsTable.setUpdateTime(updateTime);
         ExternalObjectLog log;
-        if (affectedPartitionNames != null && !affectedPartitionNames.isEmpty()) {
+        if (!modifiedPartNames.isEmpty() || !newPartNames.isEmpty()) {
             // Partition-level refresh for other FEs
             log = ExternalObjectLog.createForRefreshPartitions(
                     hmsTable.getCatalog().getId(),
                     table.getDatabase().getFullName(),
                     table.getName(),
-                    affectedPartitionNames);
+                    modifiedPartNames,
+                    newPartNames,
+                    updateTime);
         } else {
             // Full table refresh for other FEs
             log = ExternalObjectLog.createForRefreshTable(
                     hmsTable.getCatalog().getId(),
                     table.getDatabase().getFullName(),
-                    table.getName());
+                    table.getName(), updateTime);
         }
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }

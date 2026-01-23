@@ -58,6 +58,9 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "partitionNames")
     private List<String> partitionNames;
 
+    @SerializedName(value = "newPartitionNames")
+    private List<String> newPartitionNames;
+
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
 
@@ -72,21 +75,25 @@ public class ExternalObjectLog implements Writable {
         return externalObjectLog;
     }
 
-    public static ExternalObjectLog createForRefreshTable(long catalogId, String dbName, String tblName) {
+    public static ExternalObjectLog createForRefreshTable(long catalogId, String dbName, String tblName,
+            long updateTime) {
         ExternalObjectLog externalObjectLog = new ExternalObjectLog();
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
         externalObjectLog.setTableName(tblName);
+        externalObjectLog.setLastUpdateTime(updateTime);
         return externalObjectLog;
     }
 
     public static ExternalObjectLog createForRefreshPartitions(long catalogId, String dbName, String tblName,
-            List<String> partitionNames) {
+            List<String> modifiedPartNames, List<String> newPartNames, long updateTime) {
         ExternalObjectLog externalObjectLog = new ExternalObjectLog();
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
         externalObjectLog.setTableName(tblName);
-        externalObjectLog.setPartitionNames(partitionNames);
+        externalObjectLog.setPartitionNames(modifiedPartNames);
+        externalObjectLog.setNewPartitionNames(newPartNames);
+        externalObjectLog.setLastUpdateTime(updateTime);
         return externalObjectLog;
     }
 
@@ -133,6 +140,12 @@ public class ExternalObjectLog implements Writable {
             sb.append("tableName: " + tableName + "]");
         } else {
             sb.append("tableId: " + tableId + "]");
+        }
+        if (partitionNames != null && !partitionNames.isEmpty()) {
+            sb.append(", partitionNames: " + partitionNames);
+        }
+        if (newPartitionNames != null && !newPartitionNames.isEmpty()) {
+            sb.append(", newPartitionNames: " + newPartitionNames);
         }
         return sb.toString();
     }

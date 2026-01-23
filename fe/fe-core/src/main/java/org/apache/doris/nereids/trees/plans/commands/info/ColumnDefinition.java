@@ -40,6 +40,8 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -188,6 +190,18 @@ public class ColumnDefinition {
 
     public void setGeneratedColumnsThatReferToThis(Set<String> generatedColumnsThatReferToThis) {
         this.generatedColumnsThatReferToThis = generatedColumnsThatReferToThis;
+    }
+
+    public String getComment() {
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
+        String comment = this.comment == null ? "" : this.comment;
+        if (!escapeQuota) {
+            return comment;
+        }
+        return SqlUtils.escapeQuota(comment);
     }
 
     /**
@@ -518,7 +532,11 @@ public class ColumnDefinition {
                 defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis,
+                generatedColumnDesc.map(desc ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                        .orElse(null)
+                );
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -533,7 +551,10 @@ public class ColumnDefinition {
                 defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis,
+                generatedColumnDesc.map(desc ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                        .orElse(null));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

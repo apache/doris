@@ -24,11 +24,10 @@
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
-
-constexpr auto DECIMAL256_FUNCTION_SUFFIX {"_decimal256"};
 
 class SimpleFunctionFactory;
 
@@ -99,6 +98,7 @@ void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
 void register_function_width_bucket(SimpleFunctionFactory& factory);
+void register_function_interval(SimpleFunctionFactory& factory);
 void register_function_ignore(SimpleFunctionFactory& factory);
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
@@ -126,9 +126,12 @@ void register_function_soundex(SimpleFunctionFactory& factory);
 void register_function_throw_exception(SimpleFunctionFactory& factory);
 #endif
 
+using ArrayAggFunctionCreator = std::function<FunctionBuilderPtr(const DataTypePtr&)>;
+
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
+    using ArrayAggFunctionCreators = phmap::flat_hash_map<std::string, ArrayAggFunctionCreator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
     /// @TEMPORARY: for be_exec_version=5.
     /// whenever change this, please make sure old functions was all cleared. otherwise the version now-1 will think it should do replacement
@@ -155,9 +158,14 @@ public:
         function_creators[key_str] = ptr;
     }
 
+    void register_array_agg_function(const std::string& name, const ArrayAggFunctionCreator& ptr) {
+        array_function_creators[name] = ptr;
+    }
+
     template <class Function>
     void register_function() {
         if constexpr (std::is_base_of_v<IFunction, Function>) {
+            static_assert(sizeof(Function) == sizeof(IFunction), "Function must be no member data");
             register_function(Function::name, &createDefaultFunction<Function>);
         } else {
             register_function(Function::name, &Function::create);
@@ -166,6 +174,7 @@ public:
 
     template <class Function>
     void register_function(std::string name) {
+        static_assert(sizeof(Function) == sizeof(IFunction), "Function must be no member data");
         register_function(name, &createDefaultFunction<Function>);
     }
 
@@ -190,13 +199,6 @@ public:
             key_str = function_alias[name];
         }
 
-        if (attr.enable_decimal256) {
-            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
-                key_str == "array_cum_sum") {
-                key_str += DECIMAL256_FUNCTION_SUFFIX;
-            }
-        }
-
         if ((key_str.starts_with("unix_timestamp") || key_str.starts_with("from_unixtime")) &&
             attr.new_version_unix_timestamp) {
             key_str += "_new";
@@ -215,6 +217,15 @@ public:
             }
         }
 
+        auto iter0 = array_function_creators.find(key_str);
+        if (iter0 == array_function_creators.end()) {
+            // use original name as signature without variadic arguments
+            iter0 = array_function_creators.find(name);
+        }
+        if (iter0 != array_function_creators.end()) {
+            return iter0->second(return_type)->build(arguments, return_type);
+        }
+
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
@@ -230,6 +241,7 @@ public:
 
 private:
     FunctionCreators function_creators;
+    ArrayAggFunctionCreators array_function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
     /// @TEMPORARY: for be_exec_version=8. replace function to old version.
@@ -238,6 +250,11 @@ private:
     template <typename Function>
     static FunctionBuilderPtr createDefaultFunction() {
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
+    }
+
+    template <class FunctionTemplate>
+    static FunctionBuilderPtr createDefaultFunctionWithReturnType(DataTypePtr return_type) {
+        return std::make_shared<DefaultFunctionBuilder>(std::move(return_type));
     }
 
     /// @TEMPORARY: for be_exec_version=8
@@ -321,6 +338,7 @@ public:
             register_function_multi_string_position(instance);
             register_function_multi_string_search(instance);
             register_function_width_bucket(instance);
+            register_function_interval(instance);
             register_function_match(instance);
             register_function_ip(instance);
             register_function_tokenize(instance);

@@ -36,6 +36,7 @@ import org.apache.http.entity.InputStreamEntity
 import org.apache.http.entity.StringEntity
 import org.apache.http.impl.client.CloseableHttpClient
 import org.apache.http.impl.client.HttpClients
+import org.apache.http.impl.client.HttpClientBuilder
 import org.apache.http.util.EntityUtils
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager
 import org.apache.http.config.ConnectionConfig
@@ -44,6 +45,15 @@ import java.nio.charset.CodingErrorAction
 import org.junit.Assert
 import java.io.InputStream
 import java.io.IOException
+
+import javax.net.ssl.HostnameVerifier
+import org.apache.http.conn.ssl.NoopHostnameVerifier
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory
+import org.apache.http.ssl.SSLContexts
+import javax.net.ssl.*
+import java.security.KeyStore
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 
 @Slf4j
 class StreamLoadAction implements SuiteAction {
@@ -65,6 +75,21 @@ class StreamLoadAction implements SuiteAction {
     boolean twoPhaseCommit = false
     boolean enableUtf8Encoding = false  // 新增：UTF-8编码支持开关
 
+    boolean enableTLS = false
+    String keyStorePath
+    String keyStorePassword
+    String keyStoreType = "PKCS12"
+    String trustStorePath
+    String trustStorePassword
+    String trustStoreType = "PKCS12"
+    boolean sslHostnameVerify = false
+    String tlsVerifyMode = "strict"
+
+    // HTTP client timeout settings (in milliseconds)
+    int connectTimeout = 0     // 0 means use default (no explicit timeout)
+    int socketTimeout = 0      // 0 means use default (no explicit timeout)
+    int connectionRequestTimeout = 0  // 0 means use default (no explicit timeout)
+
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
@@ -76,6 +101,17 @@ class StreamLoadAction implements SuiteAction {
         this.context = context
         this.headers = new LinkedHashMap<>()
         this.headers.put('label', UUID.randomUUID().toString())
+
+        def oc = context.config.otherConfigs ?: [:]
+        this.enableTLS = (oc.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        this.keyStorePath = oc.get("keyStorePath")
+        this.keyStorePassword = oc.get("keyStorePassword")
+        this.keyStoreType = oc.get("keyStoreType") ?: 'PKCS12'
+        this.trustStorePath = oc.get("trustStorePath")
+        this.trustStorePassword = oc.get("trustStorePassword")
+        this.trustStoreType = oc.get("trustStoreType") ?: 'PKCS12'
+        this.tlsVerifyMode = oc.get("tlsVerifyMode") ?: 'strict'
+        this.sslHostnameVerify = ('none'.equalsIgnoreCase(this.tlsVerifyMode)) ? false : true
     }
 
     void db(String db) {
@@ -191,52 +227,190 @@ class StreamLoadAction implements SuiteAction {
         headers.remove(key)
     }
 
+    // Methods to dynamically set TLS configuration
+    void enableTLS(boolean enable) {
+        this.enableTLS = enable
+    }
+
+    void keyStorePath(String path) {
+        this.keyStorePath = path
+    }
+
+    void keyStorePassword(String password) {
+        this.keyStorePassword = password
+    }
+
+    void keyStoreType(String type) {
+        this.keyStoreType = type
+    }
+
+    void trustStorePath(String path) {
+        this.trustStorePath = path
+    }
+
+    void trustStorePassword(String password) {
+        this.trustStorePassword = password
+    }
+
+    void trustStoreType(String type) {
+        this.trustStoreType = type
+    }
+
+    void tlsVerifyMode(String mode) {
+        this.tlsVerifyMode = mode
+        this.sslHostnameVerify = ('none'.equalsIgnoreCase(mode)) ? false : true
+    }
+
+    void sslHostnameVerify(boolean verify) {
+        this.sslHostnameVerify = verify
+    }
+
+    void connectTimeout(int timeout) {
+        this.connectTimeout = timeout
+    }
+
+    void socketTimeout(int timeout) {
+        this.socketTimeout = timeout
+    }
+
+    void connectionRequestTimeout(int timeout) {
+        this.connectionRequestTimeout = timeout
+    }
+
+    void timeout(int timeout) {
+        this.connectTimeout = timeout
+        this.socketTimeout = timeout
+        this.connectionRequestTimeout = timeout
+    }
+
     @Override
     void run() {
-        String responseText = null
-        Throwable ex = null
-        long startTime = System.currentTimeMillis()
-        def isHttpStream = headers.containsKey("version")
         try {
-            def uri = ""
-            if (isHttpStream) {
-                uri = "http://${address.hostString}:${address.port}/api/_http_stream"
-            } else if (twoPhaseCommit) {
-                uri = "http://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
-            } else {
-                uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
-            }
-            def client
-            if (enableUtf8Encoding) {
-                // set UTF-8
-                def connConfig = ConnectionConfig.custom()
-                    .setCharset(StandardCharsets.UTF_8)
-                    .setMalformedInputAction(CodingErrorAction.REPLACE)
-                    .setUnmappableInputAction(CodingErrorAction.REPLACE)
-                    .build()
-                def cm = new PoolingHttpClientConnectionManager()
-                cm.setDefaultConnectionConfig(connConfig)
-                client = HttpClients.custom().setConnectionManager(cm).build()
-                log.info("Stream load using UTF-8 encoding for headers")
-            } else {
-                // default：ISO-8859-1
-                client = HttpClients.createDefault()
-            }
-            client.withCloseable { httpClient ->
-                RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(httpClient)
-                if (!directToBe) {
-                    String beLocation = streamLoadToFe(httpClient, requestBuilder)
-                    log.info("Redirect stream load to ${beLocation}".toString())
-                    requestBuilder.setUri(beLocation)
+            String responseText = null
+            Throwable ex = null
+            long startTime = System.currentTimeMillis()
+            def isHttpStream = headers.containsKey("version")
+            def httpType = enableTLS ? "https" : "http"
+            try {
+                def uri = ""
+                if (isHttpStream) {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/_http_stream"
+                } else if (twoPhaseCommit) {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
+                } else {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
                 }
-                requestBuilder.setEntity(httpEntity)
-                responseText = streamLoadToBe(httpClient, requestBuilder)
+
+                buildHttpClient().withCloseable { client ->
+                    RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
+                    HttpEntity httpEntity = prepareHttpEntity(client)
+                    if (!directToBe) {
+                        String beLocation = streamLoadToFe(client, requestBuilder)
+                        log.info("Redirect stream load to ${beLocation}".toString())
+                        requestBuilder.setUri(beLocation)
+                    }
+                    requestBuilder.setEntity(httpEntity)
+                    responseText = streamLoadToBe(client, requestBuilder)
+                }
+            } catch (Throwable t) {
+                ex = t
             }
-        } catch (Throwable t) {
-            ex = t
+            long endTime = System.currentTimeMillis()
+
+            log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
+                    " response: ${responseText}" + ex.toString())
+            checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
+        } finally {
+            // the multiple frontends environment may not see the newest data, so we should sync after stream load
+            try {
+                JdbcUtils.executeToList(context.getConn(), "sync")
+            } catch (Throwable t2) {
+                log.warn("Execute sync failed", t2)
+            }
         }
-        checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
+    }
+
+    private CloseableHttpClient buildHttpClient() {
+        // Build request config if any timeout is configured
+        def requestConfig = null
+        if (connectTimeout > 0 || socketTimeout > 0 || connectionRequestTimeout > 0) {
+            def builder = org.apache.http.client.config.RequestConfig.custom()
+            if (connectTimeout > 0) {
+                builder.setConnectTimeout(connectTimeout)
+            }
+            if (socketTimeout > 0) {
+                builder.setSocketTimeout(socketTimeout)
+            }
+            if (connectionRequestTimeout > 0) {
+                builder.setConnectionRequestTimeout(connectionRequestTimeout)
+            }
+            requestConfig = builder.build()
+        }
+
+        def cm = null
+        if (enableUtf8Encoding) {
+            // set UTF-8
+            def connConfig = ConnectionConfig.custom()
+                .setCharset(StandardCharsets.UTF_8)
+                .setMalformedInputAction(CodingErrorAction.REPLACE)
+                .setUnmappableInputAction(CodingErrorAction.REPLACE)
+                .build()
+            cm = new PoolingHttpClientConnectionManager()
+            cm.setDefaultConnectionConfig(connConfig)
+            log.info("Stream load using UTF-8 encoding for headers")
+        }
+
+        if (!enableTLS) { 
+            if (cm == null && requestConfig == null) { 
+                return HttpClients.createDefault(); 
+            } 
+            HttpClientBuilder builder = HttpClients.custom(); 
+            if (cm != null) { 
+                builder.setConnectionManager(cm); 
+            } 
+            if (requestConfig != null) { 
+                builder.setDefaultRequestConfig(requestConfig); 
+            } 
+            return builder.build(); 
+        }
+
+        KeyStore ts = null
+        KeyStore ks = null
+        if (tlsVerifyMode == 'none') {
+            ts = [ [ checkClientTrusted: { c, a -> },
+                    checkServerTrusted: { c, a -> },
+                    getAcceptedIssuers: { [] as X509Certificate[] } ] as X509TrustManager ] as TrustManager[]
+        } else {
+            // 载入客户端 keystore（含私钥+客户端证书链）
+            ts = KeyStore.getInstance(trustStoreType)
+            ts.load(new FileInputStream(trustStorePath), trustStorePassword?.toCharArray())
+            if (tlsVerifyMode == 'strict') {
+                // 载入 truststore（含 CA/中间证书，用于校验服务端证书链）
+                ks = KeyStore.getInstance(keyStoreType)
+                ks.load(new FileInputStream(keyStorePath), keyStorePassword?.toCharArray())
+            }
+        }
+
+        SSLContext sslContext = SSLContexts.custom()
+                .loadKeyMaterial(ks, keyStorePassword?.toCharArray())
+                .loadTrustMaterial(ts, null)
+                .build()
+
+        HostnameVerifier verifier = sslHostnameVerify ? SSLConnectionSocketFactory.getDefaultHostnameVerifier()
+                                                      : NoopHostnameVerifier.INSTANCE
+
+        SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
+                sslContext,
+                new String[] {"TLSv1.2", "TLSv1.3"},
+                null,
+                verifier
+        )
+
+        def clientBuilder = HttpClients.custom().setSSLSocketFactory(sslsf)
+        if (requestConfig != null) {
+            clientBuilder.setDefaultRequestConfig(requestConfig)
+        }
+        return clientBuilder.build()
     }
 
     private String httpGetString(CloseableHttpClient client, String url) {

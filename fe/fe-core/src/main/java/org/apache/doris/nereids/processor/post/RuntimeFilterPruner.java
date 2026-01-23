@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -74,6 +75,15 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             }
         }
         return plan;
+    }
+
+    @Override
+    public PhysicalRecursiveUnion visitPhysicalRecursiveUnion(
+            PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveUnion, CascadesContext context) {
+        for (Plan child : recursiveUnion.children()) {
+            child.accept(this, context);
+        }
+        return recursiveUnion;
     }
 
     @Override

@@ -36,12 +36,12 @@ namespace vectorized {
 
 template <PrimitiveType T>
 struct AggregateFunctionProductData {
-    typename PrimitiveTypeTraits<T>::ColumnItemType product {};
+    typename PrimitiveTypeTraits<T>::CppType product {};
 
-    void add_impl(typename PrimitiveTypeTraits<T>::ColumnItemType value,
-                  typename PrimitiveTypeTraits<T>::ColumnItemType& product_ref) {
-        if constexpr (std::is_integral_v<typename PrimitiveTypeTraits<T>::ColumnItemType>) {
-            typename PrimitiveTypeTraits<T>::ColumnItemType new_product;
+    void add_impl(typename PrimitiveTypeTraits<T>::CppType value,
+                  typename PrimitiveTypeTraits<T>::CppType& product_ref) {
+        if constexpr (std::is_integral_v<typename PrimitiveTypeTraits<T>::CppType>) {
+            typename PrimitiveTypeTraits<T>::CppType new_product;
             if (__builtin_expect(common::mul_overflow(product_ref, value, new_product), false)) {
                 // if overflow, set product to infinity to keep the same behavior with double type
                 throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -56,14 +56,14 @@ struct AggregateFunctionProductData {
         }
     }
 
-    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value,
-             typename PrimitiveTypeTraits<T>::ColumnItemType) {
+    void add(typename PrimitiveTypeTraits<T>::CppType value,
+             typename PrimitiveTypeTraits<T>::CppType) {
         add_impl(value, product);
         VLOG_DEBUG << "product: " << product;
     }
 
     void merge(const AggregateFunctionProductData& other,
-               typename PrimitiveTypeTraits<T>::ColumnItemType) {
+               typename PrimitiveTypeTraits<T>::CppType) {
         add_impl(other.product, product);
         VLOG_DEBUG << "product: " << product;
     }
@@ -72,11 +72,9 @@ struct AggregateFunctionProductData {
 
     void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
-    typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
+    typename PrimitiveTypeTraits<T>::CppType get() const { return product; }
 
-    void reset(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
-        product = std::move(value);
-    }
+    void reset(typename PrimitiveTypeTraits<T>::CppType value) { product = std::move(value); }
 };
 
 template <>
@@ -109,17 +107,16 @@ struct AggregateFunctionProductData<TYPE_DECIMALV2> {
 template <PrimitiveType T>
     requires(T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256)
 struct AggregateFunctionProductData<T> {
-    typename PrimitiveTypeTraits<T>::ColumnItemType product {};
+    typename PrimitiveTypeTraits<T>::CppType product {};
 
     template <typename NestedType>
-    void add(Decimal<NestedType> value,
-             typename PrimitiveTypeTraits<T>::ColumnItemType multiplier) {
+    void add(Decimal<NestedType> value, typename PrimitiveTypeTraits<T>::CppType multiplier) {
         product *= value;
         product /= multiplier;
     }
 
     void merge(const AggregateFunctionProductData& other,
-               typename PrimitiveTypeTraits<T>::ColumnItemType multiplier) {
+               typename PrimitiveTypeTraits<T>::CppType multiplier) {
         product *= other.product;
         product /= multiplier;
     }
@@ -128,15 +125,22 @@ struct AggregateFunctionProductData<T> {
 
     void read(BufferReadable& buffer) { buffer.read_binary(product); }
 
-    typename PrimitiveTypeTraits<T>::ColumnItemType get() const { return product; }
+    typename PrimitiveTypeTraits<T>::CppType get() const { return product; }
 
-    void reset(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
-        product = std::move(value);
-    }
+    void reset(typename PrimitiveTypeTraits<T>::CppType value) { product = std::move(value); }
 };
 
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
-class AggregateFunctionProduct final
+class AggregateFunctionProduct;
+
+template <PrimitiveType T, PrimitiveType TResult>
+constexpr static bool is_valid_product_types =
+        (is_same_or_wider_decimalv3(T, TResult) || (is_decimalv2(T) && is_decimalv2(TResult)) ||
+         (is_float_or_double(T) && is_float_or_double(TResult)) ||
+         (is_int_or_bool(T) && is_int(TResult)));
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
+    requires(is_valid_product_types<T, TResult>)
+class AggregateFunctionProduct<T, TResult, Data> final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>,
           UnaryExpression,
           NullableAggregateFunction {
@@ -170,7 +174,7 @@ public:
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(
-                typename PrimitiveTypeTraits<TResult>::ColumnItemType(column.get_data()[row_num]),
+                typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]),
                 multiplier);
     }
 
@@ -203,7 +207,7 @@ public:
 
 private:
     UInt32 scale;
-    typename PrimitiveTypeTraits<TResult>::ColumnItemType multiplier;
+    typename PrimitiveTypeTraits<TResult>::CppType multiplier;
 };
 
 } // namespace vectorized

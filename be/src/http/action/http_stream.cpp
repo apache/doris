@@ -133,7 +133,7 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
     RETURN_IF_ERROR(ctx->body_sink->finish());
 
     // wait stream load finish
-    RETURN_IF_ERROR(ctx->future.get());
+    RETURN_IF_ERROR(ctx->load_status_future.get());
 
     if (ctx->group_commit) {
         LOG(INFO) << "skip commit because this is group commit, pipe_id=" << ctx->id.to_string();

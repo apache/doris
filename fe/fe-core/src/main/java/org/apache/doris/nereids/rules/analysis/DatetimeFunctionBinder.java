@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
@@ -77,6 +78,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
@@ -308,6 +313,8 @@ public class DatetimeFunctionBinder {
                 return new DayHourAdd(timestamp, amount);
             case MINUTE_SECOND:
                 return new MinuteSecondAdd(timestamp, amount);
+            case SECOND_MICROSECOND:
+                return new SecondMicrosecondAdd(timestamp, amount);
             default:
                 throw new AnalysisException("Unsupported time stamp add time unit: " + unit
                         + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
@@ -339,7 +346,14 @@ public class DatetimeFunctionBinder {
     }
 
     private Expression processDateFloor(TimeUnit unit, Expression timeStamp, Expression amount) {
-        DateTimeV2Literal e = DateTimeV2Literal.USE_IN_FLOOR_CEIL;
+        boolean hasTimezone = false;
+        if (timeStamp.getDataType() instanceof TimeStampTzType) {
+            hasTimezone = true;
+        } else if (timeStamp instanceof StringLikeLiteral) {
+            String dateTimeStr = ((StringLikeLiteral) timeStamp).getValue();
+            hasTimezone = DateTimeChecker.hasTimeZone(dateTimeStr);
+        }
+        Expression e = hasTimezone ? TimestampTzLiteral.USE_IN_FLOOR_CEIL : DateTimeV2Literal.USE_IN_FLOOR_CEIL;
         switch (unit) {
             case YEAR:
                 return new YearFloor(timeStamp, amount, e);
@@ -364,7 +378,14 @@ public class DatetimeFunctionBinder {
     }
 
     private Expression processDateCeil(TimeUnit unit, Expression timeStamp, Expression amount) {
-        DateTimeV2Literal e = DateTimeV2Literal.USE_IN_FLOOR_CEIL;
+        boolean hasTimezone = false;
+        if (timeStamp.getDataType() instanceof TimeStampTzType) {
+            hasTimezone = true;
+        } else if (timeStamp instanceof StringLikeLiteral) {
+            String dateTimeStr = ((StringLikeLiteral) timeStamp).getValue();
+            hasTimezone = DateTimeChecker.hasTimeZone(dateTimeStr);
+        }
+        Expression e = hasTimezone ? TimestampTzLiteral.USE_IN_FLOOR_CEIL : DateTimeV2Literal.USE_IN_FLOOR_CEIL;
         switch (unit) {
             case YEAR:
                 return new YearCeil(timeStamp, amount, e);

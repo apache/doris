@@ -26,6 +26,8 @@
 
 #include "common/cast_set.h"
 #include "vec/common/int_exp.h"
+#include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_timestamptz.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -64,28 +66,6 @@ VecDateTimeValue timestamp_from_date(const std::string& date_str) {
     }
 
     return VecDateTimeValue::create_from_olap_date(value);
-}
-
-DateV2Value<DateV2ValueType> timestamp_from_date_v2(const std::string& date_str) {
-    tm time_tm;
-    char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
-
-    uint32_t value = 0;
-    if (nullptr != res) {
-        value = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
-    } else {
-        value = MIN_DATE_V2;
-    }
-
-    return DateV2Value<DateV2ValueType>::create_from_olap_date(value);
-}
-
-DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& date_str) {
-    DateV2Value<DateTimeV2ValueType> val;
-    std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
-    val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
-                             date_str.size());
-    return val;
 }
 
 //FIXME: try to remove or refactor all those time input/output functions.

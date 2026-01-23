@@ -56,7 +56,6 @@
 #include <cstdint>
 #include <string_view>
 
-#include "udf/udf.h"
 #include "util/simd/vstring_function.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"

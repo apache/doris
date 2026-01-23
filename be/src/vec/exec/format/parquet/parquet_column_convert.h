@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/cast_set.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_varbinary.h"
 #include "vec/core/extended_types.h"
 #include "vec/core/field.h"
@@ -354,6 +355,89 @@ public:
     }
 };
 
+class Float16PhysicalConverter : public PhysicalToLogicalConverter {
+private:
+    int _type_length;
+
+public:
+    Float16PhysicalConverter(int type_length) : _type_length(type_length) {
+        DCHECK_EQ(_type_length, 2);
+    }
+
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        ColumnPtr from_col = remove_nullable(src_physical_col);
+        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
+
+        const auto* src_data = assert_cast<const ColumnUInt8*>(from_col.get());
+        size_t length = src_data->size();
+        size_t num_values = length / _type_length;
+        auto* to_float_column = assert_cast<ColumnFloat32*>(to_col.get());
+        size_t start_idx = to_float_column->size();
+        to_float_column->resize(start_idx + num_values);
+        auto& to_float_column_data = to_float_column->get_data();
+        const auto* ptr = src_data->get_data().data();
+        for (int i = 0; i < num_values; ++i) {
+            size_t offset = i * _type_length;
+            const auto* data_ptr = ptr + offset;
+            uint16_t raw;
+            memcpy(&raw, data_ptr, sizeof(uint16_t));
+            float value = half_to_float(raw);
+            to_float_column_data[start_idx + i] = value;
+        }
+
+        return Status::OK();
+    }
+
+    float half_to_float(uint16_t h) {
+        // uint16_t h: half precision floating point
+        // bit 15:       sign（1 bit）
+        // bits 14..10 : exponent（5 bits）
+        // bits 9..0   : mantissa（10 bits）
+
+        // sign bit placed to float32 bit31
+        uint32_t sign = (h & 0x8000U) << 16; // 0x8000 << 16 = 0x8000_0000
+        // exponent:（5 bits）
+        uint32_t exp = (h & 0x7C00U) >> 10; // 0x7C00 = 0111 1100 0000 (half exponent mask)
+        // mantissa（10 bits）
+        uint32_t mant = (h & 0x03FFU); // 10-bit fraction
+
+        // cases：Zero/Subnormal, Normal, Inf/NaN
+        if (exp == 0) {
+            // exp==0: Zero or Subnormal ----------
+            if (mant == 0) {
+                // ±0.0
+                // sign = either 0x00000000 or 0x80000000
+                return std::bit_cast<float>(sign);
+            } else {
+                // ---------- Subnormal ----------
+                // half subnormal:
+                //    value = (-1)^sign * (mant / 2^10) * 2^(1 - bias)
+                // half bias = 15 → exponent = 1 - 15 = -14
+                float f = (static_cast<float>(mant) / 1024.0F) * std::powf(2.0F, -14.0F);
+                return sign ? -f : f;
+            }
+        } else if (exp == 0x1F) {
+            // exp==31: Inf or NaN ----------
+            // float32:
+            //    exponent = 255 (0xFF)
+            //    mantissa = mant << 13
+            uint32_t f = sign | 0x7F800000U | (mant << 13);
+            return std::bit_cast<float>(f);
+        } else {
+            // Normalized ----------
+            // float32 exponent:
+            //   exp32 = exp16 - bias16 + bias32
+            //   bias16 = 15
+            //   bias32 = 127
+            //
+            // so: exp32 = exp + (127 - 15)
+            uint32_t f = sign | ((exp + (127 - 15)) << 23) // place to float32 exponent
+                         | (mant << 13);                   // mantissa align to 23 bits
+            return std::bit_cast<float>(f);
+        }
+    }
+};
+
 class UUIDVarBinaryConverter : public PhysicalToLogicalConverter {
 public:
     UUIDVarBinaryConverter(int type_length) : _type_length(type_length) {}
@@ -399,7 +483,7 @@ private:
 template <PrimitiveType DecimalPType>
 class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     FixedSizeToDecimal(int32_t type_length) : _type_length(type_length) {}
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
@@ -484,7 +568,7 @@ private:
 
 template <PrimitiveType DecimalPType>
 class StringToDecimal : public PhysicalToLogicalConverter {
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -517,7 +601,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
 
 template <PrimitiveType NumberType, PrimitiveType DecimalPType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
-    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::CppType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -593,6 +677,30 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
     }
 };
 
+struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        ColumnPtr src_col = remove_nullable(src_physical_col);
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+
+        size_t rows = src_col->size();
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+
+        const auto& src_data = assert_cast<const ColumnInt64*>(src_col.get())->get_data();
+        auto& dest_data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
+        static const cctz::time_zone UTC = cctz::utc_time_zone();
+
+        for (int i = 0; i < rows; i++) {
+            int64_t x = src_data[i];
+            auto& tz = dest_data[start_idx + i];
+            tz.from_unixtime(x / _convert_params->second_mask, UTC);
+            tz.set_microsecond((x % _convert_params->second_mask) *
+                               (_convert_params->scale_to_nano_factor / 1000));
+        }
+        return Status::OK();
+    }
+};
+
 struct Int96toTimestamp : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -613,6 +721,30 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
             int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
             dst_value.from_unixtime(timestamp_with_micros / 1000000, *_convert_params->ctz);
             dst_value.set_microsecond(timestamp_with_micros % 1000000);
+        }
+        return Status::OK();
+    }
+};
+
+struct Int96toTimestampTz : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        ColumnPtr src_col = remove_nullable(src_physical_col);
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+
+        size_t rows = src_col->size() / sizeof(ParquetInt96);
+        const auto& src_data = assert_cast<const ColumnInt8*>(src_col.get())->get_data();
+        auto* ParquetInt96_data = (ParquetInt96*)src_data.data();
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+        auto& data = assert_cast<ColumnTimeStampTz*>(dst_col.get())->get_data();
+        static const cctz::time_zone UTC = cctz::utc_time_zone();
+
+        for (int i = 0; i < rows; i++) {
+            ParquetInt96 src_cell_data = ParquetInt96_data[i];
+            int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
+            auto& tz = data[start_idx + i];
+            tz.from_unixtime(timestamp_with_micros / 1000000, UTC);
+            tz.set_microsecond(timestamp_with_micros % 1000000);
         }
         return Status::OK();
     }

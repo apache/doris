@@ -186,6 +186,17 @@ TEST(EMBED_TEST, local_adapter_parse_embedding_response) {
     ASSERT_EQ(results[0].size(), 3);
     ASSERT_FLOAT_EQ(results[0][0], 0.1F);
     ASSERT_FLOAT_EQ(results[0][2], 0.3F);
+
+    std::string resp3 = R"({
+        "embeddings": [[0.6, 0.7]]
+    })";
+    results.clear();
+    st = adapter.parse_embedding_response(resp3, results);
+    ASSERT_TRUE(st.ok()) << "Format 3 failed: " << st.to_string();
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0].size(), 2);
+    ASSERT_FLOAT_EQ(results[0][0], 0.6F);
+    ASSERT_FLOAT_EQ(results[0][1], 0.7F);
 }
 
 TEST(EMBED_TEST, openai_adapter_embedding_request) {

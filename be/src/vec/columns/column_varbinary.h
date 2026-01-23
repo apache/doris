@@ -39,12 +39,12 @@ private:
     struct less;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::ColumnItemType;
+    using value_type = typename PrimitiveTypeTraits<TYPE_VARBINARY>::CppType;
     using Container = PaddedPODArray<doris::StringView>;
-    ColumnVarbinary() = default;
-    ColumnVarbinary(const size_t n) : _data(n) {}
 
 private:
+    ColumnVarbinary() = default;
+    ColumnVarbinary(const size_t n) : _data(n) {}
     ColumnVarbinary(const ColumnVarbinary& src) : _data(src._data.begin(), src._data.end()) {}
 
 public:
@@ -77,7 +77,7 @@ public:
     char* alloc(size_t length) { return _arena.alloc(length); }
 
     void insert(const Field& x) override {
-        auto value = vectorized::get<const doris::StringView&>(x);
+        const auto& value = x.get<TYPE_VARBINARY>();
         insert_data(value.data(), value.size());
     }
 
@@ -114,7 +114,7 @@ public:
     }
 
     void get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                         IColumn::Permutation& res) const override;
+                         HybridSorter& sorter, IColumn::Permutation& res) const override;
 
     size_t get_max_row_byte_size() const override;
 
@@ -184,6 +184,9 @@ public:
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                       size_t max_length) override;
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
 
 private:
     Container _data;

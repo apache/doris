@@ -222,6 +222,20 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
         }
     }
 
+    /**
+     * Foreach treeNode. Top-down traverse implicitly.
+     * @param func foreach function
+     */
+    default void foreachWithTest(Consumer<TreeNode<NODE_TYPE>> func, Predicate<TreeNode<NODE_TYPE>> predicate) {
+        if (!predicate.test(this)) {
+            return;
+        }
+        func.accept(this);
+        for (NODE_TYPE child : children()) {
+            child.foreach(func);
+        }
+    }
+
     /** foreachBreath */
     default void foreachBreath(Predicate<TreeNode<NODE_TYPE>> func) {
         LinkedList<TreeNode<NODE_TYPE>> queue = new LinkedList<>();
@@ -285,6 +299,19 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
                 result.add(node);
             }
         });
+        return (Set<T>) result.build();
+    }
+
+    /**
+     * Collect the nodes that satisfied the predicate.
+     */
+    default <T> Set<T> collectWithTest(Predicate<TreeNode<NODE_TYPE>> predicate, Predicate<TreeNode<NODE_TYPE>> test) {
+        ImmutableSet.Builder<TreeNode<NODE_TYPE>> result = ImmutableSet.builder();
+        foreachWithTest(node -> {
+            if (predicate.test(node)) {
+                result.add(node);
+            }
+        }, test);
         return (Set<T>) result.build();
     }
 

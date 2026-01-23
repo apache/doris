@@ -87,9 +87,6 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
-import org.apache.doris.plsql.metastore.PlsqlPackage;
-import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
-import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
@@ -1276,19 +1273,15 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_ADD_PLSQL_STORED_PROCEDURE: {
-                    env.getPlsqlManager().replayAddPlsqlStoredProcedure((PlsqlStoredProcedure) journal.getData());
                     break;
                 }
                 case OperationType.OP_DROP_PLSQL_STORED_PROCEDURE: {
-                    env.getPlsqlManager().replayDropPlsqlStoredProcedure((PlsqlProcedureKey) journal.getData());
                     break;
                 }
                 case OperationType.OP_ADD_PLSQL_PACKAGE: {
-                    env.getPlsqlManager().replayAddPlsqlPackage((PlsqlPackage) journal.getData());
                     break;
                 }
                 case OperationType.OP_DROP_PLSQL_PACKAGE: {
-                    env.getPlsqlManager().replayDropPlsqlPackage((PlsqlProcedureKey) journal.getData());
                     break;
                 }
                 case OperationType.OP_ALTER_DATABASE_PROPERTY: {
@@ -1673,7 +1666,21 @@ public class EditLog {
     }
 
     public long logAddPartition(PartitionPersistInfo info) {
+        if (DebugPointUtil.isEnable("FE.logAddPartition.slow")) {
+            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("FE.logAddPartition.slow");
+            String pName = debugPoint.param("pName", "");
+            if (info.getPartition().getName().equals(pName)) {
+                int sleepMs = debugPoint.param("sleep", 1000);
+                LOG.info("logAddPartition debug point hit, pName {}, sleep {} s", pName, sleepMs);
+                try {
+                    Thread.sleep(sleepMs);
+                } catch (InterruptedException e) {
+                    LOG.warn("sleep interrupted", e);
+                }
+            }
+        }
         long logId = logEdit(OperationType.OP_ADD_PARTITION, info);
+        LOG.info("log add partition, logId:{}, info: {}", logId, info.toJson());
         AddPartitionRecord record = new AddPartitionRecord(logId, info);
         Env.getCurrentEnv().getBinlogManager().addAddPartitionRecord(record);
         return logId;
@@ -1681,6 +1688,7 @@ public class EditLog {
 
     public long logDropPartition(DropPartitionInfo info) {
         long logId = logEdit(OperationType.OP_DROP_PARTITION, info);
+        LOG.info("log drop partition, logId:{}, info: {}", logId, info.toJson());
         Env.getCurrentEnv().getBinlogManager().addDropPartitionRecord(info, logId);
         return logId;
     }
@@ -1691,6 +1699,7 @@ public class EditLog {
 
     public void logRecoverPartition(RecoverInfo info) {
         long logId = logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        LOG.info("log recover partition, logId:{}, info: {}", logId, info.toJson());
         Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
@@ -1709,6 +1718,7 @@ public class EditLog {
 
     public void logDropTable(DropInfo info) {
         long logId = logEdit(OperationType.OP_DROP_TABLE, info);
+        LOG.info("log drop table, logId : {}, infos: {}", logId, info);
         if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             DropTableRecord record = new DropTableRecord(logId, info);
             Env.getCurrentEnv().getBinlogManager().addDropTableRecord(record);
@@ -1721,11 +1731,13 @@ public class EditLog {
 
     public void logRecoverTable(RecoverInfo info) {
         long logId = logEdit(OperationType.OP_RECOVER_TABLE, info);
+        LOG.info("log recover table, logId : {}, infos: {}", logId, info);
         Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logDropRollup(DropInfo info) {
         long logId = logEdit(OperationType.OP_DROP_ROLLUP, info);
+        LOG.info("log drop rollup, logId : {}, infos: {}", logId, info);
         Env.getCurrentEnv().getBinlogManager().addDropRollup(info, logId);
     }
 
@@ -1842,7 +1854,8 @@ public class EditLog {
     }
 
     public void logDatabaseRename(DatabaseInfo databaseInfo) {
-        logEdit(OperationType.OP_RENAME_DB, databaseInfo);
+        long logId = logEdit(OperationType.OP_RENAME_DB, databaseInfo);
+        LOG.info("log database rename, logId : {}, infos: {}", logId, databaseInfo);
     }
 
     public void logTableRename(TableInfo tableInfo) {
@@ -2094,22 +2107,6 @@ public class EditLog {
 
     public void dropWorkloadSchedPolicy(long policyId) {
         logEdit(OperationType.OP_DROP_WORKLOAD_SCHED_POLICY, new DropWorkloadSchedPolicyOperatorLog(policyId));
-    }
-
-    public void logAddPlsqlStoredProcedure(PlsqlStoredProcedure plsqlStoredProcedure) {
-        logEdit(OperationType.OP_ADD_PLSQL_STORED_PROCEDURE, plsqlStoredProcedure);
-    }
-
-    public void logDropPlsqlStoredProcedure(PlsqlProcedureKey plsqlProcedureKey) {
-        logEdit(OperationType.OP_DROP_PLSQL_STORED_PROCEDURE, plsqlProcedureKey);
-    }
-
-    public void logAddPlsqlPackage(PlsqlPackage pkg) {
-        logEdit(OperationType.OP_ADD_PLSQL_PACKAGE, pkg);
-    }
-
-    public void logDropPlsqlPackage(PlsqlProcedureKey plsqlProcedureKey) {
-        logEdit(OperationType.OP_DROP_PLSQL_PACKAGE, plsqlProcedureKey);
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {

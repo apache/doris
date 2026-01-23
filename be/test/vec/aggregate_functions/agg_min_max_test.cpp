@@ -52,14 +52,14 @@ TEST_P(AggMinMaxTest, min_max_test) {
     // Prepare test data.
     auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
+        column_vector_int32->insert(Field::create_field<TYPE_INT>(i));
     }
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeInt32>()};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -84,15 +84,14 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     // Prepare test data.
     auto column_vector_decimal128 = data_type->create_column();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_decimal128->insert(Field::create_field<TYPE_DECIMALV2>(
-                cast_to_nearest_field_type(DecimalField<Decimal128V2>(Decimal128V2(i), 9))));
+        column_vector_decimal128->insert(Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(i)));
     }
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -106,7 +105,7 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     // Check result.
     ColumnDecimal128V2 ans(0, 9);
     agg_function->insert_result_into(place, ans);
-    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0).value);
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0).value());
     agg_function->destroy(place);
 
     auto dst = agg_function->create_serialize_column();
@@ -122,7 +121,7 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     }
 
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
-        EXPECT_EQ(i, result.get_element(i).value);
+        EXPECT_EQ(i, result.get_element(i).value());
     }
 }
 
@@ -140,7 +139,7 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeString>()};
-    auto agg_function = factory.get(min_max_type, data_types, false, -1);
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -169,7 +168,7 @@ TEST_P(AggMinMaxTest, any_json_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_minmax(factory);
     DataTypes data_types = {std::make_shared<DataTypeJsonb>()};
-    auto agg_function = factory.get("any", data_types, false, -1);
+    auto agg_function = factory.get("any", data_types, nullptr, false, -1);
 
     // Create and initialize place for aggregation
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

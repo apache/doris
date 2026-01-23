@@ -140,13 +140,20 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testPruneCast() throws Exception {
+        // the map type is changed, so we can not prune type
+        assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:int>>>>), 'k') from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+
         assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'k') from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:double,y:double>>>>), 'l')[0])[0], 'x') from tbl",
+        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'l')[0])[0], 'x') from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
@@ -378,6 +385,147 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testExplode() throws Exception {
+        assertColumn("select 100 from tbl lateral view explode(s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item from tbl lateral view explode(s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select map_values(item)[1].a from tbl lateral view explode(s.data) t as item",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select map_values(item)[1].b from tbl lateral view explode(s.data) t as item",
+                "struct<data:array<map<int,struct<b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select map_keys(item) from tbl lateral view explode(s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "KEYS")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select map_keys(item), map_values(item)[1].b from tbl lateral view explode(s.data) t as item",
+                "struct<data:array<map<int,struct<b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select map_values(item1)[1].b, map_values(item2)[1].a from tbl lateral view explode(s.data, s.data) t as item1, item2",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a"), path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeMap() throws Exception {
+        assertColumn("select 100 from tbl lateral view explode_map(s.data[1]) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item from tbl lateral view explode_map(s.data[1]) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.col1 from tbl lateral view explode_map(s.data[1]) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "KEYS")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.col2.a from tbl lateral view explode_map(s.data[1]) t as item",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.col2.b from tbl lateral view explode_map(s.data[1]) t as item",
+                "struct<data:array<map<int,struct<b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.col1, item.col2.b from tbl lateral view explode_map(s.data[1]) t as item",
+                "struct<data:array<map<int,struct<b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select k, v.b from tbl lateral view explode_map(s.data[1]) t as k, v",
+                "struct<data:array<map<int,struct<b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testPosExplode() throws Exception {
+        assertColumn("select 100 from tbl lateral view posexplode(s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item from tbl lateral view posexplode(s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.col1[1].a from tbl lateral view posexplode(s.data) t as item",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "*", "a")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item from tbl lateral view posexplode(s.data, s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.pos from tbl lateral view posexplode(s.data, s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.pos, item.col1[1].b from tbl lateral view posexplode(s.data) t as item",
+                "struct<data:array<map<int,struct<b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "*", "b")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.pos, item.col1[1].b, item.col2[1].b from tbl lateral view posexplode(s.data, s.data) t as item",
+                "struct<data:array<map<int,struct<b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "*", "b")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select item.pos, item.col1[1].b from tbl lateral view posexplode(s.data, s.data) t as item",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data"), path("s", "data", "*", "*", "b")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
     public void testUnion() throws Throwable {
         assertColumn("select coalesce(struct_element(s, 'city'), 'abc') from (select s from tbl union all select null)a",
                 "struct<city:text>",
@@ -401,6 +549,15 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         );
 
         assertColumn("with t as (select id, s from tbl) select * from (select struct_element(s, 'city') from t union all select null) tmp",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testDereference() throws Exception {
+        assertColumn("select s.city from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()

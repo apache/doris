@@ -110,13 +110,28 @@ TEST_F(JdbcConnectorTest, TestCheckAndReturnDefaultDriverUrlWithDefaultConfig) {
     // Set config to default value to trigger the default directory logic
     config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
 
+    // Create the target directory and file for testing
+    std::string dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    std::string file_path = dir + "/mysql-connector.jar";
+
+    // Create directory
+    std::filesystem::create_directories(dir);
+
+    // Create test file
+    std::ofstream file(file_path);
+    file << "test content";
+    file.close();
+
     std::string result_url;
     Status status =
             connector._check_and_return_default_driver_url("mysql-connector.jar", &result_url);
 
     EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(result_url.find("file://") == 0);
-    EXPECT_TRUE(result_url.find("mysql-connector.jar") != std::string::npos);
+    EXPECT_EQ(result_url, "file://" + file_path);
+
+    // Cleanup
+    std::filesystem::remove(file_path);
+    std::filesystem::remove_all(dir);
 }
 
 TEST_F(JdbcConnectorTest, TestCheckAndReturnDefaultDriverUrlWithCustomConfig) {
@@ -170,13 +185,28 @@ TEST_F(JdbcConnectorTest, TestCloudModeSimulation) {
     // Set config to default value
     config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
 
+    // Create the old directory and file for testing (fallback path)
+    std::string old_dir = "/tmp/test_doris/jdbc_drivers";
+    std::string file_path = old_dir + "/cloud-driver.jar";
+
+    // Create directory
+    std::filesystem::create_directories(old_dir);
+
+    // Create test file
+    std::ofstream file(file_path);
+    file << "test content";
+    file.close();
+
     std::string result_url;
     Status status = connector._check_and_return_default_driver_url("cloud-driver.jar", &result_url);
 
     // Should process successfully and return fallback path
     EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(result_url.find("file://") == 0);
-    EXPECT_TRUE(result_url.find("jdbc_drivers/cloud-driver.jar") != std::string::npos);
+    EXPECT_EQ(result_url, "file://" + file_path);
+
+    // Cleanup
+    std::filesystem::remove(file_path);
+    std::filesystem::remove_all(old_dir);
 }
 
 TEST_F(JdbcConnectorTest, TestFallbackToOldDirectory) {
@@ -185,29 +215,61 @@ TEST_F(JdbcConnectorTest, TestFallbackToOldDirectory) {
     // Set config to default value but file doesn't exist in new directory
     config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
 
+    // Create the old directory and file for testing (fallback path)
+    std::string old_dir = "/tmp/test_doris/jdbc_drivers";
+    std::string file_path = old_dir + "/fallback-driver.jar";
+
+    // Create directory
+    std::filesystem::create_directories(old_dir);
+
+    // Create test file
+    std::ofstream file(file_path);
+    file << "test content";
+    file.close();
+
     std::string result_url;
     Status status =
             connector._check_and_return_default_driver_url("fallback-driver.jar", &result_url);
 
     EXPECT_TRUE(status.ok());
     // Should fallback to old directory when file not found and not in cloud mode
-    EXPECT_EQ(result_url, "file:///tmp/test_doris/jdbc_drivers/fallback-driver.jar");
+    EXPECT_EQ(result_url, "file://" + file_path);
+
+    // Cleanup
+    std::filesystem::remove(file_path);
+    std::filesystem::remove_all(old_dir);
 }
 
 TEST_F(JdbcConnectorTest, TestPathConstruction) {
     auto connector = createConnector();
 
-    // Test different DORIS_HOME values
-    setenv("DORIS_HOME", "/test/doris", 1);
+    // Test different DORIS_HOME values (use /tmp to avoid permission issues)
+    setenv("DORIS_HOME", "/tmp/test_doris2", 1);
 
     // Set to default config
-    config::jdbc_drivers_dir = "/test/doris/plugins/jdbc_drivers";
+    config::jdbc_drivers_dir = "/tmp/test_doris2/plugins/jdbc_drivers";
+
+    // Create the old directory and file for testing (fallback path)
+    std::string old_dir = "/tmp/test_doris2/jdbc_drivers";
+    std::string file_path = old_dir + "/test.jar";
+
+    // Create directory
+    std::filesystem::create_directories(old_dir);
+
+    // Create test file
+    std::ofstream file(file_path);
+    file << "test content";
+    file.close();
 
     std::string result_url;
     Status status = connector._check_and_return_default_driver_url("test.jar", &result_url);
 
     EXPECT_TRUE(status.ok());
-    EXPECT_EQ(result_url, "file:///test/doris/jdbc_drivers/test.jar"); // Fallback path
+    EXPECT_EQ(result_url, "file://" + file_path); // Fallback path
+
+    // Cleanup
+    std::filesystem::remove(file_path);
+    std::filesystem::remove_all(old_dir);
 }
 
 TEST_F(JdbcConnectorTest, TestEdgeCases) {
@@ -232,6 +294,18 @@ TEST_F(JdbcConnectorTest, TestMultipleCallsConsistency) {
 
     config::jdbc_drivers_dir = "/tmp/test_doris/plugins/jdbc_drivers";
 
+    // Create the target directory and file for testing
+    std::string dir = "/tmp/test_doris/plugins/jdbc_drivers";
+    std::string file_path = dir + "/same-driver.jar";
+
+    // Create directory
+    std::filesystem::create_directories(dir);
+
+    // Create test file
+    std::ofstream file(file_path);
+    file << "test content";
+    file.close();
+
     std::string result_url1, result_url2;
     Status status1 =
             connector._check_and_return_default_driver_url("same-driver.jar", &result_url1);
@@ -241,6 +315,11 @@ TEST_F(JdbcConnectorTest, TestMultipleCallsConsistency) {
     EXPECT_TRUE(status1.ok());
     EXPECT_TRUE(status2.ok());
     EXPECT_EQ(result_url1, result_url2); // Should be consistent
+    EXPECT_EQ(result_url1, "file://" + file_path);
+
+    // Cleanup
+    std::filesystem::remove(file_path);
+    std::filesystem::remove_all(dir);
 }
 
 TEST_F(JdbcConnectorTest, TestUrlDetectionLogic) {

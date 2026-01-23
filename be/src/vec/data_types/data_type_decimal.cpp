@@ -137,66 +137,32 @@ std::string DataTypeDecimal<T>::to_string(const FieldType& value) const {
 template <PrimitiveType T>
 int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                               int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
-        auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
-        auto mem_size = cast_set<UInt32>(sizeof(FieldType) * real_need_copy_num);
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            return size + mem_size;
-        } else {
-            return size + sizeof(size_t) +
-                   std::max(cast_set<size_t>(mem_size),
-                            streamvbyte_max_compressedbytes(upper_int32(mem_size)));
-        }
+    auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
+    auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
+    auto mem_size = cast_set<UInt32>(sizeof(FieldType) * real_need_copy_num);
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        return size + mem_size;
     } else {
-        auto size = sizeof(FieldType) * column.size();
-        if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            return sizeof(uint32_t) + size;
-        } else {
-            return sizeof(uint32_t) + sizeof(size_t) +
-                   std::max(size,
-                            streamvbyte_max_compressedbytes(cast_set<UInt32>(upper_int32(size))));
-        }
+        return size + sizeof(size_t) +
+               std::max(cast_set<size_t>(mem_size),
+                        streamvbyte_max_compressedbytes(upper_int32(mem_size)));
     }
 }
 
 template <PrimitiveType T>
 char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        const auto* data_column = &column;
-        size_t real_need_copy_num = 0;
-        buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
+    const auto* data_column = &column;
+    size_t real_need_copy_num = 0;
+    buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-        UInt32 mem_size = cast_set<UInt32>(real_need_copy_num * sizeof(FieldType));
-        const auto* origin_data =
-                assert_cast<const ColumnDecimal<T>&>(*data_column).get_data().data();
+    UInt32 mem_size = cast_set<UInt32>(real_need_copy_num * sizeof(FieldType));
+    const auto* origin_data = assert_cast<const ColumnDecimal<T>&>(*data_column).get_data().data();
 
-        // column data
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(buf, origin_data, mem_size);
-            return buf + mem_size;
-        } else {
-            auto encode_size =
-                    streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
-                                       upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
-            unaligned_store<size_t>(buf, encode_size);
-            buf += sizeof(size_t);
-            return buf + encode_size;
-        }
+    // column data
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(buf, origin_data, mem_size);
+        return buf + mem_size;
     } else {
-        // row num
-        UInt32 mem_size = cast_set<UInt32>(column.size() * sizeof(FieldType));
-        *reinterpret_cast<uint32_t*>(buf) = mem_size;
-        buf += sizeof(uint32_t);
-        // column data
-        auto ptr = column.convert_to_full_column_if_const();
-        const auto* origin_data =
-                assert_cast<const ColumnDecimal<T>&>(*ptr.get()).get_data().data();
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(buf, origin_data, mem_size);
-            return buf + mem_size;
-        }
-
         auto encode_size =
                 streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                    upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
@@ -205,47 +171,29 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
         return buf + encode_size;
     }
 }
+
 template <PrimitiveType T>
 const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* column,
                                             int be_exec_version) const {
-    if (be_exec_version >= USE_CONST_SERDE) {
-        auto* origin_column = column->get();
-        size_t real_have_saved_num = 0;
-        buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
+    auto* origin_column = column->get();
+    size_t real_have_saved_num = 0;
+    buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-        // column data
-        UInt32 mem_size = cast_set<UInt32>(real_have_saved_num * sizeof(FieldType));
-        auto& container = assert_cast<ColumnDecimal<T>*>(origin_column)->get_data();
-        container.resize(real_have_saved_num);
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(container.data(), buf, mem_size);
-            buf = buf + mem_size;
-        } else {
-            auto encode_size = unaligned_load<size_t>(buf);
-            buf += sizeof(size_t);
-            streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
-                               upper_int32(mem_size));
-            buf = buf + encode_size;
-        }
-        return buf;
+    // column data
+    UInt32 mem_size = cast_set<UInt32>(real_have_saved_num * sizeof(FieldType));
+    auto& container = assert_cast<ColumnDecimal<T>*>(origin_column)->get_data();
+    container.resize(real_have_saved_num);
+    if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+        memcpy(container.data(), buf, mem_size);
+        buf = buf + mem_size;
     } else {
-        // row num
-        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
-        buf += sizeof(uint32_t);
-        // column data
-        auto& container = assert_cast<ColumnDecimal<T>*>(column->get())->get_data();
-        container.resize(mem_size / sizeof(FieldType));
-        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
-            memcpy(container.data(), buf, mem_size);
-            return buf + mem_size;
-        }
-
         auto encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                            upper_int32(mem_size));
-        return buf + encode_size;
+        buf = buf + encode_size;
     }
+    return buf;
 }
 
 template <PrimitiveType T>
@@ -263,7 +211,7 @@ void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 template <PrimitiveType T>
 Field DataTypeDecimal<T>::get_default() const {
-    return Field::create_field<T>(DecimalField<FieldType>(FieldType(), scale));
+    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType());
 }
 
 template <PrimitiveType T>
@@ -279,8 +227,14 @@ Status DataTypeDecimal<T>::check_column(const IColumn& column) const {
 template <PrimitiveType T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, FieldType* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
-            str.c_str(), cast_set<Int32>(str.size()), precision, scale, &result);
+    if constexpr (T == TYPE_DECIMALV2) {
+        *res = DecimalV2Value(
+                StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
+                        str.c_str(), cast_set<Int32>(str.size()), precision, scale, &result));
+    } else {
+        res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
+                str.c_str(), cast_set<Int32>(str.size()), precision, scale, &result);
+    }
     return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
 }
 

@@ -31,9 +31,8 @@ namespace doris::vectorized {
 AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge, bool without_key) {
     auto* mock_agg_fn_evaluator = pool.add(new MockAggFnEvaluator(is_merge, without_key));
     mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
-            "sum", {std::make_shared<DataTypeInt64>()}, false,
-            BeExecVersionManager::get_newest_version(),
-            {.enable_decimal256 = false, .column_names = {}});
+            "sum", {std::make_shared<DataTypeInt64>()}, std::make_shared<DataTypeInt64>(), false,
+            BeExecVersionManager::get_newest_version(), {.column_names = {}});
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
     mock_agg_fn_evaluator->_input_exprs_ctxs =
             MockSlotRef::create_mock_contexts(mock_agg_fn_evaluator->_function->get_return_type());
@@ -44,24 +43,22 @@ AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, VExprContextSPtrs
                                              bool is_merge, bool without_key) {
     auto* mock_agg_fn_evaluator = pool.add(new MockAggFnEvaluator(is_merge, without_key));
     mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
-            "sum", {std::make_shared<DataTypeInt64>()}, false,
-            BeExecVersionManager::get_newest_version(),
-            {.enable_decimal256 = false, .column_names = {}});
+            "sum", {std::make_shared<DataTypeInt64>()}, std::make_shared<DataTypeInt64>(), false,
+            BeExecVersionManager::get_newest_version(), {.column_names = {}});
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
     mock_agg_fn_evaluator->_input_exprs_ctxs = input_exprs_ctxs;
     return mock_agg_fn_evaluator;
 }
 
 AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
-                              const DataTypes& args_types, bool result_nullable,
-                              bool is_window_function) {
+                              const DataTypes& args_types, DataTypePtr result_type,
+                              bool result_nullable, bool is_window_function) {
     auto* mock_agg_fn_evaluator =
             pool.add(new MockAggFnEvaluator(false, false, is_window_function)); // just falg;
     mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
-            agg_fn_name, args_types, result_nullable, BeExecVersionManager::get_newest_version(),
-            {.enable_decimal256 = false,
-             .is_window_function = is_window_function,
-             .column_names = {}});
+            agg_fn_name, args_types, result_type, result_nullable,
+            BeExecVersionManager::get_newest_version(),
+            {.is_window_function = is_window_function, .column_names = {}});
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
     for (int i = 0; i < args_types.size(); i++) {
         mock_agg_fn_evaluator->_input_exprs_ctxs.push_back(

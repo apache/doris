@@ -555,24 +555,6 @@ suite('test_temp_table', 'p0') {
     } catch (Exception ex) {
         assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
     }
-    try {
-        sql "CREATE INDEX bitmap_index_1 ON t_test_temp_table2 (name) USING BITMAP COMMENT 'bitmap_name';"
-        throw new IllegalStateException("Should throw error")
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
-    }
-    try {
-        sql "CREATE INDEX bitmap_index_2 ON t_test_temp_table2 (name) USING INVERTED;"
-        throw new IllegalStateException("Should throw error")
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
-    }
-    try {
-        sql "ALTER TABLE t_test_temp_table2 ADD INDEX bitmap_index_3 (name) USING INVERTED;"
-        throw new IllegalStateException("Should throw error")
-    } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
-    }
     def show_index_2 = sql "show index from t_test_temp_table2"
     assertEquals(show_index_2.size(), 0)
 

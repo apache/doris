@@ -166,6 +166,12 @@ public:
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     /******************** keys and values ***************/
     const ColumnPtr& get_keys_ptr() const { return keys_column; }
     ColumnPtr& get_keys_ptr() { return keys_column; }
@@ -218,7 +224,7 @@ public:
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

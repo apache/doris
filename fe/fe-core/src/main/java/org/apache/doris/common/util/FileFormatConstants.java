@@ -30,6 +30,7 @@ public class FileFormatConstants {
     public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
+    public static final String FORMAT_NATIVE = "native";
 
     public static final String PROP_FORMAT = "format";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -48,6 +49,7 @@ public class FileFormatConstants {
     public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
     public static final String PROP_ENCLOSE = "enclose";
     public static final String PROP_ENABLE_MAPPING_VARBINARY = "enable_mapping_varbinary";
+    public static final String PROP_ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
 
     // decimal(p,s)
     public static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");

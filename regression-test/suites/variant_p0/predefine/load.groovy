@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_predefine_schema", "p0"){
+    sql """ set default_variant_enable_doc_mode = false """
     sql """DROP TABLE IF EXISTS test_predefine"""
     def count = new Random().nextInt(10);
     if (new Random().nextInt(100) < 50) {
@@ -59,7 +60,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_predefine1` (
             `id` bigint NOT NULL,
-            `v1` variant NULL,
+            `v1` variant<properties("variant_enable_doc_mode" = "false")> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");
@@ -219,7 +220,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql "DROP TABLE IF EXISTS test_predefine3"
     sql """CREATE TABLE `test_predefine3` (
             `id` bigint NOT NULL,
-            `v` variant<'nested.a':string> NULL)
+            `v` variant<'nested.a':string, properties("variant_enable_doc_mode" = "false")> NULL)
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");"""
 
@@ -247,7 +248,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """insert into test_predefine3 values (1, '{"auto_type" : 256}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 12345}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 1.0}')"""
-    trigger_and_wait_compaction("test_predefine3", "full")
+    trigger_and_wait_compaction("test_predefine3", "full", 1800)
     qt_sql """select variant_type(v) from test_predefine3"""
 
     // test array

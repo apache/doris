@@ -70,11 +70,11 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     }
 
     void create_operator(bool has_window, size_t agg_functions_size, std::string function_name,
-                         DataTypes args_types) {
+                         DataTypes args_types, DataTypePtr result_type) {
         sink->_agg_functions_size = agg_functions_size;
         sink->_has_window = has_window;
         if (agg_functions_size == 1) {
-            create_agg_function(agg_functions_size, function_name, args_types);
+            create_agg_function(agg_functions_size, function_name, args_types, result_type);
         }
         EXPECT_TRUE(sink->set_child(_child_op));
     }
@@ -87,12 +87,13 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     }
 
     void create_agg_function(size_t agg_functions_size, std::string function_name,
-                             DataTypes args_types) {
+                             DataTypes args_types, DataTypePtr result_type) {
         sink->_agg_functions.resize(agg_functions_size);
         sink->_num_agg_input.resize(agg_functions_size);
         sink->_offsets_of_aggregate_states.resize(agg_functions_size);
         sink->_change_to_nullable_flags.resize(agg_functions_size);
-        sink->_agg_functions[0] = create_agg_fn(pool, function_name, args_types, false, true);
+        sink->_agg_functions[0] =
+                create_agg_fn(pool, function_name, args_types, result_type, false, true);
         sink->_num_agg_input[0] = 1;
         sink->_offsets_of_aggregate_states[0] = 0;
         sink->_total_size_of_aggregate_states = 100;
@@ -173,7 +174,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
 
 TEST_F(AnalyticSinkOperatorTest, withoutAggFunction) {
     Initialize(10);
-    create_operator(false, 0, "", {});
+    create_operator(false, 0, "", {}, nullptr);
     create_local_state();
     // test without agg function and no window: _get_next_for_partition
     // do nothing only input and output block
@@ -205,7 +206,8 @@ TEST_F(AnalyticSinkOperatorTest, withoutAggFunction) {
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction) {
     Initialize(10);
-    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
@@ -242,7 +244,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction) {
 TEST_F(AnalyticSinkOperatorTest, AggFunction2) {
     int batch_size = 2;
     Initialize(batch_size);
-    create_operator(true, 1, "row_number", {});
+    create_operator(true, 1, "row_number", {}, std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
@@ -311,7 +313,8 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction2) {
 TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
     int batch_size = 2;
     Initialize(batch_size);
-    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
@@ -384,7 +387,8 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
 TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
     int batch_size = 2;
     Initialize(batch_size);
-    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
@@ -461,7 +465,8 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
 TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
     int batch_size = 2;
     Initialize(batch_size);
-    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
@@ -538,7 +543,8 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
 TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
     int batch_size = 1;
     Initialize(batch_size);
-    create_operator(true, 1, "first_value", {std::make_shared<DataTypeInt64>()});
+    create_operator(true, 1, "first_value", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(2, std::make_shared<DataTypeInt64>());
@@ -635,7 +641,8 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
 TEST_F(AnalyticSinkOperatorTest, AggFunction7) {
     int batch_size = 2;
     Initialize(batch_size);
-    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
@@ -719,7 +726,8 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction7) {
 TEST_F(AnalyticSinkOperatorTest, AggFunction8) {
     int batch_size = 1;
     Initialize(batch_size);
-    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
     sink->_agg_expr_ctxs.resize(1);
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(2, std::make_shared<DataTypeInt64>());

@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <random>
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -222,7 +223,9 @@ void set_return_ok(const std::string& point, HttpRequest* req) {
 
 void set_return_error(const std::string& point, HttpRequest* req) {
     const std::string CODE_PARAM = "code";
+    const std::string PROBABILITY_PARAM = "probability";
     int code = ErrorCode::INTERNAL_ERROR;
+    double probability = 100.0;
     auto& code_str = req->param(CODE_PARAM);
     if (!code_str.empty()) {
         try {
@@ -233,10 +236,37 @@ void set_return_error(const std::string& point, HttpRequest* req) {
             return;
         }
     }
+    auto& probability_str = req->param(PROBABILITY_PARAM);
+    if (!probability_str.empty()) {
+        try {
+            probability = std::stod(probability_str);
+        } catch (const std::exception& e) {
+            HttpChannel::send_reply(
+                    req, HttpStatus::BAD_REQUEST,
+                    fmt::format("invalid probability: {}, {}", probability_str, e.what()));
+            return;
+        }
+        if (probability < 0.0 || probability > 100.0) {
+            HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
+                                    "probability should be between 0 and 100");
+            return;
+        }
+    }
 
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back(point, [code, point](auto&& args) {
+    sp->set_call_back(point, [code, point, probability](auto&& args) {
         try {
+            if (probability < 100.0) {
+                static thread_local std::mt19937 gen(std::random_device {}());
+                std::uniform_real_distribution<double> dist(0.0, 100.0);
+                double dice = dist(gen);
+                if (dice >= probability) {
+                    LOG(INFO) << "injection point hit, point=" << point
+                              << " skip error injection, probability=" << probability
+                              << "%, random=" << dice;
+                    return;
+                }
+            }
             LOG(INFO) << "injection point hit, point=" << point << " return error code=" << code;
             auto* pair = try_any_cast_ret<Status>(args);
             pair->first = Status::Error<false>(code, "injected error");
@@ -245,6 +275,17 @@ void set_return_error(const std::string& point, HttpRequest* req) {
             LOG_EVERY_N(ERROR, 10) << "failed to process `return_error` callback\n"
                                    << get_stack_trace();
         }
+    });
+    HttpChannel::send_reply(req, HttpStatus::OK, "OK");
+}
+
+void set_segfault(const std::string& point, HttpRequest* req) {
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back(point, [point](auto&&) {
+        LOG(INFO) << "injection point hit, point=" << point << " trigger segfault";
+        // Intentional null dereference to crash the BE for testing.
+        volatile int* p = nullptr;
+        *p = 1;
     });
     HttpChannel::send_reply(req, HttpStatus::OK, "OK");
 }
@@ -271,6 +312,9 @@ void handle_set(HttpRequest* req) {
         return;
     } else if (behavior == "return_error") {
         set_return_error(point, req);
+        return;
+    } else if (behavior == "segfault") {
+        set_segfault(point, req);
         return;
     }
     HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "unknown behavior: " + behavior);
@@ -345,13 +389,17 @@ InjectionPointAction::InjectionPointAction() = default;
 // * return_ok: for injection point with return value, always return Status::OK
 // * return_error: for injection point with return value, accepted param is `code`,
 //                 which is an int, valid values can be found in status.h, e.g. -235 or -230,
-//                 if `code` is not present return Status::InternalError
+//                 if `code` is not present return Status::InternalError. Optional `probability`
+//                 determines the percentage of times to inject the error (default 100).
+// * segfault: dereference a null pointer to crash BE intentionally
 // ```
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=sleep&duration=${x_millsec}" # sleep x millisecs
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return" # return void
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_ok" # return ok
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error" # internal error
 // curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error&code=${code}" # -235
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=return_error&code=${code}&probability=50" # inject with 50% probability
+// curl "be_ip:http_port/api/injection_point/set?name=${injection_point_name}&behavior=segfault" # crash BE
 // ```
 void InjectionPointAction::handle(HttpRequest* req) {
     LOG(INFO) << "handle InjectionPointAction " << req->debug_string();

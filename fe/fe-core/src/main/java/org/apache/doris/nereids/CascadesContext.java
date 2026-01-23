@@ -133,6 +133,7 @@ public class CascadesContext implements ScheduleContext {
     private final boolean isEnableExprTrace;
 
     private int groupExpressionCount = 0;
+    private Optional<CTEContext> recursiveCteContext;
 
     /**
      * Constructor of OptimizerContext.
@@ -142,7 +143,8 @@ public class CascadesContext implements ScheduleContext {
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
-            CTEContext cteContext, PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
+            CTEContext cteContext, PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder,
+            CTEContext recursiveCteContext) {
         this.parent = Objects.requireNonNull(parent, "parent should not null");
         this.currentTree = Objects.requireNonNull(currentTree, "currentTree should not null");
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext should not null");
@@ -152,7 +154,7 @@ public class CascadesContext implements ScheduleContext {
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, requireProperties);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable(),
@@ -167,6 +169,7 @@ public class CascadesContext implements ScheduleContext {
             this.isEnableExprTrace = false;
         }
         this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
+        this.recursiveCteContext = Optional.ofNullable(recursiveCteContext);
     }
 
     /** init a temporary context to rewrite expression */
@@ -181,7 +184,7 @@ public class CascadesContext implements ScheduleContext {
         }
         return newContext(Optional.empty(), Optional.empty(),
                 statementContext, DUMMY_PLAN,
-                new CTEContext(), PhysicalProperties.ANY, false);
+                new CTEContext(), PhysicalProperties.ANY, false, null);
     }
 
     /**
@@ -190,24 +193,23 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext initContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
         return newContext(Optional.empty(), Optional.empty(), statementContext,
-                initPlan, new CTEContext(), requireProperties, false);
+                initPlan, new CTEContext(), requireProperties, false, null);
     }
 
     /**
      * use for analyze cte. we must pass CteContext from outer since we need to get right scope of cte
      */
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
-            Plan initPlan, CTEContext cteContext) {
+            Plan initPlan, CTEContext cteContext, CTEContext recursiveCteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
                 cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY,
-                cascadesContext.isLeadingDisableJoinReorder
-        );
+                cascadesContext.isLeadingDisableJoinReorder, recursiveCteContext);
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
         return CascadesContext.newContext(context.getParent(), context.getCurrentTree(), context.getStatementContext(),
                 context.getRewritePlan(), context.getCteContext(),
-                context.getCurrentJobContext().getRequiredProperties(), context.isLeadingDisableJoinReorder);
+                context.getCurrentJobContext().getRequiredProperties(), context.isLeadingDisableJoinReorder, null);
     }
 
     /**
@@ -216,14 +218,15 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newSubtreeContext(Optional<CTEId> subtree, CascadesContext context,
             Plan plan, PhysicalProperties requireProperties) {
         return CascadesContext.newContext(Optional.of(context), subtree, context.getStatementContext(),
-                plan, context.getCteContext(), requireProperties, context.isLeadingDisableJoinReorder);
+                plan, context.getCteContext(), requireProperties, context.isLeadingDisableJoinReorder, null);
     }
 
     private static CascadesContext newContext(Optional<CascadesContext> parent, Optional<CTEId> subtree,
             StatementContext statementContext, Plan initPlan, CTEContext cteContext,
-            PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
+            PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder,
+            CTEContext recursiveCteContext) {
         return new CascadesContext(parent, subtree, statementContext, initPlan, null,
-            cteContext, requireProperties, isLeadingDisableJoinReorder);
+                cteContext, requireProperties, isLeadingDisableJoinReorder, recursiveCteContext);
     }
 
     public CascadesContext getRoot() {
@@ -248,6 +251,19 @@ public class CascadesContext implements ScheduleContext {
 
     public synchronized boolean isTimeout() {
         return isTimeout;
+    }
+
+    public Optional<CTEContext> getRecursiveCteContext() {
+        return recursiveCteContext;
+    }
+
+    public List<Slot> getRecursiveCteOutputs() {
+        return recursiveCteContext.isPresent() ? recursiveCteContext.get().getRecursiveCteOutputs()
+                : ImmutableList.of();
+    }
+
+    public boolean isAnalyzingRecursiveCteAnchorChild() {
+        return recursiveCteContext.isPresent() && recursiveCteContext.get().getRecursiveCteOutputs().isEmpty();
     }
 
     /**
@@ -341,7 +357,7 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public CascadesContext setJobContext(PhysicalProperties physicalProperties) {
-        this.currentJobContext = new JobContext(this, physicalProperties, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, physicalProperties);
         return this;
     }
 

@@ -33,6 +33,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/jni-util.h"
 #include "util/profile_collector.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
@@ -256,6 +257,14 @@ public:
      */
     Status close();
 
+    /**
+     * Set column name to block index map from FileScanner to avoid repeated map creation.
+     */
+    void set_col_name_to_block_idx(
+            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+        _col_name_to_block_idx = col_name_to_block_idx;
+    }
+
     static std::string get_jni_type(const DataTypePtr& data_type);
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
 
@@ -301,22 +310,26 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    jclass _jni_scanner_cls = nullptr;
-    jobject _jni_scanner_obj = nullptr;
-    jmethodID _jni_scanner_open = nullptr;
-    jmethodID _jni_scanner_get_append_data_time = nullptr;
-    jmethodID _jni_scanner_get_create_vector_table_time = nullptr;
-    jmethodID _jni_scanner_get_next_batch = nullptr;
-    jmethodID _jni_scanner_get_table_schema = nullptr;
-    jmethodID _jni_scanner_close = nullptr;
-    jmethodID _jni_scanner_release_column = nullptr;
-    jmethodID _jni_scanner_release_table = nullptr;
-    jmethodID _jni_scanner_get_statistics = nullptr;
+
+    Jni::GlobalClass _jni_scanner_cls;
+    Jni::GlobalObject _jni_scanner_obj;
+    Jni::MethodId _jni_scanner_open;
+    Jni::MethodId _jni_scanner_get_append_data_time;
+    Jni::MethodId _jni_scanner_get_create_vector_table_time;
+    Jni::MethodId _jni_scanner_get_next_batch;
+    Jni::MethodId _jni_scanner_get_table_schema;
+    Jni::MethodId _jni_scanner_close;
+    Jni::MethodId _jni_scanner_release_column;
+    Jni::MethodId _jni_scanner_release_table;
+    Jni::MethodId _jni_scanner_get_statistics;
 
     TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates;
+
+    // Column name to block index map, passed from FileScanner to avoid repeated map creation
+    const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
@@ -349,12 +362,66 @@ private:
                                     std::vector<long>& meta_data);
 
     template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(!std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDate> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDateTime> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDateV2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
         auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
         size_t origin_size = column_data.size();
         column_data.resize(origin_size + num_rows);
         memcpy(column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        return Status::OK();
+    }
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDate> ||
+                 std::is_same_v<COLUMN_TYPE, ColumnDateTime>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        memcpy((int64_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        return Status::OK();
+    }
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDateV2>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        memcpy((uint32_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        return Status::OK();
+    }
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> ||
+                 std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        memcpy((uint64_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        return Status::OK();
+    }
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+        requires(std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2>)
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
+        size_t origin_size = column_data.size();
+        column_data.resize(origin_size + num_rows);
+        for (size_t i = 0; i < num_rows; i++) {
+            column_data[origin_size + i] = DecimalV2Value(ptr[i]);
+        }
         return Status::OK();
     }
 

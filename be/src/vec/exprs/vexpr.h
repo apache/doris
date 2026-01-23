@@ -33,13 +33,11 @@
 #include "common/be_mock_util.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
 #include "util/date_func.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -49,10 +47,12 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/function.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris {
 class BitmapFilterFuncBase;
@@ -133,19 +133,29 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
-        RETURN_IF_ERROR(execute_column(context, block, result_column));
+        RETURN_IF_ERROR(execute_column(context, block, block->rows(), result_column));
         *result_column_id = block->columns();
         block->insert({result_column, execute_type(block), expr_name()});
         return Status::OK();
     }
 
-    // execute current expr and return result column
-    virtual Status execute_column(VExprContext* context, const Block* block,
+    // Execute the current expression and return the result column.
+    // Note: the block will not be modified during execution.
+    // We allow columns in the block to have different numbers of rows.
+    // 'count' indicates the number of rows in the result column returned by this expression.
+    // In the future this interface will add an additional parameter, Selector, which specifies
+    // which rows in the block should be evaluated.
+    // If expr is executing constant expressions, then block should be nullptr.
+    virtual Status execute_column(VExprContext* context, const Block* block, size_t count,
                                   ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.
     virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
+
+    virtual Status execute_filter(VExprContext* context, const Block* block,
+                                  uint8_t* __restrict result_filter_data, size_t rows,
+                                  bool accept_null, bool* can_filter_all) const;
 
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
@@ -165,9 +175,9 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
+    virtual Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
                                           ColumnPtr& result_column, ColumnPtr* arg_column) const {
-        return execute_column(context, block, result_column);
+        return execute_column(context, block, count, result_column);
     };
 
     /// Subclasses overriding this function should call VExpr::Close().
@@ -189,7 +199,7 @@ public:
 
     virtual bool is_literal() const { return false; }
 
-    MOCK_FUNCTION TExprNodeType::type node_type() const { return _node_type; }
+    virtual TExprNodeType::type node_type() const { return _node_type; }
 
     TExprOpcode::type op() const { return _opcode; }
 
@@ -203,12 +213,7 @@ public:
         return std::ranges::any_of(_children.begin(), _children.end(),
                                    [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
-
-    virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
-        for (auto child : _children) {
-            child->do_judge_selectivity(filter_rows, input_rows);
-        }
-    }
+    virtual bool is_topn_filter() const { return false; }
 
     static Status create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx);
 
@@ -245,9 +250,8 @@ public:
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
 
-    void set_getting_const_col(bool val = true) { _getting_const_col = val; }
-
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
+    bool is_like_expr() const { return _fn.name.function_name == "like"; }
 
     const TFunction& fn() const { return _fn; }
 
@@ -365,7 +369,7 @@ protected:
         return (is_constant() && (_constant_col != nullptr));
     }
 
-    ColumnPtr get_result_from_const(const Block* block) const;
+    ColumnPtr get_result_from_const(size_t count) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
@@ -402,8 +406,6 @@ protected:
     // get_const_col()
     std::shared_ptr<ColumnPtrWrapper> _constant_col;
     bool _prepared = false; // for base class VExpr
-    bool _getting_const_col =
-            false; // if true, current execute() is in prepare() (that is, can't check _prepared)
     // for concrete classes
     bool _prepare_finished = false;
     bool _open_finished = false;
@@ -499,6 +501,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2, precision, scale));
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        const auto* origin_value = reinterpret_cast<const TimestampTzValue*>(data);
+        TDateLiteral date_literal;
+        auto tz = cctz::utc_time_zone();
+        auto tz_str = origin_value->to_string(tz, scale);
+        date_literal.__set_value(tz_str);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMESTAMPTZ, precision, scale));
     } else if constexpr (T == TYPE_DECIMALV2) {
         const auto* origin_value = reinterpret_cast<const DecimalV2Value*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
@@ -585,6 +596,13 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_timev2_literal(timev2_literal);
         (*node).__set_node_type(TExprNodeType::TIMEV2_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));
+    } else if constexpr (T == TYPE_VARBINARY) {
+        const auto* origin_value = reinterpret_cast<const std::string*>(data);
+        (*node).__set_node_type(TExprNodeType::VARBINARY_LITERAL);
+        TVarBinaryLiteral varbinary_literal;
+        varbinary_literal.__set_value(*origin_value);
+        (*node).__set_varbinary_literal(varbinary_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_VARBINARY));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }

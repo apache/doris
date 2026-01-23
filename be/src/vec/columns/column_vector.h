@@ -52,6 +52,11 @@
 
 class SipHash;
 
+namespace doris::pipeline {
+template <int JoinOpType>
+struct ProcessHashTableProbe;
+}
+
 namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
@@ -65,19 +70,24 @@ namespace doris::vectorized {
 template <PrimitiveType T>
 class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64);
+                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64 ||
+                  T == TYPE_TIMESTAMPTZ);
 
 private:
     using Self = ColumnVector;
     friend class COWHelper<IColumn, Self>;
 
+    template <int JoinOpType>
+    friend struct doris::pipeline::ProcessHashTableProbe;
+
     struct less;
     struct greater;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
     using Container = PaddedPODArray<value_type>;
 
+private:
     ColumnVector() = default;
     explicit ColumnVector(const size_t n) : data(n) {}
     explicit ColumnVector(const size_t n, const value_type x) : data(n, x) {}
@@ -86,6 +96,7 @@ public:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<value_type> il) : data {il} {}
 
+public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -109,7 +120,8 @@ public:
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void insert_range_of_integer(value_type begin, value_type end) {
-        if constexpr (!is_float_or_double(T) && T != TYPE_TIME && T != TYPE_TIMEV2) {
+        if constexpr (!is_float_or_double(T) && T != TYPE_TIME && T != TYPE_TIMEV2 &&
+                      T != TYPE_TIMESTAMPTZ && !is_date_type(T)) {
             auto old_size = data.size();
             auto new_size = old_size + static_cast<size_t>(end - begin);
             data.resize(new_size);
@@ -131,7 +143,7 @@ public:
 
             VecDateTimeValue date;
             date.set_olap_date(val);
-            data.push_back_without_reserve(unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+            data.push_back_without_reserve(date);
         }
     }
 
@@ -233,11 +245,18 @@ public:
             }
         }
     }
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
+
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
                                 uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
@@ -259,7 +278,7 @@ public:
                 data[n], assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).data[m]);
     }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
 
     void reserve(size_t n) override { data.reserve(n); }
@@ -276,9 +295,25 @@ public:
 
     void clear() override { data.clear(); }
 
-    bool get_bool(size_t n) const override { return bool(data[n]); }
+    bool get_bool(size_t n) const override {
+        if constexpr (T == TYPE_BOOLEAN) {
+            return bool(data[n]);
+        } else {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "Method get_int is not supported for " + get_name());
+            return false;
+        }
+    }
 
-    Int64 get_int(size_t n) const override { return Int64(data[n]); }
+    Int64 get_int(size_t n) const override {
+        if constexpr (is_date_type(T) || T == TYPE_TIMESTAMPTZ) {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "Method get_int is not supported for " + get_name());
+            return 0;
+        } else {
+            return Int64(data[n]);
+        }
+    }
 
     // For example, during create column_const(1, uint8), will use NearestFieldType
     // to cast a uint8 to int64, so that the Field is int64, but the column is created
@@ -287,10 +322,7 @@ public:
     // but its type is different from column's data type (int64 vs uint64), so that during column
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
-    void insert(const Field& x) override {
-        data.push_back(
-                doris::vectorized::get<typename PrimitiveTypeTraits<T>::NearestFieldType>(x));
-    }
+    void insert(const Field& x) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -326,6 +358,8 @@ public:
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
+    bool support_replace_column_null_data() const override { return true; }
+
     void replace_float_special_values() override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
@@ -348,20 +382,18 @@ public:
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
-
-protected:
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
-        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
-            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE.to_date_int_val();
-        } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
+        if constexpr (is_date_type(T) || T == PrimitiveType::TYPE_TIMESTAMPTZ) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();
         }
     }
 
+protected:
+    uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     Container data;
 };
 
@@ -382,6 +414,7 @@ using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
 using ColumnTime = ColumnVector<TYPE_TIME>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
+using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
 

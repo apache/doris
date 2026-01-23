@@ -20,17 +20,23 @@ package org.apache.doris.nereids.trees.expressions.functions.generator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -38,13 +44,15 @@ import java.util.List;
  * pose column: 0, 1, 2
  * value column: 'a', 'b', 'c'
  */
-public class PosExplode extends TableGeneratingFunction implements UnaryExpression, PropagateNullable {
+public class PosExplode extends TableGeneratingFunction implements
+        CustomSignature, ComputePrecision, AlwaysNotNullable {
+    public static final String POS_COLUMN = "pos";
 
     /**
-     * constructor with 1 argument.
+     * constructor with one or more arguments.
      */
-    public PosExplode(Expression arg) {
-        super("posexplode", arg);
+    public PosExplode(Expression arg, Expression... others) {
+        super("posexplode", ExpressionUtils.mergeArguments(arg, others));
     }
 
     /** constructor for withChildren and reuse signature */
@@ -57,29 +65,51 @@ public class PosExplode extends TableGeneratingFunction implements UnaryExpressi
      */
     @Override
     public PosExplode withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(!children.isEmpty());
         return new PosExplode(getFunctionParams(children));
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child().getDataType() instanceof ArrayType)) {
-            throw new AnalysisException("only support array type for posexplode function but got "
-                    + child().getDataType());
+        for (Expression c : children) {
+            if (!(c.getDataType() instanceof ArrayType)) {
+                throw new AnalysisException("only support array type for posexplode function but got "
+                        + c.getDataType());
+            }
         }
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(
-                FunctionSignature.ret(new StructType(ImmutableList.of(
-                        new StructField("pos", IntegerType.INSTANCE, false, ""),
-                        new StructField("col", ((ArrayType) child().getDataType()).getItemType(), true, ""))))
-                        .args(child().getDataType()));
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
+        List<DataType> arguments = new ArrayList<>();
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        structFields.add(new StructField(POS_COLUMN, IntegerType.INSTANCE, false, ""));
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i).getDataType().isArrayType()) {
+                structFields.add(
+                    new StructField(StructLiteral.COL_PREFIX + (i + 1),
+                        ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
+                arguments.add(children.get(i).getDataType());
+            } else {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            }
+        }
+        StructType structType = new StructType(structFields.build());
+        return FunctionSignature.of(structType, arguments);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitPosExplode(this, context);
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return super.searchSignature(signatures);
     }
 }

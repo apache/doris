@@ -103,7 +103,7 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
+Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block, size_t count,
                                       ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -129,7 +129,8 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
             // Note: After executing 'execute', we cannot use the column from line 120 in subsequent code,
             // because the vector might be resized during execution, causing previous references to become invalid.
             ColumnPtr tmp_column;
-            RETURN_IF_ERROR(_virtual_column_expr->execute_column(context, block, tmp_column));
+            RETURN_IF_ERROR(
+                    _virtual_column_expr->execute_column(context, block, count, tmp_column));
             result_column = std::move(tmp_column);
 
             VLOG_DEBUG << fmt::format(
@@ -159,6 +160,7 @@ Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block,
             return Status::OK();
         }
     }
+    DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
 

@@ -42,7 +42,6 @@ public:
     Status init() override {
         // Reserve enough space for the page, plus a bit of slop since
         // we often overrun the page by a few values.
-        RETURN_IF_CATCH_EXCEPTION(_buffer.reserve(_options.data_page_size));
         return reset();
     }
 

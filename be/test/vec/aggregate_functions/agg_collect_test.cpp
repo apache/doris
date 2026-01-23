@@ -94,6 +94,12 @@ public:
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
                     auto item = std::string("item") + std::to_string(i);
                     input_col->insert_data(item.c_str(), item.size());
+                } else if constexpr (std::is_same_v<DataType, DataTypeDateV2>) {
+                    auto item = static_cast<uint32_t>(i);
+                    input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
+                } else if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
+                    auto item = static_cast<uint64_t>(i);
+                    input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
                 } else {
                     auto item = FieldType(static_cast<uint64_t>(i));
                     input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
@@ -118,7 +124,7 @@ public:
         }
         LOG(INFO) << "test_agg_collect for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, false, -1);
+        auto agg_function = factory.get(fn_name, data_types, nullptr, false, -1);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -216,7 +222,8 @@ TEST_F(VAggCollectTest, test_complex_data_type) {
 struct AggregateFunctionCollectTest : public AggregateFunctiontest {};
 
 TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
-    create_agg("collect_list", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("collect_list", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
@@ -240,7 +247,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
 
 TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
     create_agg("collect_list", false,
-               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()});
+               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
@@ -264,7 +272,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
 }
 
 TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
-    create_agg("collect_set", false, {std::make_shared<DataTypeInt64>()});
+    create_agg("collect_set", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
@@ -288,7 +297,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
 
 TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
     create_agg("collect_set", false,
-               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()});
+               {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()},
+               std::make_shared<DataTypeInt64>());
 
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));

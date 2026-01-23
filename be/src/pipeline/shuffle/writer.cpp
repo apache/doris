@@ -25,10 +25,10 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 template <typename ChannelPtrType>
-void Writer::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const {
+Status Writer::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const {
     channel->set_receiver_eof(st);
     // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    static_cast<void>(channel->close(state));
+    return channel->close(state);
 }
 
 Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,

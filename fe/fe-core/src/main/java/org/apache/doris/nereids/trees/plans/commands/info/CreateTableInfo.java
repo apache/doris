@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -48,6 +47,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -120,6 +120,7 @@ public class CreateTableInfo {
     public static final String ENGINE_BROKER = "broker";
     public static final String ENGINE_HIVE = "hive";
     public static final String ENGINE_ICEBERG = "iceberg";
+    public static final String ENGINE_PAIMON = "paimon";
     private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
@@ -379,6 +380,8 @@ public class CreateTableInfo {
             throw new AnalysisException("Hms type catalog can only use `hive` engine.");
         } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
             throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
+        } else if (catalog instanceof PaimonExternalCatalog && !engineName.equals(ENGINE_PAIMON)) {
+            throw new AnalysisException("Paimon type catalog can only use `paimon` engine.");
         }
     }
 
@@ -649,7 +652,8 @@ public class CreateTableInfo {
             }
 
             // add hidden column
-            if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+            // do not add delete sign column when table has seq mapping
+            if (keysType.equals(KeysType.UNIQUE_KEYS) && !PropertyAnalyzer.hasSeqMapping(properties)) {
                 if (isEnableMergeOnWrite) {
                     columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
                 } else {
@@ -691,7 +695,7 @@ public class CreateTableInfo {
             }
 
             if (Config.enable_hidden_version_column_by_default
-                    && keysType.equals(KeysType.UNIQUE_KEYS)) {
+                    && keysType.equals(KeysType.UNIQUE_KEYS) && !PropertyAnalyzer.hasSeqMapping(properties)) {
                 if (isEnableMergeOnWrite) {
                     columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
                 } else {
@@ -773,7 +777,12 @@ public class CreateTableInfo {
                 throw new AnalysisException(
                     "Iceberg doesn't support 'DISTRIBUTE BY', "
                         + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
+            } else if (engineName.equalsIgnoreCase(ENGINE_PAIMON) && distribution != null) {
+                throw new AnalysisException(
+                    "Paimon doesn't support 'DISTRIBUTE BY', "
+                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
             }
+
             for (ColumnDefinition columnDef : columns) {
                 if (!columnDef.isNullable()
                         && engineName.equalsIgnoreCase(ENGINE_HIVE)) {
@@ -881,6 +890,8 @@ public class CreateTableInfo {
                 engineName = ENGINE_HIVE;
             } else if (catalog instanceof IcebergExternalCatalog) {
                 engineName = ENGINE_ICEBERG;
+            } else if (catalog instanceof PaimonExternalCatalog) {
+                engineName = ENGINE_PAIMON;
             } else {
                 throw new AnalysisException("Current catalog does not support create table: " + ctlName);
             }
@@ -910,7 +921,8 @@ public class CreateTableInfo {
     private void checkEngineName() {
         if (engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_ODBC) || engineName.equals(ENGINE_BROKER)
                 || engineName.equals(ENGINE_ELASTICSEARCH) || engineName.equals(ENGINE_HIVE)
-                || engineName.equals(ENGINE_ICEBERG) || engineName.equals(ENGINE_JDBC)) {
+                || engineName.equals(ENGINE_ICEBERG) || engineName.equals(ENGINE_JDBC)
+                || engineName.equals(ENGINE_PAIMON)) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
@@ -1087,7 +1099,8 @@ public class CreateTableInfo {
                 throw new AnalysisException("Create " + engineName
                     + " table should not contain distribution desc");
             }
-            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG) && partitionDesc != null) {
+            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG)
+                    && !engineName.equals(ENGINE_PAIMON) && partitionDesc != null) {
                 throw new AnalysisException("Create " + engineName
                     + " table should not contain partition desc");
             }
@@ -1317,6 +1330,10 @@ public class CreateTableInfo {
         return partitionDesc;
     }
 
+    public List<ColumnDefinition> getColumnDefinitions() {
+        return columns;
+    }
+
     public List<Column> getColumns() {
         return columns.stream()
             .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
@@ -1344,12 +1361,12 @@ public class CreateTableInfo {
     }
 
     /**
-     * getRollupAlterClauseList
+     * getAddRollupOps
      */
-    public List<AlterClause> getRollupAlterClauseList() {
-        List<AlterClause> addRollups = Lists.newArrayList();
+    public List<AlterOp> getAddRollupOps() {
+        List<AlterOp> addRollups = Lists.newArrayList();
         if (!rollups.isEmpty()) {
-            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
+            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToAddRollupOp)
                     .collect(Collectors.toList()));
         }
         return addRollups;
@@ -1398,6 +1415,16 @@ public class CreateTableInfo {
                                     throw new AnalysisException("field pattern: "
                                             + fieldPattern + " is not supported for inverted index"
                                             + " of column: " + column.getName());
+                                }
+
+                                // keep variant subcolumn checks aligned with ordinary column rules
+                                try {
+                                    InvertedIndexUtil.checkInvertedIndexParser(column.getName(),
+                                            field.getDataType().toCatalogDataType().getPrimitiveType(),
+                                            indexDef.getProperties(), invertedIndexFileStorageFormat);
+                                } catch (Exception ex) {
+                                    throw new AnalysisException("invalid INVERTED index: field pattern: "
+                                            + fieldPattern + ", " + ex.getMessage(), ex);
                                 }
                                 fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
                                                                                                     .add(indexDef);

@@ -120,51 +120,26 @@ public class FunctionCallExpr extends Expr {
         return this.exprName.get();
     }
 
-    public FunctionCallExpr(String functionName, List<Expr> params) {
-        this(new FunctionName(functionName), new FunctionParams(false, params));
-    }
-
-    public FunctionCallExpr(String fnName, FunctionParams params) {
-        this(new FunctionName(fnName), params, false);
-    }
-
-    public FunctionCallExpr(FunctionName fnName, FunctionParams params) {
-        this(fnName, params, false);
-    }
-
-    private FunctionCallExpr(
-            FunctionName fnName, FunctionParams params, boolean isMergeAggFn) {
+    public FunctionCallExpr(String functionName, List<Expr> params, boolean nullable) {
         super();
-        this.fnName = fnName;
-        fnParams = params;
-        this.isMergeAggFn = isMergeAggFn;
-        if (params.exprs() != null) {
-            children.addAll(params.exprs());
-        }
-        originChildSize = children.size();
-    }
-
-    public FunctionCallExpr(String functionName, FunctionParams params, FunctionParams aggFnParams,
-            Optional<List<Type>> argTypes) {
         this.fnName = new FunctionName(functionName);
-        this.fnParams = params;
+        fnParams = new FunctionParams(params);
         this.isMergeAggFn = false;
-        this.aggFnParams = aggFnParams;
         if (fnParams.exprs() != null) {
             children.addAll(fnParams.exprs());
         }
-        this.originChildSize = children.size();
-        this.argTypesForNereids = argTypes;
+        originChildSize = children.size();
+        this.nullable = nullable;
     }
 
     // nereids scalar function call expr constructor without finalize/analyze
-    public FunctionCallExpr(Function function, FunctionParams functionParams) {
-        this(function, functionParams, null, false, functionParams.exprs());
+    public FunctionCallExpr(Function function, FunctionParams functionParams, boolean nullable) {
+        this(function, functionParams, null, false, functionParams.exprs(), nullable);
     }
 
     // nereids aggregate function call expr constructor without finalize/analyze
     public FunctionCallExpr(Function function, FunctionParams functionParams, FunctionParams aggFnParams,
-            boolean isMergeAggFn, List<Expr> children) {
+            boolean isMergeAggFn, List<Expr> children, boolean nullable) {
         this.fnName = function.getFunctionName();
         this.fn = function;
         this.type = function.getReturnType();
@@ -173,24 +148,7 @@ public class FunctionCallExpr extends Expr {
         this.children.addAll(children);
         this.originChildSize = children.size();
         this.isMergeAggFn = isMergeAggFn;
-    }
-
-    // Constructs the same agg function with new params.
-    public FunctionCallExpr(FunctionCallExpr e, FunctionParams params) {
-        Preconditions.checkState(e.isAnalyzed);
-        Preconditions.checkState(e.isAggregateFunction() || e.isAnalyticFnCall);
-        fnName = e.fnName;
-        // aggOp = e.aggOp;
-        isAnalyticFnCall = e.isAnalyticFnCall;
-        fnParams = params;
-        aggFnParams = e.aggFnParams;
-        // Just inherit the function object from 'e'.
-        fn = e.fn;
-        this.isMergeAggFn = e.isMergeAggFn;
-        if (params.exprs() != null) {
-            children.addAll(params.exprs());
-        }
-        this.originChildSize = children.size();
+        this.nullable = nullable;
     }
 
     protected FunctionCallExpr(FunctionCallExpr other) {

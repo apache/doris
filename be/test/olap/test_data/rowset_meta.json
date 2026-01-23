@@ -18,5 +18,6 @@
         "lo": 10
     },
     "num_segments": 1,
-    "has_variant_type_in_schema": false
+    "has_variant_type_in_schema": false,
+    "packed_slice_locations": {}
 }

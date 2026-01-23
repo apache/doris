@@ -51,9 +51,13 @@ using SetPrimaryTypeHashTableContextNullable = vectorized::MethodSingleNullableC
 using SetSerializedHashTableContext =
         vectorized::MethodSerialized<PHHashMap<StringRef, RowRefWithFlag>>;
 using SetMethodOneString = vectorized::MethodStringNoCache<PHHashMap<StringRef, RowRefWithFlag>>;
+using SetMethodOneStringNullable =
+        vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
+                vectorized::DataWithNullKey<PHHashMap<StringRef, RowRefWithFlag>>>>;
 
 using SetHashTableVariants =
         std::variant<std::monostate, SetSerializedHashTableContext, SetMethodOneString,
+                     SetMethodOneStringNullable,
                      SetPrimaryTypeHashTableContextNullable<vectorized::UInt8>,
                      SetPrimaryTypeHashTableContextNullable<vectorized::UInt16>,
                      SetPrimaryTypeHashTableContextNullable<vectorized::UInt32>,
@@ -68,6 +72,8 @@ using SetHashTableVariants =
                      SetPrimaryTypeHashTableContext<vectorized::UInt256>,
                      SetFixedKeyHashTableContext<vectorized::UInt64>,
                      SetFixedKeyHashTableContext<vectorized::UInt72>,
+                     SetFixedKeyHashTableContext<vectorized::UInt96>,
+                     SetFixedKeyHashTableContext<vectorized::UInt104>,
                      SetFixedKeyHashTableContext<vectorized::UInt128>,
                      SetFixedKeyHashTableContext<vectorized::UInt256>,
                      SetFixedKeyHashTableContext<vectorized::UInt136>>;
@@ -100,7 +106,11 @@ struct SetDataVariants
             emplace_single<vectorized::UInt256, SetData<vectorized::UInt256>>(nullable);
             break;
         case HashKeyType::string_key:
-            method_variant.emplace<SetMethodOneString>();
+            if (nullable) {
+                method_variant.emplace<SetMethodOneStringNullable>();
+            } else {
+                method_variant.emplace<SetMethodOneString>();
+            }
             break;
         case HashKeyType::fixed64:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64>>(
@@ -108,6 +118,14 @@ struct SetDataVariants
             break;
         case HashKeyType::fixed72:
             method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt72>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed96:
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt96>>(
+                    get_key_sizes(data_types));
+            break;
+        case HashKeyType::fixed104:
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt104>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:

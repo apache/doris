@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -43,9 +41,8 @@ import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -68,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
@@ -98,6 +96,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -111,6 +110,7 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 
@@ -327,6 +327,10 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, TimeV2Type.class);
     }
 
+    public static boolean hasTimestampTzType(DataType dataType) {
+        return hasSpecifiedType(dataType, TimeStampTzType.class);
+    }
+
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         if (dataType instanceof ArrayType) {
             return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
@@ -363,10 +367,16 @@ public class TypeCoercionUtils {
         return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
     }
 
+    /**
+     * replace times with target precision.
+     */
     public static DataType replaceTimesWithTargetPrecision(DataType dataType, int targetScale) {
         return replaceSpecifiedType(
-                replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.of(targetScale)), TimeV2Type.class,
-                TimeV2Type.of(targetScale));
+                replaceSpecifiedType(
+                    replaceSpecifiedType(dataType, DateTimeV2Type.class,
+                        DateTimeV2Type.of(targetScale)),
+                        TimeV2Type.class, TimeV2Type.of(targetScale)),
+                    TimeStampTzType.class, TimeStampTzType.of(targetScale));
     }
 
     /**
@@ -628,6 +638,17 @@ public class TypeCoercionUtils {
             } else if ((dataType.isDateTimeV2Type() || dataType.isDateTimeType())
                     && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
+            } else if (dataType.isTimeStampTzType() && DateTimeChecker.isValidDateTime(value)) {
+                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeLiteral
+                                .parseDateTimeLiteral(value, true).orElse(null);
+                if (dtV2Lit != null) {
+                    dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
+                            dtV2Lit,
+                            new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
+                            new StringLiteral("UTC")));
+                    ret = new TimestampTzLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
+                            dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+                }
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
@@ -927,32 +948,6 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * process timestamp arithmetic type coercion.
-     */
-    public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic) {
-        timestampArithmetic.checkLegalityBeforeTypeCoercion();
-
-        String name = timestampArithmetic.getFuncName().toLowerCase();
-        List<Expression> children = timestampArithmetic.children();
-        Expression left = timestampArithmetic.left();
-        Expression right = timestampArithmetic.right();
-
-        // get right signature by normal function resolution
-        FunctionBuilder functionBuilder = Env.getCurrentEnv().getFunctionRegistry().findFunctionBuilder(name,
-                children);
-        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(name,
-                children);
-        FunctionSignature signature = targetExpressionPair.second.getSignature();
-        DataType leftType = signature.getArgType(0);
-        DataType rightType = signature.getArgType(1);
-
-        left = castIfNotSameType(left, leftType);
-        right = castIfNotSameType(right, rightType);
-
-        return timestampArithmetic.withChildren(left, right);
-    }
-
-    /**
      * left type must be DateType or DateV2Type.
      */
     private static Optional<DataType> getCommonDataTypeWithDateType(DataType leftType, DataType rightType) {
@@ -975,6 +970,8 @@ public class TypeCoercionUtils {
                 return Optional.of(DateTimeV2Type.SYSTEM_DEFAULT);
             } else if (rightType instanceof DateType) {
                 return Optional.of(DateV2Type.INSTANCE);
+            } else if (rightType instanceof TimeStampTzType) {
+                return Optional.of(DateTimeV2Type.of(((TimeStampTzType) rightType).getScale()));
             } else {
                 return Optional.of(rightType);
             }
@@ -1010,6 +1007,9 @@ public class TypeCoercionUtils {
             if (rightType instanceof DateTimeV2Type) {
                 DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) rightType;
                 return Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), dateTimeV2Type.getScale())));
+            } else if (rightType instanceof TimeStampTzType) {
+                TimeStampTzType timeStampTzType = (TimeStampTzType) rightType;
+                return Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), timeStampTzType.getScale())));
             } else {
                 return Optional.of(leftType);
             }
@@ -1215,6 +1215,14 @@ public class TypeCoercionUtils {
             return getCommonDataTypeWithDateTimeV2Type(DateTimeV2Type.SYSTEM_DEFAULT, rightType);
         } else if (leftType instanceof DateTimeV2Type) {
             return getCommonDataTypeWithDateTimeV2Type((DateTimeV2Type) leftType, rightType);
+        } else if (leftType instanceof TimeStampTzType) {
+            TimeStampTzType left = (TimeStampTzType) leftType;
+            if (rightType instanceof TimeStampTzType) {
+                TimeStampTzType right = (TimeStampTzType) rightType;
+                return Optional.of(TimeStampTzType.of(Math.max(left.getScale(), right.getScale())));
+            } else {
+                return getCommonDataTypeWithDateTimeV2Type(DateTimeV2Type.of(left.getScale()), rightType);
+            }
         }
 
         // then we process time type
@@ -1292,6 +1300,12 @@ public class TypeCoercionUtils {
 
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
+
+        // TODO: remove this restriction after supporting varbinary comparison in BE
+        if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
+            throw new AnalysisException("data type varbinary "
+                    + " could not used in ComparisonPredicate now " + comparisonPredicate.toSql());
+        }
 
         // same type
         if (left.getDataType().equals(right.getDataType())) {
@@ -2011,6 +2025,14 @@ public class TypeCoercionUtils {
             if (t2.isDateTimeV2Type()) {
                 return Optional.of(t2);
             }
+            if (t1.isTimeStampTzType()) {
+                TimeStampTzType timeStampTzType = (TimeStampTzType) t1;
+                return Optional.of(DateTimeV2Type.of(timeStampTzType.getScale()));
+            }
+            if (t2.isTimeStampTzType()) {
+                TimeStampTzType timeStampTzType = (TimeStampTzType) t2;
+                return Optional.of(DateTimeV2Type.of(timeStampTzType.getScale()));
+            }
             if (t1.isDateV2Type() || t2.isDateV2Type()) {
                 // datev2 vs datetime
                 if (t1.isDateTimeType() || t2.isDateTimeType()) {
@@ -2034,7 +2056,7 @@ public class TypeCoercionUtils {
                     return Optional.of(otherType);
                 }
             }
-            if (dateType.isDateTimeType() || dateType.isDateTimeV2Type()) {
+            if (dateType.isDateTimeType() || dateType.isDateTimeV2Type() || dateType.isTimeStampTzType()) {
                 if (otherType.isLargeIntType() || otherType.isDoubleType()) {
                     return Optional.of(otherType);
                 }

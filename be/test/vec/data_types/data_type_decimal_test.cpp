@@ -207,8 +207,7 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .scale = tmp_dt->get_scale(),
             .is_null_literal = false,
             .pColumnMeta = col_meta.get(),
-            .default_field = Field::create_field<TYPE_DECIMAL32>(
-                    DecimalField<Decimal32>(0, tmp_dt->get_scale())),
+            .default_field = Field::create_field<TYPE_DECIMAL32>(Decimal32(0)),
     };
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
@@ -344,11 +343,9 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         // binary: const flag| row num | real saved num| data
         auto content_uncompressed_size =
                 dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -367,11 +364,9 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         col_with_type->insert_many_defaults(count);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
-        } else {
-            EXPECT_EQ(content_uncompressed_size, 4 + expected_data_size);
-        }
+
+        EXPECT_EQ(content_uncompressed_size, 17 + expected_data_size);
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -393,18 +388,13 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         col_with_type->insert_many_defaults(count);
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
-        if (be_exec_version >= USE_CONST_SERDE) {
-            EXPECT_EQ(content_uncompressed_size,
-                      17 + 8 +
-                              std::max(expected_data_size,
-                                       streamvbyte_max_compressedbytes(
-                                               cast_set<UInt32>(upper_int32(expected_data_size)))));
-        } else {
-            EXPECT_EQ(content_uncompressed_size,
-                      12 + std::max(expected_data_size,
-                                    streamvbyte_max_compressedbytes(
-                                            cast_set<UInt32>(upper_int32(expected_data_size)))));
-        }
+
+        EXPECT_EQ(content_uncompressed_size,
+                  17 + 8 +
+                          std::max(expected_data_size,
+                                   streamvbyte_max_compressedbytes(
+                                           cast_set<UInt32>(upper_int32(expected_data_size)))));
+
         {
             std::string column_values;
             column_values.resize(content_uncompressed_size);
@@ -441,39 +431,20 @@ TEST_F(DataTypeDecimalTest, ser_deser) {
         }
     };
     test_func(dt_decimal32_1, *column_decimal32_1, USE_CONST_SERDE);
-    test_func(dt_decimal32_1, *column_decimal32_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_2, *column_decimal32_2, USE_CONST_SERDE);
-    test_func(dt_decimal32_2, *column_decimal32_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_3, *column_decimal32_3, USE_CONST_SERDE);
-    test_func(dt_decimal32_3, *column_decimal32_3, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_4, *column_decimal32_4, USE_CONST_SERDE);
-    test_func(dt_decimal32_4, *column_decimal32_4, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal32_5, *column_decimal32_5, USE_CONST_SERDE);
-    test_func(dt_decimal32_5, *column_decimal32_5, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal64_1, *column_decimal64_1, USE_CONST_SERDE);
-    test_func(dt_decimal64_1, *column_decimal64_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal64_2, *column_decimal64_2, USE_CONST_SERDE);
-    test_func(dt_decimal64_2, *column_decimal64_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal64_3, *column_decimal64_3, USE_CONST_SERDE);
-    test_func(dt_decimal64_3, *column_decimal64_3, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal128v2, *column_decimal128_v2, USE_CONST_SERDE);
-    test_func(dt_decimal128v2, *column_decimal128_v2, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal128v3_1, *column_decimal128v3_1, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_1, *column_decimal128v3_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal128v3_2, *column_decimal128v3_2, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_2, *column_decimal128v3_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal128v3_3, *column_decimal128v3_3, USE_CONST_SERDE);
-    test_func(dt_decimal128v3_3, *column_decimal128v3_3, AGGREGATION_2_1_VERSION);
-
     test_func(dt_decimal256_1, *column_decimal256_1, USE_CONST_SERDE);
-    test_func(dt_decimal256_1, *column_decimal256_1, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal256_2, *column_decimal256_2, USE_CONST_SERDE);
-    test_func(dt_decimal256_2, *column_decimal256_2, AGGREGATION_2_1_VERSION);
     test_func(dt_decimal256_3, *column_decimal256_3, USE_CONST_SERDE);
-    test_func(dt_decimal256_3, *column_decimal256_3, AGGREGATION_2_1_VERSION);
 }
 TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     auto test_func = [](auto dt, PGenericType_TypeId expected_type) {
@@ -494,10 +465,8 @@ TEST_F(DataTypeDecimalTest, get_default) {
         using DataType = decltype(dt);
         using ColumnType = typename DataType::ColumnType;
         auto default_field = dt.get_default();
-        auto decimal_field =
-                default_field.template get<DecimalField<typename ColumnType::value_type>>();
-        EXPECT_EQ(decimal_field.get_scale(), dt.get_scale());
-        EXPECT_EQ(decimal_field.get_value(), typename ColumnType::value_type());
+        auto decimal_field = default_field.template get<DataType::PType>();
+        EXPECT_EQ(decimal_field, typename ColumnType::value_type());
     };
     test_func(dt_decimal32_1);
     test_func(dt_decimal64_1);
@@ -513,7 +482,6 @@ TEST_F(DataTypeDecimalTest, get_field) {
     std::string line;
     auto test_func = [&](auto dt, const std::string& input_data_file_name) {
         using DataType = decltype(dt);
-        using ColumnType = typename DataType::ColumnType;
         {
             expr_node.decimal_literal.value = "abc";
             EXPECT_THROW(dt.get_field(expr_node), Exception);
@@ -536,10 +504,8 @@ TEST_F(DataTypeDecimalTest, get_field) {
             }
             expr_node.decimal_literal.value = line;
             auto field = dt.get_field(expr_node);
-            auto decimal_field =
-                    field.template get<DecimalField<typename ColumnType::value_type>>();
-            EXPECT_EQ(decimal_field.get_scale(), dt.get_scale());
-            res.push_back(decimal_field.get_value().to_string(dt.get_scale()));
+            auto decimal_field = field.template get<DataType::PType>();
+            res.push_back(decimal_field.to_string(dt.get_scale()));
         }
         check_or_generate_res_file(output_file, {res});
     };
@@ -759,8 +725,7 @@ TEST_F(DataTypeDecimalTest, SerdeArrowTest) {
 
 TEST_F(DataTypeDecimalTest, GetFieldWithDataTypeTest) {
     auto column_decimal128v3_1 = dt_decimal128v3_1.create_column();
-    Field field_decimal128v3_1 =
-            Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(1234567890, 0));
+    Field field_decimal128v3_1 = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1234567890));
     column_decimal128v3_1->insert(field_decimal128v3_1);
     EXPECT_EQ(dt_decimal128v3_1.get_field_with_data_type(*column_decimal128v3_1, 0).field,
               field_decimal128v3_1);

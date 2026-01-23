@@ -29,8 +29,10 @@
 #include <mutex>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -57,7 +59,6 @@
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/columns/column.h"
-#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -97,6 +98,9 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    std::vector<uint32_t> num_segment_rows;
+    spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
+    rowset_meta.set_num_segment_rows(num_segment_rows);
 }
 
 } // namespace
@@ -206,13 +210,21 @@ Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_w
     return Status::OK();
 }
 
-Status InvertedIndexFileCollection::close() {
+Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
     for (auto&& [id, writer] : _inverted_index_file_writers) {
-        RETURN_IF_ERROR(writer->close());
+        RETURN_IF_ERROR(writer->begin_close());
         _total_size += writer->get_index_file_total_size();
     }
 
+    return Status::OK();
+}
+
+Status InvertedIndexFileCollection::finish_close() {
+    std::lock_guard lock(_lock);
+    for (auto&& [id, writer] : _inverted_index_file_writers) {
+        RETURN_IF_ERROR(writer->finish_close());
+    }
     return Status::OK();
 }
 
@@ -272,6 +284,9 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -280,10 +295,6 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
-
-    if (_calc_delete_bitmap_token != nullptr) {
-        _calc_delete_bitmap_token->cancel();
-    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -324,38 +335,82 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
         return Status::OK();
     }
-    RowsetSharedPtr rowset_ptr;
-    RETURN_IF_ERROR(_build_tmp(rowset_ptr));
-    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
-    std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(_context.tablet->get_header_lock());
         specified_rowsets =
                 _context.tablet->get_rowset_by_ids(_context.mow_context->rowset_ids.get());
     }
-    OlapStopWatch watch;
-    auto finish_callback = [this](segment_v2::SegmentSharedPtr segment, Status st) {
-        auto* task = calc_delete_bitmap_task(segment->id());
-        task->set_status(st);
-    };
-    RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
-            _context.tablet, rowset_ptr, segments, specified_rowsets,
-            _context.mow_context->delete_bitmap, _context.mow_context->max_version,
-            _calc_delete_bitmap_token.get(), nullptr, nullptr, std::move(finish_callback)));
-    size_t total_rows = std::accumulate(
-            segments.begin(), segments.end(), 0,
-            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
-    LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
-              << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
-              << ", cur max_version: " << _context.mow_context->max_version
-              << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
-              << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
-              << ", delete_bitmap_cardinality: "
-              << _context.mow_context->delete_bitmap->cardinality()
-              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
-    return Status::OK();
+
+    // Submit the entire delete bitmap calculation process to thread pool for async execution
+    // This avoids blocking memtable flush thread while waiting for file upload to complete
+    // The process includes: file_writer->close(), _build_tmp, load_segments, and calc_delete_bitmap
+    return _calc_delete_bitmap_token->submit_func(
+            [this, segment_id, specified_rowsets = std::move(specified_rowsets)]() -> Status {
+                Status st = Status::OK();
+                // Step 1: Close file_writer (must be done before load_segments)
+                auto* file_writer = _seg_files.get(segment_id);
+                if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
+                    MonotonicStopWatch close_timer;
+                    close_timer.start();
+                    st = file_writer->close();
+                    close_timer.stop();
+
+                    auto close_time_ms = close_timer.elapsed_time_milliseconds();
+                    if (close_time_ms > 1000) {
+                        LOG(INFO) << "file_writer->close() took " << close_time_ms
+                                  << "ms for segment_id=" << segment_id
+                                  << ", tablet_id=" << _context.tablet_id
+                                  << ", rowset_id=" << _context.rowset_id;
+                    }
+                    if (!st.ok()) {
+                        return st;
+                    }
+                }
+
+                OlapStopWatch watch;
+                // Step 2: Build tmp rowset (needs file_writer to be closed)
+                RowsetSharedPtr rowset_ptr;
+                st = _build_tmp(rowset_ptr);
+                if (!st.ok()) {
+                    return st;
+                }
+
+                // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
+                auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
+                std::vector<segment_v2::SegmentSharedPtr> segments;
+                st = beta_rowset->load_segments(segment_id, segment_id + 1, &segments);
+                if (!st.ok()) {
+                    return st;
+                }
+
+                // Step 4: Calculate delete bitmap
+                st = BaseTablet::calc_delete_bitmap(
+                        _context.tablet, rowset_ptr, segments, specified_rowsets,
+                        _context.mow_context->delete_bitmap, _context.mow_context->max_version,
+                        nullptr, nullptr, nullptr);
+                if (!st.ok()) {
+                    return st;
+                }
+
+                size_t total_rows =
+                        std::accumulate(segments.begin(), segments.end(), 0,
+                                        [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
+                                            return sum += s->num_rows();
+                                        });
+                LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: "
+                          << _context.tablet->tablet_id()
+                          << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
+                          << ", cur max_version: " << _context.mow_context->max_version
+                          << ", transaction_id: " << _context.mow_context->txn_id
+                          << ", delete_bitmap_count: "
+                          << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
+                          << ", delete_bitmap_cardinality: "
+                          << _context.mow_context->delete_bitmap->cardinality()
+                          << ", cost: " << watch.get_elapse_time_us()
+                          << "(us), total rows: " << total_rows;
+                return Status::OK();
+            });
 }
 
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -426,8 +481,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
                 auto dst_seg_id = _num_segcompacted.load();
                 RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
                 if (_segcompaction_worker->need_convert_delete_bitmap()) {
-                    RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
-                            segment, _context.mow_context->delete_bitmap, segid, dst_seg_id));
+                    _segcompaction_worker->convert_segment_delete_bitmap(
+                            _context.mow_context->delete_bitmap, segid, dst_seg_id);
                 }
                 continue;
             } else {
@@ -455,12 +510,10 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         VLOG_DEBUG << "only one candidate segment";
         auto src_seg_id = _segcompacted_point.load();
         auto dst_seg_id = _num_segcompacted.load();
-        segment_v2::SegmentSharedPtr segment;
-        RETURN_IF_ERROR(_load_noncompacted_segment(segment, src_seg_id));
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
-                    segment, _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id));
+            _segcompaction_worker->convert_segment_delete_bitmap(
+                    _context.mow_context->delete_bitmap, src_seg_id, dst_seg_id);
         }
         segments->clear();
         return Status::OK();
@@ -488,6 +541,7 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
                 "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
                 errno);
     }
+    RETURN_IF_ERROR(_remove_segment_footer_cache(_num_segcompacted, dst_seg_path));
 
     // rename inverted index files
     RETURN_IF_ERROR(_rename_compacted_indices(begin, end, 0));
@@ -531,10 +585,40 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint32_t seg_id) {
                 "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
                 errno);
     }
+
+    RETURN_IF_ERROR(_remove_segment_footer_cache(_num_segcompacted, dst_seg_path));
     // rename remaining inverted index files
     RETURN_IF_ERROR(_rename_compacted_indices(-1, -1, seg_id));
 
     ++_num_segcompacted;
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_remove_segment_footer_cache(const uint32_t seg_id,
+                                                      const std::string& segment_path) {
+    auto* footer_page_cache = ExecEnv::GetInstance()->get_storage_page_cache();
+    if (!footer_page_cache) {
+        return Status::OK();
+    }
+
+    auto fs = _rowset_meta->fs();
+    bool exists = false;
+    RETURN_IF_ERROR(fs->exists(segment_path, &exists));
+    if (exists) {
+        io::FileReaderSPtr file_reader;
+        io::FileReaderOptions reader_options {
+                .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                        : io::FileCachePolicy::NO_CACHE,
+                .is_doris_table = true,
+                .cache_base_path = "",
+                .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
+                .tablet_id = _rowset_meta->tablet_id(),
+        };
+        RETURN_IF_ERROR(fs->open_file(segment_path, &file_reader, &reader_options));
+        DCHECK(file_reader != nullptr);
+        auto cache_key = segment_v2::Segment::get_segment_footer_cache_key(file_reader);
+        footer_page_cache->erase(cache_key, segment_v2::PageTypePB::INDEX_PAGE);
+    }
     return Status::OK();
 }
 
@@ -659,12 +743,10 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     VLOG_DEBUG << "segcompaction last few segments";
     for (int32_t segid = _segcompacted_point; segid < _num_segment; segid++) {
         auto dst_segid = _num_segcompacted.load();
-        segment_v2::SegmentSharedPtr segment;
-        RETURN_IF_ERROR(_load_noncompacted_segment(segment, segid));
         RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         if (_segcompaction_worker->need_convert_delete_bitmap()) {
-            RETURN_IF_ERROR(_segcompaction_worker->convert_segment_delete_bitmap(
-                    segment, _context.mow_context->delete_bitmap, segid, dst_segid));
+            _segcompaction_worker->convert_segment_delete_bitmap(
+                    _context.mow_context->delete_bitmap, segid, dst_segid);
         }
     }
     return Status::OK();
@@ -698,6 +780,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+    rowset->get_num_segment_rows(&_segment_num_rows);
     _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
 
     // TODO update zonemap
@@ -877,6 +960,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
+    std::vector<uint32_t> segment_rows;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
@@ -884,14 +968,23 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+            // segcompaction don't modify _segment_num_rows, so we need to get segment rows from _segid_statistics_map for load
+            segment_rows.push_back(cast_set<uint32_t>(itr.second.row_num));
         }
     }
+    if (segment_rows.empty()) {
+        // vertical compaction and linked schema change will not record segment statistics,
+        // it will record segment rows in _segment_num_rows
+        RETURN_IF_ERROR(get_segment_num_rows(&segment_rows));
+    }
+
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
     }
     if (_segments_key_bounds_truncated.has_value()) {
         rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
     }
+    rowset_meta->set_num_segment_rows(segment_rows);
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
     // for mow table with cluster keys, the overlap is used for cluster keys,
@@ -912,6 +1005,13 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
                     "is: {}, _num_seg is: {}",
                     segments_encoded_key_bounds_size, segment_num);
         }
+        if (segment_rows.size() != segment_num) {
+            return Status::InternalError(
+                    "segment_rows size should equal to _num_seg, segment_rows size is: {}, "
+                    "_num_seg is {}, tablet={}, rowset={}, txn={}",
+                    segment_rows.size(), segment_num, _context.tablet_id,
+                    _context.rowset_id.to_string(), _context.txn_id);
+        }
     }
 
     rowset_meta->set_num_segments(segment_num);
@@ -924,7 +1024,6 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));
-
     return Status::OK();
 }
 
@@ -1027,7 +1126,8 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
     if (auto& idx_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
         idx_file_writer != nullptr) {
-        RETURN_IF_ERROR(idx_file_writer->close());
+        RETURN_IF_ERROR(idx_file_writer->begin_close());
+        RETURN_IF_ERROR(idx_file_writer->finish_close());
     }
     _segcompaction_worker->get_inverted_index_file_writer().reset(index_file_writer.release());
     return Status::OK();
@@ -1086,22 +1186,6 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
     }
 
     if (_context.mow_context != nullptr) {
-        // ensure that the segment file writing is complete
-        auto* file_writer = _seg_files.get(segment_id);
-        if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
-            MonotonicStopWatch close_timer;
-            close_timer.start();
-            RETURN_IF_ERROR(file_writer->close());
-            close_timer.stop();
-
-            auto close_time_ms = close_timer.elapsed_time_milliseconds();
-            if (close_time_ms > 1000) {
-                LOG(INFO) << "file_writer->close() took " << close_time_ms
-                          << "ms for segment_id=" << segment_id
-                          << ", tablet_id=" << _context.tablet_id
-                          << ", rowset_id=" << _context.rowset_id;
-            }
-        }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }
     return Status::OK();

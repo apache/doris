@@ -153,7 +153,9 @@ public:
         // Finish and close
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -215,7 +217,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -272,7 +276,9 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -2666,7 +2672,9 @@ public:
 
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -3070,7 +3078,9 @@ public:
                 {"c_largeint", FieldType::OLAP_FIELD_TYPE_LARGEINT, 16, false},
                 {"c_char", FieldType::OLAP_FIELD_TYPE_CHAR, 10, false},
                 {"c_datev2", FieldType::OLAP_FIELD_TYPE_DATEV2, 4, false},
-                {"c_datetimev2", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 8, false}};
+                {"c_datetimev2", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 8, false},
+                {"c_timestamptz", FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, 8, false},
+        };
 
         for (size_t i = 0; i < columns.size(); ++i) {
             TabletColumn column;
@@ -3134,7 +3144,9 @@ public:
 
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 
@@ -3218,6 +3230,51 @@ public:
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(bitmap->cardinality(), 1);
+        }
+
+        // Test TIMESTAMPTZ type (to cover TYPE_TIMESTAMPTZ case)
+        {
+            std::string_view rowset_id = "test_timestamptz_type";
+            int seg_id = 8;
+            std::vector<uint64_t> values = {20240201120000ULL, 20240201130000ULL,
+                                            20240201140000ULL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 14, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            std::vector<std::pair<InvertedIndexQueryType, uint64_t>> test_cases = {
+                    {InvertedIndexQueryType::EQUAL_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::LESS_THAN_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::LESS_EQUAL_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::GREATER_THAN_QUERY, 20240201130000ULL},
+                    {InvertedIndexQueryType::GREATER_EQUAL_QUERY, 20240201130000ULL}};
+
+            for (auto& test_case : test_cases) {
+                std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+                auto status = bkd_reader->query(context, "c_timestamptz", &test_case.second,
+                                                test_case.first, bitmap);
+                EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
+
+                if (test_case.first == InvertedIndexQueryType::EQUAL_QUERY) {
+                    EXPECT_EQ(bitmap->cardinality(), 1)
+                            << "Should find exactly one document for value 42";
+                }
+            }
+
+            for (auto& test_case : test_cases) {
+                size_t count = 0;
+                auto status = bkd_reader->try_query(context, "c_timestamptz", &test_case.second,
+                                                    test_case.first, &count);
+                EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
+            }
         }
 
         // Test DOUBLE type
@@ -3480,6 +3537,31 @@ public:
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
+
+        // Test TIMESTAMPTZ type (to cover TYPE_TIMESTAMPTZ case)
+        {
+            std::string_view rowset_id = "test_timestamptz_type";
+            int seg_id = 8;
+            std::vector<uint64_t> values = {20240201120000ULL, 20240201130000ULL,
+                                            20240201140000ULL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 14, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            uint64_t query_value = 20240201130000ULL;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_timestamptz", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
     }
 
     // Test unsupported data types to cover default case
@@ -3539,7 +3621,9 @@ public:
         if (status.ok()) {
             status = column_writer->finish();
             EXPECT_TRUE(status.ok()) << status;
-            status = index_file_writer->close();
+            status = index_file_writer->begin_close();
+            EXPECT_TRUE(status.ok()) << status;
+            status = index_file_writer->finish_close();
             EXPECT_TRUE(status.ok()) << status;
 
             // Try to create reader and test unsupported query

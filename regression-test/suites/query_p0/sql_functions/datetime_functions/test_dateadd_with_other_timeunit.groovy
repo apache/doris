@@ -23,7 +23,7 @@ suite("test_dateadd_with_other_timeunit") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                test_datetime datetime(4) NULL COMMENT "",
+                test_datetime datetime(6) NULL COMMENT "",
                 test_date date NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(test_datetime)
@@ -35,7 +35,7 @@ suite("test_dateadd_with_other_timeunit") {
                 "storage_format" = "V2"
             )
         """
-    sql """ insert into ${tableName} values ("2025-10-29 10:10:10", "2025-10-29"), ("2025-10-24 01:02:03.4567", "2025-10-24"); """
+    sql """ insert into ${tableName} values ("2025-10-29 10:10:10", "2025-10-29"), ("2025-10-24 01:02:03.123456", "2025-10-24"); """
     
     // DAY_SECOND
     testFoldConst """ select date_add("2025-10-29 10:10:10", INTERVAL "1 1:1:1" DAY_SECOND); """
@@ -231,6 +231,67 @@ suite("test_dateadd_with_other_timeunit") {
 
         sql """ select date_add(test_datetime, INTERVAL '1:xx' MINUTE_SECOND) result from ${tableName}; """
         exception "Invalid seconds format"
+    }
+
+    // SECOND_MICROSECOND
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "1.1" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "-1.1" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "1.12" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "1.-12" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "-1.12" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "-1.-12" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "-1.12345678" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29 10:10:10.123456", INTERVAL "-1.12345678" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1.1" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1.-1" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1.12" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "1.-12" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1.1" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1.-1" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1.12" SECOND_MICROSECOND); """
+    testFoldConst """ select date_add("2025-10-29", INTERVAL "-1.-123443" SECOND_MICROSECOND); """
+
+    qt_sql """ select date_add(test_datetime, INTERVAL "1.1" SECOND_MICROSECOND) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL "1.123423432" SECOND_MICROSECOND) result from ${tableName}; """
+
+    qt_sql """ select date_add(test_date, INTERVAL "-1.1" SECOND_MICROSECOND) result from ${tableName}; """
+    qt_sql """ select date_add(test_date, INTERVAL "-1.-11233213123" SECOND_MICROSECOND) result from ${tableName}; """
+
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1.1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1.-1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1.13231" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "1.-13231" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1.1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1.-1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1.1234567" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29 10:10:10", INTERVAL "-1.-1234567" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1.1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1.-1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1.12" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "1.-12" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1.1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1.-1" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1.1234567" SECOND_MICROSECOND); """
+    qt_sql """ select date_add("2025-10-29", INTERVAL "-1.-1234567" SECOND_MICROSECOND); """
+
+    test {
+        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1' SECOND_MICROSECOND) ; """
+        exception "Invalid time format"
+
+        sql """ select date_add("2025-10-29 10:10:10", INTERVAL 'xx.10' SECOND_MICROSECOND) ; """
+        exception "Invalid time format"
+
+        sql """ select date_add("2025-10-29 10:10:10", INTERVAL '1.xx' SECOND_MICROSECOND) ; """
+        exception "Invalid time format"
+
+        sql """ select date_add(test_datetime, INTERVAL '1' SECOND_MICROSECOND) result from ${tableName}; """
+        exception "Invalid time format"
+
+        sql """ select date_add(test_datetime, INTERVAL 'xx.10' SECOND_MICROSECOND) result from ${tableName}; """
+        exception "Invalid seconds format"
+
+        sql """ select date_add(test_datetime, INTERVAL '1.xx' SECOND_MICROSECOND) result from ${tableName}; """
+        exception "Invalid microseconds format"
     }
 
 }

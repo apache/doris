@@ -52,9 +52,8 @@ import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.planner.ColumnBound;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.planner.ListPartitionPrunerV2;
-import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -66,10 +65,7 @@ import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-import com.google.common.collect.RangeMap;
 import com.google.common.collect.Streams;
-import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.fs.BlockLocation;
@@ -251,7 +247,6 @@ public class HiveMetaStoreCache {
         }
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
         BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
-        Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         for (String partitionName : partitionNames) {
             long partitionId = Util.genIdByName(catalog.getName(), nameMapping.getLocalDbName(),
                     nameMapping.getLocalTblName(), partitionName);
@@ -260,23 +255,8 @@ public class HiveMetaStoreCache {
             partitionNameToIdMap.put(partitionName, partitionId);
         }
 
-        Map<UniqueId, Range<PartitionKey>> uidToPartitionRange = null;
-        Map<Range<PartitionKey>, UniqueId> rangeToId = null;
-        RangeMap<ColumnBound, UniqueId> singleColumnRangeMap = null;
-        Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap = null;
-        if (key.types.size() > 1) {
-            // uidToPartitionRange and rangeToId are only used for multi-column partition
-            uidToPartitionRange = ListPartitionPrunerV2.genUidToPartitionRange(idToPartitionItem, idToUniqueIdsMap);
-            rangeToId = ListPartitionPrunerV2.genRangeToId(uidToPartitionRange);
-        } else {
-            Preconditions.checkState(key.types.size() == 1, key.types);
-            // singleColumnRangeMap is only used for single-column partition
-            singleColumnRangeMap = ListPartitionPrunerV2.genSingleColumnRangeMap(idToPartitionItem, idToUniqueIdsMap);
-            singleUidToColumnRangeMap = ListPartitionPrunerV2.genSingleUidToColumnRange(singleColumnRangeMap);
-        }
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-        return new HivePartitionValues(idToPartitionItem, uidToPartitionRange, rangeToId, singleColumnRangeMap,
-                partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
+        return new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap);
     }
 
     private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
@@ -573,15 +553,15 @@ public class HiveMetaStoreCache {
      *
      * @param table The Hive table whose partitions were modified
      * @param partitionUpdates List of partition updates from BE
+     * @param modifiedPartNames Output list to collect names of modified partitions
+     * @param newPartNames Output list to collect names of new partitions
      */
     public void refreshAffectedPartitions(HMSExternalTable table,
-            List<org.apache.doris.thrift.THivePartitionUpdate> partitionUpdates) {
+            List<org.apache.doris.thrift.THivePartitionUpdate> partitionUpdates,
+            List<String> modifiedPartNames, List<String> newPartNames) {
         if (partitionUpdates == null || partitionUpdates.isEmpty()) {
             return;
         }
-
-        List<String> modifiedPartitionNames = new ArrayList<>();
-        List<String> newPartitionNames = new ArrayList<>();
 
         for (org.apache.doris.thrift.THivePartitionUpdate update : partitionUpdates) {
             String partitionName = update.getName();
@@ -593,10 +573,10 @@ public class HiveMetaStoreCache {
             switch (update.getUpdateMode()) {
                 case APPEND:
                 case OVERWRITE:
-                    modifiedPartitionNames.add(partitionName);
+                    modifiedPartNames.add(partitionName);
                     break;
                 case NEW:
-                    newPartitionNames.add(partitionName);
+                    newPartNames.add(partitionName);
                     break;
                 default:
                     LOG.warn("Unknown update mode {} for partition {}",
@@ -605,20 +585,37 @@ public class HiveMetaStoreCache {
             }
         }
 
+        refreshAffectedPartitionsCache(table, modifiedPartNames, newPartNames);
+    }
+
+    public void refreshAffectedPartitionsCache(HMSExternalTable table,
+            List<String> modifiedPartNames, List<String> newPartNames) {
+
         // Invalidate cache for modified partitions (both partition cache and file cache)
-        for (String partitionName : modifiedPartitionNames) {
+        for (String partitionName : modifiedPartNames) {
             invalidatePartitionCache(table, partitionName);
         }
-
+        // Merge modifiedPartNames and newPartNames
+        // Case:
+        // 1. hive, insert into a new partition p_new
+        // 2. doris-observer, insert into same partition p_new
+        //      1. forward insert command to Master
+        //      2. Master FE will refresh its cache and get p_new into its partition values cache
+        //      3. Insert finished and Master write edit log, but p_new is recorded as MODIFIED not NEW.
+        //          (See refreshAffectedPartitions() methods)
+        //      4. Observer FE receive edit log and refresh cache, if we don't merge them,
+        //          it will miss adding p_new to its partition values cache.
+        List<String> mergedPartNames = Lists.newArrayList(modifiedPartNames);
+        mergedPartNames.addAll(newPartNames);
         // Add new partitions to partition values cache
-        if (!newPartitionNames.isEmpty()) {
-            addPartitionsCache(table.getOrBuildNameMapping(), newPartitionNames,
+        if (!mergedPartNames.isEmpty()) {
+            addPartitionsCache(table.getOrBuildNameMapping(), mergedPartNames,
                     table.getPartitionColumnTypes(Optional.empty()));
         }
 
         // Log summary
         LOG.info("Refreshed cache for table {}: {} modified partitions, {} new partitions",
-                table.getName(), modifiedPartitionNames.size(), newPartitionNames.size());
+                table.getName(), modifiedPartNames.size(), newPartNames.size());
     }
 
     public void invalidateDbCache(String dbName) {
@@ -655,7 +652,6 @@ public class HiveMetaStoreCache {
         HivePartitionValues copy = partitionValues.copy();
         Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
         Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
-        Map<Long, List<UniqueId>> idToUniqueIdsMap = copy.getIdToUniqueIdsMap();
         Map<Long, PartitionItem> idToPartitionItem = new HashMap<>();
         String localDbName = nameMapping.getLocalDbName();
         String localTblName = nameMapping.getLocalTblName();
@@ -673,28 +669,8 @@ public class HiveMetaStoreCache {
         Map<Long, List<String>> partitionValuesMapBefore = copy.getPartitionValuesMap();
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
         partitionValuesMapBefore.putAll(partitionValuesMap);
-        if (key.types.size() > 1) {
-            Map<UniqueId, Range<PartitionKey>> uidToPartitionRangeBefore = copy.getUidToPartitionRange();
-            // uidToPartitionRange and rangeToId are only used for multi-column partition
-            Map<UniqueId, Range<PartitionKey>> uidToPartitionRange = ListPartitionPrunerV2
-                    .genUidToPartitionRange(idToPartitionItem, idToUniqueIdsMap);
-            uidToPartitionRangeBefore.putAll(uidToPartitionRange);
-            Map<Range<PartitionKey>, UniqueId> rangeToIdBefore = copy.getRangeToId();
-            Map<Range<PartitionKey>, UniqueId> rangeToId = ListPartitionPrunerV2.genRangeToId(uidToPartitionRange);
-            rangeToIdBefore.putAll(rangeToId);
-        } else {
-            Preconditions.checkState(key.types.size() == 1, key.types);
-            // singleColumnRangeMap is only used for single-column partition
-            RangeMap<ColumnBound, UniqueId> singleColumnRangeMapBefore = copy.getSingleColumnRangeMap();
-            RangeMap<ColumnBound, UniqueId> singleColumnRangeMap = ListPartitionPrunerV2
-                    .genSingleColumnRangeMap(idToPartitionItem, idToUniqueIdsMap);
-            singleColumnRangeMapBefore.putAll(singleColumnRangeMap);
-            Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMapBefore = copy
-                    .getSingleUidToColumnRangeMap();
-            Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap = ListPartitionPrunerV2
-                    .genSingleUidToColumnRange(singleColumnRangeMap);
-            singleUidToColumnRangeMapBefore.putAll(singleUidToColumnRangeMap);
-        }
+        // Rebuild sorted partition ranges after adding partitions
+        copy.rebuildSortedPartitionRanges();
         HivePartitionValues partitionValuesCur = partitionValuesCache.getIfPresent(key);
         if (partitionValuesCur == partitionValues) {
             partitionValuesCache.put(key, copy);
@@ -712,11 +688,6 @@ public class HiveMetaStoreCache {
         HivePartitionValues copy = partitionValues.copy();
         Map<String, Long> partitionNameToIdMapBefore = copy.getPartitionNameToIdMap();
         Map<Long, PartitionItem> idToPartitionItemBefore = copy.getIdToPartitionItem();
-        Map<Long, List<UniqueId>> idToUniqueIdsMapBefore = copy.getIdToUniqueIdsMap();
-        Map<UniqueId, Range<PartitionKey>> uidToPartitionRangeBefore = copy.getUidToPartitionRange();
-        Map<Range<PartitionKey>, UniqueId> rangeToIdBefore = copy.getRangeToId();
-        RangeMap<ColumnBound, UniqueId> singleColumnRangeMapBefore = copy.getSingleColumnRangeMap();
-        Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMapBefore = copy.getSingleUidToColumnRangeMap();
         Map<Long, List<String>> partitionValuesMap = copy.getPartitionValuesMap();
         for (String partitionName : partitionNames) {
             if (!partitionNameToIdMapBefore.containsKey(partitionName)) {
@@ -727,27 +698,13 @@ public class HiveMetaStoreCache {
             Long partitionId = partitionNameToIdMapBefore.remove(partitionName);
             idToPartitionItemBefore.remove(partitionId);
             partitionValuesMap.remove(partitionId);
-            List<UniqueId> uniqueIds = idToUniqueIdsMapBefore.remove(partitionId);
-            for (UniqueId uniqueId : uniqueIds) {
-                if (uidToPartitionRangeBefore != null) {
-                    Range<PartitionKey> range = uidToPartitionRangeBefore.remove(uniqueId);
-                    if (range != null) {
-                        rangeToIdBefore.remove(range);
-                    }
-                }
-
-                if (singleUidToColumnRangeMapBefore != null) {
-                    Range<ColumnBound> range = singleUidToColumnRangeMapBefore.remove(uniqueId);
-                    if (range != null) {
-                        singleColumnRangeMapBefore.remove(range);
-                    }
-                }
-            }
 
             if (invalidPartitionCache) {
                 invalidatePartitionCache(dorisTable, partitionName);
             }
         }
+        // Rebuild sorted partition ranges after dropping partitions
+        copy.rebuildSortedPartitionRanges();
         HivePartitionValues partitionValuesCur = partitionValuesCache.getIfPresent(key);
         if (partitionValuesCur == partitionValues) {
             partitionValuesCache.put(key, copy);
@@ -927,7 +884,7 @@ public class HiveMetaStoreCache {
                 return dummyKey == ((FileCacheKey) obj).dummyKey;
             }
             return location.equals(((FileCacheKey) obj).location)
-                && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
+                    && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
         boolean isSameTable(long id) {
@@ -1025,53 +982,68 @@ public class HiveMetaStoreCache {
     @Data
     public static class HivePartitionValues {
         private BiMap<String, Long> partitionNameToIdMap;
-        private Map<Long, List<UniqueId>> idToUniqueIdsMap;
         private Map<Long, PartitionItem> idToPartitionItem;
         private Map<Long, List<String>> partitionValuesMap;
-        //multi pair
-        private Map<UniqueId, Range<PartitionKey>> uidToPartitionRange;
-        private Map<Range<PartitionKey>, UniqueId> rangeToId;
-        //single pair
-        private RangeMap<ColumnBound, UniqueId> singleColumnRangeMap;
-        private Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap;
+
+        // Sorted partition ranges for binary search filtering.
+        // Built at construction time, shares the same lifecycle with HivePartitionValues.
+        private SortedPartitionRanges<String> sortedPartitionRanges;
 
         public HivePartitionValues() {
         }
 
         public HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
-                Map<UniqueId, Range<PartitionKey>> uidToPartitionRange,
-                Map<Range<PartitionKey>, UniqueId> rangeToId,
-                RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
                 BiMap<String, Long> partitionNameToIdMap,
-                Map<Long, List<UniqueId>> idToUniqueIdsMap,
-                Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap,
                 Map<Long, List<String>> partitionValuesMap) {
             this.idToPartitionItem = idToPartitionItem;
-            this.uidToPartitionRange = uidToPartitionRange;
-            this.rangeToId = rangeToId;
-            this.singleColumnRangeMap = singleColumnRangeMap;
             this.partitionNameToIdMap = partitionNameToIdMap;
-            this.idToUniqueIdsMap = idToUniqueIdsMap;
-            this.singleUidToColumnRangeMap = singleUidToColumnRangeMap;
             this.partitionValuesMap = partitionValuesMap;
+            this.sortedPartitionRanges = buildSortedPartitionRanges();
         }
 
+        /**
+         * Create a copy for incremental updates (add/drop partitions).
+         * The sortedPartitionRanges will be rebuilt after the caller modifies the partition data.
+         */
         public HivePartitionValues copy() {
             HivePartitionValues copy = new HivePartitionValues();
             copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap));
-            copy.setIdToUniqueIdsMap(idToUniqueIdsMap == null ? null : Maps.newHashMap(idToUniqueIdsMap));
             copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
             copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));
-            copy.setUidToPartitionRange(uidToPartitionRange == null ? null : Maps.newHashMap(uidToPartitionRange));
-            copy.setRangeToId(rangeToId == null ? null : Maps.newHashMap(rangeToId));
-            copy.setSingleUidToColumnRangeMap(
-                    singleUidToColumnRangeMap == null ? null : Maps.newHashMap(singleUidToColumnRangeMap));
-            if (singleColumnRangeMap != null) {
-                RangeMap<ColumnBound, UniqueId> copySingleColumnRangeMap = TreeRangeMap.create();
-                copySingleColumnRangeMap.putAll(singleColumnRangeMap);
-                copy.setSingleColumnRangeMap(copySingleColumnRangeMap);
-            }
+            // sortedPartitionRanges is not copied here, caller should call rebuildSortedPartitionRanges()
+            // after modifying partition data
             return copy;
+        }
+
+        /**
+         * Rebuild sorted partition ranges after incremental updates.
+         * Should be called after add/drop partitions.
+         */
+        public void rebuildSortedPartitionRanges() {
+            this.sortedPartitionRanges = buildSortedPartitionRanges();
+        }
+
+        /**
+         * Get sorted partition ranges for binary search filtering.
+         */
+        public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {
+            return Optional.ofNullable(sortedPartitionRanges);
+        }
+
+        private SortedPartitionRanges<String> buildSortedPartitionRanges() {
+            if (partitionNameToIdMap == null || partitionNameToIdMap.isEmpty()) {
+                return null;
+            }
+
+            // Build name to partition item map for SortedPartitionRanges.buildFrom
+            BiMap<Long, String> idToName = partitionNameToIdMap.inverse();
+            Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
+            for (Map.Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+                String partitionName = idToName.get(entry.getKey());
+                nameToPartitionItem.put(partitionName, entry.getValue());
+            }
+
+            return SortedPartitionRanges.build(nameToPartitionItem);
         }
     }
 

@@ -28,41 +28,55 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+constexpr PrimitiveType result_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT || T == TYPE_BIGINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else if (is_decimalv3(T) && T != TYPE_DECIMAL256) {
+        return TYPE_DECIMAL128I;
+    } else {
+        return T;
+    }
+}
+
+// TODO: use result type got from FE plan
 template <PrimitiveType T>
 struct Avg {
-    using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType;
-    using Function = AggregateFunctionAvg<
-            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType>>;
+    static constexpr PrimitiveType ResultPType = T == TYPE_DECIMALV2 ? T : TYPE_DOUBLE;
+    using Function = AggregateFunctionAvg<T, ResultPType, AggregateFunctionAvgData<result_type(T)>>;
 };
 
 template <PrimitiveType T>
 using AggregateFuncAvg = typename Avg<T>::Function;
 
-template <PrimitiveType T>
-struct AvgDecimal256 {
-    using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType256;
-    using Function = AggregateFunctionAvg<
-            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType256>>;
+// use result type got from FE plan
+template <PrimitiveType InputType, PrimitiveType ResultType>
+struct AvgDecimalV3 {
+    using Function =
+            AggregateFunctionAvg<InputType, ResultType, AggregateFunctionAvgData<ResultType>>;
 };
 
-template <PrimitiveType T>
-using AggregateFuncAvgDecimal256 = typename AvgDecimal256<T>::Function;
+template <PrimitiveType InputType, PrimitiveType ResultType>
+using AggregateFuncAvgDecimalV3 = typename AvgDecimalV3<InputType, ResultType>::Function;
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
+                                           const DataTypePtr& result_type,
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
-        if (attr.enable_decimal256 && is_decimal(types[0]->get_primitive_type())) {
-            return creator_with_type_list<
-                    TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
-                    TYPE_DECIMAL256>::creator<AggregateFuncAvgDecimal256>(name, types,
-                                                                          result_is_nullable, attr);
+        if (is_decimalv3(types[0]->get_primitive_type())) {
+            return creator_with_type_list<TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+                                          TYPE_DECIMAL256>::
+                    creator_with_result_type<AggregateFuncAvgDecimalV3>(name, types, result_type,
+                                                                        result_is_nullable, attr);
         } else {
             return creator_with_type_list<
                     TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DOUBLE,
-                    TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
-                    TYPE_DECIMALV2>::creator<AggregateFuncAvg>(name, types, result_is_nullable,
-                                                               attr);
+                    TYPE_DECIMALV2>::creator<AggregateFuncAvg>(name, types, result_type,
+                                                               result_is_nullable, attr);
         }
     };
     factory.register_function_both("avg", creator);

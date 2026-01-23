@@ -27,7 +27,6 @@
 #include "common/logging.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
@@ -108,7 +107,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
 
     null_options.need_zone_map = false;
     null_options.need_bloom_filter = false;
-    null_options.need_bitmap_index = false;
+    null_options.encoding_preference = opts.encoding_preference;
 
     TabletColumn null_column =
             TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, null_type, false,
@@ -135,7 +134,7 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
         column_options.meta = opts.meta->mutable_children_columns(i);
         column_options.need_zone_map = false;
         column_options.need_bloom_filter = sub_column.is_bf_column();
-        column_options.need_bitmap_index = sub_column.has_bitmap_index();
+        column_options.encoding_preference = opts.encoding_preference;
         std::unique_ptr<ColumnWriter> sub_column_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(column_options, &sub_column, file_writer, &sub_column_writer));
@@ -163,7 +162,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     item_options.meta = opts.meta->mutable_children_columns(0);
     item_options.need_zone_map = false;
     item_options.need_bloom_filter = item_column.is_bf_column();
-    item_options.need_bitmap_index = item_column.has_bitmap_index();
+    item_options.encoding_preference = opts.encoding_preference;
     std::unique_ptr<ColumnWriter> item_writer;
     RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
 
@@ -183,7 +182,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
-    length_options.need_bitmap_index = false;
+    length_options.encoding_preference = opts.encoding_preference;
 
     TabletColumn length_column =
             TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
@@ -223,7 +222,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
         item_options.meta = opts.meta->mutable_children_columns(i);
         item_options.need_zone_map = false;
         item_options.need_bloom_filter = item_column.is_bf_column();
-        item_options.need_bitmap_index = item_column.has_bitmap_index();
+        item_options.encoding_preference = opts.encoding_preference;
         std::unique_ptr<ColumnWriter> item_writer;
         RETURN_IF_ERROR(
                 ColumnWriter::create(item_options, &item_column, file_writer, &item_writer));
@@ -247,7 +246,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
 
     length_options.need_zone_map = false;
     length_options.need_bloom_filter = false;
-    length_options.need_bitmap_index = false;
+    length_options.encoding_preference = opts.encoding_preference;
 
     TabletColumn length_column =
             TabletColumn(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, length_type,
@@ -295,7 +294,17 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
 Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
                                            const TabletColumn* column, io::FileWriter* file_writer,
                                            std::unique_ptr<ColumnWriter>* writer) {
+    // Variant extracted columns have two kinds of physical writers:
+    // - Doc-value snapshot column (`...__DORIS_VARIANT_DOC_VALUE__...`): use `VariantDocCompactWriter`
+    //   to store the doc snapshot in a compact binary form.
+    // - Regular extracted subcolumns: use `VariantSubcolumnWriter`.
+    // The root VARIANT column itself uses `VariantColumnWriter`.
     if (column->is_extracted_column()) {
+        if (column->name().find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
+            *writer = std::make_unique<VariantDocCompactWriter>(
+                    opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
+            return Status::OK();
+        }
         VLOG_DEBUG << "gen subwriter for " << column->path_info_ptr()->get_path();
         *writer = std::make_unique<VariantSubcolumnWriter>(
                 opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
@@ -433,13 +442,14 @@ Status ScalarColumnWriter::init() {
 
     PageBuilder* page_builder = nullptr;
 
-    RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type(), _opts.meta->encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(get_field()->type(), _opts.meta->encoding(),
+                                      _opts.encoding_preference, &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
     opts.data_page_size = _opts.data_page_size;
     opts.dict_page_size = _opts.dict_page_size;
+    opts.encoding_preference = _opts.encoding_preference;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
@@ -462,10 +472,6 @@ Status ScalarColumnWriter::init() {
     }
     if (_opts.need_zone_map) {
         RETURN_IF_ERROR(ZoneMapIndexWriter::create(get_field(), _zone_map_index_builder));
-    }
-    if (_opts.need_bitmap_index) {
-        RETURN_IF_ERROR(
-                BitmapIndexWriter::create(get_field()->type_info(), &_bitmap_index_builder));
     }
 
     if (_opts.need_inverted_index) {
@@ -528,9 +534,6 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     if (_opts.need_zone_map) {
         _zone_map_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
-    if (_opts.need_bitmap_index) {
-        _bitmap_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
-    }
     if (_opts.need_inverted_index) {
         for (const auto& builder : _inverted_index_builders) {
             RETURN_IF_ERROR(builder->add_nulls(cast_set<uint32_t>(num_rows)));
@@ -563,9 +566,6 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* data,
                                                                  size_t* num_written) {
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
-    if (_opts.need_bitmap_index) {
-        _bitmap_index_builder->add_values(data, *num_written);
-    }
     if (_opts.need_zone_map) {
         _zone_map_index_builder->add_values(data, *num_written);
     }
@@ -603,9 +603,6 @@ uint64_t ScalarColumnWriter::estimate_buffer_size() {
     size += _ordinal_index_builder->size();
     if (_opts.need_zone_map) {
         size += _zone_map_index_builder->size();
-    }
-    if (_opts.need_bitmap_index) {
-        size += _bitmap_index_builder->size();
     }
     if (_opts.need_bloom_filter) {
         size += _bloom_filter_index_builder->size();
@@ -661,13 +658,6 @@ Status ScalarColumnWriter::write_ordinal_index() {
 Status ScalarColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
         return _zone_map_index_builder->finish(_file_writer, _opts.meta->add_indexes());
-    }
-    return Status::OK();
-}
-
-Status ScalarColumnWriter::write_bitmap_index() {
-    if (_opts.need_bitmap_index) {
-        return _bitmap_index_builder->finish(_file_writer, _opts.meta->add_indexes());
     }
     return Status::OK();
 }
@@ -1261,9 +1251,6 @@ Status VariantColumnWriter::write_zone_map() {
     return _impl->write_zone_map();
 }
 
-Status VariantColumnWriter::write_bitmap_index() {
-    return _impl->write_bitmap_index();
-}
 Status VariantColumnWriter::write_inverted_index() {
     return _impl->write_inverted_index();
 }

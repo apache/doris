@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
@@ -165,7 +166,7 @@ void ColumnArray::get(size_t n, Field& res) const {
                                size, n, max_array_size_as_field);
 
     res = Field::create_field<TYPE_ARRAY>(Array(size));
-    Array& res_arr = doris::vectorized::get<Array&>(res);
+    Array& res_arr = res.get<TYPE_ARRAY>();
 
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
 }
@@ -240,7 +241,7 @@ struct ColumnArray::less {
 };
 
 void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                  IColumn::Permutation& res) const {
+                                  HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -248,9 +249,9 @@ void ColumnArray::get_permutation(bool reverse, size_t limit, int nan_direction_
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), ColumnArray::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnArray::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), ColumnArray::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnArray::less<true>(*this, nan_direction_hint));
     }
 }
 
@@ -427,13 +428,57 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
     }
 }
 
+void ColumnArray::update_crc32c_batch(uint32_t* __restrict hashes,
+                                      const uint8_t* __restrict null_map) const {
+    auto s = size();
+    if (null_map) {
+        for (size_t i = 0; i < s; ++i) {
+            if (null_map[i] == 0) {
+                update_crc32c_single(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_crc32c_single(i, i + 1, hashes[i], nullptr);
+        }
+    }
+}
+
+void ColumnArray::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                       const uint8_t* __restrict null_map) const {
+    const auto& offsets_column = get_offsets();
+    if (null_map) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+                if (elem_size == 0) {
+                    hash = HashUtil::crc32c_null(hash);
+                } else {
+                    get_data().update_crc32c_single(offsets_column[i - 1], offsets_column[i], hash,
+                                                    nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t elem_size = offsets_column[i] - offsets_column[i - 1];
+            if (elem_size == 0) {
+                hash = HashUtil::crc32c_null(hash);
+            } else {
+                get_data().update_crc32c_single(offsets_column[i - 1], offsets_column[i], hash,
+                                                nullptr);
+            }
+        }
+    }
+}
+
 void ColumnArray::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_ARRAY);
     if (x.is_null()) {
         get_data().insert(Field::create_field<TYPE_NULL>(Null()));
         get_offsets().push_back(get_offsets().back() + 1);
     } else {
-        const auto& array = doris::vectorized::get<const Array&>(x);
+        const auto& array = x.get<TYPE_ARRAY>();
         size_t size = array.size();
         for (size_t i = 0; i < size; ++i) {
             get_data().insert(array[i]);
@@ -603,7 +648,7 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
     auto& res_elems = assert_cast<ColumnVector<T>&>(*dst_data).get_data();
     auto& res_offsets = dst_offset->get_data();
 
-    filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, IColumn::Offset64>(
+    filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, IColumn::Offset64>(
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*src_data).get_data(),
             src_offsets->get_data(), res_elems, res_offsets, filt, result_size_hint);
 
@@ -612,7 +657,7 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
 
 template <PrimitiveType T>
 size_t filter_number_inplace(const Filter& filter, IColumn& src_data, ColumnOffsets& src_offsets) {
-    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, Offset64>(
+    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, Offset64>(
             assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(src_data).get_data(),
             src_offsets.get_data(), filter);
 }
@@ -794,6 +839,8 @@ ColumnArrayDataOffsets filter_return_new_dispatch(const Filter& filt, ssize_t re
         return filter_number_return_new<TYPE_DATETIME>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
         return filter_number_return_new<TYPE_DATETIMEV2>(filt, result_size_hint, data, offsets);
+    if (typeid_cast<const ColumnTimeStampTz*>(data.get()))
+        return filter_number_return_new<TYPE_TIMESTAMPTZ>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnTimeV2*>(data.get()))
         return filter_number_return_new<TYPE_TIMEV2>(filt, result_size_hint, data, offsets);
     if (typeid_cast<const ColumnTime*>(data.get()))
@@ -860,6 +907,8 @@ size_t filter_inplace_dispatch(const Filter& filter, IColumn& src_data,
         return filter_number_inplace<TYPE_DATETIME>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnDateTimeV2*>(&src_data))
         return filter_number_inplace<TYPE_DATETIMEV2>(filter, src_data, src_offsets);
+    if (typeid_cast<ColumnTimeStampTz*>(&src_data))
+        return filter_number_inplace<TYPE_TIMESTAMPTZ>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnTimeV2*>(&src_data))
         return filter_number_inplace<TYPE_TIMEV2>(filter, src_data, src_offsets);
     if (typeid_cast<ColumnTime*>(&src_data))

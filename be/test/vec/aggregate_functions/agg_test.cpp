@@ -55,14 +55,14 @@ TEST(AggTest, basic_test) {
     Arena arena;
     auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
+        column_vector_int32->insert(Field::create_field<TYPE_INT>(i));
     }
     // test implement interface
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_sum(factory);
     DataTypePtr data_type(std::make_shared<DataTypeInt32>());
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get("sum", data_types, false, -1);
+    auto agg_function = factory.get("sum", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -95,7 +95,7 @@ TEST(AggTest, topn_test) {
     register_aggregate_function_topn(factory);
     DataTypes data_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
 
-    auto agg_function = factory.get("topn", data_types, false, -1);
+    auto agg_function = factory.get("topn", data_types, nullptr, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -119,20 +119,17 @@ TEST(AggTest, window_function_test) {
     register_aggregate_function_bit(factory);
     DataTypes data_types = {make_nullable(std::make_shared<DataTypeInt8>())};
     bool is_window_function = true;
-    auto agg_function = factory.get("group_bit_or", data_types, true, -1,
-                                    {.enable_decimal256 = false,
-                                     .is_window_function = is_window_function,
-                                     .column_names = {}});
+    auto agg_function = factory.get("group_bit_or", data_types, nullptr, true, -1,
+                                    {.is_window_function = is_window_function, .column_names = {}});
     auto size = agg_function->size_of_data();
     EXPECT_EQ(size, 6);
     size = agg_function->align_of_data();
     EXPECT_EQ(size, 4);
 
     is_window_function = false;
-    auto agg_function2 = factory.get("group_bit_or", data_types, true, -1,
-                                     {.enable_decimal256 = false,
-                                      .is_window_function = is_window_function,
-                                      .column_names = {}});
+    auto agg_function2 =
+            factory.get("group_bit_or", data_types, nullptr, true, -1,
+                        {.is_window_function = is_window_function, .column_names = {}});
     auto size2 = agg_function2->size_of_data();
     EXPECT_EQ(size2, 2);
     size2 = agg_function2->align_of_data();
@@ -146,23 +143,17 @@ TEST(AggTest, window_function_test2) {
     register_aggregate_function_bit(factory);
 
     bool is_window_function = true;
-    auto agg_function_sum = factory.get("sum", {std::make_shared<DataTypeInt32>()}, true, -1,
-                                        {.enable_decimal256 = false,
-                                         .is_window_function = is_window_function,
-                                         .column_names = {}});
+    auto agg_function_sum =
+            factory.get("sum", {std::make_shared<DataTypeInt32>()}, nullptr, true, -1,
+                        {.is_window_function = is_window_function, .column_names = {}});
 
     auto agg_function_group =
-            factory.get("group_bit_or", {make_nullable(std::make_shared<DataTypeInt8>())}, true, -1,
-                        {.enable_decimal256 = false,
-                         .is_window_function = is_window_function,
-                         .column_names = {}});
+            factory.get("group_bit_or", {make_nullable(std::make_shared<DataTypeInt8>())}, nullptr,
+                        true, -1, {.is_window_function = is_window_function, .column_names = {}});
 
     auto agg_function_topn = factory.get(
-            "topn", {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()}, true,
-            -1,
-            {.enable_decimal256 = false,
-             .is_window_function = is_window_function,
-             .column_names = {}});
+            "topn", {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()},
+            nullptr, true, -1, {.is_window_function = is_window_function, .column_names = {}});
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
     _agg_functions.push_back(agg_function_sum);
     _agg_functions.push_back(agg_function_group);
@@ -223,13 +214,18 @@ TEST(AggTest, datetime_min_max_test) {
 
     // Insert DateTime values (stored as Int64)
     // Format: YYYYMMDDHHmmss as Int64
-    std::vector<int64_t> datetime_values = {
-            20230101120000LL, // 2023-01-01 12:00:00
-            20230615093000LL, // 2023-06-15 09:30:00
-            20220315180000LL, // 2022-03-15 18:00:00
-            20240801220000LL, // 2024-08-01 22:00:00
-            20230301060000LL  // 2023-03-01 06:00:00
-    };
+    VecDateTimeValue tmp;
+    std::vector<VecDateTimeValue> datetime_values;
+    tmp.from_date_int64(20230101120000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20230615093000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20220315180000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20240801220000LL);
+    datetime_values.push_back(tmp);
+    tmp.from_date_int64(20230301060000LL);
+    datetime_values.push_back(tmp);
 
     for (auto val : datetime_values) {
         column_datetime->insert_data(reinterpret_cast<const char*>(&val), sizeof(int64_t));
@@ -241,7 +237,7 @@ TEST(AggTest, datetime_min_max_test) {
         register_aggregate_function_minmax(factory);
         DataTypePtr data_type = std::make_shared<DataTypeDateTime>();
         DataTypes data_types = {data_type};
-        auto agg_function = factory.get("min", data_types, false, -1);
+        auto agg_function = factory.get("min", data_types, data_type, false, -1);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
@@ -255,7 +251,7 @@ TEST(AggTest, datetime_min_max_test) {
         // Get result by inserting into a column
         auto result_column = ColumnDateTime::create();
         agg_function->insert_result_into(place, *result_column);
-        int64_t result = result_column->get_element(0);
+        auto result = result_column->get_element(0).to_datetime_int64();
         EXPECT_EQ(result, 20220315180000LL); // Minimum datetime
         agg_function->destroy(place);
     }
@@ -266,7 +262,7 @@ TEST(AggTest, datetime_min_max_test) {
         register_aggregate_function_minmax(factory);
         DataTypePtr data_type = std::make_shared<DataTypeDateTime>();
         DataTypes data_types = {data_type};
-        auto agg_function = factory.get("max", data_types, false, -1);
+        auto agg_function = factory.get("max", data_types, data_type, false, -1);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
@@ -280,7 +276,7 @@ TEST(AggTest, datetime_min_max_test) {
         // Get result by inserting into a column
         auto result_column = ColumnDateTime::create();
         agg_function->insert_result_into(place, *result_column);
-        int64_t result = result_column->get_element(0);
+        auto result = result_column->get_element(0).to_datetime_int64();
         EXPECT_EQ(result, 20240801220000LL); // Maximum datetime
         agg_function->destroy(place);
     }
@@ -301,7 +297,7 @@ TEST(AggTest, date_replace_test) {
     register_aggregate_function_replace_reader_load(factory);
     DataTypePtr data_type = std::make_shared<DataTypeDate>();
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get("replace_load", data_types, false, -1);
+    auto agg_function = factory.get("replace_load", data_types, data_type, false, -1);
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -315,7 +311,7 @@ TEST(AggTest, date_replace_test) {
     // REPLACE should return the last value
     auto result_column = ColumnDate::create();
     agg_function->insert_result_into(place, *result_column);
-    int64_t result = result_column->get_element(0);
+    auto result = binary_cast<VecDateTimeValue, int64_t>(result_column->get_element(0));
     EXPECT_EQ(result, 500LL);
     agg_function->destroy(place);
 }
@@ -345,7 +341,7 @@ TEST(AggTest, datetime_replace_if_not_null_test) {
     register_aggregate_function_replace_reader_load(factory);
     DataTypePtr data_type = make_nullable(std::make_shared<DataTypeDateTime>());
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get("replace_if_not_null_load", data_types, true, -1);
+    auto agg_function = factory.get("replace_if_not_null_load", data_types, data_type, true, -1);
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -366,7 +362,7 @@ TEST(AggTest, datetime_replace_if_not_null_test) {
 
     // Get the nested column and read the value
     const auto& nested_col = assert_cast<const ColumnDateTime&>(result_column->get_nested_column());
-    int64_t result = nested_col.get_element(0);
+    auto result = binary_cast<VecDateTimeValue, int64_t>(nested_col.get_element(0));
     EXPECT_EQ(result, 20230301060000LL); // Last value
     agg_function->destroy(place);
 }

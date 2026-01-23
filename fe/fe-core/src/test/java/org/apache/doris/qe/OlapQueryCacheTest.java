@@ -88,6 +88,7 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 
 public class OlapQueryCacheTest {
@@ -443,7 +444,7 @@ public class OlapQueryCacheTest {
         String originStmt
                 = "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `__count_1` FROM `testDb`.`appevent` WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`";
         View view = new View(30000L, "view1", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("_count_2", ScalarType.BIGINT)
@@ -454,7 +455,7 @@ public class OlapQueryCacheTest {
     private View createEventView2() {
         String originStmt = "SELECT `eventdate` AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`";
         View view = new View(30001L, "view2", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("userid", ScalarType.INT)
@@ -466,7 +467,7 @@ public class OlapQueryCacheTest {
         String originStmt
                 = "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `count(``userid``)` FROM `testDb`.`appevent` WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`";
         View view = new View(30002L, "view3", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("_count_2", ScalarType.BIGINT)
@@ -478,7 +479,7 @@ public class OlapQueryCacheTest {
         String originStmt = "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `__count_1` FROM `testDb`.`view2` "
                 + "WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`";
         View view = new View(30003L, "view4", null);
-        view.setInlineViewDefWithSqlMode(originStmt, 0L);
+        view.setInlineViewDefWithSessionVariables(originStmt, new HashMap<>());
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("_count_2", ScalarType.BIGINT)

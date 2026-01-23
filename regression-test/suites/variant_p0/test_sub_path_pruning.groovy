@@ -17,6 +17,11 @@
 
 suite("variant_sub_path_pruning", "variant_type"){
 
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_max_sparse_column_statistics_size = 10000 """
+    sql """ set default_variant_sparse_hash_shard_count = 0 """
+    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
     sql "DROP TABLE IF EXISTS pruning_test"
 
     sql """

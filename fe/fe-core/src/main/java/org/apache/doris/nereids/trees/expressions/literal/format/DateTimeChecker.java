@@ -86,6 +86,7 @@ public class DateTimeChecker extends FormatChecker {
                             )
                         ),
                         option("NanoSecond", nanoSecond()),
+                        atLeast(0, c -> c == ' '),
                         option("TimeZone", timeZone())
                     )
                );
@@ -95,6 +96,55 @@ public class DateTimeChecker extends FormatChecker {
         str = str.trim();
         StringInspect stringInspect = new StringInspect(str.trim());
         return INSTANCE.check(stringInspect).matched && stringInspect.eos();
+    }
+
+    /** check weather a datetime has timezone part */
+    public static boolean hasTimeZone(String str) {
+        str = str.trim();
+
+        if (!isValidDateTime(str)) {
+            return false;
+        }
+
+        // Find the separator between date and time parts (' ' or 'T')
+        int timeSeparatorIndex = -1;
+        for (int i = 0; i < str.length(); i++) {
+            if (str.charAt(i) == ' ' || str.charAt(i) == 'T') {
+                timeSeparatorIndex = i;
+                break;
+            }
+        }
+
+        int timeEndIndex;
+        if (timeSeparatorIndex != -1) {
+            // Skip time part
+            timeEndIndex = timeSeparatorIndex + 1;
+            while (timeEndIndex < str.length() && (Character.isDigit(str.charAt(timeEndIndex))
+                || str.charAt(timeEndIndex) == ':' || str.charAt(timeEndIndex) == '.'
+                || str.charAt(timeEndIndex) == ' ')) {
+                timeEndIndex++;
+            }
+        } else {
+            // maybe compact mode, like YYDDMMHHMMSS
+            timeEndIndex = 0;
+            while (timeEndIndex < str.length()
+                    && (Character.isDigit(str.charAt(timeEndIndex)) || str.charAt(timeEndIndex) == '.')) {
+                timeEndIndex++;
+            }
+        }
+
+        // The minimum start of offset is 12： `YY-M-DTH:M:S<offset>`
+        if (timeEndIndex >= str.length() || timeEndIndex < 12) {
+            return false;
+        }
+
+        char c = str.charAt(timeEndIndex);
+        if ((c == '+' || c == '-')
+                || (Character.isLetter(c) || c == '/' || c == '_')) {
+            return true;
+        }
+
+        return false;
     }
 
     @Override

@@ -35,6 +35,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.UUID;
 
 public class CreateViewTest {
@@ -222,10 +223,34 @@ public class CreateViewTest {
     @Test
     public void testResetViewDefForRestore() {
         View view = new View();
-        view.setInlineViewDefWithSqlMode("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
-                + "FROM `internal`.`test`.`test`;", 1);
+        view.setInlineViewDefWithSessionVariables("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test`.`test`;", new HashMap<>());
         view.resetViewDefForRestore("test", "test1");
         Assert.assertEquals("SELECT `internal`.`test1`.`test`.`k2` AS `k1`, "
                 + "FROM `internal`.`test1`.`test`;", view.getInlineViewDef());
+    }
+
+    @Test
+    public void testResetViewDefForRestoreWithCrossDbReference() {
+        // Test that cross-database references are preserved
+        View view = new View();
+        // View in db_b references tables from both db_a and db_b
+        view.setInlineViewDefWithSessionVariables(
+                "SELECT t1.k1, t2.k2 "
+                + "FROM `internal`.`db_a`.`table1` t1 "
+                + "JOIN `internal`.`db_b`.`table2` t2 "
+                + "ON t1.id = t2.id;",
+                new HashMap<>());
+
+        // Restore db_b to db_b_new
+        view.resetViewDefForRestore("db_b", "db_b_new");
+
+        // db_a reference should be preserved, only db_b should be changed to db_b_new
+        Assert.assertEquals(
+                "SELECT t1.k1, t2.k2 "
+                + "FROM `internal`.`db_a`.`table1` t1 "
+                + "JOIN `internal`.`db_b_new`.`table2` t2 "
+                + "ON t1.id = t2.id;",
+                view.getInlineViewDef());
     }
 }

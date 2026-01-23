@@ -33,16 +33,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.ArrayList;
 import java.util.Objects;
 
 /**
  * Most predicates with two operands..
  */
 public class BinaryPredicate extends Predicate {
-
-    // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
-    private boolean isInferred = false;
 
     public enum Operator {
         EQ("=", "eq", TExprOpcode.EQ),
@@ -113,6 +109,9 @@ public class BinaryPredicate extends Predicate {
         super();
     }
 
+    /**
+     * NOTICE: only used for ddl and test.
+     */
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
@@ -123,7 +122,7 @@ public class BinaryPredicate extends Predicate {
         children.add(e2);
     }
 
-    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, boolean nullable) {
         super();
         this.op = op;
         this.opcode = op.opcode;
@@ -132,14 +131,15 @@ public class BinaryPredicate extends Predicate {
         Preconditions.checkNotNull(e2);
         children.add(e2);
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
-                false, true, nullableMode);
+                false, true,
+                op == Operator.GT.EQ_FOR_NULL ? NullableMode.ALWAYS_NOT_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
+        this.nullable = nullable;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
         super(other);
         op = other.op;
         slotIsleft = other.slotIsleft;
-        isInferred = other.isInferred;
     }
 
     @Override
@@ -190,33 +190,12 @@ public class BinaryPredicate extends Predicate {
         msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
     }
 
-    public Expr invokeFunctionExpr(ArrayList<Expr> partitionExprs, Expr paramExpr) {
-        for (Expr partExpr : partitionExprs) {
-            if (partExpr instanceof FunctionCallExpr) {
-                FunctionCallExpr function = (FunctionCallExpr) partExpr.clone();
-                ArrayList<Expr> children = function.getChildren();
-                for (int i = 0; i < children.size(); ++i) {
-                    if (children.get(i) instanceof SlotRef) {
-                        // when create partition have check only support one slotRef
-                        function.setChild(i, paramExpr);
-                        return ExpressionFunctions.INSTANCE.evalExpr(function);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
     /**
      * If predicate is of the form "<slotref> <op> <expr>", returns expr,
      * otherwise returns null. Slotref may be wrapped in a CastExpr.
-     * now, when support auto create partition by function(column), so need check the "<function(column)> <op> <expr>"
-     * because import data use function result to create partition,
-     * so when have a SQL of query, prune partition also need use this function
      */
-    public Expr getSlotBinding(SlotId id, ArrayList<Expr> partitionExprs) {
+    public Expr getSlotBinding(SlotId id) {
         SlotRef slotRef = null;
-        boolean isFunctionCallExpr = false;
         // check left operand
         if (getChild(0) instanceof SlotRef) {
             slotRef = (SlotRef) getChild(0);
@@ -224,25 +203,10 @@ public class BinaryPredicate extends Predicate {
             if (((CastExpr) getChild(0)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(0).getChild(0);
             }
-        } else if (getChild(0) instanceof FunctionCallExpr) {
-            FunctionCallExpr left = (FunctionCallExpr) getChild(0);
-            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
-                ArrayList<Expr> children = left.getChildren();
-                for (int i = 0; i < children.size(); ++i) {
-                    if (children.get(i) instanceof SlotRef) {
-                        slotRef = (SlotRef) children.get(i);
-                        isFunctionCallExpr = true;
-                        break;
-                    }
-                }
-            }
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = true;
-            if (isFunctionCallExpr) {
-                return invokeFunctionExpr(partitionExprs, getChild(1));
-            }
             return getChild(1);
         }
 
@@ -253,25 +217,10 @@ public class BinaryPredicate extends Predicate {
             if (((CastExpr) getChild(1)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
-        } else if (getChild(1) instanceof FunctionCallExpr) {
-            FunctionCallExpr left = (FunctionCallExpr) getChild(1);
-            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
-                ArrayList<Expr> children = left.getChildren();
-                for (int i = 0; i < children.size(); ++i) {
-                    if (children.get(i) instanceof SlotRef) {
-                        slotRef = (SlotRef) children.get(i);
-                        isFunctionCallExpr = true;
-                        break;
-                    }
-                }
-            }
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false;
-            if (isFunctionCallExpr) {
-                return invokeFunctionExpr(partitionExprs, getChild(0));
-            }
             return getChild(0);
         }
 
@@ -286,13 +235,5 @@ public class BinaryPredicate extends Predicate {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
-    }
-
-    @Override
-    public boolean isNullable() {
-        if (op == Operator.EQ_FOR_NULL) {
-            return false;
-        }
-        return hasNullableChild();
     }
 }

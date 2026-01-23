@@ -24,14 +24,15 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "udf/udf.h"
 #include "vec/columns/column_array.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -65,7 +66,8 @@ public:
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeString>();
     }
-    void _do_tokenize(const ColumnString& src_column_string, InvertedIndexCtx& inverted_index_ctx,
+    void _do_tokenize(const ColumnString& src_column_string,
+                      const InvertedIndexAnalyzerCtx& analyzer_ctx, bool support_phrase,
                       const MutableColumnPtr& dest_column_ptr) const;
     void _do_tokenize_none(const ColumnString& src_column_string,
                            const MutableColumnPtr& dest_column_ptr) const;

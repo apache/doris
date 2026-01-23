@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -232,6 +233,18 @@ public class RestBaseController extends BaseController {
         return !Env.getCurrentEnv().isMaster();
     }
 
+    // NOTE: This function can only be used for AuditlogPlugin stream load for now.
+    // AuditlogPlugin should be re-disigned carefully, and blow method focuses on
+    // temporarily addressing the users' needs for audit logs.
+    // So this function is not widely tested under general scenario
+    protected boolean checkClusterToken(String token) {
+        try {
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
+        } catch (UserException e) {
+            throw new UnauthorizedException(e.getMessage());
+        }
+    }
+
 
     private String getRequestBody(HttpServletRequest request) throws IOException {
         BufferedReader reader = request.getReader();
@@ -253,6 +266,10 @@ public class RestBaseController extends BaseController {
 
             HttpHeaders headers = new HttpHeaders();
             for (String headerName : Collections.list(request.getHeaderNames())) {
+                // remove Content-Length because RestTemplate will recalculate Content-Length for request body
+                if ("Content-Length".equalsIgnoreCase(headerName)) {
+                    continue;
+                }
                 headers.add(headerName, request.getHeader(headerName));
             }
 

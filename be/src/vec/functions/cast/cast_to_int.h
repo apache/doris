@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <cmath>
 #include <type_traits>
 
 #include "cast_to_basic_number_common.h"
@@ -47,6 +46,7 @@ constexpr bool CastToIntMayOverflow =
          (std::is_same_v<ToDataType, DataTypeInt32> || std::is_same_v<ToDataType, DataTypeInt16> ||
           std::is_same_v<ToDataType, DataTypeInt8>));
 
+// from number types and timev2 type to integer types which this cast may overflow -> result type is always nullable.
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeInt<ToDataType> &&
              (IsDataTypeNumber<FromDataType> || std::is_same_v<FromDataType, DataTypeTimeV2>) &&
@@ -67,18 +67,15 @@ public:
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
         auto& vec_to = col_to->get_data();
-        constexpr bool result_is_nullable = (CastMode == CastModeType::NonStrictMode);
-        ColumnUInt8::MutablePtr col_null_map_to;
-        NullMap::value_type* vec_null_map_to = nullptr;
-        if constexpr (result_is_nullable) {
-            col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
-            vec_null_map_to = col_null_map_to->get_data().data();
-        }
+        ColumnBool::MutablePtr col_null_map_to = ColumnBool::create(input_rows_count, 0);
+        NullMap::value_type* vec_null_map_to = col_null_map_to->get_data().data();
 
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (IsDataTypeInt<FromDataType>) {
+                // although always nullable output, but only set null when overflow in non-strict mode.
+                // in strict mode, just raise error on overflow.
                 if (!CastToInt::from_int(vec_from[i], vec_to[i], params)) {
                     if constexpr (CastMode == CastModeType::NonStrictMode) {
                         vec_null_map_to[i] = 1;
@@ -111,18 +108,14 @@ public:
                                                          type_to_string(ToDataType::PType)));
             }
         }
-        if constexpr (result_is_nullable) {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
-        } else {
-            block.get_by_position(result).column = std::move(col_to);
-        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
 
         return Status::OK();
     }
 };
 
-/// cast to int, will not overflow:
+/// cast to int, will not overflow and no nullable output:
 /// 1. from bool;
 /// 2. from narrow int to wider int
 /// 3. from time to bigint and largeint
@@ -140,7 +133,7 @@ public:
     }
 };
 
-// cast decimal to integer
+// cast decimal to integer. always use overflow check to decide nullable
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeInt<ToDataType> && IsDataTypeDecimal<FromDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
@@ -167,8 +160,10 @@ public:
         bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
 
         // may overflow if integer part of decimal is larger than to_max_digits
-        bool may_overflow = (from_precision - from_scale) >= to_max_digits;
-        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && may_overflow;
+        // in strict mode we also decide nullable on this.
+        bool overflow_and_nullable = (from_precision - from_scale) >= to_max_digits;
+        // only in non-strict mode and may overflow, we set nullable
+        bool set_nullable = (CastMode == CastModeType::NonStrictMode) && overflow_and_nullable;
 
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
@@ -178,7 +173,7 @@ public:
 
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
-        if (result_is_nullable) {
+        if (overflow_and_nullable) {
             col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
             null_map_data = col_null_map_to->get_data().data();
         }
@@ -187,13 +182,13 @@ public:
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         typename FromFieldType::NativeType scale_multiplier =
-                DataTypeDecimal<FromFieldType::PType>::get_scale_multiplier(from_scale);
+                DataTypeDecimal<FromDataType::PType>::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; i++) {
             if (!CastToInt::_from_decimal<typename FromDataType::FieldType,
                                           typename ToDataType::FieldType>(
                         vec_from_data[i], from_precision, from_scale, vec_to_data[i],
                         scale_multiplier, narrow_integral, params)) {
-                if (result_is_nullable) {
+                if (set_nullable) {
                     null_map_data[i] = 1;
                 } else {
                     return params.status;
@@ -201,7 +196,7 @@ public:
             }
         }
 
-        if (result_is_nullable) {
+        if (overflow_and_nullable) {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {

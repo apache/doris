@@ -24,17 +24,14 @@
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
 #include <memory>  // for unique_ptr
-#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
-#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h" // for Status
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -50,9 +47,7 @@
 #include "util/once.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
-#include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -76,8 +71,6 @@ namespace segment_v2 {
 class EncodingInfo;
 class ColumnIterator;
 class BloomFilterIndexReader;
-class BitmapIndexIterator;
-class BitmapIndexReader;
 class InvertedIndexIterator;
 class InvertedIndexReader;
 class IndexFileReader;
@@ -166,8 +159,6 @@ public:
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
-    // Client should delete returned iterator
-    Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
                               const TabletIndex* index_meta,
@@ -186,7 +177,6 @@ public:
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
     bool has_zone_map() const { return _zone_map_index != nullptr; }
-    bool has_bitmap_index() const { return _bitmap_index != nullptr; }
     bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
@@ -198,10 +188,10 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges,
-                                      const ColumnIteratorOptions& iter_opts);
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -212,7 +202,7 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
-    Status prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+    Status prune_predicates_by_zone_map(std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         const int column_id, bool* pruned) const;
 
     CompressionTypePB get_compression() const { return _meta_compression; }
@@ -236,6 +226,10 @@ public:
 
     int64_t get_metadata_size() const override;
 
+#ifdef BE_TEST
+    void check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const;
+#endif
+
 private:
     friend class VariantColumnReader;
 
@@ -247,7 +241,6 @@ private:
                                               const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
                                              const ColumnIteratorOptions& iter_opts);
-    [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
 
     [[nodiscard]] Status _load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                      const TabletIndex* index_meta);
@@ -264,10 +257,10 @@ private:
     Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                      WrapperField* max_value_container) const;
 
-    Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
-                               const std::vector<const ColumnPredicate*>* delete_predicates,
-                               std::vector<uint32_t>* page_indexes,
-                               const ColumnIteratorOptions& iter_opts);
+    Status _get_filtered_pages(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
                                  const ColumnIteratorOptions& iter_opts);
@@ -303,7 +296,6 @@ private:
     mutable std::shared_mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
-    std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::unordered_map<int64_t, IndexReaderPtr> _index_readers;
@@ -352,7 +344,8 @@ public:
 
     virtual Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
-            const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) {
         return Status::OK();
     }
 
@@ -443,9 +436,10 @@ public:
     // get row ranges by zone map
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
-    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      const std::vector<const ColumnPredicate*>* delete_predicates,
-                                      RowRanges* row_ranges) override;
+    Status get_row_ranges_by_zone_map(
+            const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;
@@ -524,8 +518,15 @@ public:
     Status _calculate_offsets(ssize_t start,
                               vectorized::ColumnArray::ColumnOffsets& column_offsets);
 
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        return _offset_iterator->read_by_rowids(rowids, count, dst);
+    }
+
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
+    // reuse a tiny column for peek to avoid frequent allocations
+    vectorized::MutableColumnPtr _peek_tmp_col;
 };
 
 // This iterator is used to read map value column
@@ -656,7 +657,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
-            rowid_t row_id = cast_set<uint32_t>(_current_rowid + i);
+            const auto row_id = cast_set<uint32_t>(_current_rowid + i);
             GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
             dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
         }
@@ -716,14 +717,12 @@ private:
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
-    DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale)
+    DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
+                               TypeInfoPtr type_info, int precision, int scale)
             : _has_default_value(has_default_value),
-              _default_value(default_value),
+              _default_value(std::move(default_value)),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _is_default_value_null(false),
-              _type_size(0),
               _precision(precision),
               _scale(scale) {}
 
@@ -760,8 +759,8 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    bool _is_default_value_null;
-    size_t _type_size;
+    bool _is_default_value_null {false};
+    size_t _type_size {0};
     int _precision;
     int _scale;
     std::vector<char> _mem_value;

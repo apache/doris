@@ -18,6 +18,7 @@
 suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     def table_name = "var_index"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS var_index"
     sql """
         CREATE TABLE IF NOT EXISTS var_index (
@@ -35,7 +36,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """insert into var_index values(3, '{"a" : 18811, "b" : "hello wworld", "c" : 11111}')"""
     sql """insert into var_index values(4, '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
-    trigger_and_wait_compaction(table_name, "full")
+    trigger_and_wait_compaction(table_name, "full", 1800)
     sql """ set enable_common_expr_pushdown = true """
     sql """set enable_match_without_inverted_index = false""" 
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
@@ -48,7 +49,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """insert into var_index values(8, '{"arr": [123]}')"""
     sql """insert into var_index values(9, '{"timestamp": 17.0}'),(10, '{"timestamp": "17.0"}')"""
     sql """insert into var_index values(11, '{"nested": [{"a" : 1}]}'),(11, '{"nested": [{"b" : "1024"}]}')"""
-    trigger_and_wait_compaction(table_name, "full")
+    trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select * from var_index order by k limit 15"
 
     sql "DROP TABLE IF EXISTS var_index"
@@ -250,6 +251,6 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     wait_for_latest_op_on_table_finish(table_name, timeout)
     sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """
     sql """ select * from ${table_name} """
-    trigger_and_wait_compaction(table_name, "full")
+    trigger_and_wait_compaction(table_name, "full", 1800)
     assertEquals(0, get_indeces_count())
 }

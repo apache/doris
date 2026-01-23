@@ -134,8 +134,10 @@ TEST_F(ParquetReaderTest, normal) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
@@ -146,11 +148,12 @@ TEST_F(ParquetReaderTest, normal) {
     auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr,
                                       &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    static_cast<void>(
-            p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr));
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
+                                            nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -195,8 +198,10 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     scan_params.enable_mapping_varbinary = true;
@@ -208,10 +213,12 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -238,9 +245,9 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'550E8400E29B41D4A716446655440000'");
-    EXPECT_EQ(data[1].dump_hex(), "X'123E4567E89B12D3A456426614174000'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00000000000000000000000000000000'");
+    EXPECT_EQ(data[0].dump_hex(), "0x550E8400E29B41D4A716446655440000");
+    EXPECT_EQ(data[1].dump_hex(), "0x123E4567E89B12D3A456426614174000");
+    EXPECT_EQ(data[2].dump_hex(), "0x00000000000000000000000000000000");
 }
 
 TEST_F(ParquetReaderTest, varbinary_varbinary) {
@@ -265,8 +272,10 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     scan_params.enable_mapping_varbinary = true;
@@ -278,10 +287,12 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -308,9 +319,9 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+    EXPECT_EQ(data[0].dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(data[1].dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(data[2].dump_hex(), "0x00");
 }
 
 TEST_F(ParquetReaderTest, varbinary_string) {
@@ -335,8 +346,10 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     // use string to read parquet column, but dst type is varbinary
@@ -350,10 +363,12 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -380,9 +395,9 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     auto varbinary_column =
             assert_cast<const ColumnVarbinary*>(nullable_column->get_nested_column_ptr().get());
     auto& data = varbinary_column->get_data();
-    EXPECT_EQ(data[0].dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(data[1].dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(data[2].dump_hex(), "X'00'");
+    EXPECT_EQ(data[0].dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(data[1].dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(data[2].dump_hex(), "0x00");
 }
 
 TEST_F(ParquetReaderTest, varbinary_string2) {
@@ -407,8 +422,10 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
     }
     TFileScanRangeParams scan_params;
     // although want use binary column read, _cached_src_physical_type is string, so use string to read parquet column, but dst type is string
@@ -422,10 +439,12 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, nullptr, &cache);
     p_reader->set_file_reader(reader);
-    RuntimeState runtime_state((TQueryGlobals()));
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
 
-    st = p_reader->init_reader(column_names, {}, nullptr, nullptr, nullptr, nullptr, nullptr);
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                               nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -451,9 +470,9 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
     auto string_column =
             assert_cast<const ColumnString*>(nullable_column->get_nested_column_ptr().get());
-    EXPECT_EQ(StringView(string_column->get_data_at(0)).dump_hex(), "X'0123456789ABCDEF'");
-    EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "X'FEDCBA9876543210'");
-    EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "X'00'");
+    EXPECT_EQ(StringView(string_column->get_data_at(0)).dump_hex(), "0x0123456789ABCDEF");
+    EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "0xFEDCBA9876543210");
+    EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "0x00");
 }
 
 } // namespace vectorized

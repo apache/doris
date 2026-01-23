@@ -255,46 +255,16 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             }
             Expression newRight = leftType instanceof DateTimeType ? migrateToDateTime(right) : right;
             return comparisonPredicate.withChildren(left, newRight);
-        } else if (toScale > rightType.getScale()) {
-            // when toScale > right's scale, then left must be datetimev2, not datetimev1
-            Preconditions.checkArgument(leftType instanceof DateTimeV2Type, leftType);
-
-            // for expression cast(left as datetime(2)) = '2020-12-20 01:02:03.45'
-            // then left scale is 5, right = '2020-12-20 01:02:03.45",  right scale is 2,
-            // then left >= '2020-12-20 01:02:03.45000' && left <= '2020-12-20 01:02:03.45999'
-            // for low bound, it add (5-2) '0' to the origin right's tail
-            // for up bound, it add (5-2) '9' to the origin right's tail
-            // when roundFloor to high scale, its microsecond shouldn't change, only change its data type.
-            DateTimeV2Literal lowBound = right.roundFloor(toScale);
-            long upMicroSecond = 0;
-            for (int i = 0; i < toScale - rightType.getScale(); i++) {
-                upMicroSecond = 10 * upMicroSecond + 9;
-            }
-            upMicroSecond *= (int) Math.pow(10, 6 - toScale);
-            upMicroSecond += lowBound.getMicroSecond();
-            // left must be a datetimev2
-            DateTimeV2Literal upBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
-                    right.getYear(), right.getMonth(), right.getDay(),
-                    right.getHour(), right.getMinute(), right.getSecond(), upMicroSecond);
-
-            if (comparisonPredicate instanceof GreaterThanEqual || comparisonPredicate instanceof LessThan) {
-                return comparisonPredicate.withChildren(left, lowBound);
-            }
-
-            if (comparisonPredicate instanceof GreaterThan || comparisonPredicate instanceof LessThanEqual) {
-                return comparisonPredicate.withChildren(left, upBound);
-            }
-
-            if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
-                List<Expression> conjunctions = Lists.newArrayListWithExpectedSize(3);
-                conjunctions.add(new GreaterThanEqual(left, lowBound));
-                conjunctions.add(new LessThanEqual(left, upBound));
-                if (left.nullable() && comparisonPredicate instanceof NullSafeEqual) {
-                    conjunctions.add(new Not(new IsNull(left)));
-                }
-                return new And(conjunctions);
-            }
         }
+
+        // if toScale > rightType.scale, don't try to rewrite it like
+        // "A > '2020-12-20 01:02:03.23450' and A < '2020-12-20 01:02:03.23459'"
+        // because the cast will use rounding, not truncating.
+        // and the rounding may generate null result.
+        // for example:  for expression E = "cast(A as datetime(4))) > '2020-12-20 01:02:03.23456'"
+        // if one row for A is '9999-12-31 23:59:59.99995', then 'cast(A as datetime(4))' will be null
+        // (because the cast result will exceed year 9999),
+        // so this row for E will be null too.
 
         if (leftType instanceof DateTimeType) {
             return comparisonPredicate.withChildren(left, migrateToDateTime(right));
@@ -429,7 +399,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
                             return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
-                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                    comparisonPredicate.withChildren(left, DecimalV3Literal.createWithoutCheck256(
                                             literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             // TODO: the ideal way is to return an If expr like:
@@ -443,7 +413,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
                             return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
-                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                    comparisonPredicate.withChildren(left, DecimalV3Literal.createWithoutCheck256(
                                             literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             return BooleanLiteral.of(false);
@@ -625,7 +595,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             if (literalScale <= leftType.getScale() && literalPrecision - literalScale <= leftType.getRange()) {
                 trailingZerosValue = trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY);
                 Expression newLiteral = new DecimalV3Literal(
-                        DecimalV3Type.createDecimalV3TypeLooseCheck(leftType.getPrecision(), leftType.getScale()),
+                        DecimalV3Type.createDecimalV3Type(leftType.getPrecision(), leftType.getScale()),
                         trailingZerosValue);
                 return Optional.of(comparisonPredicate.withChildren(left, newLiteral));
             }

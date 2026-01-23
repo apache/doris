@@ -98,6 +98,9 @@ ScannerContext::ScannerContext(
     }
     _dependency = dependency;
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
+    if (auto ctx = task_exec_ctx(); ctx) {
+        ctx->ref_task_execution_ctx();
+    }
 }
 
 // After init function call, should not access _parent
@@ -126,7 +129,9 @@ Status ScannerContext::init() {
         vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
         _task_handle = DORIS_TRY(task_executor->create_task(
                 task_id, []() { return 0.0; },
-                config::task_executor_initial_max_concurrency_per_task,
+                config::task_executor_initial_max_concurrency_per_task > 0
+                        ? config::task_executor_initial_max_concurrency_per_task
+                        : std::max(48, CpuInfo::num_cores() * 2),
                 std::chrono::milliseconds(100), std::nullopt));
     }
 #endif
@@ -189,6 +194,9 @@ ScannerContext::~ScannerContext() {
             static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
         }
         _task_handle = nullptr;
+    }
+    if (auto ctx = task_exec_ctx(); ctx) {
+        ctx->unref_task_execution_ctx();
     }
 }
 

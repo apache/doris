@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TAlterTabletType;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
@@ -60,6 +62,9 @@ public class AlterReplicaTask extends AgentTask {
     private long expiration;
 
     private String vaultId;
+
+    private TQueryOptions queryOptions;
+    private TQueryGlobals queryGlobals;
     /**
      * AlterReplicaTask constructor.
      *
@@ -69,7 +74,7 @@ public class AlterReplicaTask extends AgentTask {
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
             DescriptorTable descTable, List<Column> baseSchemaColumns, Map<Object, Object> objectPool,
-            Expr whereClause, long expiration, String vaultId) {
+            Expr whereClause, long expiration, String vaultId, TQueryOptions queryOptions, TQueryGlobals queryGlobals) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -89,6 +94,9 @@ public class AlterReplicaTask extends AgentTask {
         this.objectPool = objectPool;
         this.expiration = expiration;
         this.vaultId = vaultId;
+
+        this.queryOptions = queryOptions;
+        this.queryGlobals = queryGlobals;
     }
 
     public long getBaseTabletId() {
@@ -182,6 +190,9 @@ public class AlterReplicaTask extends AgentTask {
             }
         }
         req.setStorageVaultId(this.vaultId);
+
+        req.setQueryOptions(this.queryOptions);
+        req.setQueryGlobals(this.queryGlobals);
         return req;
     }
 }

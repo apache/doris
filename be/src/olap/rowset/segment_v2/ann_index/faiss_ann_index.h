@@ -49,7 +49,8 @@ struct FaissBuildParameter {
      * @brief Supported vector index types.
      */
     enum class IndexType {
-        HNSW ///< Hierarchical Navigable Small World (HNSW) index for high performance
+        HNSW, ///< Hierarchical Navigable Small World (HNSW) index for high performance
+        IVF   ///< Inverted File index
     };
 
     /**
@@ -76,6 +77,8 @@ struct FaissBuildParameter {
     static IndexType string_to_index_type(const std::string& type) {
         if (type == "hnsw") {
             return IndexType::HNSW;
+        } else if (type == "ivf") {
+            return IndexType::IVF;
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
                                    type);
@@ -124,6 +127,8 @@ struct FaissBuildParameter {
     /// PQ specific parameters
     int pq_m = 0;     ///< Number of sub-quantizers for PQ
     int pq_nbits = 8; ///< Number of bits per sub-quantizer for PQ
+    /// IVF specific parameters
+    int ivf_nlist = 1024; ///< Number of clusters for IVF
 };
 
 /**
@@ -271,7 +276,8 @@ public:
 
 private:
     std::unique_ptr<faiss::Index> _index = nullptr; ///< Underlying FAISS index instance
-    FaissBuildParameter _params;                    ///< Build parameters for the index
+    std::unique_ptr<faiss::Index> _quantizer = nullptr;
+    FaissBuildParameter _params; ///< Build parameters for the index
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

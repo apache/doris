@@ -1154,17 +1154,22 @@ void scan_tmp_rowset(
         while (it->has_next()) {
             auto [k, v] = it->next();
             LOG(INFO) << "range_get rowset_tmp_key=" << hex(k) << " txn_id=" << txn_id;
-            tmp_rowsets_meta->emplace_back();
-            if (!tmp_rowsets_meta->back().second.ParseFromArray(v.data(), v.size())) {
+            RowsetMetaCloudPB rs_meta;
+            if (!rs_meta.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 ss << "malformed rowset meta, unable to initialize, txn_id=" << txn_id
-                   << " key=" << hex(k);
+                   << " key=" << hex(k) << " err=" << err;
                 msg = ss.str();
                 LOG(WARNING) << msg;
                 return;
             }
-            // Save keys that will be removed later
-            tmp_rowsets_meta->back().first = std::string(k.data(), k.size());
+            if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
+                code = MetaServiceCode::TXN_ALREADY_ABORTED;
+                msg = "rowset has already been marked as recycled";
+                LOG(WARNING) << msg;
+                continue;
+            }
+            tmp_rowsets_meta->emplace_back(std::string(k.data(), k.size()), std::move(rs_meta));
             ++num_rowsets;
             if (!it->has_next()) rs_tmp_key0 = k;
         }
@@ -1662,6 +1667,20 @@ void MetaServiceImpl::commit_txn_immediately(
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
+                auto& rowset_meta = i.second;
+                std::string meta_rowset_key = versioned::meta_rowset_key(
+                        {instance_id, tablet_id, rowset_meta.rowset_id_v2()});
+                if (config::enable_recycle_rowset_strip_key_bounds) {
+                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
+                    // Strip key bounds to shrink operation log for ts compaction recycle entries
+                    rowset_meta_copy.clear_segments_key_bounds();
+                    rowset_meta_copy.clear_segments_key_bounds_truncated();
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
+                } else {
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
+                }
+                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
+
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 RowsetMetaCloudPB copied_rowset_meta(i.second);
@@ -1817,7 +1836,6 @@ void MetaServiceImpl::commit_txn_immediately(
         LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
         txn->remove(running_key);
 
-        std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
         RecycleTxnPB recycle_pb;
         recycle_pb.set_creation_time(commit_time);
         recycle_pb.set_label(txn_info.label());
@@ -1834,6 +1852,7 @@ void MetaServiceImpl::commit_txn_immediately(
             LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
                       << " txn_id=" << txn_id;
         } else {
+            std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
             std::string recycle_val;
             if (!recycle_pb.SerializeToString(&recycle_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1842,6 +1861,8 @@ void MetaServiceImpl::commit_txn_immediately(
                 return;
             }
             txn->put(recycle_key, recycle_val);
+            LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
+                      << " txn_id=" << txn_id;
         }
 
         if (txn_info.load_job_source_type() ==
@@ -1859,8 +1880,6 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
 
-        LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
-                  << " txn_id=" << txn_id;
         LOG(INFO) << "commit_txn put_size=" << txn->put_bytes()
                   << " del_size=" << txn->delete_bytes() << " num_put_keys=" << txn->num_put_keys()
                   << " num_del_keys=" << txn->num_del_keys()
@@ -2356,10 +2375,10 @@ void MetaServiceImpl::commit_txn_eventually(
                       << " txn_id=" << txn_id;
         }
 
-        VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
-                   << " num_put_keys=" << txn->num_put_keys()
-                   << " num_del_keys=" << txn->num_del_keys()
-                   << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
+        LOG(INFO) << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
+                  << " num_put_keys=" << txn->num_put_keys()
+                  << " num_del_keys=" << txn->num_del_keys()
+                  << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -2371,6 +2390,8 @@ void MetaServiceImpl::commit_txn_eventually(
             msg = ss.str();
             return;
         }
+
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::abort_txn_after_mark_txn_commited");
 
         TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::txn_lazy_committer_submit",
                                          &txn_id);
@@ -2705,6 +2726,20 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                       << " rowset_size=" << rowset_size;
 
             if (is_versioned_write) {
+                auto& rowset_meta = i.second;
+                std::string meta_rowset_key = versioned::meta_rowset_key(
+                        {instance_id, rowset_meta.tablet_id(), rowset_meta.rowset_id_v2()});
+                if (config::enable_recycle_rowset_strip_key_bounds) {
+                    doris::RowsetMetaCloudPB rowset_meta_copy = rowset_meta;
+                    // Strip key bounds to shrink operation log for ts compaction recycle entries
+                    rowset_meta_copy.clear_segments_key_bounds();
+                    rowset_meta_copy.clear_segments_key_bounds_truncated();
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
+                } else {
+                    blob_put(txn.get(), meta_rowset_key, rowset_meta.SerializeAsString(), 0);
+                }
+                LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
+
                 std::string versioned_rowset_key =
                         versioned::meta_rowset_load_key({instance_id, tablet_id, version});
                 if (!versioned::document_put(txn.get(), versioned_rowset_key,
@@ -3018,9 +3053,9 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                           stats);
 }
 
-static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request,
-                       Transaction* txn, TxnInfoPB& return_txn_info, std::stringstream& ss,
-                       MetaServiceCode& code, std::string& msg) {
+void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request, Transaction* txn,
+                TxnInfoPB& return_txn_info, std::stringstream& ss, MetaServiceCode& code,
+                std::string& msg) {
     int64_t txn_id = request->txn_id();
     std::string label = request->label();
     int64_t db_id = request->db_id();
@@ -3098,6 +3133,12 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
         if (return_txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
             code = MetaServiceCode::TXN_ALREADY_VISIBLE;
             ss << "transaction [" << txn_id << "] is already VISIBLE, db_id=" << db_id;
+            msg = ss.str();
+            return;
+        }
+        if (return_txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+            code = MetaServiceCode::TXN_ALREADY_COMMITED;
+            ss << "transaction [" << txn_id << "] is already COMMITED, db_id=" << db_id;
             msg = ss.str();
             return;
         }
@@ -3863,6 +3904,91 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     }
 }
 
+void MetaServiceImpl::get_prepare_txn_by_coordinator(
+        ::google::protobuf::RpcController* controller,
+        const GetPrepareTxnByCoordinatorRequest* request,
+        GetPrepareTxnByCoordinatorResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_prepare_txn_by_coordinator, get);
+    if (!request->has_id() || !request->has_ip()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid coordinate id or coordinate ip.";
+        return;
+    }
+    // TODO: For auth
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "cannot find instance_id with cloud_unique_id="
+           << (cloud_unique_id.empty() ? "(empty)" : cloud_unique_id);
+        msg = ss.str();
+        return;
+    }
+    RPC_RATE_LIMIT(get_prepare_txn_by_coordinator);
+    std::string begin_info_key = txn_info_key({instance_id, 0, 0});
+    std::string end_info_key = txn_info_key({instance_id, INT64_MAX, INT64_MAX});
+    LOG(INFO) << "begin_info_key:" << hex(begin_info_key) << " end_info_key:" << hex(end_info_key);
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        msg = "failed to create txn";
+        code = cast_as<ErrCategory::CREATE>(err);
+        return;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    int32_t result_count = 0;
+    int64_t total_iteration_cnt = 0;
+    bool has_start_time_filter = request->has_start_time();
+
+    do {
+        err = txn->get(begin_info_key, end_info_key, &it, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get txn info. err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        while (it->has_next()) {
+            total_iteration_cnt++;
+            auto [k, v] = it->next();
+            VLOG_DEBUG << "check txn info txn_info_key=" << hex(k);
+            TxnInfoPB info_pb;
+            if (!info_pb.ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "malformed txn running info";
+                msg = ss.str();
+                ss << " key=" << hex(k);
+                LOG(WARNING) << ss.str();
+                return;
+            }
+            const auto& coordinate = info_pb.coordinator();
+            bool matches = info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
+                           coordinate.sourcetype() == TXN_SOURCE_TYPE_BE &&
+                           coordinate.ip() == request->ip() &&
+                           (coordinate.id() == 0 || coordinate.id() == request->id());
+            if (matches && has_start_time_filter) {
+                matches = coordinate.start_time() < request->start_time();
+            }
+
+            if (matches) {
+                TxnInfoPB* txn_info = response->add_txn_infos();
+                txn_info->CopyFrom(info_pb);
+                result_count++;
+            }
+
+            if (!it->has_next()) {
+                begin_info_key = k;
+            }
+        }
+        begin_info_key.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+
+    LOG(INFO) << "get_prepare_txn_by_coordinator: found " << result_count << " transactions"
+              << " total iteration count: " << total_iteration_cnt;
+}
+
 std::string get_txn_info_key_from_txn_running_key(std::string_view txn_running_key) {
     std::string conflict_txn_info_key;
     std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
@@ -4075,58 +4201,89 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
         const std::string index_key = txn_index_key({instance_id, txn_id});
         const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
 
-        std::string info_val;
-        err = txn->get(info_key, &info_val);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("info_key get failed")
-                    .tag("info_key", hex(info_key))
-                    .tag("label_key", hex(label_key))
-                    .tag("db_id", db_id)
-                    .tag("txn_id", txn_id)
-                    .tag("err", err);
-            return err;
-        }
+        if (is_versioned_write) {
+            // In versioned write mode, recycle_txn_key is written only when commit_txn_log is recycled.
+            // Use recycle_txn_key existence as the gate to avoid deleting txn_info before recycler reads it.
+            std::string recycle_val;
+            TxnErrorCode recycle_err = txn->get(recycle_key, &recycle_val);
+            if (recycle_err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                survival_txn_ids.push_back(txn_id);
+                LOG(INFO) << "versioned write mode, recycle_key not found, skip"
+                          << " label_key=" << hex(label_key) << " txn_id=" << txn_id;
+                continue;
+            } else if (recycle_err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to get recycle_key")
+                        .tag("recycle_key", hex(recycle_key))
+                        .tag("label_key", hex(label_key))
+                        .tag("db_id", db_id)
+                        .tag("txn_id", txn_id)
+                        .tag("err", recycle_err);
+                return recycle_err;
+            }
 
-        TxnInfoPB txn_info;
-        if (!txn_info.ParseFromString(info_val)) {
-            LOG_WARNING("info_val parse failed")
-                    .tag("info_key", hex(info_key))
-                    .tag("label_key", hex(label_key))
-                    .tag("db_id", db_id)
-                    .tag("txn_id", txn_id)
-                    .tag("size", info_val.size());
-            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
-        }
+            txn->remove(index_key);
+            key_size += index_key.size();
 
-        std::string recycle_val;
-        if ((txn_info.status() != TxnStatusPB::TXN_STATUS_ABORTED) &&
-            (txn_info.status() != TxnStatusPB::TXN_STATUS_VISIBLE)) {
-            // txn status is not final status
-            LOG(INFO) << "txn not final state, label_key=" << hex(label_key)
-                      << " txn_id=" << txn_id;
-            survival_txn_ids.push_back(txn_id);
-            DCHECK_EQ(txn->get(recycle_key, &recycle_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
-            continue;
-        }
+            txn->remove(info_key);
+            key_size += info_key.size();
 
-        // In versioned write, the recycle key will be write only when the txn operation log is recycled.
-        if (!is_versioned_write) {
+            txn->remove(recycle_key);
+            key_size += recycle_key.size();
+            clean_txn_ids.push_back(txn_id);
+            LOG(INFO) << "versioned write mode, remove index_key=" << hex(index_key)
+                      << " info_key=" << hex(info_key) << " recycle_key=" << hex(recycle_key);
+        } else {
+            // Single version mode: check txn_info status before cleaning
+            std::string info_val;
+            err = txn->get(info_key, &info_val);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("info_key get failed")
+                        .tag("info_key", hex(info_key))
+                        .tag("label_key", hex(label_key))
+                        .tag("db_id", db_id)
+                        .tag("txn_id", txn_id)
+                        .tag("err", err);
+                return err;
+            }
+
+            TxnInfoPB txn_info;
+            if (!txn_info.ParseFromString(info_val)) {
+                LOG_WARNING("info_val parse failed")
+                        .tag("info_key", hex(info_key))
+                        .tag("label_key", hex(label_key))
+                        .tag("db_id", db_id)
+                        .tag("txn_id", txn_id)
+                        .tag("size", info_val.size());
+                return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+            }
+
+            std::string recycle_val;
+            if ((txn_info.status() != TxnStatusPB::TXN_STATUS_ABORTED) &&
+                (txn_info.status() != TxnStatusPB::TXN_STATUS_VISIBLE)) {
+                // txn status is not final status
+                LOG(INFO) << "txn not final state, label_key=" << hex(label_key)
+                          << " txn_id=" << txn_id;
+                survival_txn_ids.push_back(txn_id);
+                DCHECK_EQ(txn->get(recycle_key, &recycle_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+                continue;
+            }
+
             DCHECK_EQ(txn->get(recycle_key, &recycle_val), TxnErrorCode::TXN_OK);
+            DCHECK((txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) ||
+                   (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE));
+
+            txn->remove(index_key);
+            key_size += index_key.size();
+
+            txn->remove(info_key);
+            key_size += info_key.size();
+
+            txn->remove(recycle_key);
+            key_size += recycle_key.size();
+            clean_txn_ids.push_back(txn_id);
+            LOG(INFO) << "remove index_key=" << hex(index_key) << " info_key=" << hex(info_key)
+                      << " recycle_key=" << hex(recycle_key);
         }
-        DCHECK((txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) ||
-               (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE));
-
-        txn->remove(index_key);
-        key_size += index_key.size();
-
-        txn->remove(info_key);
-        key_size += info_key.size();
-
-        txn->remove(recycle_key);
-        key_size += recycle_key.size();
-        clean_txn_ids.push_back(txn_id);
-        LOG(INFO) << "remove index_key=" << hex(index_key) << " info_key=" << hex(info_key)
-                  << " recycle_key=" << hex(recycle_key);
     }
     if (label_pb.txn_ids().size() == clean_txn_ids.size()) {
         txn->remove(label_key);

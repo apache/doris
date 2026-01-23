@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/encoding_info.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <array>
@@ -36,6 +37,7 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/frame_of_reference_page.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/plain_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
 #include "olap/types.h"
@@ -106,7 +108,7 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 };
 
 template <>
-struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, bool> {
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, uint8_t> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>::create(builder, opts);
     }
@@ -167,6 +169,21 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
                                       PageDecoder** decoder) {
         *decoder =
                 new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <>
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING,
+                          typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>::create(builder,
+                                                                                           opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder =
+                new FrameOfReferencePageDecoder<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(data, opts);
         return Status::OK();
     }
 };
@@ -272,6 +289,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();
 
+    _add_map<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, FOR_ENCODING, true>();
+
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE, true>();
@@ -338,11 +359,13 @@ bool is_binary_type(FieldType type) {
 } // namespace
 
 EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
+                                                          EncodingPreference encoding_preference,
                                                           bool optimize_value_seek) const {
     // Predicate for default encoding transformation
     // Parameters: (type, current_default_encoding, optimize_value_seek)
     // Returns: true if the transformation should be applied
-    using Predicate = std::function<bool(FieldType, EncodingTypePB, bool)>;
+    using Predicate = std::function<bool(FieldType, EncodingTypePB,
+                                         EncodingPreference encoding_preference, bool)>;
 
     // Hook for transforming default encoding: predicate -> target encoding
     struct EncodingTransform {
@@ -356,9 +379,11 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
             // Applies when: type is binary, encoding is PLAIN_ENCODING, and config enables v2
             EncodingTransform {
                     .predicate =
-                            [](FieldType type, EncodingTypePB encoding, bool optimize_value_seek) {
+                            [](FieldType type, EncodingTypePB encoding,
+                               EncodingPreference encoding_preference, bool optimize_value_seek) {
                                 return encoding == PLAIN_ENCODING && is_binary_type(type) &&
-                                       config::binary_plain_encoding_default_impl == "v2";
+                                       encoding_preference.binary_plain_encoding_default_impl ==
+                                               BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
                             },
                     .target_encoding = PLAIN_ENCODING_V2},
 
@@ -366,9 +391,10 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
             // Applies when: type is integer and config enables plain encoding for integers
             EncodingTransform {
                     .predicate =
-                            [](FieldType type, EncodingTypePB encoding, bool optimize_value_seek) {
+                            [](FieldType type, EncodingTypePB encoding,
+                               EncodingPreference encoding_preference, bool optimize_value_seek) {
                                 return is_integer_type(type) &&
-                                       config::integer_type_default_use_plain_encoding;
+                                       encoding_preference.integer_type_default_use_plain_encoding;
                             },
                     .target_encoding = PLAIN_ENCODING}};
 
@@ -380,7 +406,7 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
 
         // Apply hooks in order to transform the default encoding
         for (const auto& hook : hooks) {
-            if (hook.predicate(type, encoding, optimize_value_seek)) {
+            if (hook.predicate(type, encoding, encoding_preference, optimize_value_seek)) {
                 // Verify target encoding is available for this type
                 if (_encoding_map.contains(std::make_pair(type, hook.target_encoding))) {
                     encoding = hook.target_encoding;
@@ -395,9 +421,9 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
 }
 
 Status EncodingInfoResolver::get(FieldType data_type, EncodingTypePB encoding_type,
-                                 const EncodingInfo** out) {
+                                 EncodingPreference encoding_preference, const EncodingInfo** out) {
     if (encoding_type == DEFAULT_ENCODING) {
-        encoding_type = get_default_encoding(data_type, false);
+        encoding_type = get_default_encoding(data_type, encoding_preference, false);
     }
     auto key = std::make_pair(data_type, encoding_type);
     auto it = _encoding_map.find(key);
@@ -432,27 +458,31 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
 static EncodingInfoResolver s_encoding_info_resolver;
 #endif
 
-Status EncodingInfo::get(FieldType type, EncodingTypePB encoding_type, const EncodingInfo** out) {
+Status EncodingInfo::get(FieldType type, EncodingTypePB encoding_type,
+                         EncodingPreference encoding_preference, const EncodingInfo** out) {
 #ifdef BE_TEST
-    return s_encoding_info_resolver.get(type, encoding_type, out);
+    return s_encoding_info_resolver.get(type, encoding_type, encoding_preference, out);
 #else
     auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
     if (resolver == nullptr) {
         return Status::InternalError("EncodingInfoResolver not initialized");
     }
-    return resolver->get(type, encoding_type, out);
+    return resolver->get(type, encoding_type, encoding_preference, out);
 #endif
 }
 
-EncodingTypePB EncodingInfo::get_default_encoding(FieldType type, bool optimize_value_seek) {
+EncodingTypePB EncodingInfo::get_default_encoding(FieldType type,
+                                                  EncodingPreference encoding_preference,
+                                                  bool optimize_value_seek) {
 #ifdef BE_TEST
-    return s_encoding_info_resolver.get_default_encoding(type, optimize_value_seek);
+    return s_encoding_info_resolver.get_default_encoding(type, encoding_preference,
+                                                         optimize_value_seek);
 #else
     auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
     if (resolver == nullptr) {
         return UNKNOWN_ENCODING;
     }
-    return resolver->get_default_encoding(type, optimize_value_seek);
+    return resolver->get_default_encoding(type, encoding_preference, optimize_value_seek);
 #endif
 }
 

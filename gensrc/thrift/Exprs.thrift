@@ -171,7 +171,7 @@ struct TMatchPredicate {
   3: optional map<string, string> char_filter_map;
   4: optional bool parser_lowercase = true;
   5: optional string parser_stopwords = "";
-  6: optional string custom_analyzer = "";
+  6: optional string analyzer_name = "";
 }
 
 struct TLiteralPredicate {
@@ -238,11 +238,21 @@ struct TSchemaChangeExpr {
 }
 
 // Search DSL parameter structure
+
+// Occur type for Lucene-style boolean queries
+enum TSearchOccur {
+  MUST = 0,      // Term must appear (equivalent to +term)
+  SHOULD = 1,    // Term should appear (optional, but contributes to matching)
+  MUST_NOT = 2   // Term must not appear (equivalent to -term)
+}
+
 struct TSearchClause {
-  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT
+  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT, OCCUR_BOOLEAN
   2: optional string field_name   // Field name for leaf clauses
   3: optional string value        // Search value for leaf clauses
-  4: optional list<TSearchClause> children  // Child clauses for compound clauses (AND, OR, NOT)
+  4: optional list<TSearchClause> children  // Child clauses for compound clauses (AND, OR, NOT, OCCUR_BOOLEAN)
+  5: optional TSearchOccur occur  // Occur type for this clause (used with OCCUR_BOOLEAN parent)
+  6: optional i32 minimum_should_match  // Minimum number of SHOULD clauses that must match (for OCCUR_BOOLEAN)
 }
 
 struct TSearchFieldBinding {

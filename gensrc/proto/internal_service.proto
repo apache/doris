@@ -60,6 +60,45 @@ message PTransmitDataResult {
     optional int64 receive_time = 2;
 };
 
+message PTransmitRecCTEBlockParams {
+    repeated PBlock blocks = 1;
+    optional bool eos = 2;
+    optional PUniqueId query_id = 3;
+    optional PUniqueId fragment_instance_id = 4;
+    optional int32 node_id = 5;
+};
+
+message PTransmitRecCTEBlockResult {
+    optional PStatus status = 1;
+};
+
+
+message PRerunFragmentParams {
+    enum Opcode {
+    wait = 1;    // wait fragment execute done
+    release = 2; // release current round's resource
+    rebuild = 3; // rebuild next round pipeline tasks
+    submit = 4;  // submit tasks to execute
+    close = 5;   // close fragment
+    }
+    optional PUniqueId query_id = 1;
+    optional int32 fragment_id = 2;
+    optional Opcode stage = 3;
+};
+
+message PRerunFragmentResult {
+    optional PStatus status = 1;
+};
+
+message PResetGlobalRfParams {
+    optional PUniqueId query_id = 1;
+    repeated int32 filter_ids = 2;
+};
+
+message PResetGlobalRfResult {
+    optional PStatus status = 1;
+};
+
 message PTabletWithPartition {
     required int64 partition_id = 1;
     required int64 tablet_id = 2;
@@ -1118,6 +1157,16 @@ message PFetchPeerDataResponse {
     repeated CacheBlockPB datas = 2;
 }
 
+message PRequestCdcClientRequest {
+    optional string api = 1; 
+    optional string params = 2; 
+}
+
+message PRequestCdcClientResult {
+    optional PStatus status = 1;
+    optional string response = 2;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1144,6 +1193,9 @@ service PBackendService {
     rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
+    rpc rerun_fragment(PRerunFragmentParams) returns (PRerunFragmentResult);
+    rpc reset_global_rf(PResetGlobalRfParams) returns (PResetGlobalRfResult);
+    rpc transmit_rec_cte_block(PTransmitRecCTEBlockParams) returns (PTransmitRecCTEBlockResult);
     rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_block_by_http(PEmptyRequest) returns (PTransmitDataResult);
     rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
@@ -1175,5 +1227,6 @@ service PBackendService {
     rpc abort_refresh_dictionary(PAbortRefreshDictionaryRequest) returns (PAbortRefreshDictionaryResponse);
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
+    rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
 

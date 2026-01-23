@@ -56,6 +56,8 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -186,9 +188,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private DLAType dlaType = DLAType.UNKNOWN;
 
     private HMSDlaTable dlaTable;
-
-    // record the event update time when enable hms event listener
-    protected volatile long eventUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
@@ -386,6 +385,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public boolean supportInternalPartitionPruned() {
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+    }
+
+    @Override
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        if (getDlaType() != DLAType.HIVE) {
+            return Optional.empty();
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return Optional.empty();
+        }
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        return hivePartitionValues.getSortedPartitionRanges();
     }
 
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
@@ -632,11 +644,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
         Table table = loadHiveTable();
         // try to use transient_lastDdlTime from hms client
-        schemaUpdateTime = MapUtils.isNotEmpty(table.getParameters())
+        setUpdateTime(MapUtils.isNotEmpty(table.getParameters())
                 && table.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
                 ? Long.parseLong(table.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
                 // use current timestamp if lastDdlTime does not exist (hive views don't have this prop)
-                : System.currentTimeMillis();
+                : System.currentTimeMillis());
         return initSchema(key);
     }
 
@@ -711,7 +723,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
             String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
             columns.add(new Column(fieldName,
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary()),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary(),
+                            catalog.getEnableMappingTimestampTz()),
                     true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
@@ -743,7 +756,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> initPartitionColumns(List<Column> schema) {
-        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+        // get table from remote, do not use `remoteTable` directly,
+        // because here we need to get schema from latest table info.
+        Table newTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
+        List<String> partitionKeys = newTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         List<Column> partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
@@ -797,7 +813,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case ICEBERG:
                 if (GlobalVariable.enableFetchIcebergStats) {
                     return StatisticsUtil.getIcebergColumnStats(colName,
-                            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+                            Env.getCurrentEnv().getExtMetaCacheMgr()
+                                    .getIcebergMetadataCache(this.getCatalog())
+                                    .getIcebergTable(this));
                 } else {
                     break;
                 }
@@ -879,17 +897,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         builder.setAvgSizeByte(colSize / count);
         builder.setMinValue(Double.NEGATIVE_INFINITY);
         builder.setMaxValue(Double.POSITIVE_INFINITY);
-    }
-
-    public void setEventUpdateTime(long updateTime) {
-        this.eventUpdateTime = updateTime;
-    }
-
-    @Override
-    // get the max value of `schemaUpdateTime` and `eventUpdateTime`
-    // eventUpdateTime will be refreshed after processing events with hms event listener enabled
-    public long getUpdateTime() {
-        return Math.max(this.schemaUpdateTime, this.eventUpdateTime);
     }
 
     @Override

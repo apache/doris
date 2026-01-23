@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_schema_change_job.h"
 
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
@@ -224,6 +225,13 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     std::transform(rs_splits.begin(), rs_splits.end(), rowsets.begin(),
                    [](RowSetSplits& split) { return split.rs_reader->rowset(); });
     sc_params.output_to_file_cache = _should_cache_sc_output(rowsets);
+    if (request.__isset.query_globals && request.__isset.query_options) {
+        sc_params.runtime_state =
+                std::make_shared<RuntimeState>(request.query_options, request.query_globals);
+    } else {
+        // for old version request compatibility
+        sc_params.runtime_state = std::make_shared<RuntimeState>();
+    }
 
     RETURN_IF_ERROR(DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
     sc_params.ref_rowset_readers.reserve(rs_splits.size());
@@ -277,7 +285,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
 
     // Add filter information in change, and filter column information will be set in _parse_request
     // And filter some data every time the row block changes
-    BlockChanger changer(_new_tablet->tablet_schema(), *sc_params.desc_tbl);
+    BlockChanger changer(_new_tablet->tablet_schema(), *sc_params.desc_tbl,
+                         sc_params.runtime_state);
 
     bool sc_sorting = false;
     bool sc_directly = false;
@@ -317,6 +326,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
+        context.job_id = _job_id;
         context.write_file_cache = sc_params.output_to_file_cache;
         context.tablet = _new_tablet;
         if (!context.storage_resource) {

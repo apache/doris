@@ -191,6 +191,16 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     schema->set_sequence_col_idx(tablet_schema.sequence_col_idx);
+    auto p_seq_map = schema->mutable_seq_map(); // ColumnGroupsPB
+
+    for (auto& it : tablet_schema.seq_map) { // std::vector< ::doris::TColumnGroup>
+        uint32_t key = it.sequence_column;
+        ColumnGroupPB* cg_pb = p_seq_map->add_cg(); // ColumnGroupPB {key: {v1, v2, v3}}
+        cg_pb->set_sequence_column(key);
+        for (auto v : it.columns_in_group) {
+            cg_pb->add_columns_in_group(v);
+        }
+    }
     switch (tablet_schema.keys_type) {
     case TKeysType::DUP_KEYS:
         schema->set_keys_type(KeysType::DUP_KEYS);
@@ -281,14 +291,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
         if (tablet_schema.__isset.indexes) {
             for (auto& index : tablet_schema.indexes) {
-                if (index.index_type == TIndexType::type::BITMAP) {
-                    DCHECK_EQ(index.columns.size(), 1);
-                    if (iequal(tcolumn.column_name, index.columns[0])) {
-                        column->set_has_bitmap_index(true);
-                        break;
-                    }
-                } else if (index.index_type == TIndexType::type::BLOOMFILTER ||
-                           index.index_type == TIndexType::type::NGRAM_BF) {
+                if (index.index_type == TIndexType::type::BLOOMFILTER ||
+                    index.index_type == TIndexType::type::NGRAM_BF) {
                     DCHECK_EQ(index.columns.size(), 1);
                     if (iequal(tcolumn.column_name, index.columns[0])) {
                         column->set_is_bf_column(true);
@@ -413,6 +417,13 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TStorageFormat::V3:
         schema->set_is_external_segment_column_meta_used(true);
         _schema->set_external_segment_meta_used_default(true);
+
+        schema->set_integer_type_default_use_plain_encoding(true);
+        _schema->set_integer_type_default_use_plain_encoding(true);
+        schema->set_binary_plain_encoding_default_impl(
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+        _schema->set_binary_plain_encoding_default_impl(
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
         break;
     default:
         break;
@@ -459,7 +470,6 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
                                           ColumnPB* column) {
     column->set_unique_id(unique_id);
     column->set_name(tcolumn.column_name);
-    column->set_has_bitmap_index(tcolumn.has_bitmap_index);
     column->set_is_auto_increment(tcolumn.is_auto_increment);
     if (tcolumn.__isset.is_on_update_current_timestamp) {
         column->set_is_on_update_current_timestamp(tcolumn.is_on_update_current_timestamp);
@@ -541,6 +551,16 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     if (tcolumn.__isset.variant_sparse_hash_shard_count) {
         column->set_variant_sparse_hash_shard_count(tcolumn.variant_sparse_hash_shard_count);
+    }
+    if (tcolumn.__isset.variant_enable_doc_mode) {
+        column->set_variant_enable_doc_mode(tcolumn.variant_enable_doc_mode);
+    }
+    if (tcolumn.__isset.variant_doc_materialization_min_rows) {
+        column->set_variant_doc_materialization_min_rows(
+                tcolumn.variant_doc_materialization_min_rows);
+    }
+    if (tcolumn.__isset.variant_doc_hash_shard_count) {
+        column->set_variant_doc_hash_shard_count(tcolumn.variant_doc_hash_shard_count);
     }
 }
 
@@ -1213,7 +1233,9 @@ static void decode_agg_cache_key(const std::string& key_str, int64_t& tablet_id,
 DeleteBitmapAggCache::DeleteBitmapAggCache(size_t capacity)
         : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
                          LRUCacheType::SIZE, config::delete_bitmap_agg_cache_stale_sweep_time_sec,
-                         256) {}
+                         /*num_shards*/ 256,
+                         /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                         /*is_lru_k*/ false) {}
 
 DeleteBitmapAggCache* DeleteBitmapAggCache::instance() {
     return ExecEnv::GetInstance()->delete_bitmap_agg_cache();

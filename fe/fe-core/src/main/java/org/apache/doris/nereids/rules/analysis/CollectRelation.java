@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -107,7 +108,8 @@ public class CollectRelation implements AnalysisRuleFactory {
             // we should use a chain to ensure visible of cte
             LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
             CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
-                    cascadesContext, parsedCtePlan, outerCteCtx);
+                    cascadesContext, parsedCtePlan, outerCteCtx, aliasQuery.isRecursiveCte()
+                            ? new CTEContext(CTEId.DEFAULT, aliasQuery.getAlias(), null) : null);
             innerCascadesCtx.newTableCollector(true).collect();
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             // cteId is not used in CollectTable stage
@@ -126,7 +128,7 @@ public class CollectRelation implements AnalysisRuleFactory {
                 if (e instanceof SubqueryExpr) {
                     SubqueryExpr subqueryExpr = (SubqueryExpr) e;
                     CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
-                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
+                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext, null);
                     subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
                             () -> subqueryContext.newTableCollector(true).collect());
                     ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
@@ -178,6 +180,12 @@ public class CollectRelation implements AnalysisRuleFactory {
             List<String> nameParts, TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
         if (nameParts.size() == 1) {
             String tableName = nameParts.get(0);
+            // check if it is a recursive CTE's name
+            if (cascadesContext.getRecursiveCteContext().isPresent()
+                    && cascadesContext.getRecursiveCteContext().get().findCTEContext(tableName).isPresent()) {
+                return;
+            }
+
             // check if it is a CTE's name
             CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
             if (cteContext != null) {
@@ -273,14 +281,12 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     protected void parseAndCollectFromView(List<String> tableQualifier, View view, CascadesContext parentContext) {
-        Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
-        long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
-        parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);
+        Pair<String, Map<String, String>> viewInfo = parentContext.getStatementContext()
+                .getAndCacheViewInfo(tableQualifier, view);
         LogicalPlan parsedViewPlan;
-        try {
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
+                viewInfo.second)) {
             parsedViewPlan = new NereidsParser().parseSingle(viewInfo.first);
-        } finally {
-            parentContext.getConnectContext().getSessionVariable().setSqlMode(originalSqlMode);
         }
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();

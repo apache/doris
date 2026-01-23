@@ -102,6 +102,7 @@ suite ("mv_ssb_q_1_1") {
 
     sql "analyze table lineorder_flat with sync;"
     sql """alter table lineorder_flat modify column C_CITY set stats ('row_count'='6');"""
+    sql """alter table lineorder_flat modify column a1 set stats ('row_count'='1');"""
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
                 WHERE

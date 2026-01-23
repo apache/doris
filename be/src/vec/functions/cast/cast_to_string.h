@@ -21,6 +21,7 @@
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/time_value.h"
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -61,11 +62,16 @@ struct CastToString {
 
     static inline std::string from_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
                                               UInt32 scale = -1);
+    static inline std::string from_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                               const cctz::time_zone* timezone = nullptr);
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        ColumnString::Chars& chars);
 
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        BufferWritable& bw);
+    static inline void push_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                        BufferWritable& bw,
+                                        const DataTypeSerDe::FormatOptions& options);
 
     template <class SRC>
     static inline std::string from_ip(const SRC& from);
@@ -392,6 +398,13 @@ inline void CastToString::push_decimal(const Decimal128V2& from, UInt32 scale, B
     bw.write(str.data(), str.size());
 }
 
+template <>
+inline void CastToString::push_decimal(const DecimalV2Value& from, UInt32 scale,
+                                       BufferWritable& bw) {
+    std::string str = from.to_string(scale);
+    bw.write(str.data(), str.size());
+}
+
 // DATEV1 DATETIMEV1
 inline std::string CastToString::from_date_or_datetime(const VecDateTimeValue& from) {
     char buf[64];
@@ -448,6 +461,16 @@ inline std::string CastToString::from_datetimev2(const DateV2Value<DateTimeV2Val
     return std::string(buf, pos - 1);
 }
 
+inline std::string CastToString::from_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                                  const cctz::time_zone* timezone) {
+    cctz::time_zone tz;
+    if (timezone == nullptr) {
+        tz = cctz::utc_time_zone();
+    } else {
+        tz = *timezone;
+    }
+    return from.to_string(tz, scale);
+}
 inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
                                           UInt32 scale, ColumnString::Chars& chars) {
     char buf[64];
@@ -462,6 +485,13 @@ inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>
     char* pos = from.to_string(buf, scale);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
+}
+
+inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                           BufferWritable& bw,
+                                           const DataTypeSerDe::FormatOptions& options) {
+    auto str = from.to_string(*options.timezone, scale);
+    bw.write(str.data(), str.size());
 }
 
 // IPv4
@@ -516,7 +546,11 @@ public:
 
         auto col_to = ColumnString::create();
 
-        type.get_serde()->to_string_batch(col_from, *col_to);
+        DataTypeSerDe::FormatOptions options;
+        auto time_zone = cctz::utc_time_zone();
+        options.timezone =
+                (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
+        type.get_serde()->to_string_batch(col_from, *col_to, options);
 
         block.replace_by_position(result, std::move(col_to));
         return Status::OK();

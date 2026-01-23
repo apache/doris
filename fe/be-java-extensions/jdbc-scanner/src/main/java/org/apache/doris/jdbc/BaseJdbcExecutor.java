@@ -127,7 +127,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     public void close() throws Exception {
         if (outputTable != null) {
-            outputTable.close();
+            try {
+                outputTable.close();
+            } finally {
+                outputTable = null;
+            }
         }
         try {
             if (stmt != null && !stmt.isClosed()) {
@@ -143,10 +147,17 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
         } finally {
             closeResources(resultSet, stmt, conn);
+            // Always clear references to help GC, even if close() failed
+            resultSet = null;
+            stmt = null;
+            conn = null;
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
-                hikariDataSource = null;
+                try {
+                    hikariDataSource.close();
+                    JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
+                } finally {
+                    hikariDataSource = null;
+                }
             }
         }
     }
@@ -222,7 +233,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
             if (isNullableString == null || replaceString == null) {
                 throw new IllegalArgumentException(
-                    "Output parameters 'is_nullable' and 'replace_string' are required.");
+                        "Output parameters 'is_nullable' and 'replace_string' are required.");
             }
 
             String[] nullableList = isNullableString.split(",");
@@ -242,19 +253,63 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 }
             }
 
-            do {
+            // Validate connection and resultSet once at the start of the batch (not for every row)
+            if (resultSet == null) {
+                throw new SQLException("ResultSet is null");
+            }
+            if (conn != null && conn.isClosed()) {
+                throw new SQLException("Connection has been closed");
+            }
+            if (resultSet.isClosed()) {
+                throw new SQLException("ResultSet has been closed");
+            }
+
+            // Contract with caller:
+            // - Caller has already called hasNext(), and only calls getBlockAddress() if hasNext() returned true.
+            // - So when entering this method, the ResultSet cursor is already positioned on a valid current row.
+            while (curBlockRows < batchSize) {
+                // Read the current row data
                 for (int i = 0; i < outputColumnCount; ++i) {
                     String outputColumnName = outputTable.getFields()[i];
                     int columnIndex = getRealColumnIndex(outputColumnName, i);
                     if (columnIndex > -1) {
                         ColumnType type = convertTypeIfNecessary(i, outputTable.getColumnType(i), replaceStringList);
-                        block.get(i)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
+                        try {
+                            block.get(i)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
+                        } catch (SQLException e) {
+                            // Add context and re-throw
+                            // Connection validity will be checked in the outer catch block
+                            throw new SQLException(
+                                    String.format("Error reading column '%s' (index %d): %s",
+                                            outputColumnName, columnIndex, e.getMessage()), e);
+                        }
                     } else {
                         throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
                     }
                 }
                 curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
+
+                // Check if we've filled the batch before advancing cursor
+                if (curBlockRows >= batchSize) {
+                    break;
+                }
+
+                // Advance to next row for the next iteration / next block.
+                boolean hasNext;
+                try {
+                    hasNext = resultSet.next();
+                } catch (SQLException e) {
+                    // Add context about how many rows were successfully read
+                    // Connection validity will be checked in the outer catch block
+                    throw new SQLException(
+                            String.format("Error calling resultSet.next() after reading %d rows: %s",
+                                    curBlockRows, e.getMessage()), e);
+                }
+
+                if (!hasNext) {
+                    break;
+                }
+            }
 
             for (int i = 0; i < outputColumnCount; ++i) {
                 String outputColumnName = outputTable.getFields()[i];
@@ -276,11 +331,19 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
                 }
             }
+        } catch (SQLException e) {
+            // Enhanced error handling for SQL exceptions
+            // Only check connection status when exception occurs (not in hot loop)
+            String errorMsg = "JDBC get block address failed" + buildConnectionStatusInfo();
+            LOG.warn(errorMsg + ": " + e.getMessage(), e);
+            throw new JdbcExecutorException(errorMsg + ": " + e.getMessage(), e);
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
             throw new JdbcExecutorException("jdbc get block address: ", e);
         } finally {
-            block.clear();
+            if (block != null) {
+                block.clear();
+            }
         }
         return outputTable.getMetaAddress();
     }
@@ -321,6 +384,33 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
+    /**
+     * Build connection and resultSet status information for error messages.
+     * Only called when an exception occurs to avoid performance overhead.
+     */
+    private String buildConnectionStatusInfo() {
+        StringBuilder sb = new StringBuilder();
+        if (conn != null) {
+            try {
+                boolean isClosed = conn.isClosed();
+                boolean isValid = !isClosed && conn.isValid(1);
+                sb.append(String.format(" (Connection closed: %s, valid: %s)", isClosed, isValid));
+            } catch (SQLException e) {
+                sb.append(" (Failed to check connection: ").append(e.getMessage()).append(")");
+            }
+        }
+        if (resultSet != null) {
+            try {
+                boolean isClosed = resultSet.isClosed();
+                sb.append(String.format(" (ResultSet closed: %s)", isClosed));
+            } catch (SQLException e) {
+                // ResultSet.isClosed() may throw SQLException if connection is invalid
+                sb.append(" (ResultSet status unknown)");
+            }
+        }
+        return sb.toString();
+    }
+
     public void commitTrans() throws JdbcExecutorException {
         try {
             if (conn != null) {
@@ -350,6 +440,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             if (resultSet == null) {
                 return false;
             }
+            // Move the cursor forward and report whether there is a row to read.
+            // Caller should only call getBlockAddress() when this returns true,
+            // so getBlockAddress() can safely start reading from the current row.
             return resultSet.next();
         } catch (SQLException e) {
             throw new JdbcExecutorException("resultSet to get next error: ", e);
@@ -611,6 +704,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 preparedStatement.setTimestamp(
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
+            case TIMESTAMPTZ:
+                preparedStatement.setObject(
+                        parameterIndex, Timestamp.valueOf(column.getTimeStampTz(rowIdx)));
+                break;
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -663,6 +760,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             case DATETIMEV2:
                 preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
+                break;
+            case TIMESTAMPTZ:
+                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
                 break;
             case CHAR:
             case VARCHAR:

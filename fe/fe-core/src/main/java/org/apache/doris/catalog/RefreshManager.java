@@ -26,7 +26,9 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -144,10 +146,10 @@ public class RefreshManager {
             }
             return;
         }
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, 0);
-
+        long updateTime = System.currentTimeMillis();
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
         ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
-                table.getName());
+                table.getName(), updateTime);
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
@@ -183,13 +185,23 @@ public class RefreshManager {
             db.get().unregisterTable(log.getTableName());
             db.get().resetMetaCacheNames();
         } else {
-            List<String> partitionNames = log.getPartitionNames();
-            if (partitionNames != null && !partitionNames.isEmpty()) {
-                // Partition-level cache invalidation
-                Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .invalidatePartitionsCache(table.get(), partitionNames);
-                LOG.info("replay refresh partitions for table {}, partitions count: {}",
-                        table.get().getName(), partitionNames.size());
+            List<String> modifiedPartNames = log.getPartitionNames();
+            List<String> newPartNames = log.getNewPartitionNames();
+            if (catalog instanceof HMSExternalCatalog
+                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
+                    || (newPartNames != null && !newPartNames.isEmpty()))) {
+                // Partition-level cache invalidation, only for hive catalog
+                HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .getMetaStoreCache((HMSExternalCatalog) catalog);
+                cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
+                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
+                }
+                LOG.info("replay refresh partitions for table {}, "
+                                + "modified partitions count: {}, "
+                                + "new partitions count: {}",
+                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
+                        newPartNames == null ? 0 : newPartNames.size());
             } else {
                 // Full table cache invalidation
                 refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
@@ -220,12 +232,12 @@ public class RefreshManager {
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
         table.unsetObjectCreated();
-        if (table instanceof HMSExternalTable && updateTime > 0) {
-            ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+        if (updateTime > 0) {
+            table.setUpdateTime(updateTime);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
-        LOG.info("refresh table {}, id {} from db {} in catalog {}",
-                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName());
+        LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
+                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
 
     // Refresh partition
@@ -259,14 +271,16 @@ public class RefreshManager {
         }
 
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache((ExternalTable) table, partitionNames);
-        ((HMSExternalTable) table).setEventUpdateTime(updateTime);
+        ((HMSExternalTable) table).setUpdateTime(updateTime);
     }
 
     public void addToRefreshMap(long catalogId, Integer[] sec) {
+        LOG.info("Add catalog id={} to scheduled refresh map, interval={}s", catalogId, sec[0]);
         refreshMap.put(catalogId, sec);
     }
 
     public void removeFromRefreshMap(long catalogId) {
+        LOG.info("Remove catalog (id={}) from scheduled refresh map", catalogId);
         refreshMap.remove(catalogId);
     }
 
@@ -291,6 +305,8 @@ public class RefreshManager {
                     CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
                     if (catalog != null) {
                         String catalogName = catalog.getName();
+                        LOG.info("Scheduled refresh triggered for catalog {} (id={}), interval={}s, invalidCache=true",
+                                catalogName, catalogId, original);
                         /**
                          * Now do not invoke
                          * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
@@ -298,13 +314,20 @@ public class RefreshManager {
                          * */
                         try {
                             Env.getCurrentEnv().getRefreshManager().handleRefreshCatalog(catalogName, true);
+                            LOG.info("Scheduled refresh completed for catalog {} (id={}), next refresh in {}s",
+                                    catalogName, catalogId, original);
                         } catch (Exception e) {
-                            LOG.warn("failed to refresh catalog {}", catalogName, e);
+                            LOG.warn("Failed to execute scheduled refresh for catalog {} (id={})",
+                                    catalogName, catalogId, e);
                         }
 
                         // reset
                         timeGroup[1] = original;
                         refreshMap.put(catalogId, timeGroup);
+                    } else {
+                        LOG.warn("Scheduled refresh skipped: catalog id={} not found, removing from refresh map",
+                                catalogId);
+                        refreshMap.remove(catalogId);
                     }
                 }
             }

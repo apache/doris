@@ -44,7 +44,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -66,10 +65,6 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
         return Status::OK();
     }
     vectorized::Block flush_block(*block);
-    if (_context.write_type != DataWriteType::TYPE_COMPACTION &&
-        _context.tablet_schema->num_variant_columns() > 0) {
-        RETURN_IF_ERROR(_parse_variant_columns(flush_block));
-    }
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     if (config::enable_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
@@ -85,33 +80,10 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     return Status::OK();
 }
 
-Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block) {
-    size_t num_rows = block.rows();
-    if (num_rows == 0) {
-        return Status::OK();
-    }
-
-    std::vector<int> variant_column_pos;
-    for (int i = 0; i < block.columns(); ++i) {
-        const auto& entry = block.get_by_position(i);
-        if (entry.type->get_primitive_type() == TYPE_VARIANT) {
-            variant_column_pos.push_back(i);
-        }
-    }
-
-    if (variant_column_pos.empty()) {
-        return Status::OK();
-    }
-
-    vectorized::ParseConfig config;
-    config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
-    RETURN_IF_ERROR(
-            vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
-    return Status::OK();
-}
-
 Status SegmentFlusher::close() {
-    return _seg_files.close();
+    RETURN_IF_ERROR(_seg_files.close());
+    RETURN_IF_ERROR(_idx_files.finish_close());
+    return Status::OK();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,

@@ -713,7 +713,7 @@ class UniqueFunctionTest extends SqlTestBase {
                 + " from t"
                 + " where random() > 0.5 and random() > 0.5 and a + random() > 10 and a + random() > 10"
                 + " group by a, a + random()"
-                + " having random() > 0.5 and random() > 0.5 and a + random() > 10 and a + random() > 10 and sum(a + random()) > 30 and sum(a + random()) > 30"
+                + " having random() > 0.8 and random() > 0.8 and a + random() > 20 and a + random() > 20 and sum(a + random()) > 30 and sum(a + random()) > 30"
                 // + " qualify sum(a + random()) over() > 20" // BUG: raise error "Unknown column 'a' in 'table list' in SORT clause"
                 + " order by random(), random(), a + random(), a + random(), sum(a + random()), sum(a + random()) over (partition by a + random())";
 
@@ -746,23 +746,19 @@ class UniqueFunctionTest extends SqlTestBase {
         Lists.transform(ImmutableList.of(0, 1), sort.getExpressions()::get).forEach(differentRandomValidator::addAndCheckDifferent);
         Lists.transform(ImmutableList.of(2, 3, 4), sort.getExpressions()::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
 
-        // BUG: having should below window
-        LogicalFilter<?> having1 = (LogicalFilter<?>) sort.child().child(0);
-        assertEqualsIgnoreElemOrder(ImmutableList.of("(sum(a + random()) > 30.0)"), toSqls(having1.getConjuncts()));
-        having1.getConjuncts().forEach(aAddRandomEqualValidator::checkRandomEqual);
-
-        LogicalWindow<?> window = (LogicalWindow<?>) having1.child();
+        LogicalWindow<?> window = (LogicalWindow<?>) sort.child().child(0);
         Assertions.assertEquals(ImmutableList.of(
                         "sum(a + random()) OVER(PARTITION BY a + random() RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
-                        + " AS `sum(a + random()) over(partition by a + random())`"),
+                                + " AS `sum(a + random()) over(partition by a + random())`"),
                 toSqls(window.getExpressions()));
         window.getExpressions().forEach(aAddRandomEqualValidator::checkRandomEqual);
 
-        LogicalFilter<?> having2 = (LogicalFilter<?>) window.child().child(0);
-        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)"), toSqls(having2.getConjuncts()));
-        having2.getConjuncts().forEach(differentRandomValidator::addAndCheckDifferent);
+        LogicalFilter<?> having1 = (LogicalFilter<?>) window.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.8)", "(random() > 0.8)", "(sum(a + random()) > 30.0)"), toSqls(having1.getConjuncts()));
+        DifferentValidator having1Validtor = new DifferentValidator(exprIdToOriginExprMap);
+        having1.getConjuncts().forEach(having1Validtor::addAndCheckDifferent);
 
-        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) having2.child();
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) having1.child();
         Assertions.assertEquals(ImmutableList.of("a", "a + random()"), toSqls(aggregate.getGroupByExpressions()));
         aAddRandomEqualValidator.checkRandomEqual(aggregate.getGroupByExpressions().get(1));
         Assertions.assertEquals(ImmutableList.of("a", "a + random()", "sum(a + random()) AS `sum(a + random())`"),
@@ -770,12 +766,12 @@ class UniqueFunctionTest extends SqlTestBase {
         Lists.transform(ImmutableList.of(1, 2), aggregate.getOutputExpressions()::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
 
         // push down having
-        LogicalFilter<?> having3 = (LogicalFilter<?>) aggregate.child();
-        assertEqualsIgnoreElemOrder(ImmutableList.of("(a + random() > 10.0)"), toSqls(having3.getConjuncts()));
-        having3.getConjuncts().forEach(aAddRandomEqualValidator::checkRandomEqual);
+        LogicalFilter<?> having2 = (LogicalFilter<?>) aggregate.child();
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(a + random() > 20.0)"), toSqls(having2.getConjuncts()));
+        having2.getConjuncts().forEach(aAddRandomEqualValidator::checkRandomEqual);
 
         // where
-        LogicalFilter<?> filter = (LogicalFilter<?>) having3.child().child(0);
+        LogicalFilter<?> filter = (LogicalFilter<?>) having2.child().child(0);
         assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)", "((a + random()) > 10.0)", "((a + random()) > 10.0)"),
                 toSqls(filter.getConjuncts()));
         filter.getConjuncts().forEach(differentRandomValidator::addAndCheckDifferent);
@@ -928,7 +924,7 @@ class UniqueFunctionTest extends SqlTestBase {
         String sql = "select random(), a + random(), sum(random()), sum(a + random()), max(random()) over(), max(a + random()) over()"
                 + " from t"
                 + " group by grouping sets((), (random()), (random(), random()), (random(), a + random()))";
-
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION, DECOMPOSE_REPEAT");
         Plan root = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()

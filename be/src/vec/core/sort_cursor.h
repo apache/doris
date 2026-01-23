@@ -164,7 +164,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     bool eof() const override { return is_last(0) && _is_eof; }
 
     VExprContextSPtrs _ordering_expr;
-    BlockSupplier _block_supplier {};
+    BlockSupplier _block_supplier;
     bool _is_eof = false;
 };
 
@@ -251,16 +251,14 @@ struct MergeSortBlockCursor {
     }
 };
 
-enum class SortingQueueStrategy : uint8_t { Default, Batch };
-
 /// Allows to fetch data from multiple sort cursors in sorted order (merging sorted data streams).
-template <typename Cursor, SortingQueueStrategy strategy>
-class SortingQueueImpl {
+template <typename Cursor>
+class SortingQueueBatch {
 public:
-    SortingQueueImpl() = default;
+    SortingQueueBatch() = default;
 
     template <typename Cursors>
-    explicit SortingQueueImpl(Cursors& cursors) {
+    explicit SortingQueueBatch(Cursors& cursors) {
         size_t size = cursors.size();
         _queue.reserve(size);
 
@@ -270,47 +268,20 @@ public:
 
         std::make_heap(_queue.begin(), _queue.end());
 
-        if constexpr (strategy == SortingQueueStrategy::Batch) {
-            if (!_queue.empty()) {
-                update_batch_size();
-            }
+        if (!_queue.empty()) {
+            update_batch_size();
         }
     }
 
     bool is_valid() const { return !_queue.empty(); }
 
-    Cursor& current()
-        requires(strategy == SortingQueueStrategy::Default)
-    {
-        return &_queue.front();
-    }
-
-    std::pair<Cursor*, size_t> current()
-        requires(strategy == SortingQueueStrategy::Batch)
-    {
-        return {&_queue.front(), batch_size};
-    }
+    std::pair<Cursor*, size_t> current() { return {&_queue.front(), batch_size}; }
 
     size_t size() { return _queue.size(); }
 
     Cursor& next_child() { return _queue[next_child_index()]; }
 
-    void ALWAYS_INLINE next()
-        requires(strategy == SortingQueueStrategy::Default)
-    {
-        assert(is_valid());
-
-        if (!_queue.front()->is_last()) {
-            _queue.front()->next();
-            update_top(true);
-        } else {
-            remove_top();
-        }
-    }
-
-    void ALWAYS_INLINE next(size_t batch_size_value)
-        requires(strategy == SortingQueueStrategy::Batch)
-    {
+    void ALWAYS_INLINE next(size_t batch_size_value) {
         assert(is_valid());
         assert(batch_size_value <= batch_size);
         assert(batch_size_value > 0);
@@ -334,12 +305,10 @@ public:
         _queue.pop_back();
         next_child_idx = 0;
 
-        if constexpr (strategy == SortingQueueStrategy::Batch) {
-            if (_queue.empty()) {
-                batch_size = 0;
-            } else {
-                update_batch_size();
-            }
+        if (_queue.empty()) {
+            batch_size = 0;
+        } else {
+            update_batch_size();
         }
     }
 
@@ -348,9 +317,7 @@ public:
         std::push_heap(_queue.begin(), _queue.end());
         next_child_idx = 0;
 
-        if constexpr (strategy == SortingQueueStrategy::Batch) {
-            update_batch_size();
-        }
+        update_batch_size();
     }
 
 private:
@@ -390,9 +357,7 @@ private:
 
         /// Check if we are in order.
         if (check_in_order && (*child_it).greater(*begin)) {
-            if constexpr (strategy == SortingQueueStrategy::Batch) {
-                update_batch_size();
-            }
+            update_batch_size();
             return;
         }
 
@@ -424,9 +389,7 @@ private:
         } while (!((*child_it).greater(top)));
         *curr_it = std::move(top);
 
-        if constexpr (strategy == SortingQueueStrategy::Batch) {
-            update_batch_size();
-        }
+        update_batch_size();
     }
 
     /// Update batch size of elements that client can extract from current cursor
@@ -471,9 +434,6 @@ private:
         }
     }
 };
-template <typename Cursor>
-using SortingQueue = SortingQueueImpl<Cursor, SortingQueueStrategy::Default>;
-template <typename Cursor>
-using SortingQueueBatch = SortingQueueImpl<Cursor, SortingQueueStrategy::Batch>;
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

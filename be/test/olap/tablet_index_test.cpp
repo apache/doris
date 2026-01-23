@@ -18,7 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "olap/tablet_schema.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 
 namespace doris {
 
@@ -97,12 +97,12 @@ TEST_F(TabletIndexTest, test_schema_index_diff) {
     TabletSchemaSPtr old_tablet_schema = std::make_shared<TabletSchema>();
     old_tablet_schema->init_from_pb(old_schema_pb);
 
-    EXPECT_FALSE(vectorized::schema_util::has_schema_index_diff(new_tablet_schema.get(),
-                                                                old_tablet_schema.get(), 0, 0));
-    EXPECT_TRUE(vectorized::schema_util::has_schema_index_diff(new_tablet_schema.get(),
-                                                               old_tablet_schema.get(), 1, 1));
-    EXPECT_TRUE(vectorized::schema_util::has_schema_index_diff(new_tablet_schema.get(),
-                                                               old_tablet_schema.get(), 2, 2));
+    EXPECT_FALSE(vectorized::variant_util::has_schema_index_diff(new_tablet_schema.get(),
+                                                                 old_tablet_schema.get(), 0, 0));
+    EXPECT_TRUE(vectorized::variant_util::has_schema_index_diff(new_tablet_schema.get(),
+                                                                old_tablet_schema.get(), 1, 1));
+    EXPECT_TRUE(vectorized::variant_util::has_schema_index_diff(new_tablet_schema.get(),
+                                                                old_tablet_schema.get(), 2, 2));
 }
 
 } // namespace doris

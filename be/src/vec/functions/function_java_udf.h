@@ -27,13 +27,13 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "udf/udf.h"
 #include "util/jni-util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -114,11 +114,12 @@ private:
         // Do not save parent directly, because parent is in VExpr, but jni context is in FunctionContext
         // The deconstruct sequence is not determined, it will core.
         // JniContext's lifecycle should same with function context, not related with expr
-        jclass executor_cl;
-        jmethodID executor_ctor_id;
-        jmethodID executor_evaluate_id;
-        jmethodID executor_close_id;
-        jobject executor = nullptr;
+
+        Jni::GlobalClass executor_cl;
+        Jni::MethodId executor_ctor_id;
+        Jni::MethodId executor_evaluate_id;
+        Jni::MethodId executor_close_id;
+        Jni::GlobalObject executor;
         bool is_closed = false;
         bool open_successes = false;
 
@@ -134,17 +135,12 @@ private:
             }
             VLOG_DEBUG << "Free resources for JniContext";
             JNIEnv* env = nullptr;
-            Status status = JniUtil::GetJNIEnv(&env);
+            Status status = Jni::Env::Get(&env);
             if (!status.ok() || env == nullptr) {
                 LOG(WARNING) << "errors while get jni env " << status;
                 return status;
             }
-            env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
-            env->DeleteGlobalRef(executor);
-            env->DeleteGlobalRef(executor_cl);
-            RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-            is_closed = true;
-            return Status::OK();
+            return executor.call_nonvirtual_void_method(env, executor_cl, executor_close_id).call();
         }
     };
 };

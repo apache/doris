@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -49,7 +50,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -261,7 +264,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void updateCloudProgress() throws UserException {
         Cloud.GetRLTaskCommitAttachRequest.Builder builder =
-                Cloud.GetRLTaskCommitAttachRequest.newBuilder();
+                Cloud.GetRLTaskCommitAttachRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(dbId);
         builder.setJobId(id);
@@ -511,6 +515,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         } else {
             OlapTable olapTable = db.getOlapTableOrDdlException(info.getTableName());
             checkMeta(olapTable, info.getRoutineLoadDesc());
+            // check load_to_single_tablet compatibility with distribution type
+            if (info.isLoadToSingleTablet()
+                    && !(olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+                throw new DdlException(
+                        "if load_to_single_tablet set to true, the olap table must be with random distribution");
+            }
             long tableId = olapTable.getId();
             // init kafka routine load job
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
@@ -719,7 +729,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KafkaDataSourceProperties dataSourceProperties)
-            throws DdlException {
+            throws UserException {
         if (null != dataSourceProperties) {
             List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();
             Map<String, String> customKafkaProperties = Maps.newHashMap();
@@ -740,7 +750,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             }
 
             if (Config.isCloudMode()) {
-                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder();
+                Cloud.ResetRLProgressRequest.Builder builder = Cloud.ResetRLProgressRequest.newBuilder()
+                        .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 builder.setCloudUniqueId(Config.cloud_unique_id);
                 builder.setDbId(dbId);
                 builder.setJobId(id);
@@ -783,6 +794,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
                 this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
             }
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
+                if ("ERROR".equalsIgnoreCase(policy)) {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
+            }
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
                 this.id, jobProperties, dataSourceProperties);
@@ -811,7 +830,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
-        } catch (DdlException e) {
+        } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);
         }
@@ -955,6 +974,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
                 partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
                 precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
-                loadToSingleTablet, isPartialUpdate, memtableOnSinkNode);
+                loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode);
     }
 }

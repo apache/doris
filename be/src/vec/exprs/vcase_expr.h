@@ -22,7 +22,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
-#include "udf/udf.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
@@ -31,6 +31,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_variant.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
@@ -52,7 +53,7 @@ class VCaseExpr final : public VExpr {
 public:
     VCaseExpr(const TExprNode& node);
     ~VCaseExpr() override = default;
-    Status execute_column(VExprContext* context, const Block* block,
+    Status execute_column(VExprContext* context, const Block* block, size_t count,
                           ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
@@ -128,6 +129,7 @@ private:
             CASE_TYPE(TYPE_DATETIME, ColumnDateTime)
             CASE_TYPE(TYPE_DATEV2, ColumnDateV2)
             CASE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
+            CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
@@ -202,7 +204,15 @@ private:
 
         // set default value
         for (int i = 0; i < rows_count; i++) {
-            result_raw_data[i] = {};
+            if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+                          std::is_same_v<ColumnType, ColumnDateTime> ||
+                          std::is_same_v<ColumnType, ColumnDateV2> ||
+                          std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+                result_raw_data[i] = ColumnType::default_value();
+            } else {
+                result_raw_data[i] = {};
+            }
         }
 
         for (IndexType i = 0; i < then_columns.size(); i++) {
@@ -214,11 +224,21 @@ private:
                             then_columns[i]->assume_mutable().get())
                             ->get_data()
                             .data();
-
-            for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                result_raw_data[row_idx] +=
-                        typename ColumnType::value_type(then_idx[row_idx] == i) *
-                        column_raw_data[row_idx];
+            if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+                          std::is_same_v<ColumnType, ColumnDateTime> ||
+                          std::is_same_v<ColumnType, ColumnDateV2> ||
+                          std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                          std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
+                    result_raw_data[row_idx] = (then_idx[row_idx] == i) ? column_raw_data[row_idx]
+                                                                        : result_raw_data[row_idx];
+                }
+            } else {
+                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
+                    result_raw_data[row_idx] +=
+                            typename ColumnType::value_type(then_idx[row_idx] == i) *
+                            column_raw_data[row_idx];
+                }
             }
         }
     }

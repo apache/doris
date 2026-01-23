@@ -44,6 +44,7 @@ class FileBlock {
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
     friend struct FileBlockCell;
+    friend class FileBlockTestAccessor;
 
 public:
     enum class State {
@@ -126,8 +127,6 @@ public:
 
     [[nodiscard]] Status change_cache_type_lock(FileCacheType new_type,
                                                 std::lock_guard<std::mutex>&);
-
-    [[nodiscard]] Status update_expiration_time(uint64_t expiration_time);
 
     uint64_t expiration_time() const { return _key.meta.expiration_time; }
 

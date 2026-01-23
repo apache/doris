@@ -31,38 +31,29 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
-class ComparisonPredicateBase : public ColumnPredicate {
+class ComparisonPredicateBase final : public ColumnPredicate {
 public:
-    using T = typename PrimitiveTypeTraits<Type>::CppType;
-    ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, opposite), _value(value) {}
+    ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
+    using T = std::conditional_t<is_string_type(Type), StringRef,
+                                 typename PrimitiveTypeTraits<Type>::CppType>;
+    ComparisonPredicateBase(uint32_t column_id, std::string col_name, const T& value,
+                            bool opposite = false)
+            : ColumnPredicate(column_id, col_name, Type, opposite), _value(value) {}
+    ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id), _value(other._value) {}
+    ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other) = delete;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        DCHECK(_segment_id_to_cached_code.empty());
+        return ComparisonPredicateBase<Type, PT>::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "ComparisonPredicateBase({})",
+                       ColumnPredicate::debug_string());
+        return fmt::to_string(debug_string_buffer);
+    }
 
     PredicateType type() const override { return PT; }
-
-    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override {
-        if (iterator == nullptr) {
-            return Status::OK();
-        }
-
-        rowid_t ordinal_limit = iterator->bitmap_nums();
-        if (iterator->has_null_bitmap()) {
-            ordinal_limit--;
-            roaring::Roaring null_bitmap;
-            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));
-            *bitmap -= null_bitmap;
-        }
-
-        roaring::Roaring roaring;
-        bool exact_match = false;
-
-        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
-        Status status = iterator->seek_dictionary(&value, &exact_match);
-        rowid_t seeked_ordinal = iterator->current_ordinal();
-
-        return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
-                               bitmap);
-    }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
@@ -115,7 +106,7 @@ public:
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iterator->read_from_index(&param));
+        RETURN_IF_ERROR(iterator->read_from_index(segment_v2::IndexParam {&param}));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
@@ -144,8 +135,8 @@ public:
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null()) {
-            return true;
+        if (statistic.first->is_null() && statistic.second->is_null()) {
+            return false;
         }
 
         T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
@@ -179,16 +170,14 @@ public:
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         T min_value;
         T max_value;
-        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
-            min_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-            max_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        if constexpr (is_string_type(Type)) {
+            auto& tmp_min = min_field.template get<Type>();
+            auto& tmp_max = max_field.template get<Type>();
+            min_value = StringRef(tmp_min.data(), tmp_min.size());
+            max_value = StringRef(tmp_max.data(), tmp_max.size());
         } else {
-            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            min_value = min_field.template get<Type>();
+            max_value = max_field.template get<Type>();
         }
 
         if constexpr (PT == PredicateType::EQ) {
@@ -415,8 +404,8 @@ public:
         // so reference here is safe.
         // https://stackoverflow.com/questions/14688285/c-local-variable-destruction-order
         Defer defer([&]() {
-            update_filter_info(current_evaluated_rows - current_passed_rows,
-                               current_evaluated_rows);
+            update_filter_info(current_evaluated_rows - current_passed_rows, current_evaluated_rows,
+                               0);
             try_reset_judge_selectivity();
         });
 
@@ -560,52 +549,6 @@ private:
     constexpr bool _is_greater() const { return _operator(1, 0); }
 
     constexpr bool _is_eq() const { return _operator(1, 1); }
-
-    Status _bitmap_compare(Status status, bool exact_match, rowid_t ordinal_limit,
-                           rowid_t& seeked_ordinal, BitmapIndexIterator* iterator,
-                           roaring::Roaring* bitmap) const {
-        roaring::Roaring roaring;
-
-        if (status.is<ErrorCode::ENTRY_NOT_FOUND>()) {
-            if constexpr (PT == PredicateType::EQ || PT == PredicateType::GT ||
-                          PT == PredicateType::GE) {
-                *bitmap &= roaring; // set bitmap to empty
-            }
-            return Status::OK();
-        }
-
-        if (!status.ok()) {
-            return status;
-        }
-
-        if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
-            if (exact_match) {
-                RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &roaring));
-            }
-        } else if constexpr (PredicateTypeTraits::is_range(PT)) {
-            rowid_t from = 0;
-            rowid_t to = ordinal_limit;
-            if constexpr (PT == PredicateType::LT) {
-                to = seeked_ordinal;
-            } else if constexpr (PT == PredicateType::LE) {
-                to = seeked_ordinal + exact_match;
-            } else if constexpr (PT == PredicateType::GT) {
-                from = seeked_ordinal + exact_match;
-            } else if constexpr (PT == PredicateType::GE) {
-                from = seeked_ordinal;
-            }
-
-            RETURN_IF_ERROR(iterator->read_union_bitmap(from, to, &roaring));
-        }
-
-        if constexpr (PT == PredicateType::NE) {
-            *bitmap -= roaring;
-        } else {
-            *bitmap &= roaring;
-        }
-
-        return Status::OK();
-    }
 
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -764,12 +707,6 @@ private:
         }
 
         return code;
-    }
-
-    std::string _debug_string() const override {
-        std::string info =
-                "ComparisonPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
-        return info;
     }
 
     mutable phmap::parallel_flat_hash_map<

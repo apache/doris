@@ -47,7 +47,7 @@ static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         {.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0},
         // Expand into L3 cache if we look like we're getting some reduction.
         // At present, The L2 cache is generally 1024k or more
-        {.min_ht_mem = 1024 * 1024, .streaming_ht_min_reduction = 0.0},
+        {.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 1.1},
         // Expand into main memory if we're getting a significant reduction.
         // The L3 cache is generally 16MB or more
         {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 2.0},
@@ -60,9 +60,7 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
           batch_size(state->batch_size()),
-          _agg_arena_pool(std::make_unique<vectorized::Arena>()),
           _agg_data(std::make_unique<DistinctDataVariants>()),
-          _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _aggregated_block(vectorized::Block::create_unique()) {}
 
@@ -459,6 +457,8 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
         }
     }
     _cache_block.clear();
+
+    _arena.clear();
     return Base::close(state);
 }
 

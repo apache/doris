@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -636,6 +637,29 @@ TEST(AIFunctionTest, ReturnTypeTest) {
     ret_type = func_embed.get_return_type_impl(args);
     ASSERT_TRUE(ret_type != nullptr);
     ASSERT_EQ(ret_type->get_family_name(), "Array");
+}
+
+class FunctionAISentimentTestHelper : public FunctionAISentiment {
+public:
+    using FunctionAISentiment::normalize_endpoint;
+};
+
+TEST(AIFunctionTest, NormalizeLegacyCompletionsEndpoint) {
+    TAIResource resource;
+    resource.endpoint = "https://api.openai.com/v1/completions";
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
+}
+
+TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
+    TAIResource resource;
+    resource.endpoint = "https://api.openai.com/v1/chat/completions";
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint, "https://api.openai.com/v1/chat/completions");
+
+    resource.endpoint = "https://localhost/v1/responses";
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint, "https://localhost/v1/responses");
 }
 
 } // namespace doris::vectorized

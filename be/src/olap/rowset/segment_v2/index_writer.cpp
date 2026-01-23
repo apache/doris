@@ -103,6 +103,7 @@ Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumn
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
             M(FieldType::OLAP_FIELD_TYPE_DATEV2)
             M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+            M(FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ)
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)

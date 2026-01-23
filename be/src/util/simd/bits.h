@@ -22,7 +22,7 @@
 #include <type_traits>
 #include <vector>
 
-#if defined(__ARM_NEON) && defined(__aarch64__)
+#if defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
@@ -130,7 +130,21 @@ template <typename T>
 inline T count_zero_num(const int8_t* __restrict data, T size) {
     T num = 0;
     const int8_t* end = data + size;
-#if defined(__SSE2__) && defined(__POPCNT__)
+#if defined(__ARM_NEON)
+    const int8_t* end64 = data + (size / 64 * 64);
+
+    for (; data < end64; data += 64) {
+        auto a0 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data)), 7);
+        auto a1 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 16)), 7);
+        auto a2 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 32)), 7);
+        auto a3 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 48)), 7);
+
+        auto s0 = vaddq_u8(a0, a1);
+        auto s1 = vaddq_u8(a2, a3);
+        auto s = vaddq_u8(s0, s1);
+        num += vaddvq_u8(s);
+    }
+#elif defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
     const int8_t* end64 = data + (size / 64 * 64);
 
@@ -160,8 +174,28 @@ template <typename T>
 inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict null_map, T size) {
     T num = 0;
     const int8_t* end = data + size;
-#if defined(__SSE2__) && defined(__POPCNT__)
+#if defined(__ARM_NEON)
+    const int8_t* end64 = data + (size / 64 * 64);
+
+    for (; data < end64; data += 64, null_map += 64) {
+        auto a0 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data)), 7);
+        auto a1 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 16)), 7);
+        auto a2 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 32)), 7);
+        auto a3 = vshrq_n_u8(vceqzq_s8(vld1q_s8(data + 48)), 7);
+
+        auto r0 = vorrq_u8(a0, vld1q_u8(null_map));
+        auto r1 = vorrq_u8(a1, vld1q_u8(null_map + 16));
+        auto r2 = vorrq_u8(a2, vld1q_u8(null_map + 32));
+        auto r3 = vorrq_u8(a3, vld1q_u8(null_map + 48));
+
+        auto s0 = vaddq_u8(r0, r1);
+        auto s1 = vaddq_u8(r2, r3);
+        auto s = vaddq_u8(s0, s1);
+        num += vaddvq_u8(s);
+    }
+#elif defined(__SSE2__) && defined(__POPCNT__)
     const __m128i zero16 = _mm_setzero_si128();
+    const __m128i one16 = _mm_set1_epi8(1);
     const int8_t* end64 = data + (size / 64 * 64);
 
     for (; data < end64; data += 64, null_map += 64) {
@@ -169,25 +203,31 @@ inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict
                 static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                         _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data)),
                                        zero16),
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map))))) |
+                        _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map)),
+                                       one16)))) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                          _mm_cmpeq_epi8(
                                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16)),
                                  zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 16)))))
+                         _mm_cmpeq_epi8(
+                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 16)),
+                                 one16))))
                  << 16U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                          _mm_cmpeq_epi8(
                                  _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 32)),
                                  zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 32)))))
+                         _mm_cmpeq_epi8(
+                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 32)),
+                                 one16))))
                  << 32U) |
                 (static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
-                         _mm_cmpeq_epi8(
-                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)),
-                                 zero16),
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 48)))))
-                 << 48U));
+                        _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 48)),
+                                       zero16),
+                        _mm_cmpeq_epi8(
+                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(null_map + 48)),
+                                one16)))))
+                        << 48U);
     }
 #endif
     for (; data < end; ++data, ++null_map) {
@@ -221,14 +261,6 @@ static size_t find_byte(const T* data, size_t start, size_t end, T byte) {
     return (T*)p - data;
 }
 
-template <typename T>
-bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
-    if (length == 0) {
-        return false;
-    }
-    return nullptr != std::memchr(reinterpret_cast<const void*>(data), byte, length);
-}
-
 inline size_t find_one(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 1);
 }
@@ -239,6 +271,59 @@ inline size_t find_one(const uint8_t* data, size_t start, size_t end) {
 
 inline size_t find_zero(const std::vector<uint8_t>& vec, size_t start) {
     return find_byte<uint8_t>(vec, start, 0);
+}
+
+inline bool contain_one(const uint8_t* __restrict data, size_t size) {
+    size_t i = 0;
+#if defined(__AVX2__)
+    for (; i + 32 <= size; i += 32) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + i));
+        if (!_mm256_testz_si256(chunk, chunk)) {
+            return true;
+        }
+    }
+#elif defined(__SSE2__)
+    const __m128i zero = _mm_setzero_si128();
+    for (; i + 16 <= size; i += 16) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i));
+        if (_mm_movemask_epi8(_mm_cmpeq_epi8(chunk, zero)) != 0xFFFF) {
+            return true;
+        }
+    }
+#endif
+    for (; i < size; ++i) {
+        if (data[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool contain_zero(const uint8_t* __restrict data, size_t size) {
+    size_t i = 0;
+#if defined(__AVX2__)
+    const __m256i zero = _mm256_setzero_si256();
+    for (; i + 32 <= size; i += 32) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + i));
+        if (_mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, zero)) != 0) {
+            return true;
+        }
+    }
+#elif defined(__SSE2__)
+    const __m128i zero = _mm_setzero_si128();
+    for (; i + 16 <= size; i += 16) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i));
+        if (_mm_movemask_epi8(_mm_cmpeq_epi8(chunk, zero)) != 0) {
+            return true;
+        }
+    }
+#endif
+    for (; i < size; ++i) {
+        if (!data[i]) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace doris::simd

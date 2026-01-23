@@ -25,8 +25,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
-#include "vec/common/schema_util.h"
-#include "vec/json/parse2column.h"
+#include "vec/common/variant_util.h"
 
 using namespace doris::vectorized;
 
@@ -112,7 +111,7 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
 //     tablet_index->add_col_unique_id(col_unique_id);
 // }
 
-static std::unordered_map<int32_t, schema_util::PathToNoneNullValues> all_path_stats;
+static std::unordered_map<int32_t, variant_util::PathToNoneNullValues> all_path_stats;
 static void fill_string_column_with_test_data(auto& column_string, int size, int uid) {
     std::srand(42);
     for (int i = 0; i < size; i++) {
@@ -145,7 +144,7 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
     fill_string_column_with_test_data(column_string, size, uid);
     vectorized::ParseConfig config;
     config.enable_flatten_nested = false;
-    parse_json_to_variant(*variant_column, *column_string, config);
+    variant_util::parse_json_to_variant(*variant_column, *column_string, config);
 }
 
 static void fill_block_with_test_data(vectorized::Block* block, int size) {
@@ -256,7 +255,7 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_key) {
     }
 
     // 7. check output rowset
-    EXPECT_TRUE(schema_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], _tablet)
+    EXPECT_TRUE(variant_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], _tablet)
                         .ok());
 }
 
@@ -306,7 +305,7 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
     }
 
     // 7. check output rowset
-    Status st = schema_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], _tablet);
+    Status st = variant_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], _tablet);
     std::cout << st.to_string() << std::endl;
     EXPECT_FALSE(st.ok());
 }
@@ -374,8 +373,8 @@ TEST_F(SchemaUtilRowsetTest, mixed_external_segment_meta_old_new) {
     // 4. check that VariantCompactionUtil::check_path_stats works across mixed segments
     // This will internally create Segment / ColumnReader instances and should be
     // insensitive to whether a particular segment uses inline or external meta.
-    EXPECT_TRUE(
-            schema_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], tablet).ok());
+    EXPECT_TRUE(variant_util::VariantCompactionUtil::check_path_stats(rowsets, rowsets[0], tablet)
+                        .ok());
 }
 
 TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_schema) {
@@ -468,6 +467,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.write_type = DataWriteType::TYPE_COMPACTION;
         inc_id++;
         return rowset_writer_context;
     };
@@ -493,7 +493,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     }
 
     // 7. check output rowset
-    EXPECT_TRUE(schema_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)
+    EXPECT_TRUE(variant_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)
                         .ok());
 
     // get_data_type_of check
@@ -518,7 +518,10 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // key3 is in the sparse column, return variant type
-    auto data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    StorageReadOptions type_opts;
+    type_opts.tablet_schema = out_rowset->tablet_schema();
+    type_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    auto data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
 
@@ -527,7 +530,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse.set_path_info(PathInData("v1.keya"));
 
     // keya is not in the segment, return string type;
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
 
@@ -537,7 +540,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     sparse_typed_col.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     sparse_typed_col.set_unique_id(-1);
     sparse_typed_col.set_parent_unique_id(1);
-    sparse_typed_col.set_path_info(PathInData(std::string("v1.") + BeConsts::SPARSE_COLUMN_PATH));
+    sparse_typed_col.set_path_info(PathInData(std::string("v1.") + SPARSE_COLUMN_PATH));
     sparse_typed_col.set_variant_max_subcolumns_count(3);
     sparse_typed_col.set_is_nullable(true);
     // add key/value subcolumns for MAP to satisfy DataTypeFactory checks
@@ -555,7 +558,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
         value_col.set_is_nullable(true);
         sparse_typed_col.add_sub_column(value_col);
     }
-    data_type = segment->get_data_type_of(sparse_typed_col, true);
+    data_type = segment->get_data_type_of(sparse_typed_col, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_MAP);
 
@@ -565,7 +568,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse._column_path->has_nested = true;
 
     // keyb has nested part, return int type;
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_INT);
 
@@ -573,7 +576,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     subcolumn_in_sparse.set_name("v1.key1");
     subcolumn_in_sparse.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     subcolumn_in_sparse.set_path_info(PathInData("v1.key1"));
-    data_type = segment->get_data_type_of(subcolumn_in_sparse, true);
+    data_type = segment->get_data_type_of(subcolumn_in_sparse, type_opts);
     EXPECT_TRUE(data_type != nullptr);
     EXPECT_TRUE(data_type->get_storage_field_type() == FieldType::OLAP_FIELD_TYPE_STRING);
 
@@ -624,9 +627,9 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
         rowsets.push_back(rowset);
     }
 
-    std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
+    std::unordered_map<int32_t, variant_util::PathToNoneNullValues> path_stats;
     for (const auto& rowset : rowsets) {
-        auto st = schema_util::VariantCompactionUtil::aggregate_path_to_stats(rowset, &path_stats);
+        auto st = variant_util::VariantCompactionUtil::aggregate_path_to_stats(rowset, &path_stats);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
@@ -638,8 +641,8 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
-    auto st = schema_util::VariantCompactionUtil::get_extended_compaction_schema(rowsets,
-                                                                                 compaction_schema);
+    auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            rowsets, compaction_schema);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // 5. check compaction schema
@@ -753,8 +756,8 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
-    auto st = schema_util::VariantCompactionUtil::get_extended_compaction_schema(rowsets,
-                                                                                 compaction_schema);
+    auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            rowsets, compaction_schema);
     EXPECT_TRUE(st.ok()) << st.msg();
     for (const auto& column : compaction_schema->columns()) {
         if (column->is_extracted_column()) {
@@ -806,6 +809,7 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.write_type = DataWriteType::TYPE_COMPACTION;
         inc_id++;
         return rowset_writer_context;
     };
@@ -831,6 +835,6 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
     }
 
     // 7. check output rowset
-    EXPECT_TRUE(schema_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)
+    EXPECT_TRUE(variant_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)
                         .ok());
 }

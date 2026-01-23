@@ -39,6 +39,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/pb_convert.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -47,6 +48,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
+#include "olap/collection_statistics.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -80,7 +82,7 @@
 #include "util/pretty_printer.h"
 #include "util/time.h"
 #include "util/trace.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 
 using std::vector;
 
@@ -203,7 +205,8 @@ Status Compaction::merge_input_rowsets() {
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
-        if (_is_vertical) {
+        // TODO implement vertical compaction for seq map
+        if (_is_vertical && !_tablet->tablet_schema()->has_seq_map()) {
             if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 RETURN_IF_ERROR(update_delete_bitmap());
             }
@@ -337,6 +340,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     auto seg_id = 0;
     bool segments_key_bounds_truncated {false};
     std::vector<KeyBoundsPB> segment_key_bounds;
+    std::vector<uint32_t> num_segment_rows;
     for (auto rowset : _input_rowsets) {
         RETURN_IF_ERROR(rowset->link_files_to(tablet()->tablet_path(),
                                               _output_rs_writer->rowset_id(), seg_id));
@@ -345,6 +349,10 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
+        std::vector<uint32_t> input_segment_rows;
+        rowset->get_num_segment_rows(&input_segment_rows);
+        num_segment_rows.insert(num_segment_rows.end(), input_segment_rows.begin(),
+                                input_segment_rows.end());
     }
     // build output rowset
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
@@ -358,11 +366,12 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    rowset_meta->set_num_segment_rows(num_segment_rows);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
             _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
@@ -413,7 +422,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
         RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                         _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();
@@ -423,6 +432,28 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
+
+    // If some rowsets has idx files and some rowsets has not, we can not do link file compaction.
+    // Since the output rowset will be broken.
+
+    // Use schema version instead of schema hash to check if they are the same,
+    // because light schema change will not change the schema hash on BE, but will increase the schema version
+    // See fe/fe-core/src/main/java/org/apache/doris/alter/SchemaChangeHandler.java::2979
+    std::vector<int32_t> schema_versions_of_rowsets;
+
+    for (auto input_rowset : _input_rowsets) {
+        schema_versions_of_rowsets.push_back(input_rowset->rowset_meta()->schema_version());
+    }
+
+    // If all rowsets has same schema version, then we can do link file compaction directly.
+    bool all_same_schema_version =
+            std::all_of(schema_versions_of_rowsets.begin(), schema_versions_of_rowsets.end(),
+                        [&](int32_t v) { return v == schema_versions_of_rowsets.front(); });
+
+    if (!all_same_schema_version) {
+        return false;
+    }
+
     if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION ||
         compaction_type() == ReaderType::READER_FULL_COMPACTION) {
         // The remote file system and full compaction does not support to link files.
@@ -1160,6 +1191,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    ctx.allow_packed_file = false;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1392,7 +1424,7 @@ Status Compaction::check_correctness() {
                 _output_rowset->num_rows());
     }
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
             _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
@@ -1456,7 +1488,7 @@ Status CloudCompactionMixin::build_basic_info() {
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
         RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                         _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();
@@ -1520,6 +1552,97 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
 int64_t CloudCompactionMixin::initiator() const {
     return HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
+}
+
+namespace cloud {
+size_t truncate_rowsets_by_txn_size(std::vector<RowsetSharedPtr>& rowsets, int64_t& kept_size_bytes,
+                                    int64_t& truncated_size_bytes) {
+    if (rowsets.empty()) {
+        kept_size_bytes = 0;
+        truncated_size_bytes = 0;
+        return 0;
+    }
+
+    int64_t max_size = config::compaction_txn_max_size_bytes;
+    int64_t cumulative_meta_size = 0;
+    size_t keep_count = 0;
+
+    for (size_t i = 0; i < rowsets.size(); ++i) {
+        const auto& rs = rowsets[i];
+
+        // Estimate rowset meta size using doris_rowset_meta_to_cloud
+        auto cloud_meta = cloud::doris_rowset_meta_to_cloud(rs->rowset_meta()->get_rowset_pb(true));
+        int64_t rowset_meta_size = cloud_meta.ByteSizeLong();
+
+        cumulative_meta_size += rowset_meta_size;
+
+        if (keep_count > 0 && cumulative_meta_size > max_size) {
+            // Rollback and stop
+            cumulative_meta_size -= rowset_meta_size;
+            break;
+        }
+
+        keep_count++;
+    }
+
+    // Ensure at least 1 rowset is kept
+    if (keep_count == 0) {
+        keep_count = 1;
+        // Recalculate size for the first rowset
+        const auto& rs = rowsets[0];
+        auto cloud_meta = cloud::doris_rowset_meta_to_cloud(rs->rowset_meta()->get_rowset_pb());
+        cumulative_meta_size = cloud_meta.ByteSizeLong();
+    }
+
+    // Calculate truncated size
+    int64_t truncated_total_size = 0;
+    size_t truncated_count = rowsets.size() - keep_count;
+    if (truncated_count > 0) {
+        for (size_t i = keep_count; i < rowsets.size(); ++i) {
+            auto cloud_meta =
+                    cloud::doris_rowset_meta_to_cloud(rowsets[i]->rowset_meta()->get_rowset_pb());
+            truncated_total_size += cloud_meta.ByteSizeLong();
+        }
+        rowsets.resize(keep_count);
+    }
+
+    kept_size_bytes = cumulative_meta_size;
+    truncated_size_bytes = truncated_total_size;
+    return truncated_count;
+}
+} // namespace cloud
+
+size_t CloudCompactionMixin::apply_txn_size_truncation_and_log(const std::string& compaction_name) {
+    if (_input_rowsets.empty()) {
+        return 0;
+    }
+
+    int64_t original_count = _input_rowsets.size();
+    int64_t original_start_version = _input_rowsets.front()->start_version();
+    int64_t original_end_version = _input_rowsets.back()->end_version();
+
+    int64_t final_size = 0;
+    int64_t truncated_size = 0;
+    size_t truncated_count =
+            cloud::truncate_rowsets_by_txn_size(_input_rowsets, final_size, truncated_size);
+
+    if (truncated_count > 0) {
+        int64_t original_size = final_size + truncated_size;
+        LOG(INFO) << compaction_name << " txn size estimation truncate"
+                  << ", tablet_id=" << _tablet->tablet_id() << ", original_version_range=["
+                  << original_start_version << "-" << original_end_version
+                  << "], final_version_range=[" << _input_rowsets.front()->start_version() << "-"
+                  << _input_rowsets.back()->end_version()
+                  << "], original_rowset_count=" << original_count
+                  << ", final_rowset_count=" << _input_rowsets.size()
+                  << ", truncated_rowset_count=" << truncated_count
+                  << ", original_size_bytes=" << original_size
+                  << ", final_size_bytes=" << final_size
+                  << ", truncated_size_bytes=" << truncated_size
+                  << ", threshold_bytes=" << config::compaction_txn_max_size_bytes;
+    }
+
+    return truncated_count;
 }
 
 Status CloudCompactionMixin::execute_compact() {
@@ -1616,6 +1739,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    ctx.allow_packed_file = false;
 
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
@@ -1624,6 +1748,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_file_cache = should_cache_compaction_output();
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
+    ctx.tablet = _tablet;
+    ctx.job_id = _uuid;
 
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(

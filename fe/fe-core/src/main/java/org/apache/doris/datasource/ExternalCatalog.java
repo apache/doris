@@ -127,7 +127,8 @@ public abstract class ExternalCatalog
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
             USE_META_CACHE,
-            CatalogProperty.ENABLE_MAPPING_VARBINARY);
+            CatalogProperty.ENABLE_MAPPING_VARBINARY,
+            CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
@@ -246,10 +247,17 @@ public abstract class ExternalCatalog
         if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
             catalogProperty.setEnableMappingVarbinary(false);
         }
+        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "").isEmpty()) {
+            catalogProperty.setEnableMappingTimestampTz(false);
+        }
     }
 
     public boolean getEnableMappingVarbinary() {
         return catalogProperty.getEnableMappingVarbinary();
+    }
+
+    public boolean getEnableMappingTimestampTz() {
+        return catalogProperty.getEnableMappingTimestampTz();
     }
 
     // we need check auth fallback for kerberos or simple
@@ -542,6 +550,7 @@ public abstract class ExternalCatalog
      * @param invalidCache
      */
     public void onRefreshCache(boolean invalidCache) {
+        setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
@@ -1136,8 +1145,9 @@ public abstract class ExternalCatalog
                 partitions = partitionNamesInfo.getPartitionNames();
             }
             ExternalTable dorisTable = getDbOrDdlException(dbName).getTableOrDdlException(tableName);
-            metadataOps.truncateTable(dorisTable, partitions);
-            TruncateTableInfo info = new TruncateTableInfo(getName(), dbName, tableName, partitions);
+            long updateTime = System.currentTimeMillis();
+            metadataOps.truncateTable(dorisTable, partitions, updateTime);
+            TruncateTableInfo info = new TruncateTableInfo(getName(), dbName, tableName, partitions, updateTime);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (Exception e) {
             LOG.warn("Failed to truncate table {}.{} in catalog {}", dbName, tableName, getName(), e);
@@ -1147,7 +1157,7 @@ public abstract class ExternalCatalog
 
     public void replayTruncateTable(TruncateTableInfo info) {
         if (metadataOps != null) {
-            metadataOps.afterTruncateTable(info.getDb(), info.getTable());
+            metadataOps.afterTruncateTable(info.getDb(), info.getTable(), info.getUpdateTime());
         }
     }
 
@@ -1319,11 +1329,11 @@ public abstract class ExternalCatalog
     }
 
     // log the refresh external table operation
-    private void logRefreshExternalTable(ExternalTable dorisTable) {
+    private void logRefreshExternalTable(ExternalTable dorisTable, long updateTime) {
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(dorisTable.getCatalog().getId(),
-                                dorisTable.getDbName(), dorisTable.getName()));
+                                dorisTable.getDbName(), dorisTable.getName(), updateTime));
     }
 
     @Override
@@ -1335,8 +1345,9 @@ public abstract class ExternalCatalog
             throw new DdlException("Add column operation is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.addColumn(externalTable, column, position);
-            logRefreshExternalTable(externalTable);
+            long updateTime = System.currentTimeMillis();
+            metadataOps.addColumn(externalTable, column, position, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to add column {} to table {}.{} in catalog {}",
                     column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1353,8 +1364,9 @@ public abstract class ExternalCatalog
             throw new DdlException("Add columns operation is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.addColumns(externalTable, columns);
-            logRefreshExternalTable(externalTable);
+            long updateTime = System.currentTimeMillis();
+            metadataOps.addColumns(externalTable, columns, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to add columns to table {}.{} in catalog {}",
                     externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1371,8 +1383,9 @@ public abstract class ExternalCatalog
             throw new DdlException("Drop column operation is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.dropColumn(externalTable, columnName);
-            logRefreshExternalTable(externalTable);
+            long updateTime = System.currentTimeMillis();
+            metadataOps.dropColumn(externalTable, columnName, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to drop column {} from table {}.{} in catalog {}",
                     columnName, externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1389,8 +1402,9 @@ public abstract class ExternalCatalog
             throw new DdlException("Rename column operation is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.renameColumn(externalTable, oldName, newName);
-            logRefreshExternalTable(externalTable);
+            long updateTime = System.currentTimeMillis();
+            metadataOps.renameColumn(externalTable, oldName, newName, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to rename column {} to {} in table {}.{} in catalog {}",
                     oldName, newName, externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1407,8 +1421,9 @@ public abstract class ExternalCatalog
             throw new DdlException("Modify column operation is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.modifyColumn(externalTable, column, columnPosition);
-            logRefreshExternalTable(externalTable);
+            long updateTime = System.currentTimeMillis();
+            metadataOps.modifyColumn(externalTable, column, columnPosition, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to modify column {} in table {}.{} in catalog {}",
                     column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
@@ -1425,8 +1440,9 @@ public abstract class ExternalCatalog
             throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.reorderColumns(externalTable, newOrder);
-            logRefreshExternalTable(externalTable);
+            long updateTime = System.currentTimeMillis();
+            metadataOps.reorderColumns(externalTable, newOrder, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
         } catch (Exception e) {
             LOG.warn("Failed to reorder columns in table {}.{} in catalog {}",
                     externalTable.getDbName(), externalTable.getName(), getName(), e);

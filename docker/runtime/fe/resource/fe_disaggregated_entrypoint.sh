@@ -53,10 +53,13 @@ DB_ADMIN_PASSWD=$PASSWD
 # myself as IP or FQDN
 MYSELF=
 
+# doris mtat storage path
+DORIS_META_DIR=
+
 #specify enable tls or not.
 ENABLE_TLS=
 
-#tls_certificate_path specify the path of public crt. 
+#tls_certificate_path specify the path of public crt.
 TLS_CERTIFICATE_PATH=
 
 #tls_private_key_path specify the public secert key.
@@ -74,9 +77,18 @@ function log_stderr()
 parse_confval_from_fe_conf()
 {
     # a naive script to grep given confkey from fe conf file
-    # assume conf format: ^\s*<key>\s*=\s*<value>\s*$
     local confkey=$1
-    local confvalue=`grep "\<$confkey\>" $FE_CONFFILE | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+
+    esc_key=$(printf '%s\n' "$confkey" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local confvalue=$(
+        grep -v '^[[:space:]]*#' "$FE_CONFFILE" |
+        grep -E "^[[:space:]]*${esc_key}[[:space:]]*=" |
+        tail -n1 |
+        sed -E 's/^[[:space:]]*[^=]+[[:space:]]*=[[:space:]]*//' |
+        sed -E 's/[[:space:]]*#.*$//' |
+        sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+    )
+    log_stderr "[info] read 'fe.conf' config [ $confkey: $confvalue]"
     echo "$confvalue"
 }
 
@@ -112,6 +124,13 @@ collect_env_info()
     if [[ "x$query_port" != "x" ]] ; then
         QUERY_PORT=$query_port
     fi
+
+    # parse meta_dir
+    local doris_meta_path=`parse_confval_from_fe_conf "meta_dir"`
+    if [[ "x$doris_meta_path" == "x" ]] ; then
+        doris_meta_path="/opt/apache-doris/fe/doris-meta"
+    fi
+    DORIS_META_DIR=$doris_meta_path
 }
 
 show_frontends()
@@ -365,6 +384,7 @@ function check_and_modify_fqdn_config()
 function add_cluster_info_to_conf()
 {
     echo "" >> ${DORIS_HOME}/conf/fe.conf
+    echo "########## doris-operator automatically adds ##########" >> ${DORIS_HOME}/conf/fe.conf
     echo "meta_service_endpoint=$MS_ENDPOINT" >> ${DORIS_HOME}/conf/fe.conf
     echo "cluster_id=$CLUSTER_ID" >> ${DORIS_HOME}/conf/fe.conf
     echo "deploy_mode=cloud" >> ${DORIS_HOME}/conf/fe.conf
@@ -495,13 +515,14 @@ resolve_password_from_secret
 #parse tls connection config
 parse_tls_connection_variables
 
-if [[ -f "$DORIS_HOME/doris-meta/image/ROLE" ]]; then
+collect_env_info
+doris_meta_dir=$(eval "echo \"$DORIS_META_DIR\"")
+if [[ -f "$doris_meta_dir/image/ROLE" ]]; then
     log_stderr "start fe with exist meta."
     ./doris-debug --component fe
     start_fe_with_meta
 else
     log_stderr "first start fe with meta not exist."
-    collect_env_info
     probe_master $fe_addrs
     #create account about node management
     create_account

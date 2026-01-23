@@ -30,10 +30,10 @@ class DateV2Value;
 
 class VecDateTimeValue;
 
+class TimestampTzValue;
+
 VecDateTimeValue timestamp_from_datetime(const std::string& datetime_str);
 VecDateTimeValue timestamp_from_date(const std::string& date_str);
 uint8_t timev2_to_buffer_from_double(double time, char* buffer, int scale);
-DateV2Value<DateV2ValueType> timestamp_from_date_v2(const std::string& date_str);
-DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& date_str);
 std::string timev2_to_buffer_from_double(double time, int scale);
 } // namespace doris

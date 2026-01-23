@@ -32,7 +32,6 @@
 #include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -46,6 +45,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -56,7 +56,7 @@ using ColumnString = ColumnStr<UInt32>;
 
 struct InState {
     bool use_set = true;
-    std::unique_ptr<HybridSetBase> hybrid_set;
+    std::shared_ptr<HybridSetBase> hybrid_set;
 };
 
 template <bool negative>
@@ -138,6 +138,7 @@ public:
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(data_type_with_names.size() == 1);
         DCHECK(iterators.size() == 1);
@@ -181,7 +182,8 @@ public:
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iter->read_from_index(&param));
+            param.analyzer_ctx = analyzer_ctx;
+            RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
             *roaring |= *param.roaring;
         }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);

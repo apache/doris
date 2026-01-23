@@ -31,6 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.FileLoadScanNode;
@@ -38,6 +39,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -143,20 +145,9 @@ public class NereidsStreamLoadPlanner {
             }
         }
 
-        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && !destTable.hasSkipBitmapColumn()) {
-            String tblName = destTable.getName();
-            throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
-                    + " But table " + tblName + " doesn't have it. You can use `ALTER TABLE " + tblName
-                    + " ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\";` to add it to the table.");
-        }
-        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
-                && !destTable.getEnableLightSchemaChange()) {
-            throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
-                    + " But table " + destTable.getName() + "'s property light_schema_change is false");
-        }
-        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
-                && destTable.hasVariantColumns()) {
-            throw new UserException("Flexible partial update can only support table without variant columns.");
+        if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+            // Validate table-level constraints for flexible partial update
+            destTable.validateForFlexiblePartialUpdate();
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
@@ -217,6 +208,15 @@ public class NereidsStreamLoadPlanner {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
+
+        // make sure StatementContext is set in ConnectContext
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() == null) {
+            StatementContext statementContext = new StatementContext();
+            connectContext.setStatementContext(statementContext);
+            statementContext.setConnectContext(connectContext);
+        }
+
         // 1. create file group
         NereidsDataDescription dataDescription = new NereidsDataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());

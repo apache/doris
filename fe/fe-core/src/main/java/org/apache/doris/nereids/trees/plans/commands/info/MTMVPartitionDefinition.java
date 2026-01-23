@@ -22,7 +22,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
@@ -132,8 +131,7 @@ public class MTMVPartitionDefinition {
                         .sorted(Comparator.comparingInt(Pair::key))
                         .map(Pair::value)
                         .collect(Collectors.toList());
-                mtmvPartitionInfo.setExpr(new FunctionCallExpr(dateTrunc.getName(),
-                        new FunctionParams(params)));
+                mtmvPartitionInfo.setExpr(new FunctionCallExpr(dateTrunc.getName(), params, false));
                 mtmvPartitionInfo.setPartitionType(MTMVPartitionType.EXPR);
                 this.partitionType = MTMVPartitionType.EXPR;
             }

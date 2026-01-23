@@ -85,7 +85,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -240,7 +242,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         // Ticket contains the IP and Brpc Port of the Doris BE node where the query result is located.
                         final ByteString handle = ByteString.copyFromUtf8(
                                 DebugUtil.printId(tid) + "&" + endpointLoc.getResultInternalServiceAddr().hostname + "&"
-                                        + endpointLoc.getResultInternalServiceAddr().port + "&" + query);
+                                        + endpointLoc.getResultInternalServiceAddr().port + "&"
+                                        + Base64.getEncoder().encodeToString(query.getBytes(StandardCharsets.UTF_8)));
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
                         Ticket ticket = new Ticket(Any.pack(ticketStatement).toByteArray());

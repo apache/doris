@@ -95,8 +95,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -109,6 +111,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -166,21 +169,39 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
                     leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
                 }
+                if (cascadesContext.getRecursiveCteContext().isPresent()) {
+                    // we are analyzing recursive CTE's recursive child, must inline all used CTEs
+                    cascadesContext.getStatementContext().addToMustLineCTEs(cteContext.getCteId());
+                }
                 return consumer;
             }
         }
-        List<String> tableQualifier = RelationUtil.getQualifierName(
-                cascadesContext.getConnectContext(), unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
-                Optional.of(unboundRelation));
+        LogicalPlan plan;
+        // check if it is a recursive CTE's name
+        if (cascadesContext.getRecursiveCteContext().isPresent()
+                && cascadesContext.getRecursiveCteContext().get().findCTEContext(tableName).isPresent()) {
+            if (cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
+                throw new AnalysisException(
+                        String.format("recursive reference to query %s must not appear within its non-recursive term",
+                                tableName));
+            }
+            plan = new LogicalWorkTableReference(cascadesContext.getStatementContext().getNextRelationId(),
+                    cascadesContext.getRecursiveCteContext().get().getCteId(),
+                    cascadesContext.getRecursiveCteOutputs(), unboundRelation.getNameParts());
+        } else {
+            List<String> tableQualifier = RelationUtil.getQualifierName(
+                    cascadesContext.getConnectContext(), unboundRelation.getNameParts());
+            TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                    Optional.of(unboundRelation));
 
-        LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-        if (cascadesContext.isLeadingJoin()) {
-            LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
-            leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
-            leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
+            plan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+            if (cascadesContext.isLeadingJoin()) {
+                LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
+                leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
+                leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), plan);
+            }
         }
-        return scan;
+        return plan;
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
@@ -397,6 +418,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
         cascadesContext.getStatementContext().loadSnapshots(
+                table,
                 unboundRelation.getTableSnapshot(),
                 Optional.ofNullable(unboundRelation.getScanParams()));
         boolean isView = false;
@@ -586,14 +608,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeDorisView(View view, List<String> tableQualifier, CascadesContext parentContext) {
-        Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
-        long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
-        parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);
-        try {
-            return parseAndAnalyzeView(view, viewInfo.first, parentContext);
-        } finally {
-            parentContext.getConnectContext().getSessionVariable().setSqlMode(originalSqlMode);
+        Pair<String, Map<String, String>> viewInfo = parentContext.getStatementContext()
+                .getAndCacheViewInfo(tableQualifier, view);
+        Plan analyzedPlan;
+        Map<String, String> currentSessionVars =
+                parentContext.getConnectContext().getSessionVariable().getAffectQueryResultInPlanVariables();
+        try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
+                viewInfo.second)) {
+            analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
+            if (!SessionVarGuardRewriter.checkSessionVariablesMatch(currentSessionVars, viewInfo.second)) {
+                SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
+                analyzedPlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, analyzedPlan);
+            }
         }
+        return analyzedPlan;
     }
 
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {

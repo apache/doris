@@ -30,6 +30,7 @@ import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -158,6 +159,7 @@ public class HMSBaseProperties {
         }
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
             hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hiveMetastoreClientPrincipal, this.hiveMetastoreClientKeytab, hiveConf);
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
@@ -174,6 +176,7 @@ public class HMSBaseProperties {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
             hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }
@@ -198,8 +201,11 @@ public class HMSBaseProperties {
         if (StringUtils.isNotBlank(hmsUserName)) {
             hiveConf.set(AuthenticationConfig.HADOOP_USER_NAME, hmsUserName);
         }
-        HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
-                String.valueOf(Config.hive_metastore_client_timeout_second));
+        if (!userOverriddenHiveConfig.containsKey(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.toString())) {
+            // use Config.hive_metastore_client_timeout_second as default timeout
+            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
+                    String.valueOf(Config.hive_metastore_client_timeout_second));
+        }
         initHadoopAuthenticator();
     }
 

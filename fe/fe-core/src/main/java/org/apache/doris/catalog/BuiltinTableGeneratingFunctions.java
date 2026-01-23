@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSpl
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeVariantArray;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -78,7 +79,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(ExplodeJsonArrayJsonOuter.class, "explode_json_array_json_outer"),
             tableGenerating(ExplodeVariantArray.class, "explode_variant_array"),
             tableGenerating(PosExplode.class, "posexplode"),
-            tableGenerating(PosExplodeOuter.class, "posexplode_outer")
+            tableGenerating(PosExplodeOuter.class, "posexplode_outer"),
+            tableGenerating(Unnest.class, "unnest")
     );
 
     public static final ImmutableSet<String> RETURN_MULTI_COLUMNS_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
@@ -86,7 +88,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             .add("explode_variant_array_outer").add("explode_json_array_int").add("explode_json_array_double")
             .add("explode_json_array_string").add("explode_json_array_json").add("explode_json_array_int_outer")
             .add("explode_json_array_double_outer").add("explode_json_array_string_outer")
-            .add("explode_json_array_json_outer").add("explode_split").add("explode_split_outer").build();
+            .add("explode_json_array_json_outer").add("explode_split").add("explode_split_outer")
+            .add("posexplode").add("posexplode_outer").build();
 
     public Set<String> getReturnManyColumnFunctions() {
         return RETURN_MULTI_COLUMNS_FUNCTIONS;

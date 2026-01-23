@@ -17,6 +17,9 @@
 
 #include "collection_statistics.h"
 
+#include <set>
+#include <sstream>
+
 #include "common/exception.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
@@ -24,6 +27,7 @@
 #include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
+#include "util/uid_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
@@ -35,21 +39,22 @@ namespace doris {
 Status CollectionStatistics::collect(
         RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
         const TabletSchemaSPtr& tablet_schema,
-        const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down) {
+        const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx) {
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
     RETURN_IF_ERROR(
             extract_collect_info(state, common_expr_ctxs_push_down, tablet_schema, &collect_infos));
+    if (collect_infos.empty()) {
+        LOG(WARNING) << "Index statistics collection: no collect info extracted.";
+        return Status::OK();
+    }
 
     for (const auto& rs_split : rs_splits) {
         const auto& rs_reader = rs_split.rs_reader;
         auto rowset = rs_reader->rowset();
-        auto rowset_meta = rowset->rowset_meta();
-
         auto num_segments = rowset->num_segments();
         for (int32_t seg_id = 0; seg_id < num_segments; ++seg_id) {
-            auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
-            auto status = process_segment(seg_path, rowset_meta->fs(), tablet_schema.get(),
-                                          collect_infos);
+            auto status =
+                    process_segment(rowset, seg_id, tablet_schema.get(), collect_infos, io_ctx);
             if (!status.ok()) {
                 if (status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
                     status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
@@ -61,17 +66,44 @@ Status CollectionStatistics::collect(
         }
     }
 
-#ifndef NDEBUG
-    LOG(INFO) << "term_num_docs: " << _total_num_docs;
-    for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
-        LOG(INFO) << "field_name: " << StringHelper::to_string(ws_field_name)
-                  << ", num_tokens: " << num_tokens;
-        for (const auto& [term, doc_freq] : _term_doc_freqs.at(ws_field_name)) {
-            LOG(INFO) << "term: " << StringHelper::to_string(term) << ", doc_freq: " << doc_freq;
+    // Build a single-line log with query_id, tablet_ids, and per-field term statistics
+    if (VLOG_IS_ON(1)) {
+        std::set<int64_t> tablet_ids;
+        for (const auto& rs_split : rs_splits) {
+            if (rs_split.rs_reader && rs_split.rs_reader->rowset()) {
+                tablet_ids.insert(rs_split.rs_reader->rowset()->rowset_meta()->tablet_id());
+            }
         }
+
+        std::ostringstream oss;
+        oss << "CollectionStatistics: query_id=" << print_id(state->query_id());
+
+        oss << ", tablet_ids=[";
+        bool first_tablet = true;
+        for (int64_t tid : tablet_ids) {
+            if (!first_tablet) oss << ",";
+            oss << tid;
+            first_tablet = false;
+        }
+        oss << "]";
+
+        oss << ", total_num_docs=" << _total_num_docs;
+
+        for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
+            oss << ", {field=" << StringHelper::to_string(ws_field_name)
+                << ", num_tokens=" << num_tokens << ", terms=[";
+
+            bool first_term = true;
+            for (const auto& [term, doc_freq] : _term_doc_freqs.at(ws_field_name)) {
+                if (!first_term) oss << ", ";
+                oss << "(" << StringHelper::to_string(term) << ":" << doc_freq << ")";
+                first_term = false;
+            }
+            oss << "]}";
+        }
+
+        VLOG(1) << oss.str();
     }
-    LOG(INFO) << "--------------------------------";
-#endif
 
     return Status::OK();
 }
@@ -123,6 +155,9 @@ Status handle_match_pred(RuntimeState* state, const TabletSchemaSPtr& tablet_sch
                 left_slot_ref->column_name());
     }
 #endif
+
+    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    format_options.timezone = &state->timezone_obj();
     for (const auto* index_meta : index_metas) {
         if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
             continue;
@@ -131,8 +166,13 @@ Status handle_match_pred(RuntimeState* state, const TabletSchemaSPtr& tablet_sch
             continue;
         }
 
-        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(right_literal->value(),
-                                                                    index_meta->properties());
+        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
+                right_literal->value(format_options), index_meta->properties());
+        if (term_infos.empty()) {
+            LOG(WARNING) << "Index statistics collection: no terms extracted from literal value, "
+                         << "col_unique_id=" << index_meta->col_unique_ids()[0];
+            continue;
+        }
 
         std::string field_name = std::to_string(index_meta->col_unique_ids()[0]);
         if (!column.suffix_path().empty()) {
@@ -185,18 +225,22 @@ Status CollectionStatistics::extract_collect_info(
 }
 
 Status CollectionStatistics::process_segment(
-        const std::string& seg_path, const io::FileSystemSPtr& fs,
-        const TabletSchema* tablet_schema,
-        const std::unordered_map<std::wstring, CollectInfo>& collect_infos) {
+        const RowsetSharedPtr& rowset, int32_t seg_id, const TabletSchema* tablet_schema,
+        const std::unordered_map<std::wstring, CollectInfo>& collect_infos, io::IOContext* io_ctx) {
+    auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
+    auto rowset_meta = rowset->rowset_meta();
+
     auto idx_file_reader = std::make_unique<IndexFileReader>(
-            fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
-            tablet_schema->get_inverted_index_storage_format());
-    RETURN_IF_ERROR(idx_file_reader->init());
+            rowset_meta->fs(),
+            std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
+            tablet_schema->get_inverted_index_storage_format(),
+            rowset_meta->inverted_index_file_info(seg_id));
+    RETURN_IF_ERROR(idx_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
 
     int32_t total_seg_num_docs = 0;
     for (const auto& [ws_field_name, collect_info] : collect_infos) {
 #ifdef BE_TEST
-        auto compound_reader = DORIS_TRY(idx_file_reader->open(collect_info.index_meta, nullptr));
+        auto compound_reader = DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
         auto* reader = lucene::index::IndexReader::open(compound_reader.get());
         auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
 
@@ -208,7 +252,7 @@ Status CollectionStatistics::process_segment(
         if (!InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                             &inverted_index_cache_handle)) {
             auto compound_reader =
-                    DORIS_TRY(idx_file_reader->open(collect_info.index_meta, nullptr));
+                    DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
             auto* reader = lucene::index::IndexReader::open(compound_reader.get());
             size_t reader_size = reader->getTermInfosRAMUsed();
             auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
@@ -228,7 +272,7 @@ Status CollectionStatistics::process_segment(
                 index_reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
 
         for (const auto& term_info : collect_info.term_infos) {
-            auto iter = TermIterator::create(nullptr, false, index_reader, ws_field_name,
+            auto iter = TermIterator::create(io_ctx, false, index_reader, ws_field_name,
                                              term_info.get_single_term());
             _term_doc_freqs[ws_field_name][iter->term()] += iter->doc_freq();
         }

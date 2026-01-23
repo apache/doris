@@ -98,10 +98,7 @@ suite("test_cloud_mow_broker_load_with_retry", "nonConcurrent") {
                     INDEX idx_inverted_k117 (`k17`) USING INVERTED PROPERTIES("parser" = "english"),
                     INDEX idx_ngrambf_k115 (`k15`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
                     INDEX idx_ngrambf_k116 (`k16`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
-                    INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
-        
-                    INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
-                    INDEX idx_bitmap_k110 (`kd01`) USING BITMAP
+                    INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256")
         
                 )
                     UNIQUE KEY(k00)

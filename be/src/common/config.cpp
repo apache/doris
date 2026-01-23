@@ -65,6 +65,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+DEFINE_Int32(cdc_client_port, "9096");
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -301,36 +303,19 @@ DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
 DEFINE_Int32(task_executor_min_concurrency_per_task, "1");
 // task executor max concurrency per task
 DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
-DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
-    if (config == -1) {
-        task_executor_max_concurrency_per_task = std::numeric_limits<int>::max();
-    }
-    return true;
-});
+
 // task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
 DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
-DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        task_executor_initial_max_concurrency_per_task = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
+
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "false");
+DEFINE_Bool(enable_task_executor_in_internal_table, "true");
 // Enable task executor in external table scan.
 DEFINE_Bool(enable_task_executor_in_external_table, "true");
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
-DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
+
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "1000");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
@@ -372,21 +357,6 @@ DEFINE_mString(broken_storage_path, "");
 DEFINE_Int32(min_active_scan_threads, "-1");
 DEFINE_Int32(min_active_file_scan_threads, "-1");
 
-DEFINE_Validator(min_active_scan_threads, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        min_active_scan_threads = CpuInfo::num_cores() * 2;
-    }
-    return true;
-});
-DEFINE_Validator(min_active_file_scan_threads, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        min_active_file_scan_threads = CpuInfo::num_cores() * 8;
-    }
-    return true;
-});
-
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
 // and exit. When config is false, process will only log warning.
@@ -414,6 +384,12 @@ DEFINE_mInt32(trash_file_expire_time_sec, "0");
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
 DEFINE_mBool(disable_segment_cache, "false");
+// Enable checking segment rows consistency between rowset meta and segment footer
+DEFINE_mBool(enable_segment_rows_consistency_check, "false");
+DEFINE_mBool(enable_segment_rows_check_core, "false");
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DEFINE_mBool(fail_when_segment_rows_not_in_rowset_meta, "false");
 DEFINE_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
@@ -597,6 +573,14 @@ DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
 DEFINE_Int32(webserver_num_workers, "128");
 
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DEFINE_mInt32(async_reply_timeout_s, "60");
+DEFINE_Validator(async_reply_timeout_s, [](const int config) -> bool { return config >= 3; });
+
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
 DEFINE_Int32(single_replica_load_download_num_workers, "64");
@@ -660,6 +644,9 @@ DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
 DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 // The buffer size to store stream table function schema info
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
+
+// request cdc client timeout
+DEFINE_mInt32(request_cdc_client_timeout_ms, "60000");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -1037,7 +1024,7 @@ DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
-DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
+DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
 DEFINE_mBool(execution_ignore_eovercrowded, "true");
 // cooldown task configs
@@ -1105,8 +1092,6 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
-
-DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
@@ -1185,7 +1170,9 @@ DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_ttl_info_update_interval_ms, "180000");
+DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
@@ -1193,6 +1180,8 @@ DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
+
+DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
@@ -1261,7 +1250,7 @@ DEFINE_Int32(segment_cache_capacity, "-1");
 DEFINE_Int32(segment_cache_fd_percentage, "20");
 DEFINE_mInt32(estimated_mem_per_column_reader, "512");
 DEFINE_Int32(segment_cache_memory_percentage, "5");
-DEFINE_Bool(enable_segment_cache_prune, "true");
+DEFINE_Bool(enable_segment_cache_prune, "false");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1626,23 +1615,18 @@ DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
 DEFINE_Int32(omp_threads_limit, "-1");
-DEFINE_Validator(omp_threads_limit, [](const int config) -> bool {
-    if (config > 0) {
-        omp_threads_limit = config;
-        return true;
-    }
-    CpuInfo::init();
-    int core_cap = config::num_cores > 0 ? config::num_cores : CpuInfo::num_cores();
-    core_cap = std::max(1, core_cap);
-    // Use at most 80% of the available CPU cores.
-    omp_threads_limit = std::max(1, core_cap * 4 / 5);
-    return true;
-});
+
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+// Chunk size for ANN/vector index building per training/adding batch
+// 1M By default.
+DEFINE_mInt64(ann_index_build_chunk_size, "1000000");
+DEFINE_Validator(ann_index_build_chunk_size,
+                 [](const int64_t config) -> bool { return config > 0; });
 
 DEFINE_mBool(enable_wal_tde, "false");
 
@@ -1654,15 +1638,6 @@ DEFINE_String(aws_credentials_provider_version, "v2");
 DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
     return config == "v1" || config == "v2";
 });
-
-DEFINE_mString(binary_plain_encoding_default_impl, "v1");
-DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
-    return config == "v1" || config == "v2";
-});
-
-DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
-
-DEFINE_mBool(enable_fuzzy_storage_encoding, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2115,12 +2090,10 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_packed_file"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
-    if (config::enable_fuzzy_storage_encoding) {
-        fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
-                ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
-    }
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

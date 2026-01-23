@@ -20,11 +20,15 @@ package org.apache.doris.nereids.processor.pre;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import java.util.ArrayList;
@@ -38,28 +42,26 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
 
     @Override
     public Plan visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink,
-                                       StatementContext context) {
-        Plan topPlan = visitChildren(this, unboundResultSink, context);
-        if (!aliasQueries.isEmpty()) {
-            if (((UnboundResultSink) topPlan).child() instanceof LogicalCTE) {
-                LogicalCTE logicalCTE = (LogicalCTE) ((UnboundResultSink) topPlan).child();
-                List<LogicalSubQueryAlias<Plan>> subQueryAliases = new ArrayList<>();
-                subQueryAliases.addAll(logicalCTE.getAliasQueries());
-                subQueryAliases.addAll(aliasQueries);
-                return topPlan.withChildren(
-                        new LogicalCTE<>(subQueryAliases, (LogicalPlan) ((UnboundResultSink) topPlan).child()));
-            }
-            return topPlan.withChildren(
-                    new LogicalCTE<>(aliasQueries, (LogicalPlan) ((UnboundResultSink) topPlan).child()));
-        }
-        return topPlan;
+            StatementContext context) {
+        return createCteForRootNode(unboundResultSink, context);
+    }
+
+    @Override
+    public Plan visitUnboundTableSink(UnboundTableSink<? extends Plan> unboundTableSink,
+            StatementContext context) {
+        return createCteForRootNode(unboundTableSink, context);
+    }
+
+    @Override
+    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> logicalFileSink,
+            StatementContext context) {
+        return createCteForRootNode(logicalFileSink, context);
     }
 
     @Override
     public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
-                                          StatementContext context) {
-        if (alias.child() instanceof LogicalSelectHint
-                && ((LogicalSelectHint) alias.child()).isIncludeHint("Leading")) {
+            StatementContext context) {
+        if (findLeadingHintIgnoreSortAndLimit(alias.child())) {
             aliasQueries.add((LogicalSubQueryAlias<Plan>) alias);
             List<String> tableName = new ArrayList<>();
             tableName.add(alias.getAlias());
@@ -72,12 +74,7 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
     public Plan visitLogicalCTE(LogicalCTE<? extends Plan> logicalCTE, StatementContext context) {
         List<LogicalSubQueryAlias<Plan>> subQueryAliases = logicalCTE.getAliasQueries();
         for (LogicalSubQueryAlias<Plan> subQueryAlias : subQueryAliases) {
-            Plan newSubQueryAlias = subQueryAlias.accept(new PullUpSubqueryAliasToCTE(), context);
-            if (newSubQueryAlias instanceof LogicalSubQueryAlias) {
-                subQueryAlias = (LogicalSubQueryAlias<Plan>) newSubQueryAlias;
-            } else {
-                subQueryAlias = new LogicalSubQueryAlias<>(subQueryAlias.getAlias(), newSubQueryAlias);
-            }
+            subQueryAlias.accept(new PullUpSubqueryAliasToCTE(), context);
         }
         Plan cte = visitChildren(this, logicalCTE, context);
         if (!aliasQueries.isEmpty()) {
@@ -86,8 +83,38 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
             subQueryAliasesOfCte.addAll(logicalCTE.getAliasQueries());
             subQueryAliasesOfCte.addAll(aliasQueries);
             aliasQueries = new ArrayList<>();
-            return new LogicalCTE<>(subQueryAliasesOfCte, (LogicalPlan) newLogicalCTE.child());
+            return new LogicalCTE<>(newLogicalCTE.isRecursive(), subQueryAliasesOfCte,
+                    (LogicalPlan) newLogicalCTE.child());
         }
         return cte;
+    }
+
+    private Plan createCteForRootNode(Plan plan, StatementContext context) {
+        Plan topPlan = visitChildren(this, plan, context);
+        if (!aliasQueries.isEmpty()) {
+            if (topPlan.child(0) instanceof LogicalCTE) {
+                LogicalCTE logicalCTE = (LogicalCTE) topPlan.child(0);
+                List<LogicalSubQueryAlias<Plan>> subQueryAliases = new ArrayList<>();
+                subQueryAliases.addAll(logicalCTE.getAliasQueries());
+                subQueryAliases.addAll(aliasQueries);
+                return topPlan.withChildren(
+                        new LogicalCTE<>(logicalCTE.isRecursive(), subQueryAliases,
+                                (LogicalPlan) topPlan.child(0)));
+            }
+            return topPlan.withChildren(
+                    new LogicalCTE<>(false, aliasQueries, (LogicalPlan) topPlan.child(0)));
+        }
+        return topPlan;
+    }
+
+    private boolean findLeadingHintIgnoreSortAndLimit(Plan plan) {
+        if (plan instanceof LogicalSelectHint
+                && ((LogicalSelectHint) plan).isIncludeHint("Leading")) {
+            return true;
+        } else if (plan instanceof LogicalLimit || plan instanceof LogicalSort) {
+            return findLeadingHintIgnoreSortAndLimit(plan.child(0));
+        } else {
+            return false;
+        }
     }
 }

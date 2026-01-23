@@ -125,7 +125,7 @@ static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector)
 }
 
 int FdbTxnKv::init() {
-    network_ = std::make_shared<fdb::Network>(FDBNetworkOption {});
+    network_ = std::make_shared<fdb::Network>();
     int ret = network_->init();
     if (ret != 0) {
         LOG(WARNING) << "failed to init network";
@@ -138,7 +138,30 @@ int FdbTxnKv::init() {
         LOG(WARNING) << "failed to init database";
         return ret;
     }
-    return 0;
+
+    // Access the database to ensure the cluster file is valid, and eat the first cluster_version_changed error if any.
+    while (true) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "init fdb txn kv failed, create txn: " << err;
+            return -1;
+        }
+
+        std::string status_json_key = "\xff\xff/status/json";
+        std::string value;
+        err = txn->get(status_json_key, &value, true);
+        if (err == TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED) {
+            continue;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "init fdb txn kv failed, get status json key: " << err;
+            return -1;
+        }
+
+        LOG(INFO) << "fdb txn kv is initialized";
+        return 0;
+    }
 }
 
 TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
@@ -250,6 +273,7 @@ constexpr fdb_error_t FDB_ERROR_CODE_TXN_CONFLICT = 1020;
 constexpr fdb_error_t FDB_ERROR_COMMIT_UNKNOWN_RESULT = 1021;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TIMED_OUT = 1031;
 constexpr fdb_error_t FDB_ERROR_CODE_TOO_MANY_WATCHES = 1032;
+constexpr fdb_error_t FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED = 1039;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION_VALUE = 2006;
 constexpr fdb_error_t FDB_ERROR_CODE_INVALID_OPTION = 2007;
 constexpr fdb_error_t FDB_ERROR_CODE_VERSION_INVALID = 2011;
@@ -288,6 +312,8 @@ static TxnErrorCode cast_as_txn_code(fdb_error_t err) {
         return TxnErrorCode::TXN_CONFLICT;
     case FDB_ERROR_CODE_TOO_MANY_WATCHES:
         return TxnErrorCode::TXN_TOO_MANY_WATCHES;
+    case FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED:
+        return TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED;
     }
 
     if (fdb_error_predicate(FDB_ERROR_PREDICATE_MAYBE_COMMITTED, err)) {
@@ -316,11 +342,23 @@ int Network::init() {
         return 1;
     }
 
+    LOG(INFO) << "select fdb api version: " << fdb_get_max_api_version();
+
     // Setup network thread
-    // Optional setting
-    // FDBNetworkOption opt;
-    // fdb_network_set_option()
-    (void)opt_;
+    if (config::enable_fdb_external_client_directory &&
+        !config::fdb_external_client_directory.empty()) {
+        err = fdb_network_set_option(FDB_NET_OPTION_EXTERNAL_CLIENT_DIRECTORY,
+                                     (const uint8_t*)config::fdb_external_client_directory.c_str(),
+                                     config::fdb_external_client_directory.size());
+        if (err) {
+            LOG(WARNING) << "failed to set fdb external client directory, dir: "
+                         << config::fdb_external_client_directory
+                         << ", err: " << fdb_get_error(err);
+            return 1;
+        }
+        LOG(INFO) << "set fdb external client directory: " << config::fdb_external_client_directory;
+    }
+
     // ATTN: Network can be configured only once,
     //       even if fdb_stop_network() is called successfully
     err = fdb_setup_network(); // Must be called only once before any
@@ -748,6 +786,11 @@ TxnErrorCode Transaction::commit() {
         } else {
             g_bvar_txn_kv_commit_error_counter << 1;
         }
+        // If cluster_version_changed is thrown during commit, it should be interpreted similarly to
+        // commit_unknown_result. The commit may or may not have been completed.
+        if (err == FDB_ERROR_CODE_CLUSTER_VERSION_CHANGED) {
+            return TxnErrorCode::TXN_MAYBE_COMMITTED;
+        }
         return cast_as_txn_code(err);
     }
 
@@ -901,6 +944,94 @@ TxnErrorCode Transaction::get_conflicting_range(
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::get_read_conflict_range(
+        std::vector<std::pair<std::string, std::string>>* values) {
+    constexpr std::string_view start = "\xff\xff/transaction/read_conflict_range/";
+    constexpr std::string_view end = "\xff\xff/transaction/read_conflict_range/\xff";
+
+    int limit = 0;
+    int target_bytes = 0;
+    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
+    int iteration = 0;
+    fdb_bool_t snapshot = 0;
+    fdb_bool_t reverse = 0;
+    FDBFuture* future = fdb_transaction_get_range(
+            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            target_bytes, mode, iteration, snapshot, reverse);
+
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(future);
+    };
+
+    RETURN_IF_ERROR(await_future(future));
+
+    FDBKeyValue const* out_kvs;
+    int out_kvs_count;
+    fdb_bool_t out_more;
+    do {
+        fdb_error_t err =
+                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
+        if (err) {
+            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
+                         << fdb_get_error(err);
+            return cast_as_txn_code(err);
+        }
+        for (int i = 0; i < out_kvs_count; i++) {
+            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
+            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
+            key.remove_prefix(start.size());
+            values->emplace_back(key, value);
+        }
+    } while (out_more);
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::get_write_conflict_range(
+        std::vector<std::pair<std::string, std::string>>* values) {
+    constexpr std::string_view start = "\xff\xff/transaction/write_conflict_range/";
+    constexpr std::string_view end = "\xff\xff/transaction/write_conflict_range/\xff";
+
+    int limit = 0;
+    int target_bytes = 0;
+    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
+    int iteration = 0;
+    fdb_bool_t snapshot = 0;
+    fdb_bool_t reverse = 0;
+    FDBFuture* future = fdb_transaction_get_range(
+            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            target_bytes, mode, iteration, snapshot, reverse);
+
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(future);
+    };
+
+    RETURN_IF_ERROR(await_future(future));
+
+    FDBKeyValue const* out_kvs;
+    int out_kvs_count;
+    fdb_bool_t out_more;
+    do {
+        fdb_error_t err =
+                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
+        if (err) {
+            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
+                         << fdb_get_error(err);
+            return cast_as_txn_code(err);
+        }
+        for (int i = 0; i < out_kvs_count; i++) {
+            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
+            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
+            key.remove_prefix(start.size());
+            values->emplace_back(key, value);
+        }
+    } while (out_more);
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode Transaction::report_conflicting_range() {
     if (!config::enable_logging_conflict_keys) {
         return TxnErrorCode::TXN_OK;
@@ -926,7 +1057,45 @@ TxnErrorCode Transaction::report_conflicting_range() {
         out += fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
     }
 
-    LOG(WARNING) << "conflicting key ranges: " << out;
+    key_values.clear();
+    RETURN_IF_ERROR(get_read_conflict_range(&key_values));
+    if (key_values.size() % 2 != 0) {
+        LOG(WARNING) << "the read conflict range is not well-formed, size=" << key_values.size();
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    std::string read_conflict_range_out;
+    for (size_t i = 0; i < key_values.size(); i += 2) {
+        std::string_view start = key_values[i].first;
+        std::string_view end = key_values[i + 1].first;
+        std::string_view conflict_count = key_values[i].second;
+        if (!read_conflict_range_out.empty()) {
+            read_conflict_range_out += ", ";
+        }
+        read_conflict_range_out +=
+                fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
+    }
+
+    key_values.clear();
+    RETURN_IF_ERROR(get_write_conflict_range(&key_values));
+    if (key_values.size() % 2 != 0) {
+        LOG(WARNING) << "the write conflict range is not well-formed, size=" << key_values.size();
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    std::string write_conflict_range_out;
+    for (size_t i = 0; i < key_values.size(); i += 2) {
+        std::string_view start = key_values[i].first;
+        std::string_view end = key_values[i + 1].first;
+        std::string_view conflict_count = key_values[i].second;
+        if (!write_conflict_range_out.empty()) {
+            write_conflict_range_out += ", ";
+        }
+        write_conflict_range_out +=
+                fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
+    }
+
+    LOG(WARNING) << "conflicting key ranges: " << out
+                 << ", read conflict range: " << read_conflict_range_out
+                 << ", write conflict range: " << write_conflict_range_out;
 
     return TxnErrorCode::TXN_OK;
 }

@@ -3778,4 +3778,95 @@ TEST(function_string_test, function_sha1_test) {
     }
 }
 
+TEST(function_string_test, function_unicode_normalize_nfc_basic) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_VARCHAR},
+    };
+
+    std::string cafe_decomposed = std::string("Cafe\xCC\x81");
+    std::string cafe_composed = std::string("Caf\xC3\xA9");
+
+    {
+        DataSet data_set = {
+                {{cafe_decomposed, std::string("NFC")}, cafe_composed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{cafe_composed, std::string("NFC")}, cafe_composed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_string_test, function_unicode_normalize_modes_and_trim) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_VARCHAR},
+    };
+
+    std::string cafe_decomposed = std::string("Cafe\xCC\x81");
+    std::string cafe_composed = std::string("Caf\xC3\xA9");
+
+    {
+        DataSet data_set = {
+                {{cafe_composed, std::string("  nFd  ")}, cafe_decomposed},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{std::string("ABC 123"), std::string(" nfkc_cf ")}, std::string("abc 123")},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{std::string("plain-ascii"), std::string("NFKD")}, std::string("plain-ascii")},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_string_test, function_unicode_normalize_mode_not_const) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR,
+    };
+
+    DataSet data_set = {
+            {{std::string("abc"), std::string("NFC")}, std::string("abc")},
+    };
+
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
+    EXPECT_NE(Status::OK(), st);
+}
+
+TEST(function_string_test, function_unicode_normalize_invalid_mode) {
+    std::string func_name = "unicode_normalize";
+
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            Consted {PrimitiveType::TYPE_VARCHAR},
+    };
+
+    DataSet data_set = {
+            {{std::string("abc"), std::string("INVALID_MODE")}, std::string("abc")},
+    };
+
+    Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
+    EXPECT_NE(Status::OK(), st);
+}
+
 } // namespace doris::vectorized

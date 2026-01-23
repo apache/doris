@@ -28,6 +28,7 @@
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -144,7 +145,7 @@ MutableColumnPtr ColumnVarbinary::permute(const IColumn::Permutation& perm, size
             res_data[i] = val;
             continue;
         }
-        const auto* dst = const_cast<Arena&>(_arena).insert(val.data(), val.size());
+        const auto* dst = res->_arena.insert(val.data(), val.size());
         res_data[i] = doris::StringView(dst, val.size());
     }
 
@@ -197,7 +198,7 @@ struct ColumnVarbinary::less {
 };
 
 void ColumnVarbinary::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                                      IColumn::Permutation& res) const {
+                                      HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = _data.size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -205,9 +206,9 @@ void ColumnVarbinary::get_permutation(bool reverse, size_t limit, int /*nan_dire
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), less<false>(*this));
+        sorter.sort(res.begin(), res.end(), less<false>(*this));
     } else {
-        pdqsort(res.begin(), res.end(), less<true>(*this));
+        sorter.sort(res.begin(), res.end(), less<true>(*this));
     }
 }
 
@@ -220,6 +221,13 @@ void ColumnVarbinary::insert_many_strings(const StringRef* strings, size_t num) 
 void ColumnVarbinary::insert_many_strings_overflow(const StringRef* strings, size_t num,
                                                    size_t max_length) {
     insert_many_strings(strings, num);
+}
+
+void ColumnVarbinary::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                  IColumn::Permutation& perms, EqualRange& range,
+                                  bool last_column) const {
+    sorter->sort_column(assert_cast<const ColumnVarbinary&>(*this), flags, perms, range,
+                        last_column);
 }
 
 #include "common/compile_check_end.h"

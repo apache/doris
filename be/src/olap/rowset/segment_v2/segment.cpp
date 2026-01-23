@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <crc32c/crc32c.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -66,10 +67,8 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/slice.h" // Slice
 #include "vec/columns/column.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -263,8 +262,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id, *schema,
-                                       read_options.target_cast_type_for_variants,
-                                       read_options.io_ctx.reader_type)) {
+                                       read_options.target_cast_type_for_variants, read_options)) {
             bool matched = true;
             RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
             if (!matched) {
@@ -272,39 +270,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
                 read_options.stats->filtered_segment_number++;
                 return Status::OK();
-            }
-        }
-    }
-
-    if (!read_options.topn_filter_source_node_ids.empty()) {
-        auto* query_ctx = read_options.runtime_state->get_query_ctx();
-        for (int id : read_options.topn_filter_source_node_ids) {
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
-                    read_options.topn_filter_target_node_id);
-
-            AndBlockColumnPredicate and_predicate;
-            and_predicate.add_column_predicate(
-                    SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
-            std::shared_ptr<ColumnReader> reader;
-            Status st = get_column_reader(
-                    read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
-                    read_options.stats);
-            if (st.is<ErrorCode::NOT_FOUND>()) {
-                continue;
-            }
-            RETURN_IF_ERROR(st);
-            DCHECK(reader != nullptr);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
-                                           read_options.target_cast_type_for_variants,
-                                           read_options.io_ctx.reader_type)) {
-                bool matched = true;
-                RETURN_IF_ERROR(reader->match_condition(&and_predicate, &matched));
-                if (!matched) {
-                    // any condition not satisfied, return.
-                    *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                    read_options.stats->filtered_segment_number++;
-                    return Status::OK();
-                }
             }
         }
     }
@@ -341,7 +306,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             options_with_pruned_predicates.column_predicates = pruned_predicates;
             //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
             options_with_pruned_predicates.col_id_to_predicates.clear();
-            for (auto* pred : options_with_pruned_predicates.column_predicates) {
+            for (auto pred : options_with_pruned_predicates.column_predicates) {
                 if (!options_with_pruned_predicates.col_id_to_predicates.contains(
                             pred->column_id())) {
                     options_with_pruned_predicates.col_id_to_predicates.insert(
@@ -470,7 +435,7 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
-    uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    uint32_t actual_checksum = crc32c::Crc32c(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         Status st = _write_error_file(file_size, file_size - 12 - footer_length, bytes_read,
                                       footer_buf.data(), io_ctx);
@@ -600,7 +565,7 @@ Status Segment::healthy_status() {
 
 // Return the storage datatype of related column to field.
 vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
-                                                  bool read_flat_leaves) {
+                                                  const StorageReadOptions& read_options) {
     const vectorized::PathInDataPtr path = column.path_info_ptr();
 
     // none variant column
@@ -624,10 +589,12 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // If status is not ok, it will throw exception(data corruption)
     THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, &stats));
     DCHECK(v_reader != nullptr);
-    const auto* variant_reader = static_cast<const VariantColumnReader*>(v_reader.get());
+    auto* variant_reader = static_cast<VariantColumnReader*>(v_reader.get());
     // Delegate type inference for variant paths to VariantColumnReader.
-    return variant_reader->infer_data_type_for_path(column, relative_path, read_flat_leaves,
-                                                    _column_reader_cache.get(), unique_id);
+    vectorized::DataTypePtr type;
+    THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, column, read_options,
+                                                            _column_reader_cache.get()));
+    return type;
 }
 
 Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
@@ -682,7 +649,7 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt,
-                                    const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                                    const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
                                             variant_sparse_column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
@@ -707,7 +674,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
-        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr;
+        PathToBinaryColumnCache* sparse_column_cache_ptr = nullptr;
         if (variant_sparse_column_cache) {
             auto it = variant_sparse_column_cache->find(unique_id);
             if (it != variant_sparse_column_cache->end()) {
@@ -790,26 +757,6 @@ Status Segment::get_column_reader(const TabletColumn& col,
                                                             stats);
     }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
-}
-
-Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                          const StorageReadOptions& read_options,
-                                          std::unique_ptr<BitmapIndexIterator>* iter) {
-    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
-    std::shared_ptr<ColumnReader> reader;
-    auto st = get_column_reader(tablet_column, &reader, read_options.stats);
-    if (st.is<ErrorCode::NOT_FOUND>()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(st);
-    DCHECK(reader != nullptr);
-    if (reader->has_bitmap_index()) {
-        BitmapIndexIterator* it;
-        RETURN_IF_ERROR(reader->new_bitmap_index_iterator(&it));
-        iter->reset(it);
-        return Status::OK();
-    }
-    return Status::OK();
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
@@ -990,7 +937,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                 slot->col_unique_id(),
                 assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
                         .variant_max_subcolumns_count());
-        auto storage_type = get_data_type_of(column, false);
+        auto storage_type = get_data_type_of(column, storage_read_options);
         vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);
 
@@ -1002,7 +949,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                 iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
         vectorized::ColumnPtr source_ptr;
         // storage may have different type with schema, so we need to cast the column
-        RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+        RETURN_IF_ERROR(vectorized::variant_util::cast_column(
                 vectorized::ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type,
                                                   column.name()),
                 slot->type(), &source_ptr));
@@ -1071,8 +1018,13 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
     // The footer is always at the end of the segment file.
     // The size of footer is 12.
     // So we use the size of file minus 12 as the cache key, which is unique for each segment file.
-    return StoragePageCache::CacheKey(_file_reader->path().native(), _file_reader->size(),
-                                      _file_reader->size() - 12);
+    return get_segment_footer_cache_key(_file_reader);
+}
+
+StoragePageCache::CacheKey Segment::get_segment_footer_cache_key(
+        const io::FileReaderSPtr& file_reader) {
+    return {file_reader->path().native(), file_reader->size(),
+            static_cast<int64_t>(file_reader->size() - 12)};
 }
 
 #include "common/compile_check_end.h"

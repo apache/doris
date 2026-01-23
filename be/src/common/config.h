@@ -100,6 +100,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// port for cdc client scan oltp cdc data
+DECLARE_Int32(cdc_client_port);
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
@@ -429,6 +432,12 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
 DECLARE_mBool(disable_segment_cache);
+// Enable checking segment rows consistency between rowset meta and segment footer
+DECLARE_mBool(enable_segment_rows_consistency_check);
+DECLARE_mBool(enable_segment_rows_check_core);
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DECLARE_mBool(fail_when_segment_rows_not_in_rowset_meta);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size
@@ -608,6 +617,13 @@ DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
 
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DECLARE_mInt32(async_reply_timeout_s);
+
 DECLARE_Bool(enable_single_replica_load);
 // Number of download workers for single replica load
 DECLARE_Int32(single_replica_load_download_num_workers);
@@ -666,6 +682,9 @@ DECLARE_mInt64(clean_stream_load_record_interval_secs);
 DECLARE_mBool(enable_stream_load_commit_txn_on_be);
 // The buffer size to store stream table function schema info
 DECLARE_Int64(stream_tvf_buffer_size);
+
+// request cdc client timeout
+DECLARE_mInt32(request_cdc_client_timeout_ms);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -1119,8 +1138,6 @@ DECLARE_Int32(segcompaction_task_max_rows);
 // Max total file size allowed in a single segcompaction task.
 DECLARE_Int64(segcompaction_task_max_bytes);
 
-DECLARE_Int32(segcompaction_wait_for_dbm_task_timeout_s);
-
 // Global segcompaction thread pool size.
 DECLARE_mInt32(segcompaction_num_threads);
 
@@ -1192,6 +1209,8 @@ DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_info_update_interval_ms);
+DECLARE_mInt64(file_cache_background_tablet_id_flush_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
@@ -1202,6 +1221,8 @@ DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+
+DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1674,6 +1695,8 @@ DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
+// Chunk size for ANN/vector index building per training/adding batch
+DECLARE_mInt64(ann_index_build_chunk_size);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
@@ -1685,12 +1708,6 @@ DECLARE_mBool(print_stack_when_cache_miss);
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
-
-DECLARE_mString(binary_plain_encoding_default_impl);
-
-DECLARE_mBool(integer_type_default_use_plain_encoding);
-
-DECLARE_mBool(enable_fuzzy_storage_encoding);
 
 #ifdef BE_TEST
 // test s3

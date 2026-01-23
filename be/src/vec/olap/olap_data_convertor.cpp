@@ -44,7 +44,6 @@
 #include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
@@ -74,6 +73,10 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
 
 void OlapBlockDataConvertor::add_column_data_convertor(const TabletColumn& column) {
     _convertors.emplace_back(create_olap_column_data_convertor(column));
+}
+
+void OlapBlockDataConvertor::add_column_data_convertor_at(const TabletColumn& column, size_t cid) {
+    _convertors[cid] = create_olap_column_data_convertor(column);
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
@@ -163,6 +166,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         return std::make_unique<OlapColumnDataConvertorDateTimeV2>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ: {
+        return std::make_unique<OlapColumnDataConvertorSimple<TYPE_TIMESTAMPTZ>>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<OlapColumnDataConvertorDecimal>();
@@ -279,7 +285,9 @@ Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
 
 void OlapBlockDataConvertor::clear_source_content() {
     for (auto& convertor : _convertors) {
-        convertor->clear_source_column();
+        if (convertor != nullptr) {
+            convertor->clear_source_column();
+        }
     }
 }
 
@@ -603,7 +611,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                 }
                 // Make sure that the json binary data written in is the correct jsonb value.
                 if (_is_jsonb) {
-                    JsonbDocument* doc = nullptr;
+                    const JsonbDocument* doc = nullptr;
                     RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(
                             slice->data, slice->size, &doc));
                 }
@@ -630,7 +638,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
             }
             // Make sure that the json binary data written in is the correct jsonb value.
             if (_is_jsonb) {
-                JsonbDocument* doc = nullptr;
+                const JsonbDocument* doc = nullptr;
                 RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(slice->data,
                                                                              slice->size, &doc));
             }

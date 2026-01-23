@@ -49,8 +49,7 @@ Status DataTypeDateSerDe<T>::serialize_one_cell_to_json(
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         bw.write('"');
     }
-    Int64 int_val = assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num);
-    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
+    doris::VecDateTimeValue value = assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num);
 
     char buf[64];
     char* pos = value.to_string(buf);
@@ -77,8 +76,8 @@ Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         slice.trim_quote();
     }
-    Int64 val = 0;
-    if (StringRef str(slice.data, slice.size); !read_date_text_impl<Int64>(val, str)) {
+    VecDateTimeValue val;
+    if (StringRef str(slice.data, slice.size); !read_date_text_impl(val, str)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -97,11 +96,10 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    Int64 int_val = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
+    auto value = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
     if (_nesting_level > 1) {
         bw.write('"');
     }
-    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
     char buf[64];
     char* pos = value.to_string(buf);
@@ -125,8 +123,8 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     if (_nesting_level > 1) {
         slice.trim_quote();
     }
-    Int64 val = 0;
-    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, str)) {
+    VecDateTimeValue val;
+    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl(val, str)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -198,7 +196,7 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
             VecDateTimeValue v;
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
-            col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
+            col_data.emplace_back(v);
         }
     } else if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
         const auto* concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
@@ -212,7 +210,7 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
             VecDateTimeValue v;
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
-            col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
+            col_data.emplace_back(v);
         }
     } else if (arrow_array->type()->id() == arrow::Type::DATE32) {
         const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
@@ -222,7 +220,7 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
             v.cast_to_date();
-            col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
+            col_data.emplace_back(v);
         }
     } else if (arrow_array->type()->id() == arrow::Type::STRING) {
         // to be compatible with old version, we use string type for date.
@@ -234,7 +232,7 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
             if constexpr (is_date) {
                 v.cast_to_date();
             }
-            col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
+            col_data.emplace_back(v);
         }
     } else {
         return Status::Error(doris::ErrorCode::INVALID_ARGUMENT,
@@ -251,44 +249,17 @@ Status DataTypeDateSerDe<T>::read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-template <bool is_binary_format>
-Status DataTypeDateSerDe<T>::_write_column_to_mysql(
-        const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
-        bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
+                                                          MysqlRowBinaryBuffer& result,
+                                                          int64_t row_idx, bool col_const,
+                                                          const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnVector<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    auto time_num = data[col_index];
-    VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
-    // _nesting_level >= 2 means this datetimev2 is in complex type
-    // and we should add double quotes
-    if (DataTypeNumberSerDe<T>::_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
+    VecDateTimeValue time_val = data[col_index];
     if (UNLIKELY(0 != result.push_vec_datetime(time_val))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    if (DataTypeNumberSerDe<T>::_nesting_level >= 2 && options.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-    }
     return Status::OK();
-}
-
-template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(
-        const IColumn& column, MysqlRowBinaryBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
-}
-
-template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_mysql_text(
-        const IColumn& column, MysqlRowTextBuffer& row_buffer, int64_t row_idx, bool col_const,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <PrimitiveType T>
@@ -296,7 +267,8 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end,
-                                                 vectorized::Arena& arena) const {
+                                                 vectorized::Arena& arena,
+                                                 const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
@@ -307,7 +279,7 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             char buf[64];
-            size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id]).to_buffer(buf);
+            size_t len = col_data[row_id].to_buffer(buf);
             total_size += len;
             // avoid copy
             serialized_values.emplace_back(buf, len);
@@ -364,10 +336,10 @@ Status DataTypeDateSerDe<T>::from_string_batch(
                     str, res, options.timezone, params)) [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             //TODO: we should set `for` functions who need it then skip to set default value for null rows.
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
+            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
         } else {
             col_nullmap.get_data()[i] = false;
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
+            col_data.get_data()[i] = res;
         }
     }
     return Status::OK();
@@ -398,7 +370,7 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
+        col_data.get_data()[i] = res;
     }
     return Status::OK();
 }
@@ -420,7 +392,7 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
         return Status::InvalidArgument("parse date or datetime fail, string: '{}'",
                                        str.to_string());
     }
-    col_data.insert_value(binary_cast<CppType, NativeType>(res));
+    col_data.insert_value(res);
     return Status::OK();
 }
 
@@ -439,14 +411,14 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& co
         params.status.prepend(fmt::format("parse {} to {} failed: ", str.to_string_view(), name()));
         return params.status;
     }
-    col_data.insert_value(binary_cast<CppType, NativeType>(res));
+    col_data.insert_value(res);
 
     return Status::OK();
 }
 
 template <PrimitiveType T>
 template <typename IntDataType>
-Status DataTypeDateSerDe<T>::from_int_batch(const IntDataType::ColumnType& int_col,
+Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                             ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
@@ -459,11 +431,11 @@ Status DataTypeDateSerDe<T>::from_int_batch(const IntDataType::ColumnType& int_c
         if (CastToDateOrDatetime::from_integer<false, IsDatetime>(int_col.get_element(i), val,
                                                                   params)) [[likely]] {
             // did cast_to_type in `from_integer`
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+            col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
             col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
+            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
         }
     }
     return Status::OK();
@@ -471,8 +443,8 @@ Status DataTypeDateSerDe<T>::from_int_batch(const IntDataType::ColumnType& int_c
 
 template <PrimitiveType T>
 template <typename IntDataType>
-Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
-                                                        IColumn& target_col) const {
+Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(int_col.size());
 
@@ -486,14 +458,14 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(const IntDataType::Colum
             return params.status;
         }
 
-        col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+        col_data.get_data()[i] = val;
     }
     return Status::OK();
 }
 
 template <PrimitiveType T>
 template <typename FloatDataType>
-Status DataTypeDateSerDe<T>::from_float_batch(const FloatDataType::ColumnType& float_col,
+Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                               ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
@@ -505,11 +477,11 @@ Status DataTypeDateSerDe<T>::from_float_batch(const FloatDataType::ColumnType& f
         CppType val;
         if (CastToDateOrDatetime::from_float<false, IsDatetime>(float_col.get_data()[i], val,
                                                                 params)) [[likely]] {
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+            col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
             col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
+            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
         }
     }
     return Status::OK();
@@ -518,7 +490,7 @@ Status DataTypeDateSerDe<T>::from_float_batch(const FloatDataType::ColumnType& f
 template <PrimitiveType T>
 template <typename FloatDataType>
 Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
-        const FloatDataType::ColumnType& float_col, IColumn& target_col) const {
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(float_col.size());
 
@@ -532,15 +504,15 @@ Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+        col_data.get_data()[i] = val;
     }
     return Status::OK();
 }
 
 template <PrimitiveType T>
 template <typename DecimalDataType>
-Status DataTypeDateSerDe<T>::from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
-                                                ColumnNullable& target_col) const {
+Status DataTypeDateSerDe<T>::from_decimal_batch(
+        const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
     col_data.resize(decimal_col.size());
@@ -552,11 +524,11 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(const DecimalDataType::ColumnTyp
         if (CastToDateOrDatetime::from_decimal<true, IsDatetime>(
                     decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
                     decimal_col.get_scale(), val, params)) [[likely]] {
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+            col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
             col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
+            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
         }
     }
     return Status::OK();
@@ -565,7 +537,7 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(const DecimalDataType::ColumnTyp
 template <PrimitiveType T>
 template <typename DecimalDataType>
 Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
-        const DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(decimal_col.size());
 
@@ -582,7 +554,7 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
+        col_data.get_data()[i] = val;
     }
     return Status::OK();
 }

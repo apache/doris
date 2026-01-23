@@ -98,8 +98,8 @@ suite("test_create_index_1", "inverted_index"){
                     registDate datetime NULL,
                     studentInfo char(100),
                     tearchComment string,
-                    INDEX age_idx(age) USING BITMAP COMMENT 'age index',
-                    INDEX age_idx(age) USING INVERTED COMMENT 'age index'
+                    INDEX age_idx(age) USING INVERTED COMMENT 'age index',
+                    INDEX age_idx_2(age) USING NGRAM_BF COMMENT 'age index'
                 )
                 DUPLICATE KEY(`name`)
                 DISTRIBUTED BY HASH(`name`) BUCKETS 10

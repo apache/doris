@@ -54,7 +54,7 @@ TEST(AggBitmapTest, bitmap_union_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_bitmap(factory);
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get(function_name, data_types, false, -1);
+    auto agg_function = factory.get(function_name, data_types, nullptr, false, -1);
     agg_function->set_version(3);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -116,7 +116,7 @@ TEST(AggBitmapTest, group_bitmap_xor_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_bitmap(factory);
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get(function_name, data_types, false, -1);
+    auto agg_function = factory.get(function_name, data_types, nullptr, false, -1);
     agg_function->set_version(3);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -176,7 +176,7 @@ TEST(AggBitmapTest, bitmap_intersect_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_bitmap(factory);
     DataTypes data_types = {data_type};
-    auto agg_function = factory.get(function_name, data_types, false, -1);
+    auto agg_function = factory.get(function_name, data_types, nullptr, false, -1);
     agg_function->set_version(3);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -225,7 +225,7 @@ TEST(AggBitmapTest, bitmap_union_count_test) {
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_bitmap(factory);
-    auto agg_function = factory.get(function_name, {data_type}, false, -1);
+    auto agg_function = factory.get(function_name, {data_type}, nullptr, false, -1);
     agg_function->set_version(3);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -264,8 +264,7 @@ void validate_bitmap_union_int_test() {
     // Prepare test data.
     auto column_int = data_type->create_column();
 
-    std::vector<typename PrimitiveTypeTraits<T>::ColumnItemType> values = {1, 2, 3, 4,  5,
-                                                                           1, 2, 3, 100};
+    std::vector<typename PrimitiveTypeTraits<T>::CppType> values = {1, 2, 3, 4, 5, 1, 2, 3, 100};
     auto values_size = values.size();
     for (int value : values) {
         (*column_int).insert(Field::create_field<T>(value));
@@ -274,7 +273,7 @@ void validate_bitmap_union_int_test() {
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_bitmap(factory);
-    auto agg_function = factory.get(function_name, {data_type}, false, -1);
+    auto agg_function = factory.get(function_name, {data_type}, nullptr, false, -1);
     agg_function->set_version(3);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();

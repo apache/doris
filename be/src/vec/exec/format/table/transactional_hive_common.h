@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "runtime/define_primitive_type.h"
@@ -51,6 +52,8 @@ struct TransactionalHive {
     static const std::vector<std::string> READ_ROW_COLUMN_NAMES_LOWER_CASE;
     static const std::vector<std::string> ACID_COLUMN_NAMES;
     static const std::vector<std::string> ACID_COLUMN_NAMES_LOWER_CASE;
+
+    static const std::unordered_map<std::string, uint32_t> DELETE_COL_NAME_TO_BLOCK_IDX;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.MergeGuardExpr;
 import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
+import org.apache.doris.nereids.rules.rewrite.DecomposeRepeatWithPreAggregation;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector;
@@ -98,6 +100,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -144,6 +147,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushDownUnnestInProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownVectorTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownVirtualColumnsIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
@@ -323,7 +327,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new PushFilterInsideJoin(),
                                             new FindHashConditionForJoin(),
                                             new ConvertInnerOrCrossJoin(),
-                                            new EliminateNullAwareLeftAntiJoin()
+                                            new EliminateNullAwareLeftAntiJoin(),
+                                            new JoinExtractOrFromCaseWhen()
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
@@ -532,6 +537,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new SimplifyWindowExpression()
                         )
                 ),
+                topic("Push down Unnest",
+                        topDown(
+                                new PushDownUnnestInProject()
+                        )),
                 topic("Rewrite join",
                         // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                         topDown(
@@ -553,7 +562,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                         new PushFilterInsideJoin(),
                                         new FindHashConditionForJoin(),
                                         new ConvertInnerOrCrossJoin(),
-                                        new EliminateNullAwareLeftAntiJoin()
+                                        new EliminateNullAwareLeftAntiJoin(),
+                                        new JoinExtractOrFromCaseWhen()
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
@@ -800,6 +810,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                         topDown(new PushDownFilterThroughProject(), new MergeProjectable()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
+                        topDown(new ExpressionRewrite(MergeGuardExpr.INSTANCE)),
                         bottomUp(
                                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                                 new CheckMatchExpression(),
@@ -897,7 +908,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
-
+                rewriteJobs.add(topic("repeat rewrite",
+                        custom(RuleType.DECOMPOSE_REPEAT, () -> DecomposeRepeatWithPreAggregation.INSTANCE)));
                 rewriteJobs.addAll(jobs(topic("split multi distinct",
                         custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR, () -> DistinctAggStrategySelector.INSTANCE))));
 

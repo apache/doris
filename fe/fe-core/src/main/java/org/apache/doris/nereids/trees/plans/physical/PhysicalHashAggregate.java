@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -403,14 +402,19 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
-        if (groupByExpressions.stream().anyMatch(s -> s instanceof VirtualSlotReference)) {
-            // roll up may generate new data
+        DataTrait childFd = child(0).getLogicalProperties().getTrait();
+
+        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
             return;
         }
-        DataTrait childFd = child(0).getLogicalProperties().getTrait();
-        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
+
+        // Extract all input slots from group by expressions
+        ImmutableSet.Builder<Slot> groupByKeysBuilder = ImmutableSet.builder();
+        for (Expression expr : groupByExpressions) {
+            groupByKeysBuilder.addAll(expr.getInputSlots());
+        }
+        ImmutableSet<Slot> groupByKeys = groupByKeysBuilder.build();
+
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
             getOutput().forEach(builder::addUniqueSlot);
@@ -439,13 +443,17 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         builder.addUniformSlot(childFd);
 
-        if (groupByExpressions.stream().anyMatch(s -> s instanceof VirtualSlotReference)) {
-            // roll up may generate new data
+        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
             return;
         }
-        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
-                .map(s -> (Slot) s)
-                .collect(ImmutableSet.toImmutableSet());
+
+        // Extract all input slots from group by expressions
+        ImmutableSet.Builder<Slot> groupByKeysBuilder = ImmutableSet.builder();
+        for (Expression expr : groupByExpressions) {
+            groupByKeysBuilder.addAll(expr.getInputSlots());
+        }
+        ImmutableSet<Slot> groupByKeys = groupByKeysBuilder.build();
+
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
             getOutput().forEach(builder::addUniformSlot);

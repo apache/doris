@@ -25,7 +25,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
@@ -160,6 +159,9 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "ei")
     private String extraInfo;
 
+    @SerializedName(value = "sv")
+    private Map<String, String> sessionVariables;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -169,6 +171,7 @@ public class Column implements GsonPostProcessable {
         this.defineExpr = null;
         this.children = null;
         this.uniqueId = -1;
+        this.sessionVariables = null;
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -204,40 +207,41 @@ public class Column implements GsonPostProcessable {
             String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true, null,
                 COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, false, null, null,
-                Sets.newHashSet());
+                Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String comment, boolean visible, int colUniqueId) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, null, comment, visible, null, colUniqueId, null,
-                false, null, null,  Sets.newHashSet());
+                false, null, null,  Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment, boolean visible, int colUniqueId) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, null, colUniqueId, null,
-                false, null, null, Sets.newHashSet());
+                false, null, null, Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
             int colUniqueId, String realDefaultValue) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, defaultValueExprDef,
-                colUniqueId, realDefaultValue, false, null, null,  Sets.newHashSet());
+                colUniqueId, realDefaultValue, false, null, null,  Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             long autoIncInitValue, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue) {
         this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, visible,
-                defaultValueExprDef, colUniqueId, realDefaultValue, false, null, null, Sets.newHashSet());
+                defaultValueExprDef, colUniqueId, realDefaultValue, false, null, null, Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             long autoIncInitValue, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
             boolean hasOnUpdateDefaultValue, DefaultValueExprDef onUpdateDefaultValueExprDef,
-            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
+            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis,
+            Map<String, String> sessionVariables) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -268,6 +272,7 @@ public class Column implements GsonPostProcessable {
         if (CollectionUtils.isNotEmpty(generatedColumnsThatReferToThis)) {
             this.generatedColumnsThatReferToThis = new HashSet<>(generatedColumnsThatReferToThis);
         }
+        this.sessionVariables = sessionVariables;
 
         if (type.isAggStateType()) {
             AggStateType aggState = (AggStateType) type;
@@ -286,11 +291,12 @@ public class Column implements GsonPostProcessable {
             boolean visible, DefaultValueExprDef defaultValueExprDef, int colUniqueId,
             String realDefaultValue, boolean hasOnUpdateDefaultValue,
             DefaultValueExprDef onUpdateDefaultValueExprDef, int clusterKeyId,
-            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
+            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis,
+            Map<String, String> sessionVariables) {
         this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment,
                 visible, defaultValueExprDef, colUniqueId, realDefaultValue,
                 hasOnUpdateDefaultValue, onUpdateDefaultValueExprDef, generatedColumnInfo,
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis, sessionVariables);
         this.clusterKeyId = clusterKeyId;
     }
 
@@ -300,7 +306,7 @@ public class Column implements GsonPostProcessable {
             GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
         this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, visible,
                 defaultValueExprDef, colUniqueId, realDefaultValue, false, null, generatedColumnInfo,
-                generatedColumnsThatReferToThis);
+                generatedColumnsThatReferToThis, null);
         this.clusterKeyId = clusterKeyId;
     }
 
@@ -326,6 +332,7 @@ public class Column implements GsonPostProcessable {
         this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
         this.clusterKeyId = column.getClusterKeyId();
         this.generatedColumnInfo = column.generatedColumnInfo;
+        this.sessionVariables = column.sessionVariables;
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -479,7 +486,7 @@ public class Column implements GsonPostProcessable {
         PrimitiveType pType = getDataType();
         return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
-                || pType.isCharFamily() || pType.isDateType() || pType.isVariantType()
+                || pType.isCharFamily() || pType.isDateLikeType() || pType.isVariantType()
                 || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
     }
 
@@ -649,6 +656,9 @@ public class Column implements GsonPostProcessable {
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
         tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
         tColumn.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
+        tColumn.setVariantEnableDocMode(this.getVariantEnableDocMode());
+        tColumn.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
+        tColumn.setVariantDocHashShardCount(this.getVariantDocShardCount());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -750,6 +760,7 @@ public class Column implements GsonPostProcessable {
             case DATETIME:
                 return 8;
             case DATETIMEV2:
+            case TIMESTAMPTZ:
                 return 8;
             case FLOAT:
                 return 4;
@@ -854,18 +865,6 @@ public class Column implements GsonPostProcessable {
         }
         builder.setVisible(visible);
 
-        if (indexes != null) {
-            for (Index index : indexes) {
-                if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
-                    List<String> columns = index.getColumns();
-                    if (this.name.equalsIgnoreCase(columns.get(0))) {
-                        builder.setHasBitmapIndex(true);
-                        break;
-                    }
-                }
-            }
-        }
-
         if (this.type.isArrayType()) {
             Column child = this.getChildren().get(0);
             builder.addChildrenColumns(child.toPb(Sets.newHashSet(), Lists.newArrayList()));
@@ -884,6 +883,9 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
             builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
             builder.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
+            builder.setVariantEnableDocMode(this.getVariantEnableDocMode());
+            builder.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
+            builder.setVariantDocHashShardCount(this.getVariantDocShardCount());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -965,6 +967,15 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
                 throw new DdlException("Can not change variant sparse bucket num");
+            }
+            if (this.getVariantEnableDocMode() != other.getVariantEnableDocMode()) {
+                throw new DdlException("Can not change variant enable doc snapshot mode");
+            }
+            if (this.getvariantDocMaterializationMinRows() != other.getvariantDocMaterializationMinRows()) {
+                throw new DdlException("Can not change variant doc snapshot min rows");
+            }
+            if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
+                throw new DdlException("Can not change variant doc snapshot shard count");
             }
             if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1222,15 +1233,6 @@ public class Column implements GsonPostProcessable {
     }
 
     public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
-        List<Index> indexes = olapTable.getIndexes();
-        for (Index index : indexes) {
-            if (index.getIndexType() == IndexDefinition.IndexType.BITMAP) {
-                List<String> columns = index.getColumns();
-                if (tColumn.getColumnName().equals(columns.get(0))) {
-                    tColumn.setHasBitmapIndex(true);
-                }
-            }
-        }
         Set<String> bfColumns = olapTable.getCopiedBfColumns();
         if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
             tColumn.setIsBloomFilterColumn(true);
@@ -1322,6 +1324,18 @@ public class Column implements GsonPostProcessable {
         return type.isVariantType() ? ((ScalarType) type).getVariantSparseHashShardCount() : -1;
     }
 
+    public boolean getVariantEnableDocMode() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantEnableDocMode() : false;
+    }
+
+    public long getvariantDocMaterializationMinRows() {
+        return type.isVariantType() ? ((ScalarType) type).getvariantDocMaterializationMinRows() : 0L;
+    }
+
+    public int getVariantDocShardCount() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantDocShardCount() : 128;
+    }
+
     public void setFieldPatternType(TPatternType type) {
         fieldPatternType = type;
     }
@@ -1332,5 +1346,13 @@ public class Column implements GsonPostProcessable {
 
     public String getExtraInfo() {
         return extraInfo;
+    }
+
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = sessionVariables;
     }
 }

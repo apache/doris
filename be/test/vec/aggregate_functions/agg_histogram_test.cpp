@@ -68,6 +68,16 @@ public:
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
                     auto item = std::string("item") + std::to_string(i);
                     input_col->insert_data(item.c_str(), item.size());
+                } else if constexpr (std::is_same_v<DataType, DataTypeDateV2>) {
+                    auto item = static_cast<uint32_t>(i);
+                    input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
+                } else if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
+                    auto item = static_cast<uint64_t>(i);
+                    input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
+                } else if constexpr (std::is_same_v<DataType, DataTypeDateTime> ||
+                                     std::is_same_v<DataType, DataTypeDate>) {
+                    auto item = static_cast<int64_t>(i);
+                    input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
                 } else {
                     auto item = FieldType(static_cast<uint64_t>(i));
                     input_col->insert_data(reinterpret_cast<const char*>(&item), 0);
@@ -92,6 +102,16 @@ public:
             if constexpr (std::is_same_v<DataType, DataTypeString>) {
                 auto item = std::string("item") + std::to_string(i);
                 columns[0]->insert_data(item.c_str(), item.size());
+            } else if constexpr (std::is_same_v<DataType, DataTypeDateV2>) {
+                auto item = static_cast<uint32_t>(i);
+                columns[0]->insert_data(reinterpret_cast<const char*>(&item), 0);
+            } else if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
+                auto item = static_cast<uint64_t>(i);
+                columns[0]->insert_data(reinterpret_cast<const char*>(&item), 0);
+            } else if constexpr (std::is_same_v<DataType, DataTypeDateTime> ||
+                                 std::is_same_v<DataType, DataTypeDate>) {
+                auto item = static_cast<int64_t>(i);
+                columns[0]->insert_data(reinterpret_cast<const char*>(&item), 0);
             } else {
                 auto item = FieldType(static_cast<uint64_t>(i));
                 columns[0]->insert_data(reinterpret_cast<const char*>(&item), 0);
@@ -119,7 +139,7 @@ public:
                   << "(" << data_types[0]->get_name() << ")";
 
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get("histogram", data_types, false, -1);
+        auto agg_function = factory.get("histogram", data_types, nullptr, false, -1);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

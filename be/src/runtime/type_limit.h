@@ -20,6 +20,7 @@
 #include "runtime/decimalv2_value.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/extended_types.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris {
 
@@ -33,6 +34,12 @@ template <>
 struct type_limit<StringRef> {
     static StringRef min() { return StringRef::min_string_val(); }
     static StringRef max() { return StringRef::max_string_val(); }
+};
+
+template <>
+struct type_limit<uint8_t> {
+    static uint8_t min() { return 0; }
+    static uint8_t max() { return 1; }
 };
 
 template <>
@@ -102,6 +109,18 @@ struct type_limit<DateV2Value<DateTimeV2ValueType>> {
     static DateV2Value<DateTimeV2ValueType> max() {
         uint64_t max = MAX_DATETIME_V2;
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(max);
+    }
+};
+
+template <>
+struct type_limit<TimestampTzValue> {
+    static TimestampTzValue min() {
+        uint64_t min = MIN_DATETIME_V2;
+        return binary_cast<uint64_t, TimestampTzValue>(min);
+    }
+    static TimestampTzValue max() {
+        uint64_t max = MAX_DATETIME_V2;
+        return binary_cast<uint64_t, TimestampTzValue>(max);
     }
 };
 

@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSearchClause;
 import org.apache.doris.thrift.TSearchFieldBinding;
+import org.apache.doris.thrift.TSearchOccur;
 import org.apache.doris.thrift.TSearchParam;
 
 import org.apache.logging.log4j.LogManager;
@@ -45,7 +46,7 @@ public class SearchPredicate extends Predicate {
     private final String dslString;
     private final QsPlan qsPlan;
 
-    public SearchPredicate(String dslString, QsPlan qsPlan, List<Expr> children) {
+    public SearchPredicate(String dslString, QsPlan qsPlan, List<Expr> children, boolean nullable) {
         super();
         this.dslString = dslString;
         this.qsPlan = qsPlan;
@@ -55,6 +56,7 @@ public class SearchPredicate extends Predicate {
         if (children != null) {
             this.children.addAll(children);
         }
+        this.nullable = nullable;
     }
 
     protected SearchPredicate(SearchPredicate other) {
@@ -86,12 +88,12 @@ public class SearchPredicate extends Predicate {
         // Print QsPlan details
         if (qsPlan != null) {
             LOG.info("SearchPredicate.toThrift: QsPlan fieldBindings.size={}",
-                    qsPlan.fieldBindings != null ? qsPlan.fieldBindings.size() : 0);
-            if (qsPlan.fieldBindings != null) {
-                for (int i = 0; i < qsPlan.fieldBindings.size(); i++) {
-                    SearchDslParser.QsFieldBinding binding = qsPlan.fieldBindings.get(i);
+                    qsPlan.getFieldBindings() != null ? qsPlan.getFieldBindings().size() : 0);
+            if (qsPlan.getFieldBindings() != null) {
+                for (int i = 0; i < qsPlan.getFieldBindings().size(); i++) {
+                    SearchDslParser.QsFieldBinding binding = qsPlan.getFieldBindings().get(i);
                     LOG.info("SearchPredicate.toThrift: binding[{}] fieldName='{}', slotIndex={}",
-                            i, binding.fieldName, binding.slotIndex);
+                            i, binding.getFieldName(), binding.getSlotIndex());
                 }
             }
         }
@@ -104,7 +106,7 @@ public class SearchPredicate extends Predicate {
                 SlotRef slotRef = (SlotRef) child;
                 LOG.info("SearchPredicate.toThrift: SlotRef details - column={}",
                         slotRef.getColumnName());
-                if (slotRef.isAnalyzed() && slotRef.getDesc() != null) {
+                if (slotRef.getDesc() != null) {
                     LOG.info("SearchPredicate.toThrift: SlotRef analyzed - slotId={}",
                             slotRef.getSlotId());
                 }
@@ -140,14 +142,14 @@ public class SearchPredicate extends Predicate {
     private TSearchParam buildThriftParam() {
         TSearchParam param = new TSearchParam();
         param.setOriginalDsl(dslString);
-        param.setRoot(convertQsNodeToThrift(qsPlan.root));
+        param.setRoot(convertQsNodeToThrift(qsPlan.getRoot()));
 
         List<TSearchFieldBinding> bindings = new ArrayList<>();
-        for (int i = 0; i < qsPlan.fieldBindings.size(); i++) {
-            SearchDslParser.QsFieldBinding binding = qsPlan.fieldBindings.get(i);
+        for (int i = 0; i < qsPlan.getFieldBindings().size(); i++) {
+            SearchDslParser.QsFieldBinding binding = qsPlan.getFieldBindings().get(i);
             TSearchFieldBinding thriftBinding = new TSearchFieldBinding();
 
-            String fieldPath = binding.fieldName;
+            String fieldPath = binding.getFieldName();
             thriftBinding.setFieldName(fieldPath);
 
             // Check if this is a variant subcolumn (contains dot)
@@ -174,9 +176,10 @@ public class SearchPredicate extends Predicate {
                 SlotRef slotRef = (SlotRef) this.children.get(i);
                 int actualSlotId = slotRef.getSlotId().asInt();
                 thriftBinding.setSlotIndex(actualSlotId);
-                LOG.info("buildThriftParam: binding field='{}', actual slotId={}", binding.fieldName, actualSlotId);
+                LOG.info("buildThriftParam: binding field='{}', actual slotId={}",
+                        binding.getFieldName(), actualSlotId);
             } else {
-                LOG.warn("buildThriftParam: No corresponding SlotRef for field '{}'", binding.fieldName);
+                LOG.warn("buildThriftParam: No corresponding SlotRef for field '{}'", binding.getFieldName());
                 thriftBinding.setSlotIndex(i); // fallback to position
             }
 
@@ -228,10 +231,10 @@ public class SearchPredicate extends Predicate {
 
     private List<String> buildDslAstExplainLines() {
         List<String> lines = new ArrayList<>();
-        if (qsPlan == null || qsPlan.root == null) {
+        if (qsPlan == null || qsPlan.getRoot() == null) {
             return lines;
         }
-        TSearchClause rootClause = convertQsNodeToThrift(qsPlan.root);
+        TSearchClause rootClause = convertQsNodeToThrift(qsPlan.getRoot());
         appendClauseExplain(rootClause, lines, 0);
         return lines;
     }
@@ -256,11 +259,11 @@ public class SearchPredicate extends Predicate {
 
     private List<String> buildFieldBindingExplainLines() {
         List<String> lines = new ArrayList<>();
-        if (qsPlan == null || qsPlan.fieldBindings == null || qsPlan.fieldBindings.isEmpty()) {
+        if (qsPlan == null || qsPlan.getFieldBindings() == null || qsPlan.getFieldBindings().isEmpty()) {
             return lines;
         }
-        IntStream.range(0, qsPlan.fieldBindings.size()).forEach(index -> {
-            SearchDslParser.QsFieldBinding binding = qsPlan.fieldBindings.get(index);
+        IntStream.range(0, qsPlan.getFieldBindings().size()).forEach(index -> {
+            SearchDslParser.QsFieldBinding binding = qsPlan.getFieldBindings().get(index);
             String slotDesc = "<unbound>";
             if (index < children.size() && children.get(index) instanceof SlotRef) {
                 SlotRef slotRef = (SlotRef) children.get(index);
@@ -270,7 +273,7 @@ public class SearchPredicate extends Predicate {
             } else if (index < children.size()) {
                 slotDesc = children.get(index).toSqlWithoutTbl();
             }
-            lines.add(binding.fieldName + " -> " + slotDesc);
+            lines.add(binding.getFieldName() + " -> " + slotDesc);
         });
         return lines;
     }
@@ -302,25 +305,48 @@ public class SearchPredicate extends Predicate {
         TSearchClause clause = new TSearchClause();
 
         // Convert clause type
-        clause.setClauseType(node.type.name());
+        clause.setClauseType(node.getType().name());
 
-        if (node.field != null) {
-            clause.setFieldName(node.field);
+        if (node.getField() != null) {
+            clause.setFieldName(node.getField());
         }
 
-        if (node.value != null) {
-            clause.setValue(node.value);
+        if (node.getValue() != null) {
+            clause.setValue(node.getValue());
         }
 
-        if (node.children != null && !node.children.isEmpty()) {
+        // Convert occur type for Lucene-style boolean queries
+        if (node.getOccur() != null) {
+            clause.setOccur(convertQsOccurToThrift(node.getOccur()));
+        }
+
+        // Convert minimum_should_match for OCCUR_BOOLEAN
+        if (node.getMinimumShouldMatch() != null) {
+            clause.setMinimumShouldMatch(node.getMinimumShouldMatch());
+        }
+
+        if (node.getChildren() != null && !node.getChildren().isEmpty()) {
             List<TSearchClause> childClauses = new ArrayList<>();
-            for (SearchDslParser.QsNode child : node.children) {
+            for (SearchDslParser.QsNode child : node.getChildren()) {
                 childClauses.add(convertQsNodeToThrift(child));
             }
             clause.setChildren(childClauses);
         }
 
         return clause;
+    }
+
+    private TSearchOccur convertQsOccurToThrift(SearchDslParser.QsOccur occur) {
+        switch (occur) {
+            case MUST:
+                return TSearchOccur.MUST;
+            case SHOULD:
+                return TSearchOccur.SHOULD;
+            case MUST_NOT:
+                return TSearchOccur.MUST_NOT;
+            default:
+                return TSearchOccur.MUST;
+        }
     }
 
     // Getters
