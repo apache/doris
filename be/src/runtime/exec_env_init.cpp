@@ -424,8 +424,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _index_policy_mgr = new IndexPolicyMgr();
 
     // Initialize warmup download rate limiter for cloud mode
-    if (config::is_cloud_mode() && config::warmup_download_rate_limit_bytes_per_second > 0) {
-        int64_t rate_limit = config::warmup_download_rate_limit_bytes_per_second;
+    if (config::is_cloud_mode() &&
+        config::file_cache_warmup_download_rate_limit_bytes_per_second > 0) {
+        int64_t rate_limit = config::file_cache_warmup_download_rate_limit_bytes_per_second;
         // max_burst is the same as rate_limit (1 second burst)
         // limit is 0 which means no total limit
         _warmup_download_rate_limiter = new S3RateLimiterHolder(
