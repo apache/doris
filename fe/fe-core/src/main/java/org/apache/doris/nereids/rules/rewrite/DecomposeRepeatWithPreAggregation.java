@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -51,11 +50,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -414,23 +411,23 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         // The above two examples cannot be optimized because c and d only exist in the largest group.
         // e.g. 3. select a,b,c, grouping_id(a,b) from t1 group by grouping sets((a,b,c,d),(a,b),(a),());
         // Example 3 can be optimized because a and b also exist in other groups.
-        Set<GroupingScalarFunction> groupingScalarFunctions = repeat.getGroupingScalarFunctions();
-        Set<Expression> maxGroupingSetExprs =
-                Utils.fastToImmutableSet(repeat.getGroupingSets().get(maxGroupIndex));
-        Set<Expression> otherGroupingSetExprs = new HashSet<>();
-        for (int i = 0; i < groupingSets.size(); ++i) {
-            if (i == maxGroupIndex) {
-                continue;
-            }
-            otherGroupingSetExprs.addAll(groupingSets.get(i));
-        }
-        Set<Expression> onlyInMaxSetExprs = new HashSet<>(maxGroupingSetExprs);
-        onlyInMaxSetExprs.removeAll(otherGroupingSetExprs);
-        for (GroupingScalarFunction groupingScalarFunction : groupingScalarFunctions) {
-            if (CollectionUtils.containsAny(onlyInMaxSetExprs, groupingScalarFunction.getInputSlots())) {
-                return -1;
-            }
-        }
+        // Set<GroupingScalarFunction> groupingScalarFunctions = repeat.getGroupingScalarFunctions();
+        // Set<Expression> maxGroupingSetExprs =
+        //         Utils.fastToImmutableSet(repeat.getGroupingSets().get(maxGroupIndex));
+        // Set<Expression> otherGroupingSetExprs = new HashSet<>();
+        // for (int i = 0; i < groupingSets.size(); ++i) {
+        //     if (i == maxGroupIndex) {
+        //         continue;
+        //     }
+        //     otherGroupingSetExprs.addAll(groupingSets.get(i));
+        // }
+        // Set<Expression> onlyInMaxSetExprs = new HashSet<>(maxGroupingSetExprs);
+        // onlyInMaxSetExprs.removeAll(otherGroupingSetExprs);
+        // for (GroupingScalarFunction groupingScalarFunction : groupingScalarFunctions) {
+        //     if (CollectionUtils.containsAny(onlyInMaxSetExprs, groupingScalarFunction.getInputSlots())) {
+        //         return -1;
+        //     }
+        // }
         return maxGroupIndex;
     }
 

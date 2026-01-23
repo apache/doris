@@ -273,6 +273,9 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         }
 
         public boolean shouldBeErasedToNull(int index) {
+            if (index == -1) {
+                return true;
+            }
             return shouldBeErasedToNull.get(index);
         }
 
