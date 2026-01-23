@@ -831,6 +831,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
     public static final String CHOOSE_ONE_AGG_SHUFFLE_KEY = "choose_one_agg_shuffle_key";
+    public static final String AGG_SHUFFLE_KEY_OPT_THRESHOLD = "agg_shuffle_key_opt_threshold";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -2693,6 +2694,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = CHOOSE_ONE_AGG_SHUFFLE_KEY, needForward = false)
     public boolean chooseOneAggShuffleKey = true;
+
+    @VariableMgr.VarAttr(name = AGG_SHUFFLE_KEY_OPT_THRESHOLD, needForward = false)
+    public int aggShuffleKeyOptThreshold = 5;
 
     @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",

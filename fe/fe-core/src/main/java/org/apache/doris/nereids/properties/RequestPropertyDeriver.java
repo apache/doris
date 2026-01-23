@@ -485,7 +485,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 // - For skew evaluation: compute ratio = rows_in_normal_node / rows_in_skewed_node
                 // - A key is considered acceptable if ratio > 2/3 (i.e., rows_in_normal_node / max_skewed_rows > 2)
                 // - Hot value analysis may be added in future iterations
-                if (agg.getGroupByExpressions().size() <= 5 || agg.hasSourceRepeat()) {
+                if (agg.getGroupByExpressions().size() <= connectContext.getSessionVariable().aggShuffleKeyOptThreshold
+                        || agg.hasSourceRepeat()) {
                     addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
                     return null;
                 }
