@@ -704,16 +704,7 @@ TEST_F(OccurBooleanQueryTest, OnlyMustNotClausesEmpty) {
     EXPECT_EQ(scorer->doc(), TERMINATED);
 }
 
-// 测试当 minimum_number_should_match > should 子句数量时应返回空查询
-// Bug 场景：设置 minimum_number_should_match=2，但没有 should 子句
-// 期望 build_should_opt 返回 std::nullopt，最终返回 EmptyScorer
-//
-// 注意：OccurBooleanWeight::scorer 在只有1个子句时会走特殊路径（直接返回子 scorer），
-// 跳过 complex_scorer 和 build_should_opt 逻辑。因此测试需要至少2个子句。
 TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty) {
-    // 场景1: 只有 MUST 子句（2个），设置 minimum_number_should_match=2（没有 SHOULD 子句）
-    // adjusted_minimum = 2, num_of_should_scorers = 0
-    // 因为 2 > 0，应该返回 std::nullopt，导致返回 EmptyScorer
     {
         auto must_docs1 = generate_range_docs(0, 100);
         auto must_docs2 = generate_range_docs(50, 150);
@@ -721,18 +712,13 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs1));
         clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs2));
 
-        // 设置 minimum_number_should_match=2，但没有 SHOULD 子句
         OccurBooleanQuery query(std::move(clauses), 2);
         auto weight = query.weight(false);
         auto scorer = weight->scorer(_ctx);
 
-        // 期望返回空查询
         EXPECT_EQ(scorer->doc(), TERMINATED);
     }
 
-    // 场景2: 有 MUST 和 1 个 SHOULD 子句，但 minimum_number_should_match=2
-    // adjusted_minimum = 2, num_of_should_scorers = 1
-    // 因为 2 > 1，应该返回 std::nullopt，导致返回 EmptyScorer
     {
         auto must_docs = generate_range_docs(0, 100);
         auto should_docs = generate_range_docs(0, 100);
@@ -744,14 +730,9 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         auto weight = query.weight(false);
         auto scorer = weight->scorer(_ctx);
 
-        // 期望返回空查询
         EXPECT_EQ(scorer->doc(), TERMINATED);
     }
 
-    // 场景3: 有 2 个 SHOULD 子句，minimum_number_should_match=2
-    // adjusted_minimum = 2, num_of_should_scorers = 2
-    // 因为 adjusted_minimum == num_of_should_scorers，所有 SHOULD 都变成 MUST
-    // 应该返回两个 SHOULD 子句的交集
     {
         auto should_docs1 = generate_range_docs(0, 100);
         auto should_docs2 = generate_range_docs(50, 150);
@@ -770,7 +751,6 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         EXPECT_EQ(to_set(result), to_set(expected));
     }
 
-    // 场景4: 有 MUST 和 MUST_NOT，设置 minimum_number_should_match=2（没有 SHOULD）
     {
         auto must_docs = generate_range_docs(0, 100);
         auto must_not_docs = generate_range_docs(50, 150);
@@ -783,17 +763,11 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         auto weight = query.weight(false);
         auto scorer = weight->scorer(_ctx);
 
-        // 期望返回空查询（因为没有足够的 SHOULD 子句满足 minimum_number_should_match）
         EXPECT_EQ(scorer->doc(), TERMINATED);
     }
 }
 
-// 测试 minimum_number_should_match=0 且没有 should 子句时应返回 Ignored
-// 这是修复后新增的逻辑：adjusted_minimum == 0 && num_of_should_scorers == 0 时返回 Ignored
 TEST_F(OccurBooleanQueryTest, MinimumShouldMatchZeroWithNoShouldClausesReturnsIgnored) {
-    // 需要至少2个子句才能进入 complex_scorer 逻辑
-    // 使用 2 个 MUST 子句，minimum_number_should_match=0
-    // 应该正常返回 MUST 子句的交集
     auto must_docs1 = generate_range_docs(0, 100);
     auto must_docs2 = generate_range_docs(50, 150);
     auto expected = set_intersection(must_docs1, must_docs2);
