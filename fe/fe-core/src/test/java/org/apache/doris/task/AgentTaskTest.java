@@ -81,7 +81,7 @@ public class AgentTaskTest {
     private long storageDictPageSize = 262144L;
 
     private List<Column> columns;
-    private MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>();
+    private MarkedCountDownLatch<String, Long> latch = new MarkedCountDownLatch<>();
 
     private Range<PartitionKey> range1;
     private Range<PartitionKey> range2;

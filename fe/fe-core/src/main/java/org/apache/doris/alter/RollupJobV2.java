@@ -212,7 +212,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 totalReplicaNum += tablet.getReplicas().size();
             }
         }
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>();
+        MarkedCountDownLatch<String, Long> countDownLatch = new MarkedCountDownLatch<>();
         OlapTable tbl;
         try {
             tbl = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -240,8 +240,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     for (Replica rollupReplica : rollupReplicas) {
                         long backendId = rollupReplica.getBackendIdWithoutException();
                         long rollupReplicaId = rollupReplica.getId();
+                        String markKey = String.format("%s-%s", backendId, rollupReplicaId);
                         Preconditions.checkNotNull(tabletIdMap.get(rollupTabletId)); // baseTabletId
-                        countDownLatch.addMark(backendId, rollupTabletId);
+                        countDownLatch.addMark(markKey, rollupTabletId);
                         // create replica with version 1.
                         // version will be updated by following load process, or when rollup task finished.
                         CreateReplicaTask createReplicaTask = new CreateReplicaTask(
@@ -308,7 +309,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 } else {
                     // only show at most 3 results
                     List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
-                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                            .map(item -> "(backendId-replicaId = " + item.getKey() + ", tabletId = "
+                                    + item.getValue() + ")")
                             .collect(Collectors.toList());
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }
