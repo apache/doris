@@ -163,6 +163,9 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             this.currentReader = getSnapshotSplitReader(baseReq);
         } else if (this.currentSplit.isStreamSplit()) {
             this.currentReader = getBinlogSplitReader(baseReq);
+        } else {
+            throw new IllegalStateException(
+                    "Unknown split type: " + this.currentSplit.getClass().getName());
         }
 
         // Submit split

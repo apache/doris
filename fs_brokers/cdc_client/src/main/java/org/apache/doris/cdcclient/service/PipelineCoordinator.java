@@ -102,42 +102,38 @@ public class PipelineCoordinator {
             throws Exception {
         RecordWithMeta recordResponse = new RecordWithMeta();
         try {
+            boolean isSnapshotSplit = sourceReader.isSnapshotSplit(readResult.getSplit());
             long startTime = System.currentTimeMillis();
             boolean shouldStop = false;
             boolean hasReceivedData = false;
+            boolean lastMessageIsHeartbeat = false;
             int heartbeatCount = 0;
             int recordCount = 0;
+            LOG.info(
+                    "Start fetching records for jobId={}, isSnapshotSplit={}",
+                    fetchRecord.getJobId(),
+                    isSnapshotSplit);
 
             while (!shouldStop) {
-                long elapsedTime = System.currentTimeMillis() - startTime;
-                boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
-
-                // Timeout protection: force stop if waiting for heartbeat exceeds threshold
-                // After reaching timeout, wait at most DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3 for
-                // heartbeat
-                if (timeoutReached
-                        && elapsedTime
-                                > Constants.POLL_SPLIT_RECORDS_TIMEOUTS
-                                        + Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3) {
-                    LOG.warn(
-                            "Heartbeat wait timeout after {} ms since timeout reached, force stopping. "
-                                    + "Total elapsed: {} ms",
-                            elapsedTime - Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
-                            elapsedTime);
-                    break;
-                }
-
                 Iterator<SourceRecord> recordIterator =
                         sourceReader.pollRecords(readResult.getSplitState());
 
                 if (!recordIterator.hasNext()) {
-                    // If we have data and reached timeout, continue waiting for heartbeat
-                    if (hasReceivedData && timeoutReached) {
-                        Thread.sleep(100);
-                        continue;
-                    }
-                    // Otherwise, just wait for more data
                     Thread.sleep(100);
+
+                    // Check if should stop
+                    long elapsedTime = System.currentTimeMillis() - startTime;
+                    boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
+
+                    if (shouldStop(
+                            isSnapshotSplit,
+                            hasReceivedData,
+                            lastMessageIsHeartbeat,
+                            elapsedTime,
+                            Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
+                            timeoutReached)) {
+                        break;
+                    }
                     continue;
                 }
 
@@ -147,6 +143,17 @@ public class PipelineCoordinator {
                     // Check if this is a heartbeat message
                     if (isHeartbeatEvent(element)) {
                         heartbeatCount++;
+
+                        // Mark last message as heartbeat
+                        if (!isSnapshotSplit) {
+                            lastMessageIsHeartbeat = true;
+                        }
+
+                        // If already have data or timeout, stop when heartbeat received
+                        long elapsedTime = System.currentTimeMillis() - startTime;
+                        boolean timeoutReached =
+                                elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
+
                         if (hasReceivedData || timeoutReached) {
                             LOG.info(
                                     "Heartbeat received after {} data records, stopping",
@@ -165,6 +172,7 @@ public class PipelineCoordinator {
                         recordCount++;
                         recordResponse.getRecords().addAll(serializedRecords);
                         hasReceivedData = true;
+                        lastMessageIsHeartbeat = false;
                     }
                 }
             }
@@ -216,9 +224,16 @@ public class PipelineCoordinator {
     }
 
     /**
-     * Read data from SourceReader and write it to Doris, while returning meta information. 1. poll
-     * interval record. 2. Try to retrieve the heartbeat message, as it returns the latest offset,
-     * preventing the next task from having to skip a large number of records.
+     * Read data from SourceReader and write it to Doris, while returning meta information.
+     *
+     * <p>Snapshot split: Returns immediately after reading; otherwise, returns after the
+     * maxInterval.
+     *
+     * <p>Binlog split: Fetches data at the maxInterval. Returns immediately if no data is found; if
+     * found, checks if the last record is a heartbeat record. If it is, returns immediately;
+     * otherwise, fetches again until the heartbeat deadline.
+     *
+     * <p>Heartbeat events will carry the latest offset.
      */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
@@ -232,46 +247,63 @@ public class PipelineCoordinator {
             // 1. submit split async
             readResult = sourceReader.prepareAndSubmitSplit(writeRecordRequest);
             batchStreamLoad = getOrCreateBatchStreamLoad(writeRecordRequest);
+
+            boolean isSnapshotSplit = sourceReader.isSnapshotSplit(readResult.getSplit());
             long startTime = System.currentTimeMillis();
             long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
             boolean shouldStop = false;
+            boolean lastMessageIsHeartbeat = false;
+            LOG.info(
+                    "Start polling records for jobId={} taskId={}, isSnapshotSplit={}",
+                    writeRecordRequest.getJobId(),
+                    writeRecordRequest.getTaskId(),
+                    isSnapshotSplit);
 
             // 2. poll record
             while (!shouldStop) {
-                long elapsedTime = System.currentTimeMillis() - startTime;
-                boolean timeoutReached = maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
-
-                // Timeout protection: force stop if waiting for heartbeat exceeds threshold
-                // After reaching maxInterval, wait at most DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3 for
-                // heartbeat
-                if (timeoutReached
-                        && elapsedTime
-                                > maxIntervalMillis
-                                        + Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3) {
-                    LOG.warn(
-                            "Heartbeat wait timeout after {} ms since timeout reached, force stopping. "
-                                    + "Total elapsed: {} ms",
-                            elapsedTime - maxIntervalMillis,
-                            elapsedTime);
-                    break;
-                }
-
                 Iterator<SourceRecord> recordIterator =
                         sourceReader.pollRecords(readResult.getSplitState());
 
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
+
+                    // Check if should stop
+                    long elapsedTime = System.currentTimeMillis() - startTime;
+                    boolean timeoutReached =
+                            maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
+
+                    if (shouldStop(
+                            isSnapshotSplit,
+                            scannedRows > 0,
+                            lastMessageIsHeartbeat,
+                            elapsedTime,
+                            maxIntervalMillis,
+                            timeoutReached)) {
+                        break;
+                    }
                     continue;
                 }
 
                 while (recordIterator.hasNext()) {
                     SourceRecord element = recordIterator.next();
+
                     // Check if this is a heartbeat message
                     if (isHeartbeatEvent(element)) {
                         heartbeatCount++;
-                        if (timeoutReached) {
+
+                        // Mark last message as heartbeat (only for binlog split)
+                        if (!isSnapshotSplit) {
+                            lastMessageIsHeartbeat = true;
+                        }
+
+                        // If already timeout, stop immediately when heartbeat received
+                        long elapsedTime = System.currentTimeMillis() - startTime;
+                        boolean timeoutReached =
+                                maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
+
+                        if (!isSnapshotSplit && timeoutReached) {
                             LOG.info(
-                                    "Max interval reached and heartbeat received, stopping data reading");
+                                    "Binlog split max interval reached and heartbeat received, stopping data reading");
                             shouldStop = true;
                             break;
                         }
@@ -292,6 +324,8 @@ public class PipelineCoordinator {
                             scannedBytes += dataBytes.length;
                             batchStreamLoad.writeRecord(database, table, dataBytes);
                         }
+                        // Mark last message as data (not heartbeat)
+                        lastMessageIsHeartbeat = false;
                     }
                 }
             }
@@ -309,21 +343,88 @@ public class PipelineCoordinator {
 
         // 3. Extract offset from split state
         metaResponse = extractOffsetMeta(sourceReader, readResult);
-        try {
-            // 4. wait all stream load finish
-            batchStreamLoad.forceFlush();
+        // 4. wait all stream load finish
+        batchStreamLoad.forceFlush();
 
-            // 5. request fe api update offset
-            batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
-        } finally {
-            batchStreamLoad.resetTaskId();
-        }
+        // 5. request fe api update offset
+        String currentTaskId = batchStreamLoad.getCurrentTaskId();
+        // The offset must be reset before commitOffset to prevent the next taskId from being create
+        // by the fe.
+        batchStreamLoad.resetTaskId();
+        batchStreamLoad.commitOffset(currentTaskId, metaResponse, scannedRows, scannedBytes);
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
         Schema valueSchema = record.valueSchema();
         return valueSchema != null
                 && SCHEMA_HEARTBEAT_EVENT_KEY_NAME.equalsIgnoreCase(valueSchema.name());
+    }
+
+    /**
+     * Determine if we should stop polling.
+     *
+     * @param isSnapshotSplit whether this is a snapshot split
+     * @param hasData whether we have received any data
+     * @param lastMessageIsHeartbeat whether the last message is a heartbeat
+     * @param elapsedTime total elapsed time in milliseconds
+     * @param maxIntervalMillis max interval in milliseconds
+     * @param timeoutReached whether timeout is reached
+     * @return true if should stop, false if should continue
+     */
+    private boolean shouldStop(
+            boolean isSnapshotSplit,
+            boolean hasData,
+            boolean lastMessageIsHeartbeat,
+            long elapsedTime,
+            long maxIntervalMillis,
+            boolean timeoutReached) {
+
+        // 1. Snapshot split with data: if no more data in queue, stop immediately (no need to wait
+        // for timeout)
+        // snapshot split will be written to the debezium queue all at once.
+        if (isSnapshotSplit && hasData) {
+            LOG.info(
+                    "Snapshot split finished, no more data available. Total elapsed: {} ms",
+                    elapsedTime);
+            return true;
+        }
+
+        // 2. Not timeout yet: continue waiting
+        if (!timeoutReached) {
+            return false;
+        }
+
+        // === Below are checks after timeout is reached ===
+
+        // 3. No data received after timeout: stop
+        if (!hasData) {
+            LOG.info("No data received after timeout, stopping. Elapsed: {} ms", elapsedTime);
+            return true;
+        }
+
+        // 4. Snapshot split after timeout (should not reach here, but keep as safety check)
+        if (isSnapshotSplit) {
+            LOG.info("Snapshot split timeout reached, stopping. Elapsed: {} ms", elapsedTime);
+            return true;
+        }
+
+        // 5. Binlog split + last message is heartbeat: stop immediately
+        if (lastMessageIsHeartbeat) {
+            LOG.info("Binlog split timeout and last message is heartbeat, stopping");
+            return true;
+        }
+
+        // 6. Binlog split + no heartbeat yet: wait for heartbeat with timeout protection
+        if (elapsedTime > maxIntervalMillis + Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3) {
+            LOG.warn(
+                    "Binlog split heartbeat wait timeout after {} ms, force stopping. Total elapsed: {} ms",
+                    elapsedTime - maxIntervalMillis,
+                    elapsedTime);
+            return true;
+        }
+
+        // Continue waiting for heartbeat
+        return false;
     }
 
     private synchronized DorisBatchStreamLoad getOrCreateBatchStreamLoad(
