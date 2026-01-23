@@ -458,6 +458,9 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BLOOM_PRED == root->node_type());
@@ -484,6 +487,9 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(root->is_topn_filter());
@@ -508,6 +514,9 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
@@ -656,6 +665,9 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -754,6 +766,9 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -931,6 +946,9 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(!root->is_rf_wrapper()) << root->debug_string();

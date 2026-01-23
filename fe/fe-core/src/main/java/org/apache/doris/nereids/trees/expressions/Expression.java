@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -362,7 +363,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 || this instanceof Variable
                 || this instanceof VariableDesc
                 || this instanceof WindowExpression
-                || this instanceof WindowFrame) {
+                || this instanceof WindowFrame
+                || this instanceof TableGeneratingFunction) {
             // agg_fun(literal) is not constant, the result depends on the group by keys
             return false;
         }

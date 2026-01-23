@@ -838,6 +838,12 @@ endif()
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
+    install(FILES
+        ${BASE_DIR}/../bin/start_file_cache_microbench.sh
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_WRITE GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+        DESTINATION ${OUTPUT_DIR}/bin)
 endif()
 
 option(BUILD_INDEX_TOOL "Build index tool" OFF)
