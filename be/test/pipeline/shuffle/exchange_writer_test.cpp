@@ -145,7 +145,7 @@ TEST(TrivialExchangeWriterTest, EmptyInput) {
     EXPECT_EQ(writer._origin_row_idx.size(), 0U);
 }
 
-TEST(OlapExchangeWriterTest, NeedCheckSkipsNegativeChannelIds) {
+TEST(OlapExchangeWriterTest, NeedCheckSkipsInvalidChannelIds) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
     ExchangeOlapWriter writer;
@@ -162,7 +162,7 @@ TEST(OlapExchangeWriterTest, NeedCheckSkipsNegativeChannelIds) {
                                          /*eos=*/false, 10);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
-    // Only non-negative ids should be counted: hist = [1,0,2]
+    // Only valid ids(less than _partition_count) should be counted: hist = [1,0,2]
     ASSERT_EQ(writer._channel_rows_histogram.size(), channel_count);
     EXPECT_EQ(writer._channel_rows_histogram[0], 1U);
     EXPECT_EQ(writer._channel_rows_histogram[1], 0U);

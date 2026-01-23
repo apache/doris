@@ -93,7 +93,8 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     }
 
     // tablet_id_hash % invalid_val never get invalid_val, so we use invalid_val as sentinel value
-    const auto& invalid_val = _partition_count;
+    DCHECK_EQ(invalid_sentinel(), partition_count());
+    const auto& invalid_val = invalid_sentinel();
     std::ranges::fill(_hash_vals, invalid_val);
 
     int64_t dummy_stats = 0; // _local_state->rows_input_counter() updated in sink and write.
@@ -112,7 +113,7 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
         _hash_vals[row] = tablet_id_hash % invalid_val;
     }
 
-    // _hash_val == -1 = (_skipped = 1 or filtered = 1)
+    // _hash_vals[i] == invalid_val => row i is skipped or filtered
 #ifndef NDEBUG
     for (size_t i = 0; i < _skipped.size(); ++i) {
         if (_skipped[i]) {

@@ -114,7 +114,7 @@ TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHash
     auto st = partitioner->do_partitioning(&ctx.state, &block);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
-    const auto& skipped = partitioner->get_skipped(cast_set<int>(block.rows()));
+    const auto& skipped = partitioner->get_skipped();
     ASSERT_EQ(skipped.size(), block.rows());
     EXPECT_TRUE(skipped[0]);
     EXPECT_FALSE(skipped[1]);

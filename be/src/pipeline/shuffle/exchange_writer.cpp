@@ -113,7 +113,7 @@ Status ExchangeOlapWriter::_write_impl(ExchangeSinkLocalState* local_state, Runt
     {
         SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
         const auto& channel_ids = partitioner->get_channel_ids();
-        const auto invalid_val = partitioner->partition_count();
+        const auto invalid_val = partitioner->invalid_sentinel();
 
         // decrease not sinked rows this time
         COUNTER_UPDATE(local_state->rows_input_counter(),

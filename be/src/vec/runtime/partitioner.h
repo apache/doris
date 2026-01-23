@@ -49,6 +49,8 @@ public:
 
     // use _partition_count as invalid sentinel value. since modulo operation result is [0, partition_count-1]
     HashValType partition_count() const { return _partition_count; }
+    // use a individual function to highlight its special meaning
+    HashValType invalid_sentinel() const { return partition_count(); }
 
 protected:
     const HashValType _partition_count;

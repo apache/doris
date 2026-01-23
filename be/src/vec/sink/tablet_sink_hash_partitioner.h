@@ -52,7 +52,7 @@ public:
     void mark_last_block() const { _row_distribution._deal_batched = true; }
 
     const std::vector<HashValType>& get_channel_ids() const override { return _hash_vals; }
-    const std::vector<bool>& get_skipped(int size) const { return _skipped; }
+    const std::vector<bool>& get_skipped() const { return _skipped; }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
