@@ -1363,7 +1363,7 @@ TEST_F(GeoTypesTest, test_geometry_type) {
     {
         GeoPoint point;
         point.from_coord(116.123, 63.546);
-        EXPECT_STREQ("POINT", point.GeometryType().c_str());
+        EXPECT_STREQ("ST_POINT", point.GeometryType().c_str());
     }
 
     // Test GeoLineString
@@ -1371,7 +1371,7 @@ TEST_F(GeoTypesTest, test_geometry_type) {
         const char* wkt = "LINESTRING (30 10, 10 30, 40 40)";
         auto line = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, line.get());
-        EXPECT_STREQ("LINESTRING", line->GeometryType().c_str());
+        EXPECT_STREQ("ST_LINESTRING", line->GeometryType().c_str());
     }
 
     // Test GeoPolygon
@@ -1379,7 +1379,7 @@ TEST_F(GeoTypesTest, test_geometry_type) {
         const char* wkt = "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10))";
         auto polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, polygon.get());
-        EXPECT_STREQ("POLYGON", polygon->GeometryType().c_str());
+        EXPECT_STREQ("ST_POLYGON", polygon->GeometryType().c_str());
     }
 
     // Test GeoMultiPolygon
@@ -1387,7 +1387,7 @@ TEST_F(GeoTypesTest, test_geometry_type) {
         const char* wkt = "MULTIPOLYGON (((0 0, 10 0, 10 10, 0 10, 0 0)))";
         auto multi_polygon = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, multi_polygon.get());
-        EXPECT_STREQ("MULTIPOLYGON", multi_polygon->GeometryType().c_str());
+        EXPECT_STREQ("ST_MULTIPOLYGON", multi_polygon->GeometryType().c_str());
     }
 
     // Test GeoCircle
@@ -1395,7 +1395,7 @@ TEST_F(GeoTypesTest, test_geometry_type) {
         GeoCircle circle;
         auto res = circle.init(110.123, 64, 1000);
         EXPECT_EQ(GEO_PARSE_OK, res);
-        EXPECT_STREQ("CIRCLE", circle.GeometryType().c_str());
+        EXPECT_STREQ("ST_CIRCLE", circle.GeometryType().c_str());
     }
 }
 
