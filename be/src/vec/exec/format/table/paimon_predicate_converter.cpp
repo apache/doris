@@ -36,11 +36,11 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/exprs/vectorized_fn_call.h"
 #include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -197,8 +197,7 @@ std::shared_ptr<paimon::Predicate> PaimonPredicateConverter::_convert_in(const V
         return nullptr;
     }
     if (in_pred->is_not_in()) {
-        return paimon::PredicateBuilder::NotIn(field_meta->index,
-                                               field_meta->slot_desc->col_name(),
+        return paimon::PredicateBuilder::NotIn(field_meta->index, field_meta->slot_desc->col_name(),
                                                field_meta->field_type, literals);
     }
     return paimon::PredicateBuilder::In(field_meta->index, field_meta->slot_desc->col_name(),
@@ -216,13 +215,12 @@ std::shared_ptr<paimon::Predicate> PaimonPredicateConverter::_convert_binary(
     }
 
     if (expr->op() == TExprOpcode::EQ_FOR_NULL) {
-        return paimon::PredicateBuilder::IsNull(field_meta->index,
-                                                field_meta->slot_desc->col_name(),
-                                                field_meta->field_type);
+        return paimon::PredicateBuilder::IsNull(
+                field_meta->index, field_meta->slot_desc->col_name(), field_meta->field_type);
     }
 
-    auto literal = _convert_literal(expr->get_child(1), *field_meta->slot_desc,
-                                    field_meta->field_type);
+    auto literal =
+            _convert_literal(expr->get_child(1), *field_meta->slot_desc, field_meta->field_type);
     if (!literal) {
         return nullptr;
     }
@@ -236,21 +234,21 @@ std::shared_ptr<paimon::Predicate> PaimonPredicateConverter::_convert_binary(
                                                   field_meta->slot_desc->col_name(),
                                                   field_meta->field_type, *literal);
     case TExprOpcode::GE:
-        return paimon::PredicateBuilder::GreaterOrEqual(
-                field_meta->index, field_meta->slot_desc->col_name(), field_meta->field_type,
-                *literal);
+        return paimon::PredicateBuilder::GreaterOrEqual(field_meta->index,
+                                                        field_meta->slot_desc->col_name(),
+                                                        field_meta->field_type, *literal);
     case TExprOpcode::GT:
-        return paimon::PredicateBuilder::GreaterThan(
-                field_meta->index, field_meta->slot_desc->col_name(), field_meta->field_type,
-                *literal);
+        return paimon::PredicateBuilder::GreaterThan(field_meta->index,
+                                                     field_meta->slot_desc->col_name(),
+                                                     field_meta->field_type, *literal);
     case TExprOpcode::LE:
         return paimon::PredicateBuilder::LessOrEqual(field_meta->index,
                                                      field_meta->slot_desc->col_name(),
                                                      field_meta->field_type, *literal);
     case TExprOpcode::LT:
-        return paimon::PredicateBuilder::LessThan(
-                field_meta->index, field_meta->slot_desc->col_name(), field_meta->field_type,
-                *literal);
+        return paimon::PredicateBuilder::LessThan(field_meta->index,
+                                                  field_meta->slot_desc->col_name(),
+                                                  field_meta->field_type, *literal);
     default:
         break;
     }
@@ -267,9 +265,8 @@ std::shared_ptr<paimon::Predicate> PaimonPredicateConverter::_convert_is_null(
         return nullptr;
     }
     if (fn_name == "is_not_null_pred") {
-        return paimon::PredicateBuilder::IsNotNull(field_meta->index,
-                                                   field_meta->slot_desc->col_name(),
-                                                   field_meta->field_type);
+        return paimon::PredicateBuilder::IsNotNull(
+                field_meta->index, field_meta->slot_desc->col_name(), field_meta->field_type);
     }
     return paimon::PredicateBuilder::IsNull(field_meta->index, field_meta->slot_desc->col_name(),
                                             field_meta->field_type);
@@ -310,9 +307,9 @@ std::shared_ptr<paimon::Predicate> PaimonPredicateConverter::_convert_like_prefi
 
     paimon::Literal upper_literal(paimon::FieldType::STRING, upper_prefix->data(),
                                   upper_prefix->size());
-    auto upper_pred = paimon::PredicateBuilder::LessThan(
-            field_meta->index, field_meta->slot_desc->col_name(), field_meta->field_type,
-            upper_literal);
+    auto upper_pred =
+            paimon::PredicateBuilder::LessThan(field_meta->index, field_meta->slot_desc->col_name(),
+                                               field_meta->field_type, upper_literal);
     auto and_result = paimon::PredicateBuilder::And({lower_pred, upper_pred});
     return and_result.ok() ? std::move(and_result).value() : nullptr;
 }
