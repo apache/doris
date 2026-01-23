@@ -387,9 +387,9 @@ public class CloudAuthTest extends TestWithFeService {
         ShowGrantsCommand sg = new ShowGrantsCommand(new UserIdentity("testUser", "%"), false);
         ShowResultSet showResultSet = sg.doRun(connectContext, null);
         // cluster field
-        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(10));
+        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(11));
         // compute group field
-        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(14));
+        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(15));
 
         // -------------------- case 2 -------------------------
         // grant usage_priv on cluster 'cg1' to 'testUser'@'%'
@@ -406,10 +406,10 @@ public class CloudAuthTest extends TestWithFeService {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("cg1: Cluster_usage_priv; vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(10));
+                showResultSet.getResultRows().get(0).get(11));
         // compute group field
         Assert.assertEquals("cg1: Cluster_usage_priv; vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(14));
+                showResultSet.getResultRows().get(0).get(15));
 
         // revoke cg1 from test user
         String revokeCgSql1 = "revoke usage_priv on cluster 'cg1' from 'testUser'@'%'";
@@ -423,10 +423,10 @@ public class CloudAuthTest extends TestWithFeService {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(10));
+                showResultSet.getResultRows().get(0).get(11));
         // compute group field
         Assert.assertEquals("vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(14));
+                showResultSet.getResultRows().get(0).get(15));
 
         // grant cg2 to user
         String grantVcgUser3 = "grant usage_priv on cluster 'cg2' to 'testUser'@'%'";
@@ -454,10 +454,10 @@ public class CloudAuthTest extends TestWithFeService {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("cg2: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(10));
+                showResultSet.getResultRows().get(0).get(11));
         // compute group field
         Assert.assertEquals("cg2: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(14));
+                showResultSet.getResultRows().get(0).get(15));
         // revoke cg2 from user
 
         String revokeCgSql3 = "revoke usage_priv on cluster 'cg2' from 'testUser'";
@@ -481,9 +481,9 @@ public class CloudAuthTest extends TestWithFeService {
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
-        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(10));
+        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(11));
         // compute group field
-        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(14));
+        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(15));
 
         // drop user
         String dropUserSql5 = "DROP USER testUser";
