@@ -345,12 +345,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
             OlapGroupCommitInsertExecutor.analyzeGroupCommit(
                     ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
+
+            LogicalPlanAdapter logicalPlanAdapter
+                    = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
+            return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
         } finally {
             targetTableIf.readUnlock();
         }
-
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
-        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
     }
 
     // we should select the factory type first, but we can not initial InsertExecutor at this time,
