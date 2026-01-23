@@ -115,12 +115,14 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 insertCommand = new InsertIntoTableCommand(query, Optional.empty(),
                         Optional.empty(), Optional.empty(), true, Optional.empty());
                 insertCommand.run(ctx, executor);
+                if (ctx.getState().getStateType() == MysqlStateType.OK) {
+                    LineageUtils.submitLineageEventIfNeeded(executor, insertCommand.getLineagePlan(),
+                            insertCommand.getLogicalQuery(), getClass());
+                }
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }
-            LineageUtils.submitLineageEventIfNeeded(executor, insertCommand.getLineagePlan(),
-                    insertCommand.getLogicalQuery(), getClass());
         } catch (Exception e) {
             handleFallbackFailedCtas(ctx);
             throw new AnalysisException("Failed to execute CTAS Reason: " + e.getMessage(), e);

@@ -39,6 +39,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -50,6 +53,13 @@ import java.util.Set;
  * Utility methods for lineage event construction and filtering.
  */
 public final class LineageUtils {
+
+    public static final Logger LOG = LogManager.getLogger(LineageUtils.class);
+    private static final String EMPTY_STRING = "";
+    private static final String CATALOG_TYPE_KEY = "type";
+    private static final int NO_PLUGINS = 0;
+    private static final long UNKNOWN_START_TIME_MS = 0L;
+    private static final long UNKNOWN_DURATION_MS = 0L;
 
     private LineageUtils() {
     }
@@ -90,15 +100,8 @@ public final class LineageUtils {
             return null;
         }
         LineageInfo lineageInfo = LineageInfoExtractor.extractLineageInfo(plan);
-        String queryId = ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId());
-        String queryText = executor == null ? "" : executor.getOriginStmtInString();
-        String user = ctx.getQualifiedUser();
-        String database = ctx.getDatabase() == null ? "" : ctx.getDatabase();
-        String catalog = ctx.getDefaultCatalog() == null ? "" : ctx.getDefaultCatalog();
-        long timestampMs = System.currentTimeMillis();
-        long durationMs = ctx.getStartTime() > 0 ? (timestampMs - ctx.getStartTime()) : 0;
-        LineageContext context = new LineageContext(sourceCommand, queryId, queryText, user, database,
-                timestampMs, durationMs);
+        LineageContext context = buildLineageContext(sourceCommand, ctx, executor);
+        String catalog = safeString(ctx.getDefaultCatalog());
         context.setCatalog(catalog);
         context.setExternalCatalogProperties(collectExternalCatalogProperties(lineageInfo));
         lineageInfo.setContext(context);
@@ -119,34 +122,34 @@ public final class LineageUtils {
         if (!LineageUtils.isSameParsedCommand(executor, currentHandleClass)) {
             return;
         }
-        if (Config.activate_lineage_plugin == null || Config.activate_lineage_plugin.length == 0) {
+        if (!isLineagePluginConfigured()) {
             return;
         }
         Plan plan = lineagePlan.orElse(currentPlan);
         if (shouldSkipLineage(plan)) {
             return;
         }
-        LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, currentHandleClass,
-                executor.getContext(), executor);
-        if (lineageEvent != null) {
-            Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
+        try {
+            LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, currentHandleClass,
+                    executor.getContext(), executor);
+            if (lineageEvent != null) {
+                Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
+            }
+        } catch (Exception e) {
+            // Log and ignore exceptions during lineage processing to avoid impacting query execution
+            LOG.error("Failed to submit lineage event", e);
         }
     }
 
     public static boolean shouldSkipLineage(Plan plan) {
-        if (isValuesOnly(plan)) {
-            return true;
-        }
-        return isInternalSchemaTarget(plan);
+        return isValuesOnly(plan) || isInternalSchemaTarget(plan);
     }
 
     private static boolean isValuesOnly(Plan plan) {
         if (plan.containsType(LogicalCatalogRelation.class)) {
             return false;
         }
-        return plan.containsType(InlineTable.class)
-                || plan.containsType(LogicalUnion.class)
-                || plan.containsType(LogicalOneRowRelation.class);
+        return plan.containsType(InlineTable.class, LogicalUnion.class, LogicalOneRowRelation.class);
     }
 
     private static boolean isInternalSchemaTarget(Plan plan) {
@@ -169,22 +172,25 @@ public final class LineageUtils {
         if (lineageInfo == null) {
             return Collections.emptyMap();
         }
-        Set<TableIf> tables = new HashSet<>();
-        if (lineageInfo.getTableLineageSet() != null) {
-            tables.addAll(lineageInfo.getTableLineageSet());
+        Set<TableIf> tableLineageSet = lineageInfo.getTableLineageSet();
+        TableIf targetTable = lineageInfo.getTargetTable();
+        int tableCount = (tableLineageSet == null ? 0 : tableLineageSet.size()) + (targetTable == null ? 0 : 1);
+        Set<TableIf> tables = new HashSet<>(Math.max(tableCount, 1));
+        if (tableLineageSet != null) {
+            tables.addAll(tableLineageSet);
         }
-        if (lineageInfo.getTargetTable() != null) {
-            tables.add(lineageInfo.getTargetTable());
+        if (targetTable != null) {
+            tables.add(targetTable);
         }
         if (tables.isEmpty()) {
             return Collections.emptyMap();
         }
         Map<String, Map<String, String>> externalCatalogs = new LinkedHashMap<>();
         for (TableIf table : tables) {
-            if (table == null || table.getDatabase() == null || table.getDatabase().getCatalog() == null) {
+            CatalogIf<?> catalog = getCatalog(table);
+            if (catalog == null) {
                 continue;
             }
-            CatalogIf<?> catalog = table.getDatabase().getCatalog();
             if (catalog.isInternalCatalog()) {
                 continue;
             }
@@ -194,7 +200,7 @@ public final class LineageUtils {
             }
             Map<String, String> properties = new LinkedHashMap<>();
             if (catalog.getType() != null) {
-                properties.put("type", catalog.getType());
+                properties.put(CATALOG_TYPE_KEY, catalog.getType());
             }
             properties.putAll(sanitizeCatalogProperties(catalog));
             externalCatalogs.put(catalogName, properties);
@@ -203,8 +209,11 @@ public final class LineageUtils {
     }
 
     private static Map<String, String> sanitizeCatalogProperties(CatalogIf<?> catalog) {
-        Map<String, String> sanitized = new LinkedHashMap<>();
         if (catalog == null || catalog.getProperties() == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> sanitized = new LinkedHashMap<>(catalog.getProperties().size());
+        if (catalog.getProperties().isEmpty()) {
             return sanitized;
         }
         for (Map.Entry<String, String> entry : catalog.getProperties().entrySet()) {
@@ -221,5 +230,34 @@ public final class LineageUtils {
             sanitized.put(key, entry.getValue());
         }
         return sanitized;
+    }
+
+    private static LineageContext buildLineageContext(Class<? extends Command> sourceCommand, ConnectContext ctx,
+            StmtExecutor executor) {
+        String queryId = ctx.queryId() == null ? EMPTY_STRING : DebugUtil.printId(ctx.queryId());
+        String queryText = executor == null ? EMPTY_STRING : executor.getOriginStmtInString();
+        String user = safeString(ctx.getQualifiedUser());
+        String database = safeString(ctx.getDatabase());
+        long timestampMs = System.currentTimeMillis();
+        long durationMs = ctx.getStartTime() > UNKNOWN_START_TIME_MS
+                ? (timestampMs - ctx.getStartTime())
+                : UNKNOWN_DURATION_MS;
+        return new LineageContext(sourceCommand, queryId, queryText, user, database, timestampMs, durationMs);
+    }
+
+    private static boolean isLineagePluginConfigured() {
+        return Config.activate_lineage_plugin != null
+                && Config.activate_lineage_plugin.length != NO_PLUGINS;
+    }
+
+    private static String safeString(String value) {
+        return value == null ? EMPTY_STRING : value;
+    }
+
+    private static CatalogIf<?> getCatalog(TableIf table) {
+        if (table == null || table.getDatabase() == null) {
+            return null;
+        }
+        return table.getDatabase().getCatalog();
     }
 }
