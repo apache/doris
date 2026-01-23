@@ -65,8 +65,7 @@ public class LdapClient {
 
         private void setLdapTemplateNoPool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = (LdapConfig.ldap_use_ssl ? "ldaps://" : "ldap://") + NetUtils
-                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
+            String url = this.getURL();
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
@@ -78,8 +77,7 @@ public class LdapClient {
 
         private void setLdapTemplatePool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = (LdapConfig.ldap_use_ssl ? "ldaps://" : "ldap://") + NetUtils
-                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
+            String url = this.getURL();
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
@@ -107,6 +105,11 @@ public class LdapClient {
 
         public boolean checkUpdate(String ldapPassword) {
             return this.ldapPassword == null || !this.ldapPassword.equals(ldapPassword);
+        }
+
+        public String getURL() {
+            String url = (LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + NetUtils
+                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
         }
     }
 

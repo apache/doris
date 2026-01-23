@@ -161,7 +161,6 @@ public class LdapConfig extends ConfigBase {
     /**
      * Flag to enable usage of LDAPS.
      */
-    @Deprecated
     @ConfigBase.ConfField
     public static boolean ldap_use_ssl = false;
 }
