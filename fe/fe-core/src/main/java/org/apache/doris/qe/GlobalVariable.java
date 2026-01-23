@@ -145,8 +145,10 @@ public final class GlobalVariable {
             description = {"密码验证字典文件路径。文件为纯文本格式，每行一个词。"
                     + "当 validate_password_policy 为 STRONG(2) 时，密码中不能包含字典中的任何词（不区分大小写）。"
                     + "如果为空，则使用内置字典。",
-                    "Path to the password validation dictionary file. The file should be plain text with one word per line. "
-                            + "When validate_password_policy is STRONG(2), the password cannot contain any word from the dictionary "
+                    "Path to the password validation dictionary file. "
+                            + "The file should be plain text with one word per line. "
+                            + "When validate_password_policy is STRONG(2), "
+                            + "the password cannot contain any word from the dictionary "
                             + "(case-insensitive). If empty, a built-in dictionary will be used."})
     public static volatile String validatePasswordDictionaryFile = "";
 

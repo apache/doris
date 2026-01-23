@@ -23,10 +23,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.ImmutableSet;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
