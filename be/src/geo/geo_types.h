@@ -114,7 +114,7 @@ public:
     static bool ComputeAngle(GeoPoint* p1, GeoPoint* p2, GeoPoint* p3, double* angle);
     static bool ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle);
 
-    std::string GeometryType() const override { return "POINT"; }
+    std::string GeometryType() const override { return "ST_POINT"; }
     std::string to_string() const override;
     std::string as_wkt() const override;
 
@@ -151,7 +151,7 @@ public:
     GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
     const S2Polyline* polyline() const { return _polyline.get(); }
 
-    std::string GeometryType() const override { return "LINESTRING"; }
+    std::string GeometryType() const override { return "ST_LINESTRING"; }
     std::string as_wkt() const override;
 
     double Length() const override;
@@ -190,7 +190,7 @@ public:
 
     bool polygon_touch_point(const S2Polygon* polygon, const S2Point* point) const;
     bool polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygon* polygon2) const;
-    std::string GeometryType() const override { return "POLYGON"; }
+    std::string GeometryType() const override { return "ST_POLYGON"; }
     std::string as_wkt() const override;
 
     int numLoops() const;
@@ -225,7 +225,7 @@ public:
     bool disjoint(const GeoShape* rhs) const override;
     bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
-    std::string GeometryType() const override { return "MULTIPOLYGON"; }
+    std::string GeometryType() const override { return "ST_MULTIPOLYGON"; }
     std::string as_wkt() const override;
 
     double getArea() const;
@@ -257,7 +257,7 @@ public:
     bool disjoint(const GeoShape* rhs) const override;
     bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
-    std::string GeometryType() const override { return "CIRCLE"; }
+    std::string GeometryType() const override { return "ST_CIRCLE"; }
     std::string as_wkt() const override;
 
     double getArea() const;
