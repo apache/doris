@@ -311,8 +311,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
 
     // Set backend configuration parameters for file_cache_query_limit test 1
     setBeConfigTemporary([
-            "enable_file_cache_query_limit": "true",
-            "file_cache_query_limit_min_size": "0"
+            "enable_file_cache_query_limit": "true"
     ]) {
         // Execute test logic with modified configuration for file_cache_query_limit
         logger.info("Backend configuration set - enable_file_cache_query_limit: true")

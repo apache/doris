@@ -421,17 +421,14 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return context;
     }
 
-    if (_capacity < config::file_cache_query_limit_min_size) {
-        LOG(WARNING) << "Query limit disabled: cache capacity (" << _capacity
-                     << " bytes) is below minimum required "
-                     << config::file_cache_query_limit_min_size << " bytes.";
-        return nullptr;
+    size_t file_cache_query_limit_size = _capacity * file_cache_query_limit_percent / 100;
+    if (file_cache_query_limit_size < 268435456) {
+        LOG(WARNING) << "The user-set file cache query limit (" << file_cache_query_limit_size
+                     << " bytes) is less than the 256MB recommended minimum. "
+                     << "Consider increasing the session variable 'file_cache_query_limit_percent'"
+                     << " from its current value " << file_cache_query_limit_percent << "%.";
     }
-
-    // Provide a minimum guaranteed size config::file_cache_query_limit_min_size
-    auto query_context = std::make_shared<QueryFileCacheContext>(
-            std::max(_capacity * file_cache_query_limit_percent / 100,
-                     (size_t)config::file_cache_query_limit_min_size));
+    auto query_context = std::make_shared<QueryFileCacheContext>(file_cache_query_limit_size);
     auto query_iter = _query_map.emplace(query_id, query_context).first;
     return query_iter->second;
 }
