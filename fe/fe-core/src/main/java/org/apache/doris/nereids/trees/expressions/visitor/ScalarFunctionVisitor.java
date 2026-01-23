@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailin
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCombinations;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
@@ -784,6 +785,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayFlatten(ArrayFlatten arrayFlatten, C context) {
         return visitScalarFunction(arrayFlatten, context);
+    }
+
+    default R visitArrayCombinations(ArrayCombinations arrayCombinations, C context) {
+        return visitScalarFunction(arrayCombinations, context);
     }
 
     default R visitArrayMap(ArrayMap arrayMap, C context) {

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailin
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCombinations;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
@@ -605,6 +606,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayFirst.class, "array_first"),
             scalar(ArrayFirstIndex.class, "array_first_index"),
             scalar(ArrayFlatten.class, "array_flatten"),
+            scalar(ArrayCombinations.class, "array_combinations"),
             scalar(ArrayIntersect.class, "array_intersect"),
             scalar(ArrayJoin.class, "array_join"),
             scalar(ArrayLast.class, "array_last"),
