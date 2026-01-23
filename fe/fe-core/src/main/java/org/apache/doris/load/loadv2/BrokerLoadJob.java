@@ -145,8 +145,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     protected LoadTask createPendingTask() {
-        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority(),
-                maxS3ListObjectsCount);
+        return new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc, getPriority());
     }
 
     /**
