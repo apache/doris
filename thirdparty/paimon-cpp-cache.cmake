@@ -62,9 +62,9 @@ set(LZ4_LIBRARY "${DORIS_LIB_DIR}/liblz4.a" CACHE FILEPATH "LZ4 library")
 set(LZ4_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "LZ4 include directory")
 
 # ============================================================================
-# Arrow - NOT reusing from Doris (version 17.0.0)
-# Although versions match, build configurations differ significantly:
+# Arrow - EXPERIMENTAL: Trying to reuse from Doris (version 17.0.0)
 #
+# WARNING: Build configurations differ significantly:
 # Doris Arrow config:         Paimon-cpp Arrow config:
 #   ARROW_FLIGHT=ON              (not set - OFF)
 #   ARROW_FLIGHT_SQL=ON          (not set - OFF)
@@ -75,23 +75,28 @@ set(LZ4_INCLUDE_DIR "${DORIS_INCLUDE_DIR}" CACHE PATH "LZ4 include directory")
 #   ARROW_COMPUTE=(maybe OFF)    ARROW_COMPUTE=ON
 #   ARROW_SIMD_LEVEL=default     ARROW_SIMD_LEVEL=NONE
 #
-# These differences cause ABI incompatibility:
-#   - Different vtable layouts (Flight adds virtual methods)
-#   - Different symbol exports (GRPC/Protobuf dependencies)
-#   - Different template instantiations (SIMD levels)
+# Potential risks:
+#   - Linker errors if paimon needs DATASET/COMPUTE but Doris doesn't have them
+#   - Runtime issues if Doris's extra features (Flight) cause ABI mismatches
 #
-# Attempting to reuse would cause:
-#   - Linker errors (undefined symbols)
-#   - Runtime crashes (vtable mismatches)
-#   - Memory corruption (struct layout differences)
-#
-# Cost of building Arrow separately: ~10 minutes (acceptable)
-# Risk of reusing: Potential crashes and data corruption (unacceptable)
+# If this causes problems, comment out these lines to let paimon build its own Arrow
 # ============================================================================
-# set(Arrow_ROOT "${DORIS_THIRDPARTY_DIR}" CACHE PATH "Arrow root directory")
-# set(Parquet_ROOT "${DORIS_THIRDPARTY_DIR}" CACHE PATH "Parquet root directory")
-# set(ARROW_LIBRARY "${DORIS_LIB_DIR}/libarrow.a" CACHE FILEPATH "Arrow library")
-# set(PARQUET_LIBRARY "${DORIS_LIB_DIR}/libparquet.a" CACHE FILEPATH "Parquet library")
+set(Arrow_ROOT "${DORIS_THIRDPARTY_DIR}" CACHE PATH "Arrow root directory")
+set(Parquet_ROOT "${DORIS_THIRDPARTY_DIR}" CACHE PATH "Parquet root directory")
+set(ARROW_HOME "${DORIS_THIRDPARTY_DIR}" CACHE PATH "Arrow home directory")
+set(Parquet_HOME "${DORIS_THIRDPARTY_DIR}" CACHE PATH "Parquet home directory")
+
+# Arrow libraries - paimon-cpp needs all of these
+set(ARROW_LIBRARY "${DORIS_LIB_DIR}/libarrow.a" CACHE FILEPATH "Arrow library")
+set(ARROW_STATIC_LIB "${DORIS_LIB_DIR}/libarrow.a" CACHE FILEPATH "Arrow static library")
+set(PARQUET_LIBRARY "${DORIS_LIB_DIR}/libparquet.a" CACHE FILEPATH "Parquet library")
+set(PARQUET_STATIC_LIB "${DORIS_LIB_DIR}/libparquet.a" CACHE FILEPATH "Parquet static library")
+
+# Required for paimon-cpp (uses Arrow Dataset API)
+set(ARROW_DATASET_LIBRARY "${DORIS_LIB_DIR}/libarrow_dataset.a" CACHE FILEPATH "Arrow dataset library")
+set(ARROW_DATASET_STATIC_LIB "${DORIS_LIB_DIR}/libarrow_dataset.a" CACHE FILEPATH "Arrow dataset static library")
+set(ARROW_ACERO_LIBRARY "${DORIS_LIB_DIR}/libarrow_acero.a" CACHE FILEPATH "Arrow acero library")
+set(ARROW_ACERO_STATIC_LIB "${DORIS_LIB_DIR}/libarrow_acero.a" CACHE FILEPATH "Arrow acero static library")
 
 # ============================================================================
 # Snappy - Reuse from Doris
@@ -120,15 +125,44 @@ endif()
 if(NOT EXISTS "${SNAPPY_LIBRARY}")
     message(FATAL_ERROR "Snappy library not found: ${SNAPPY_LIBRARY}")
 endif()
+if(NOT EXISTS "${ARROW_LIBRARY}")
+    message(FATAL_ERROR "Arrow library not found: ${ARROW_LIBRARY}\nPlease rebuild Arrow: ./build-thirdparty.sh arrow")
+endif()
+if(NOT EXISTS "${PARQUET_LIBRARY}")
+    message(FATAL_ERROR "Parquet library not found: ${PARQUET_LIBRARY}\nPlease rebuild Arrow: ./build-thirdparty.sh arrow")
+endif()
+if(NOT EXISTS "${ARROW_DATASET_LIBRARY}")
+    message(FATAL_ERROR "Arrow Dataset library not found: ${ARROW_DATASET_LIBRARY}\nThis means Doris's Arrow was not built with ARROW_DATASET=ON.\nPlease rebuild Arrow: ./build-thirdparty.sh arrow")
+endif()
+if(NOT EXISTS "${ARROW_ACERO_LIBRARY}")
+    message(FATAL_ERROR "Arrow Acero library not found: ${ARROW_ACERO_LIBRARY}\nThis means Doris's Arrow was not built with ARROW_COMPUTE=ON.\nPlease rebuild Arrow: ./build-thirdparty.sh arrow")
+endif()
 
-message(STATUS "Paimon-cpp will use the following Doris libraries:")
-message(STATUS "  - ZLIB: ${ZLIB_LIBRARY}")
-message(STATUS "  - ZSTD: ${ZSTD_LIBRARY}")
-message(STATUS "  - LZ4: ${LZ4_LIBRARY}")
-message(STATUS "  - Snappy: ${SNAPPY_LIBRARY}")
-message(STATUS "  - fmt: ${FMT_LIBRARY}")
 message(STATUS "")
-message(STATUS "Paimon-cpp will build its own:")
+message(STATUS "========================================")
+message(STATUS "Paimon-cpp Library Reuse Configuration")
+message(STATUS "========================================")
+message(STATUS "")
+message(STATUS "Reusing from Doris:")
+message(STATUS "  ✓ ZLIB: ${ZLIB_LIBRARY}")
+message(STATUS "  ✓ ZSTD: ${ZSTD_LIBRARY}")
+message(STATUS "  ✓ LZ4: ${LZ4_LIBRARY}")
+message(STATUS "  ✓ Snappy: ${SNAPPY_LIBRARY}")
+message(STATUS "  ✓ fmt: ${FMT_LIBRARY}")
+message(STATUS "  ⚠ Arrow: ${ARROW_LIBRARY}")
+message(STATUS "    ├─ Dataset: ${ARROW_DATASET_LIBRARY}")
+message(STATUS "    ├─ Acero: ${ARROW_ACERO_LIBRARY}")
+message(STATUS "    └─ Parquet: ${PARQUET_LIBRARY}")
+message(STATUS "")
+message(STATUS "  NOTE: Arrow reuse is EXPERIMENTAL")
+message(STATUS "  Doris Arrow now has DATASET+COMPUTE enabled for paimon compatibility")
+message(STATUS "  Watch for potential ABI issues or runtime crashes")
+message(STATUS "")
+message(STATUS "Building separately:")
 message(STATUS "  - TBB (not used by Doris)")
-message(STATUS "  - RapidJSON (header-only, cannot be shared due to TLS conflicts)")
-message(STATUS "  - Arrow (different build configurations)")
+message(STATUS "  - RapidJSON (header-only, TLS conflicts prevent sharing)")
+message(STATUS "  - glog (to avoid conflicts)")
+message(STATUS "")
+message(STATUS "If you encounter issues, edit paimon-cpp-cache.cmake")
+message(STATUS "and comment out Arrow configuration to build separately")
+message(STATUS "========================================")
