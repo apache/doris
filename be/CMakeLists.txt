@@ -146,7 +146,7 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
-option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" OFF)
+option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
 set(PAIMON_USE_EXTERNAL_ORC OFF CACHE BOOL "Use Doris ORC for Paimon C++")
 
