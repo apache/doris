@@ -60,6 +60,8 @@ public final class GlobalVariable {
     public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
     public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
 
+    public static final String VALIDATE_PASSWORD_DICTIONARY_FILE = "validate_password_dictionary_file";
+
     public static final String SQL_CONVERTER_SERVICE_URL = "sql_converter_service_url";
     public static final String ENABLE_AUDIT_PLUGIN = "enable_audit_plugin";
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
@@ -138,6 +140,15 @@ public final class GlobalVariable {
     // 2: STRONG
     @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_POLICY, flag = VariableMgr.GLOBAL)
     public static long validatePasswordPolicy = 0;
+
+    @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_DICTIONARY_FILE, flag = VariableMgr.GLOBAL,
+            description = {"密码验证字典文件路径。文件为纯文本格式，每行一个词。"
+                    + "当 validate_password_policy 为 STRONG(2) 时，密码中不能包含字典中的任何词（不区分大小写）。"
+                    + "如果为空，则使用内置字典。",
+                    "Path to the password validation dictionary file. The file should be plain text with one word per line. "
+                            + "When validate_password_policy is STRONG(2), the password cannot contain any word from the dictionary "
+                            + "(case-insensitive). If empty, a built-in dictionary will be used."})
+    public static volatile String validatePasswordDictionaryFile = "";
 
     // If set to true, the db name of TABLE_SCHEMA column in tables in information_schema
     // database will be shown as `ctl.db`. Otherwise, show only `db`.
