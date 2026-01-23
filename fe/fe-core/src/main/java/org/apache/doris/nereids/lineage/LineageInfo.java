@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.SetMultimap;
 
 import java.util.HashMap;
@@ -52,16 +53,17 @@ public class LineageInfo {
      */
 
     // the key is the output slot, the value is the shuttled expression which output slot depend directly
-    // this is dependent on the ExpressionUtils.shuttleExpressionWithLineage
+    // this is dependent on the ExpressionLineageReplacer
     // Example: nation_name -> {IDENTITY: n.n_name}, revenue -> {AGGREGATION: SUM(l.l_extendedprice * (1-l.l_discount))}
     private Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap;
     // inDirectLineageMap stores expressions that indirectly affect output slots. These expressions,
     // which indirectly impact output slots, are categorized as IndirectLineageType.
     // Example: nation_name -> {GROUP_BY: n.n_name} (intersects direct slots), revenue may have no per-output indirects.
     private Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> inDirectLineageMap;
-    // datasetIndirectLineageMap stores expressions that affect the whole dataset (e.g. filter, join).
-    // Example: FILTER {r.r_name = 'ASIA'}, JOIN {o.o_orderkey = l.l_orderkey}, GROUP_BY {n.n_name} (dataset-level).
-    private SetMultimap<IndirectLineageType, Expression> datasetIndirectLineageMap;
+    // datasetIndirectLineageMap stores expressions that affect the whole dataset when some outputs do not directly
+    // depend on the referenced slots (e.g. filter or join on non-selected columns).
+    // Example: FILTER {r.r_name = 'ASIA'}, JOIN {o.o_orderkey = l.l_orderkey}.
+    private Multimap<IndirectLineageType, Expression> datasetIndirectLineageMap;
     // tableLineageSet stores tables that the plan depends on
     // Example: {customer, orders, lineitem, nation, region}.
     private Set<TableIf> tableLineageSet;
@@ -157,7 +159,7 @@ public class LineageInfo {
      *
      * @return dataset-level indirect lineage map
      */
-    public SetMultimap<IndirectLineageType, Expression> getDatasetIndirectLineageMap() {
+    public Multimap<IndirectLineageType, Expression> getDatasetIndirectLineageMap() {
         return datasetIndirectLineageMap;
     }
 

@@ -73,7 +73,7 @@ public class LineageEventProcessor {
      * Submit a lineage event to the processing queue.
      *
      * @param lineageEvent lineage event to submit
-     * @return true if accepted or lineage disabled, false otherwise
+     * @return true if accepted, false otherwise
      */
     public boolean submitLineageEvent(LineageEvent lineageEvent) {
         if (lineageEvent == null) {

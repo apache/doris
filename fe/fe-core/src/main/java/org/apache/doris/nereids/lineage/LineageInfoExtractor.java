@@ -99,14 +99,15 @@ public class LineageInfoExtractor {
     /**
      * Extract lineage information from a plan.
      *
+     * <p>Using the example SQL above, this records direct lineage, indirect lineage, and table lineage.
+     *
      * @param plan the plan to extract lineage from
      * @return the extracted lineage information
-     *     <p>Using the example SQL above, this records direct lineage, indirect lineage, and table lineage.
      */
     public static LineageInfo extractLineageInfo(Plan plan) {
         LineageInfo lineageInfo = new LineageInfo();
 
-        // Step 1: Extract direct lineage using shuttleExpressionWithLineage
+        // Step 1: Extract direct lineage using ExpressionLineageReplacer
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext = extractDirectLineage(plan, lineageInfo);
 
         // Step 2: Extract indirect lineage and set lineage by traversing plan tree
@@ -134,6 +135,9 @@ public class LineageInfoExtractor {
         List<? extends Expression> shuttledExpressions = replaceContext.getReplacedExpressions();
         for (int i = 0; i < outputs.size(); i++) {
             Slot outputSlot = outputs.get(i);
+            if (!(outputSlot instanceof SlotReference)) {
+                continue;
+            }
             SlotReference outputSlotRef = (SlotReference) outputSlot;
             Expression shuttledExpr = shuttledExpressions.get(i);
             // Determine direct lineage type based on expression structure
@@ -179,7 +183,7 @@ public class LineageInfoExtractor {
         /**
          * Collect indirect lineage based on expressions embedded in direct lineage.
          *
-         * <p>Using the example SQL above, this is a no-op for WINDOW/CONDITIONAL but is still executed.
+         * <p>Using the example SQL above, WINDOW/CONDITIONAL are collected from direct expressions when present.
          */
         private void collectExpressionLineage(LineageInfo lineageInfo, Map<ExprId, Expression> exprIdExpressionMap) {
             collectWindowLineage(lineageInfo, exprIdExpressionMap);
@@ -480,19 +484,15 @@ public class LineageInfoExtractor {
         /**
          * Add indirect lineage information based on expressions.
          *
+         * <p>Using the example SQL above, FILTER on r.r_name is recorded at dataset-level when some outputs do not
+         * directly reference r.r_name.
+         *
          * @param type the type of indirect lineage
          * @param expressions the expressions contributing to indirect lineage, should be shuttled conjunction
          * @param lineageInfo the lineage info to update
-         *     <p>Using the example SQL above, FILTER on r.r_name applies to dataset-level if not in direct lineage.
          */
         private void addIndirectLineage(IndirectLineageType type,
                                         Set<Expression> expressions, LineageInfo lineageInfo) {
-
-            Set<Slot> exprSlots = expressions.stream()
-                    .flatMap(expr -> expr.collectToList(Slot.class::isInstance).stream())
-                    .map(Slot.class::cast)
-                    .collect(Collectors.toSet());
-
             Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap
                     = lineageInfo.getDirectLineageMap();
             for (Map.Entry<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineage
@@ -503,12 +503,13 @@ public class LineageInfoExtractor {
                         .flatMap(expr -> expr.collectToList(Slot.class::isInstance).stream())
                         .map(Slot.class::cast)
                         .collect(Collectors.toSet());
-                if (!Sets.intersection(exprSlots, directSlots).isEmpty()) {
-                    for (Expression expr : expressions) {
+                for (Expression expr : expressions) {
+                    Set<Slot> exprSlots = expr.collectToSet(Slot.class::isInstance);
+                    if (!Sets.intersection(exprSlots, directSlots).isEmpty()) {
                         lineageInfo.addIndirectLineage(outputSlot, type, expr);
+                    } else {
+                        lineageInfo.addDatasetIndirectLineage(type, expr);
                     }
-                } else {
-                    lineageInfo.addDatasetIndirectLineage(type, expressions);
                 }
             }
         }
