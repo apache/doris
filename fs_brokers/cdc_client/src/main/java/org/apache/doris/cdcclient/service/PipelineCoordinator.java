@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.service;
 
+import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
@@ -29,6 +30,7 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
+import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 
@@ -41,6 +43,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
+import static org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils.SCHEMA_HEARTBEAT_EVENT_KEY_NAME;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
@@ -83,66 +87,100 @@ public class PipelineCoordinator {
 
     public RecordWithMeta fetchRecords(FetchRecordRequest fetchRecordRequest) throws Exception {
         SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchRecordRequest);
-        SplitReadResult readResult = sourceReader.readSplitRecords(fetchRecordRequest);
+        SplitReadResult readResult = sourceReader.prepareAndSubmitSplit(fetchRecordRequest);
         return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
     }
 
-    /** build RecordWithMeta */
+    /**
+     * Build RecordWithMeta response
+     *
+     * <p>This method polls records until: 1. Data is received AND heartbeat is received (normal
+     * case) 2. Timeout is reached (with heartbeat wait protection)
+     */
     private RecordWithMeta buildRecordResponse(
             SourceReader sourceReader, FetchRecordRequest fetchRecord, SplitReadResult readResult)
             throws Exception {
         RecordWithMeta recordResponse = new RecordWithMeta();
-        SourceSplit split = readResult.getSplit();
-        int count = 0;
         try {
-            // Serialize records and add them to the response (collect from iterator)
-            Iterator<SourceRecord> iterator = readResult.getRecordIterator();
-            while (iterator != null && iterator.hasNext()) {
-                SourceRecord element = iterator.next();
-                List<String> serializedRecords =
-                        sourceReader.deserialize(fetchRecord.getConfig(), element);
-                if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    recordResponse.getRecords().addAll(serializedRecords);
-                    count += serializedRecords.size();
-                    if (sourceReader.isBinlogSplit(split)) {
-                        // put offset for event
-                        Map<String, String> lastMeta =
-                                sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                        lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                        recordResponse.setMeta(lastMeta);
+            long startTime = System.currentTimeMillis();
+            boolean shouldStop = false;
+            boolean hasReceivedData = false;
+            int heartbeatCount = 0;
+            int recordCount = 0;
+
+            while (!shouldStop) {
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
+
+                // Timeout protection: force stop if waiting for heartbeat exceeds threshold
+                // After reaching timeout, wait at most DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3 for
+                // heartbeat
+                if (timeoutReached
+                        && elapsedTime
+                                > Constants.POLL_SPLIT_RECORDS_TIMEOUTS
+                                        + Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3) {
+                    LOG.warn(
+                            "Heartbeat wait timeout after {} ms since timeout reached, force stopping. "
+                                    + "Total elapsed: {} ms",
+                            elapsedTime - Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
+                            elapsedTime);
+                    break;
+                }
+
+                Iterator<SourceRecord> recordIterator =
+                        sourceReader.pollRecords(readResult.getSplitState());
+
+                if (!recordIterator.hasNext()) {
+                    // If we have data and reached timeout, continue waiting for heartbeat
+                    if (hasReceivedData && timeoutReached) {
+                        Thread.sleep(100);
+                        continue;
+                    }
+                    // Otherwise, just wait for more data
+                    Thread.sleep(100);
+                    continue;
+                }
+
+                while (recordIterator.hasNext()) {
+                    SourceRecord element = recordIterator.next();
+
+                    // Check if this is a heartbeat message
+                    if (isHeartbeatEvent(element)) {
+                        heartbeatCount++;
+                        if (hasReceivedData || timeoutReached) {
+                            LOG.info(
+                                    "Heartbeat received after {} data records, stopping",
+                                    recordResponse.getRecords().size());
+                            shouldStop = true;
+                            break;
+                        }
+                        // Skip heartbeat messages if we haven't received data yet
+                        continue;
+                    }
+
+                    // Process data messages
+                    List<String> serializedRecords =
+                            sourceReader.deserialize(fetchRecord.getConfig(), element);
+                    if (!CollectionUtils.isEmpty(serializedRecords)) {
+                        recordCount++;
+                        recordResponse.getRecords().addAll(serializedRecords);
+                        hasReceivedData = true;
                     }
                 }
             }
+            LOG.info(
+                    "Fetched {} records and {} heartbeats in {} ms for jobId={}",
+                    recordCount,
+                    heartbeatCount,
+                    System.currentTimeMillis() - startTime,
+                    fetchRecord.getJobId());
         } finally {
-            // The LSN in the commit is the current offset, which is the offset from the last
-            // successful write.
-            // Therefore, even if a subsequent write fails, it will not affect the commit.
-            sourceReader.commitSourceOffset(fetchRecord.getJobId(), readResult.getSplit());
-
-            // This must be called after commitSourceOffset; otherwise,
-            // PG's confirmed lsn will not proceed.
-            sourceReader.finishSplitRecords();
+            cleanupReaderResources(sourceReader, fetchRecord.getJobId(), readResult);
         }
 
-        if (readResult.getSplitState() != null) {
-            // Set meta information for hw
-            if (sourceReader.isSnapshotSplit(split)) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                offsetRes.put(SPLIT_ID, split.splitId());
-                recordResponse.setMeta(offsetRes);
-            }
-
-            // set meta for binlog event
-            if (sourceReader.isBinlogSplit(split)) {
-                Map<String, String> offsetRes =
-                        sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                recordResponse.setMeta(offsetRes);
-            }
-        } else {
-            throw new RuntimeException("split state is null");
-        }
+        // Extract and set offset metadata
+        Map<String, String> offsetMeta = extractOffsetMeta(sourceReader, readResult);
+        recordResponse.setMeta(offsetMeta);
 
         return recordResponse;
     }
@@ -177,107 +215,134 @@ public class PipelineCoordinator {
                 executor);
     }
 
-    /** Read data from SourceReader and write it to Doris, while returning meta information. */
+    /**
+     * Read data from SourceReader and write it to Doris, while returning meta information. 1. poll
+     * interval record. 2. Try to retrieve the heartbeat message, as it returns the latest offset,
+     * preventing the next task from having to skip a large number of records.
+     */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
         DorisBatchStreamLoad batchStreamLoad = null;
         Map<String, String> metaResponse = new HashMap<>();
         long scannedRows = 0L;
         long scannedBytes = 0L;
+        int heartbeatCount = 0;
         SplitReadResult readResult = null;
         try {
-            readResult = sourceReader.readSplitRecords(writeRecordRequest);
-            batchStreamLoad =
-                    getOrCreateBatchStreamLoad(
-                            writeRecordRequest.getJobId(), writeRecordRequest.getTargetDb());
-            batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
-            batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
-            batchStreamLoad.setToken(writeRecordRequest.getToken());
-
-            // Record start time for maxInterval check
+            // 1. submit split async
+            readResult = sourceReader.prepareAndSubmitSplit(writeRecordRequest);
+            batchStreamLoad = getOrCreateBatchStreamLoad(writeRecordRequest);
             long startTime = System.currentTimeMillis();
             long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
+            boolean shouldStop = false;
 
-            // Use iterators to read and write.
-            Iterator<SourceRecord> iterator = readResult.getRecordIterator();
-            while (iterator != null && iterator.hasNext()) {
-                SourceRecord element = iterator.next();
-                List<String> serializedRecords =
-                        sourceReader.deserialize(writeRecordRequest.getConfig(), element);
-
-                if (!CollectionUtils.isEmpty(serializedRecords)) {
-                    String database = writeRecordRequest.getTargetDb();
-                    String table = extractTable(element);
-                    for (String record : serializedRecords) {
-                        scannedRows++;
-                        byte[] dataBytes = record.getBytes();
-                        scannedBytes += dataBytes.length;
-                        batchStreamLoad.writeRecord(database, table, dataBytes);
-                    }
-                }
-                // Check if maxInterval has been exceeded
+            // 2. poll record
+            while (!shouldStop) {
                 long elapsedTime = System.currentTimeMillis() - startTime;
-                if (maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis) {
-                    LOG.info(
-                            "Max interval {} seconds reached, stopping data reading",
-                            writeRecordRequest.getMaxInterval());
+                boolean timeoutReached = maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
+
+                // Timeout protection: force stop if waiting for heartbeat exceeds threshold
+                // After reaching maxInterval, wait at most DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3 for
+                // heartbeat
+                if (timeoutReached
+                        && elapsedTime
+                                > maxIntervalMillis
+                                        + Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS * 3) {
+                    LOG.warn(
+                            "Heartbeat wait timeout after {} ms since timeout reached, force stopping. "
+                                    + "Total elapsed: {} ms",
+                            elapsedTime - maxIntervalMillis,
+                            elapsedTime);
                     break;
                 }
+
+                Iterator<SourceRecord> recordIterator =
+                        sourceReader.pollRecords(readResult.getSplitState());
+
+                if (!recordIterator.hasNext()) {
+                    Thread.sleep(100);
+                    continue;
+                }
+
+                while (recordIterator.hasNext()) {
+                    SourceRecord element = recordIterator.next();
+                    // Check if this is a heartbeat message
+                    if (isHeartbeatEvent(element)) {
+                        heartbeatCount++;
+                        if (timeoutReached) {
+                            LOG.info(
+                                    "Max interval reached and heartbeat received, stopping data reading");
+                            shouldStop = true;
+                            break;
+                        }
+                        // Skip heartbeat messages during normal processing
+                        continue;
+                    }
+
+                    // Process data messages
+                    List<String> serializedRecords =
+                            sourceReader.deserialize(writeRecordRequest.getConfig(), element);
+
+                    if (!CollectionUtils.isEmpty(serializedRecords)) {
+                        String database = writeRecordRequest.getTargetDb();
+                        String table = extractTable(element);
+                        for (String record : serializedRecords) {
+                            scannedRows++;
+                            byte[] dataBytes = record.getBytes();
+                            scannedBytes += dataBytes.length;
+                            batchStreamLoad.writeRecord(database, table, dataBytes);
+                        }
+                    }
+                }
             }
+            LOG.info(
+                    "Fetched {} records and {} heartbeats in {} ms for jobId={} taskId={}",
+                    scannedRows,
+                    heartbeatCount,
+                    System.currentTimeMillis() - startTime,
+                    writeRecordRequest.getJobId(),
+                    writeRecordRequest.getTaskId());
+
         } finally {
-            if (readResult != null) {
-                // The LSN in the commit is the current offset, which is the offset from the last
-                // successful write.
-                // Therefore, even if a subsequent write fails, it will not affect the commit.
-                sourceReader.commitSourceOffset(
-                        writeRecordRequest.getJobId(), readResult.getSplit());
-            }
-
-            // This must be called after commitSourceOffset; otherwise,
-            // PG's confirmed lsn will not proceed.
-            // This operation must be performed before batchStreamLoad.commitOffset;
-            // otherwise, fe might issue the next task for this job.
-            sourceReader.finishSplitRecords();
+            cleanupReaderResources(sourceReader, writeRecordRequest.getJobId(), readResult);
         }
-        // get offset from split state
+
+        // 3. Extract offset from split state
+        metaResponse = extractOffsetMeta(sourceReader, readResult);
         try {
-            if (readResult.getSplitState() != null) {
-                // Set meta information for hw
-                if (sourceReader.isSnapshotSplit(readResult.getSplit())) {
-                    Map<String, String> offsetRes =
-                            sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                    offsetRes.put(SPLIT_ID, readResult.getSplit().splitId());
-                    metaResponse = offsetRes;
-                }
-
-                // set meta for binlog event
-                if (sourceReader.isBinlogSplit(readResult.getSplit())) {
-                    Map<String, String> offsetRes =
-                            sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                    offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-                    metaResponse = offsetRes;
-                }
-            } else {
-                throw new RuntimeException("split state is null");
-            }
-
-            // wait all stream load finish
+            // 4. wait all stream load finish
             batchStreamLoad.forceFlush();
 
-            // request fe api
+            // 5. request fe api update offset
             batchStreamLoad.commitOffset(metaResponse, scannedRows, scannedBytes);
         } finally {
             batchStreamLoad.resetTaskId();
         }
     }
 
-    private DorisBatchStreamLoad getOrCreateBatchStreamLoad(Long jobId, String targetDb) {
-        return batchStreamLoadMap.computeIfAbsent(
-                jobId,
-                k -> {
-                    LOG.info("Create DorisBatchStreamLoad for jobId={}", jobId);
-                    return new DorisBatchStreamLoad(jobId, targetDb);
-                });
+    public static boolean isHeartbeatEvent(SourceRecord record) {
+        Schema valueSchema = record.valueSchema();
+        return valueSchema != null
+                && SCHEMA_HEARTBEAT_EVENT_KEY_NAME.equalsIgnoreCase(valueSchema.name());
+    }
+
+    private synchronized DorisBatchStreamLoad getOrCreateBatchStreamLoad(
+            WriteRecordRequest writeRecordRequest) {
+        DorisBatchStreamLoad batchStreamLoad =
+                batchStreamLoadMap.computeIfAbsent(
+                        writeRecordRequest.getJobId(),
+                        k -> {
+                            LOG.info(
+                                    "Create DorisBatchStreamLoad for jobId={}",
+                                    writeRecordRequest.getJobId());
+                            return new DorisBatchStreamLoad(
+                                    writeRecordRequest.getJobId(),
+                                    writeRecordRequest.getTargetDb());
+                        });
+        batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
+        batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
+        batchStreamLoad.setToken(writeRecordRequest.getToken());
+        return batchStreamLoad;
     }
 
     public void closeJobStreamLoad(Long jobId) {
@@ -297,5 +362,67 @@ public class PipelineCoordinator {
     public String getTaskFailReason(String taskId) {
         String taskReason = taskErrorMaps.remove(taskId);
         return taskReason == null ? "" : taskReason;
+    }
+
+    /**
+     * Clean up reader resources: commit source offset and finish split records.
+     *
+     * @param sourceReader the source reader
+     * @param jobId the job id
+     * @param readResult the read result containing split information
+     */
+    private void cleanupReaderResources(
+            SourceReader sourceReader, Long jobId, SplitReadResult readResult) {
+        try {
+            // The LSN in the commit is the current offset, which is the offset from the last
+            // successful write.
+            // Therefore, even if a subsequent write fails, it will not affect the commit.
+            if (readResult != null && readResult.getSplit() != null) {
+                sourceReader.commitSourceOffset(jobId, readResult.getSplit());
+            }
+        } finally {
+            // This must be called after `commitSourceOffset`; otherwise,
+            // PG's confirmed lsn will not proceed.
+            // This operation must be performed before `batchStreamLoad.commitOffset`;
+            // otherwise, fe might create the next task for this job.
+            sourceReader.finishSplitRecords();
+        }
+    }
+
+    /**
+     * Extract offset metadata from split state.
+     *
+     * <p>This method handles both snapshot splits and binlog splits, extracting the appropriate
+     * offset information and adding the split ID.
+     *
+     * @param sourceReader the source reader
+     * @param readResult the read result containing split and split state
+     * @return offset metadata map
+     * @throws RuntimeException if split state is null or split type is unknown
+     */
+    private Map<String, String> extractOffsetMeta(
+            SourceReader sourceReader, SplitReadResult readResult) {
+        Preconditions.checkNotNull(readResult, "readResult must not be null");
+
+        if (readResult.getSplitState() == null) {
+            throw new RuntimeException("split state is null");
+        }
+
+        SourceSplit split = readResult.getSplit();
+        Map<String, String> offsetRes;
+
+        // Set meta information for hw (high watermark)
+        if (sourceReader.isSnapshotSplit(split)) {
+            offsetRes = sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
+            offsetRes.put(SPLIT_ID, split.splitId());
+        } else if (sourceReader.isBinlogSplit(split)) {
+            // Set meta for binlog event
+            offsetRes = sourceReader.extractBinlogStateOffset(readResult.getSplitState());
+            offsetRes.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+        } else {
+            throw new RuntimeException("Unknown split type: " + split.getClass().getName());
+        }
+
+        return offsetRes;
     }
 }
