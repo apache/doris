@@ -428,35 +428,37 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                     }
                     // clang-format off
                     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
-                    _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
-                            .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
-                            .file_size = rs->rowset_meta()->segment_file_size(seg_id),
-                            .file_system = storage_resource.value()->fs,
-                            .ctx =
-                                    {
-                                            .expiration_time = expiration_time,
-                                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                                            .is_warmup = true
-                                    },
-                            .download_done {[=](Status st) {
-                                DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_data.callback.block_compaction_rowset", {
-                                            if (rs->version().second > rs->version().first) {
-                                                auto sleep_time = dp->param<int>("sleep", 3);
-                                                LOG_INFO(
-                                                        "[verbose] block download for rowset={}, "
-                                                        "version={}, sleep={}",
-                                                        rs->rowset_id().to_string(),
-                                                        rs->version().to_string(), sleep_time);
-                                                std::this_thread::sleep_for(
-                                                        std::chrono::seconds(sleep_time));
-                                            }
-                                });
-                                self->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), st, 1, 0);
-                                if (!st) {
-                                    LOG_WARNING("add rowset warm up error ").error(st);
-                                }
-                            }},
-                    });
+                    if (!config::file_cache_enable_only_warm_up_idx) {
+                        _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
+                                .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
+                                .file_size = rs->rowset_meta()->segment_file_size(seg_id),
+                                .file_system = storage_resource.value()->fs,
+                                .ctx =
+                                        {
+                                                .expiration_time = expiration_time,
+                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                                .is_warmup = true
+                                        },
+                                .download_done {[=](Status st) {
+                                    DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_data.callback.block_compaction_rowset", {
+                                                if (rs->version().second > rs->version().first) {
+                                                    auto sleep_time = dp->param<int>("sleep", 3);
+                                                    LOG_INFO(
+                                                            "[verbose] block download for rowset={}, "
+                                                            "version={}, sleep={}",
+                                                            rs->rowset_id().to_string(),
+                                                            rs->version().to_string(), sleep_time);
+                                                    std::this_thread::sleep_for(
+                                                            std::chrono::seconds(sleep_time));
+                                                }
+                                    });
+                                    self->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), st, 1, 0);
+                                    if (!st) {
+                                        LOG_WARNING("add rowset warm up error ").error(st);
+                                    }
+                                }},
+                        });
+                    }
 
                     auto download_idx_file = [&, self](const io::Path& idx_path, int64_t idx_size) {
                         io::DownloadFileMeta meta {
