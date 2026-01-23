@@ -174,26 +174,25 @@ public final class AnalyzerSelector {
         /**
          * Compute the analyzer name to send to BE.
          *
-         * <p>Protocol:
+         * <p>Returns the analyzer that should be used for query tokenization:
          * <ul>
-         *   <li>User specified analyzer → send that analyzer name (BE will exact match)</li>
-         *   <li>User did not specify → send empty string (BE will auto-select)</li>
+         *   <li>User specified analyzer → use that analyzer</li>
+         *   <li>User did not specify → use index's configured analyzer</li>
          * </ul>
          *
-         * <p>This simple protocol clearly distinguishes:
-         * <ul>
-         *   <li>"MATCH(col, 'query')" → empty string → BE chooses best index</li>
-         *   <li>"MATCH(col, 'query') USING ANALYZER none" → "none" → BE uses keyword index</li>
-         *   <li>"MATCH(col, 'query') USING ANALYZER chinese" → "chinese" → BE uses chinese index</li>
-         * </ul>
+         * <p>This ensures the query uses the same analyzer as the index for consistent
+         * tokenization. For custom analyzers, this is critical because the query needs
+         * to use the same custom analyzer that was used for indexing.
          *
          * @param hasIndex      Whether the table has an inverted index
          * @param fallbackParser Unused, kept for API compatibility
-         * @return Analyzer name for BE, or empty string if not specified
+         * @return Analyzer name for BE
          */
         public String effectiveAnalyzerName(boolean hasIndex, String fallbackParser) {
-            // Simple and clear: return what user specified, or empty if not specified
-            return userAnalyzer;
+            // Return userAnalyzer if specified, otherwise indexAnalyzer
+            // This ensures custom analyzers work correctly - the query must use
+            // the same analyzer as the index for proper tokenization matching.
+            return analyzer();
         }
     }
 }
