@@ -1215,11 +1215,80 @@ suite("test_asof_join", "nereids_p0") {
         SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
         FROM asof_precision_left l
         ASOF LEFT JOIN asof_precision_right r
-        MATCH_CONDITION(l.ts - l.ts >= 1)
+        MATCH_CONDITION(l.ts - r.ts >= 1)
         ON l.grp = r.grp
         ORDER BY l.id
         """
         exception "only allow date, datetime and timestamptz in MATCH_CONDITION"
     }
 
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp = r.grp or l.id > r.id
+        ORDER BY l.id
+        """
+        exception "ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts"
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp = r.grp
+        ORDER BY l.id
+        """
+        exception "only ASOF JOIN support MATCH_CONDITION"
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ORDER BY l.id
+        """
+        exception "ASOF JOIN must have on or using clause"
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts == r.ts)
+        ON l.grp = r.grp 
+        ORDER BY l.id
+        """
+        exception "ASOF JOIN's MATCH_CONDITION must be <, <=, >, >="
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        ON l.grp = r.grp 
+        ORDER BY l.id
+        """
+        exception "ASOF JOIN must specify MATCH_CONDITION"
+    }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp = 1
+        ORDER BY l.id
+        """
+        exception "ASOF join's hash conjuncts must be in form of"
+    }
 }

@@ -767,7 +767,7 @@ public class BindExpression implements AnalysisRuleFactory {
             if (JoinUtils.extractExpressionForHashTable(join.left().getOutput(), join.right().getOutput(),
                     hashConjuncts).first.isEmpty()) {
                 throw new AnalysisException(String.format("ASOF join's hash conjuncts must be"
-                        + "in form of t1.col = t2.col but its %s", hashConjuncts));
+                        + " in form of t1.col = t2.col but its %s", hashConjuncts));
             }
             // validate match_condition's data type
             boolean isValid = false;
