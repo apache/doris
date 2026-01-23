@@ -481,11 +481,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
     }
 
     private boolean canReplaceExpression(Expression expression) {
-        // 'a is not null', EliminateOuterJoin will call TypeUtils.isNotNull
-        if (ExpressionUtils.isGeneratedNotNull(expression)) {
-            return false;
-        }
-
         // "https://doris.apache.org/docs/sql-manual/basic-element/operators/conditional-operators
         // /full-text-search-operators", the match function require left is a slot, not a literal.
         if (expression instanceof Match) {

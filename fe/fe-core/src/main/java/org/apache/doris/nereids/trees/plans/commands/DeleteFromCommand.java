@@ -242,7 +242,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     new SetVar(SessionVariable.FORBID_UNKNOWN_COLUMN_STATS, new StringLiteral("false")));
             // disable eliminate not null rule
             List<String> disableRules = Lists.newArrayList(
-                    RuleType.ELIMINATE_NOT_NULL.name(), RuleType.INFER_FILTER_NOT_NULL.name());
+                    RuleType.INFER_FILTER_NOT_NULL.name());
             disableRules.addAll(sessionVariable.getDisableNereidsRuleNames());
             VariableMgr.setVar(sessionVariable,
                     new SetVar(SessionVariable.DISABLE_NEREIDS_RULES,
