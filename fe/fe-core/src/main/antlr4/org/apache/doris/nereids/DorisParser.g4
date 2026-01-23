@@ -1935,7 +1935,6 @@ nonReserved
     | ANALYZED
     | ANN
     | ARRAY
-    | ASOF
     | AT
     | AUTHORS
     | AUTO_INCREMENT
