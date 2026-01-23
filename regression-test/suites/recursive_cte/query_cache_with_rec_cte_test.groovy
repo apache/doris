@@ -30,6 +30,7 @@ suite("query_cache_with_rec_cte_test", "rec_cte") {
         profile(tag) {
             run {
                 sql "/* ${tag} */ ${sqlStr}"
+                sleep(10 * 1000)
             }
 
             check { profileString, exception ->
@@ -39,25 +40,12 @@ suite("query_cache_with_rec_cte_test", "rec_cte") {
         }
     }
 
-    def assertPartHasCache = { String sqlStr ->
-        String tag = UUID.randomUUID().toString()
-        profile(tag) {
-            run {
-                sql "/* ${tag} */ ${sqlStr}"
-            }
-
-            check { profileString, exception ->
-                logger.info("profileString: " + profileString)
-                assertTrue(profileString.contains("HitCache:  1")) && assertTrue(profileString.contains("HitCache:  0"))
-            }
-        }
-    }
-
     def assertNoCache = { String sqlStr ->
         String tag = UUID.randomUUID().toString()
         profile(tag) {
             run {
                 sql "/* ${tag} */ ${sqlStr}"
+                sleep(10 * 1000)
             }
 
             check { profileString, exception ->
@@ -72,6 +60,7 @@ suite("query_cache_with_rec_cte_test", "rec_cte") {
         profile(tag) {
             run {
                 sql "/* ${tag} */ ${sqlStr}"
+                sleep(10 * 1000)
             }
 
             check { profileString, exception ->
