@@ -2250,7 +2250,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public long proximateRowCount() {
         long totalCount = 0;
         for (Partition partition : getPartitions()) {
-            long version = partition.getVisibleVersion();
+            // for local mode, getCachedVisibleVersion return visibleVersion.
+            // for cloud mode, the replica.checkVersionCatchUp always returns true.
+            long version = partition.getCachedVisibleVersion();
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     long tabletRowCount = 0L;

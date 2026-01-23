@@ -154,48 +154,4 @@ public class RowBatchBuilder {
         }
         return key;
     }
-
-    /**
-     * Rowbatch split to Row
-     */
-    public InternalService.PUpdateCacheRequest buildPartitionUpdateRequest(String sql) {
-        if (updateRequest == null) {
-            updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
-                    .setSqlKey(CacheProxy.getMd5(sql))
-                    .setCacheType(InternalService.CacheType.PARTITION_CACHE).build();
-        }
-        HashMap<Long, List<byte[]>> partRowMap = new HashMap<>();
-        List<byte[]> partitionRowList;
-        PartitionRange.PartitionKeyType cacheKey;
-        for (byte[] row : rowList) {
-            cacheKey = getKeyFromRow(row, keyIndex, keyType);
-            if (!cachePartMap.containsKey(cacheKey.realValue())) {
-                LOG.info("cant find partition key {}", cacheKey.realValue());
-                continue;
-            }
-            if (!partRowMap.containsKey(cacheKey.realValue())) {
-                partitionRowList = Lists.newArrayList();
-                partitionRowList.add(row);
-                partRowMap.put(cacheKey.realValue(), partitionRowList);
-            } else {
-                partRowMap.get(cacheKey.realValue()).add(row);
-            }
-        }
-
-        for (HashMap.Entry<Long, List<byte[]>> entry : partRowMap.entrySet()) {
-            Long key = entry.getKey();
-            PartitionRange.PartitionSingle partition = cachePartMap.get(key);
-            partitionRowList = entry.getValue();
-            updateRequest = updateRequest.toBuilder()
-                    .addValues(InternalService.PCacheValue.newBuilder()
-                            .setParam(InternalService.PCacheParam.newBuilder()
-                                    .setPartitionKey(key)
-                                    .setLastVersion(partition.getPartition().getVisibleVersion())
-                                    .setLastVersionTime(partition.getPartition().getVisibleVersionTime())
-                                    .build()).setDataSize(dataSize).addAllRows(
-                                    partitionRowList.stream().map(ByteString::copyFrom)
-                                            .collect(Collectors.toList()))).build();
-        }
-        return updateRequest;
-    }
 }
