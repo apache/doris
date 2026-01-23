@@ -43,6 +43,7 @@
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/s3_rate_limiter.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -139,6 +140,11 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
+
+// Warmup download rate limiter metrics
+bvar::Adder<int64_t> warmup_download_rate_limit_ns("warmup_download_rate_limit_ns");
+bvar::Adder<int64_t> warmup_download_rate_limit_exceed_req_num(
+        "warmup_download_rate_limit_exceed_req_num");
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
@@ -416,6 +422,17 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
+
+    // Initialize warmup download rate limiter for cloud mode
+    if (config::is_cloud_mode() && config::warmup_download_rate_limit_bytes_per_second > 0) {
+        int64_t rate_limit = config::warmup_download_rate_limit_bytes_per_second;
+        // max_burst is the same as rate_limit (1 second burst)
+        // limit is 0 which means no total limit
+        _warmup_download_rate_limiter = new S3RateLimiterHolder(
+                rate_limit, rate_limit, 0,
+                metric_func_factory(warmup_download_rate_limit_ns,
+                                    warmup_download_rate_limit_exceed_req_num));
+    }
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
@@ -922,6 +939,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_heap_profiler);
 
     SAFE_DELETE(_index_policy_mgr);
+    SAFE_DELETE(_warmup_download_rate_limiter);
 
     _s_tracking_memory = false;
 
