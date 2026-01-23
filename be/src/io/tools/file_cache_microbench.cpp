@@ -2416,16 +2416,16 @@ int main(int argc, char* argv[]) {
             LOG(INFO) << "Periodically log for file cache microbench";
         }
     };
-    periodiccally_log_thread = std::thread {periodiccally_log};
+     periodiccally_log_thread = std::thread {periodiccally_log};
 
-    try {
-        HttpServer http_server(job_manager);
-        http_server.start();
-    } catch (const std::exception& e) {
-        LOG(ERROR) << "Error in HTTP server: " << e.what();
-    }
+     try {
+         HttpServer http_server(job_manager);
+         http_server.start();
+     } catch (const std::exception& e) {
+         LOG(ERROR) << "Error in HTTP server: " << e.what();
+     }
 
-    if (periodiccally_log_thread.joinable()) {
+     if (periodiccally_log_thread.joinable()) {
         {
             std::unique_lock<std::mutex> lck {periodiccally_log_thread_lock};
             periodiccally_log_thread_run = false;
