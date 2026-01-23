@@ -18,16 +18,12 @@
 package org.apache.doris.cdcclient.source.reader;
 
 import org.apache.flink.api.connector.source.SourceSplit;
-import org.apache.kafka.connect.source.SourceRecord;
-
-import java.util.Iterator;
 
 import lombok.Data;
 
 /** The result of reading a split with iterator. */
 @Data
 public class SplitReadResult {
-    private Iterator<SourceRecord> recordIterator;
     // MySqlSplitState, SourceSplitState
     private Object splitState;
     // MySqlSplit SourceSplitBase
