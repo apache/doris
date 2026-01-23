@@ -75,24 +75,18 @@ public class BrokerUtil {
 
     private static final int READ_BUFFER_SIZE_B = 1024 * 1024;
 
-    public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
-            throws UserException {
-        parseFile(path, brokerDesc, fileStatuses, -1);
-    }
-
     /**
      * Parse file status in path with broker, except directory
      * @param path
      * @param brokerDesc
      * @param fileStatuses: file path, size, isDir, isSplittable
-     * @param maxFileCount max file count limit, -1 means no limit
      * @throws UserException if broker op failed
      */
-    public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses,
-            int maxFileCount) throws UserException {
+    public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
+            throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
-            Status st = fileSystem.globList(path, rfiles, false, maxFileCount);
+            Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
             }
