@@ -87,11 +87,6 @@ void NestedLoopJoinProbeLocalState::_update_additional_flags(vectorized::Block* 
     }
 }
 
-void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
-    // TODO: need a vector of left block to register the _probe_row_visited_flags
-
-}
-
 void insert_into_column_from_other_column(vectorized::MutableColumnPtr& dest_column,
                                           const vectorized::ColumnPtr& src_column, size_t pos,
                                           size_t length) {
