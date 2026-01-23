@@ -92,7 +92,6 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     private boolean enableMemTableOnSinkNode = false;
     private int batchSize = 0;
-    private int maxS3ListObjectsCount = -1;
 
     // for log replay and unit test
     public BrokerLoadJob() {
