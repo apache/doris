@@ -664,6 +664,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+        ${ENABLE_PAIMON_CPP:+-DENABLE_PAIMON_CPP="${ENABLE_PAIMON_CPP}"} \
+        ${PAIMON_HOME:+-DPAIMON_HOME="${PAIMON_HOME}"} \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then

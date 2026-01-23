@@ -153,7 +153,22 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+download_packages=()
+if [[ "${#packages[@]}" -gt 0 ]]; then
+    for package in "${packages[@]}"; do
+        if [[ "${package}" != "paimon_cpp" ]]; then
+            download_packages+=("${package}")
+        fi
+    done
+fi
+
+if [[ "${#packages[@]}" -eq 0 ]]; then
+    eval "${TP_DIR}/download-thirdparty.sh"
+elif [[ "${#download_packages[@]}" -gt 0 ]]; then
+    eval "${TP_DIR}/download-thirdparty.sh ${download_packages[*]}"
+else
+    echo "Skip downloading thirdparties for local-only packages: ${packages[*]}"
+fi
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -431,15 +446,16 @@ build_protobuf() {
     cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
-        ldflags="-L${TP_LIB_DIR}"
+        ldflags="-L${TP_LIB_DIR} -pthread"
     else
-        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create"
+        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create -pthread"
     fi
 
     mkdir -p cmake/build
     cd cmake/build
 
-    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
+    CFLAGS="-O2 -I${TP_INCLUDE_DIR} -pthread" \
+        CXXFLAGS="-O2 -I${TP_INCLUDE_DIR} -pthread" \
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_BUILD_TYPE=Release \
@@ -1129,6 +1145,114 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
     strip_lib libparquet.a
+}
+
+# paimon-cpp
+build_paimon_cpp() {
+    local paimon_src="${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+    mkdir -p "${TP_SOURCE_DIR}"
+    if [[ ! -e "${paimon_src}" ]]; then
+        local default_src="${PAIMON_CPP_SOURCE_DIR:-${DORIS_HOME}/../${PAIMON_CPP_SOURCE}}"
+        if [[ -d "${default_src}" ]]; then
+            ln -s "${default_src}" "${paimon_src}"
+        fi
+    fi
+    if [[ ! -d "${paimon_src}" ]]; then
+        echo "Paimon C++ source not found: ${paimon_src}"
+        echo "Set PAIMON_CPP_SOURCE_DIR to the paimon-cpp source path."
+        exit 1
+    fi
+
+    check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    cd "${paimon_src}"
+
+    local build_root="${paimon_src}/${BUILD_DIR}"
+    mkdir -p "${build_root}"
+    cd "${build_root}"
+
+    rm -rf CMakeCache.txt CMakeFiles/
+
+    local install_prefix="${TP_INSTALL_DIR}/paimon-cpp"
+
+    DORIS_THIRDPARTY="${TP_DIR}" "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" \
+        -DCMAKE_INSTALL_PREFIX="${install_prefix}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DPAIMON_BUILD_SHARED=OFF \
+        -DPAIMON_BUILD_STATIC=ON \
+        -DPAIMON_BUILD_TESTS=OFF \
+        -DPAIMON_ENABLE_JINDO=OFF \
+        -DPAIMON_USE_EXTERNAL_GLOG=ON \
+        -DGLOG_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
+        -DGLOG_STATIC_LIB="${TP_LIB_DIR}/libglog.a" \
+        -DGFLAGS_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
+        -DGFLAGS_STATIC_LIB="${TP_LIB_DIR}/libgflags.a" \
+        -DPAIMON_USE_BSYMBOLIC=OFF \
+        -DPAIMON_LINK_SHARED_STDLIB=OFF \
+        ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    local deps_dir="${install_prefix}/lib64/paimon_deps"
+    mkdir -p "${deps_dir}"
+
+    local paimon_build_root="${build_root}"
+    if [[ -d "${build_root}/paimon-cpp" ]]; then
+        paimon_build_root="${build_root}/paimon-cpp"
+    fi
+
+    local fmt_lib="${paimon_build_root}/fmt_ep-install/lib/libfmtd.a"
+    if [[ ! -f "${fmt_lib}" ]]; then
+        fmt_lib="${paimon_build_root}/fmt_ep-install/lib/libfmt.a"
+    fi
+    if [[ ! -f "${fmt_lib}" ]]; then
+        echo "fmt static library not found under ${paimon_build_root}/fmt_ep-install/lib"
+        exit 1
+    fi
+
+    local tbb_lib="${paimon_build_root}/tbb_ep-install/lib/libtbb_debug.a"
+    if [[ ! -f "${tbb_lib}" ]]; then
+        tbb_lib="${paimon_build_root}/tbb_ep-install/lib/libtbb.a"
+    fi
+    if [[ ! -f "${tbb_lib}" ]]; then
+        echo "tbb static library not found under ${paimon_build_root}/tbb_ep-install/lib"
+        exit 1
+    fi
+
+    local build_output=""
+    for candidate in "${paimon_build_root}/release" \
+        "${paimon_build_root}/relwithdebinfo" \
+        "${paimon_build_root}/debug" \
+        "${paimon_build_root}/asan" \
+        "${paimon_build_root}"; do
+        if [[ -f "${candidate}/libroaring_bitmap.a" ]]; then
+            build_output="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${build_output}" ]]; then
+        echo "Paimon build output dir not found under ${paimon_build_root}"
+        exit 1
+    fi
+
+    cp -f "${fmt_lib}" "${deps_dir}/"
+    cp -f "${tbb_lib}" "${deps_dir}/"
+    cp -f "${build_output}/libroaring_bitmap.a" "${deps_dir}/"
+    cp -f "${build_output}/libxxhash.a" "${deps_dir}/"
+    cp -f "${paimon_build_root}/arrow_ep-install/lib/libarrow_dataset.a" "${deps_dir}/"
+    cp -f "${paimon_build_root}/arrow_ep-install/lib/libarrow_acero.a" "${deps_dir}/"
+    cp -f "${paimon_build_root}/arrow_ep-install/lib/libarrow.a" "${deps_dir}/"
+    local arrow_bundled_deps="${paimon_build_root}/arrow_ep-install/lib/libarrow_bundled_dependencies.a"
+    if [[ -f "${arrow_bundled_deps}" ]]; then
+        cp -f "${arrow_bundled_deps}" "${deps_dir}/"
+    fi
+    cp -f "${paimon_build_root}/arrow_ep-install/lib/libparquet.a" "${deps_dir}/"
+    if [[ -f "${paimon_build_root}/orc_ep-prefix/lib/liborc.a" ]]; then
+        cp -f "${paimon_build_root}/orc_ep-prefix/lib/liborc.a" "${deps_dir}/"
+    fi
 }
 
 # abseil
@@ -2014,6 +2138,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         cares
         grpc # after cares, protobuf
         arrow
+        paimon_cpp
         s2
         bitshuffle
         croaringbitmap

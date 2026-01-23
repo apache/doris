@@ -559,6 +559,9 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
+# paimon-cpp
+PAIMON_CPP_SOURCE=paimon-cpp
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
