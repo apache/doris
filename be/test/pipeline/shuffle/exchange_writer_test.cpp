@@ -63,7 +63,7 @@ static std::vector<std::shared_ptr<Channel>> make_disabled_channels(
 TEST(TrivialExchangeWriterTest, BasicDistribution) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    ExchangeTrivialWriter writer;
+    ExchangeTrivialWriter writer {local_state};
 
     const size_t channel_count = 2;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -95,7 +95,7 @@ TEST(TrivialExchangeWriterTest, BasicDistribution) {
 TEST(TrivialExchangeWriterTest, AllRowsToSingleChannel) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    ExchangeTrivialWriter writer;
+    ExchangeTrivialWriter writer {local_state};
 
     const size_t channel_count = 3;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -125,7 +125,7 @@ TEST(TrivialExchangeWriterTest, AllRowsToSingleChannel) {
 TEST(TrivialExchangeWriterTest, EmptyInput) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    ExchangeTrivialWriter writer;
+    ExchangeTrivialWriter writer {local_state};
 
     const size_t channel_count = 4;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -148,7 +148,7 @@ TEST(TrivialExchangeWriterTest, EmptyInput) {
 TEST(OlapExchangeWriterTest, NeedCheckSkipsInvalidChannelIds) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    ExchangeOlapWriter writer;
+    ExchangeOlapWriter writer {local_state};
 
     const size_t channel_count = 3;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -181,7 +181,7 @@ TEST(OlapExchangeWriterTest, NeedCheckSkipsInvalidChannelIds) {
 TEST(OlapExchangeWriterTest, NoCheckUsesAllRows) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    ExchangeOlapWriter writer;
+    ExchangeOlapWriter writer {local_state};
 
     const size_t channel_count = 2;
     auto channels = make_disabled_channels(&local_state, channel_count);
@@ -210,7 +210,7 @@ TEST(OlapExchangeWriterTest, NoCheckUsesAllRows) {
 TEST(OlapExchangeWriterTest, EmptyInput) {
     MockRuntimeState state;
     ExchangeSinkLocalState local_state(&state);
-    ExchangeOlapWriter writer;
+    ExchangeOlapWriter writer {local_state};
 
     const size_t channel_count = 3;
     auto channels = make_disabled_channels(&local_state, channel_count);

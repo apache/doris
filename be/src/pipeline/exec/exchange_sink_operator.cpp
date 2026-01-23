@@ -225,9 +225,9 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
-        _writer = std::make_unique<ExchangeOlapWriter>();
+        _writer = std::make_unique<ExchangeOlapWriter>(*this);
     } else {
-        _writer = std::make_unique<ExchangeTrivialWriter>();
+        _writer = std::make_unique<ExchangeTrivialWriter>(*this);
     }
 
     for (auto& channel : channels) {
@@ -515,7 +515,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
                _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
                _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block, eos));
+        RETURN_IF_ERROR(local_state._writer->write(state, block, eos));
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         RETURN_IF_ERROR(send_to_current_channel());

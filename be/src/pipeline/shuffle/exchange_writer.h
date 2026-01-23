@@ -28,6 +28,8 @@ class Status;
 namespace vectorized {
 class Block;
 class Channel;
+class PartitionerBase;
+class TabletSinkHashPartitioner;
 } // namespace vectorized
 namespace pipeline {
 
@@ -37,10 +39,9 @@ class ExchangeSinkLocalState;
 class ExchangeWriterBase {
 public:
     using HashValType = vectorized::PartitionerBase::HashValType;
-    ExchangeWriterBase() = default;
+    ExchangeWriterBase(ExchangeSinkLocalState& local_state);
 
-    virtual Status write(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                         vectorized::Block* block, bool eos) = 0;
+    virtual Status write(RuntimeState* state, vectorized::Block* block, bool eos) = 0;
 
     virtual ~ExchangeWriterBase() = default;
 
@@ -50,6 +51,10 @@ protected:
     Status _add_rows_impl(RuntimeState* state,
                           std::vector<std::shared_ptr<vectorized::Channel>>& channels,
                           size_t channel_count, vectorized::Block* block, bool eos);
+
+    // myself as a visitor of local state
+    ExchangeSinkLocalState& _local_state;
+    vectorized::PartitionerBase* _partitioner;
 
     // _origin_row_idx[i]: row id in original block for the i-th's data we send.
     vectorized::PaddedPODArray<uint32_t> _origin_row_idx;
@@ -63,10 +68,9 @@ protected:
 
 class ExchangeTrivialWriter final : public ExchangeWriterBase {
 public:
-    ExchangeTrivialWriter() = default;
+    ExchangeTrivialWriter(ExchangeSinkLocalState& local_state) : ExchangeWriterBase(local_state) {}
 
-    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
-                 bool eos) override;
+    Status write(RuntimeState* state, vectorized::Block* block, bool eos) override;
 
 private:
     Status _channel_add_rows(RuntimeState* state,
@@ -78,14 +82,12 @@ private:
 // maybe auto partition
 class ExchangeOlapWriter final : public ExchangeWriterBase {
 public:
-    ExchangeOlapWriter() = default;
+    ExchangeOlapWriter(ExchangeSinkLocalState& local_state) : ExchangeWriterBase(local_state) {}
 
-    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
-                 bool eos) override;
+    Status write(RuntimeState* state, vectorized::Block* block, bool eos) override;
 
 private:
-    Status _write_impl(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                       vectorized::Block* block, bool eos = false);
+    Status _write_impl(RuntimeState* state, vectorized::Block* block, bool eos = false);
     Status _channel_add_rows(RuntimeState* state,
                              std::vector<std::shared_ptr<vectorized::Channel>>& channels,
                              size_t channel_count, const std::vector<HashValType>& channel_ids,
