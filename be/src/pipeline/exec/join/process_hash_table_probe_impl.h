@@ -669,9 +669,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_asof_join_conjuncts(vectorized::Blo
     }
 
     // Pre-evaluate conjunct for expression-based conditions
-    vectorized::IColumn::Filter conjunct_filter;
+    vectorized::IColumn::Filter conjunct_filter(row_count, 1);
     if (!ctx.use_slot_ref_comparison && !_parent->_other_join_conjuncts.empty()) {
-        conjunct_filter.resize(row_count, 1);
         bool can_be_filter_all = false;
         RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
                 _parent->_other_join_conjuncts, nullptr, output_block, &conjunct_filter,
