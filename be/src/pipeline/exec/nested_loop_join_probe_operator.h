@@ -56,10 +56,7 @@ private:
     void _update_additional_flags(vectorized::Block* block);
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
-    void _reset_with_next_probe_row();
     void _append_probe_data_with_null(vectorized::Block& block) const;
-    void _process_probe_child_block(vectorized::Block& block,
-                                   const vectorized::Block& now_process_build_block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block,
                                                      uint32_t column_to_keep,
