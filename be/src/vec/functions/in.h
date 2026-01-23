@@ -58,7 +58,7 @@ struct InState {
     bool use_set = true;
 
     std::shared_ptr<HybridSetBase> get_hybrid_set() {
-       return  origin_set == nullptr ? hybrid_set : origin_set;
+        return origin_set == nullptr ? hybrid_set : origin_set;
     }
 
 private:
