@@ -165,6 +165,24 @@ public:
         return _nested->get_search_str();
     }
 
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+        if (!_nested) {
+            // at the begining _nested will be null, so return true.
+            return true;
+        }
+        return _nested->evaluate_and(statistic);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        if (!_nested) {
+            // at the begining _nested will be null, so return true.
+            return true;
+        }
+        return _nested->evaluate_and(statistic, row_ranges);
+    }
+
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {

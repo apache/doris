@@ -166,10 +166,6 @@ public:
 
     bool count_read_rows() override { return true; }
 
-    void set_update_late_rf_func(std::function<Status(bool*, VExprContextSPtrs&)>&& func) {
-        _call_late_rf_func = std::move(func);
-    }
-
 protected:
     void _collect_profile_before_close() override;
 
@@ -262,9 +258,6 @@ private:
     bool _exists_in_file(const std::string& expr_name) const;
     bool _type_matches(const int cid) const;
 
-    // update lazy read context when runtime filter changed
-    Status _update_lazy_read_ctx(const VExprContextSPtrs& new_conjuncts);
-
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
@@ -349,18 +342,8 @@ private:
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
-    // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;
-
-    // when creating a new row group reader, call this function to get the latest runtime filter conjuncts.
-    // The default implementation does nothing, sets 'changed' to false, and returns OK.
-    // This is used when iceberg read position delete file ...
-    static Status default_late_rf_func(bool* changed, VExprContextSPtrs&) {
-        *changed = false;
-        return Status::OK();
-    }
-    std::function<Status(bool*, VExprContextSPtrs&)> _call_late_rf_func = default_late_rf_func;
 };
 #include "common/compile_check_end.h"
 

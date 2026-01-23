@@ -413,14 +413,12 @@ bool ParquetReader::_type_matches(const int cid) const {
            !is_complex_type(table_col_type->get_primitive_type());
 }
 
-Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjuncts) {
-    RowGroupReader::LazyReadContext new_lazy_read_ctx;
-    new_lazy_read_ctx.conjuncts = new_conjuncts;
-    new_lazy_read_ctx.fill_partition_columns = std::move(_lazy_read_ctx.fill_partition_columns);
-    new_lazy_read_ctx.fill_missing_columns = std::move(_lazy_read_ctx.fill_missing_columns);
-    _lazy_read_ctx = std::move(new_lazy_read_ctx);
-
-    _push_down_predicates.clear();
+Status ParquetReader::set_fill_columns(
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+    _lazy_read_ctx.fill_partition_columns = partition_columns;
+    _lazy_read_ctx.fill_missing_columns = missing_columns;
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
@@ -442,7 +440,6 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
             visit_slot(child.get());
         }
     };
-
     for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
         auto expr = conjunct->root();
 
@@ -452,33 +449,7 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
 
             auto filter_impl = runtime_filter->get_impl();
             visit_slot(filter_impl.get());
-
-            // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
-            if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
-                (runtime_filter->op() == TExprOpcode::GE ||
-                 runtime_filter->op() == TExprOpcode::LE)) {
-                expr = filter_impl;
-            } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
-                       runtime_filter->op() == TExprOpcode::FILTER_IN) {
-                VDirectInPredicate* direct_in_predicate =
-                        assert_cast<VDirectInPredicate*>(filter_impl.get());
-
-                int max_in_size =
-                        _state->query_options().__isset.max_pushdown_conditions_per_column
-                                ? _state->query_options().max_pushdown_conditions_per_column
-                                : 1024;
-                if (direct_in_predicate->get_set_func()->size() == 0 ||
-                    direct_in_predicate->get_set_func()->size() > max_in_size) {
-                    continue;
-                }
-
-                VExprSPtr new_in_slot = nullptr;
-                if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
-                    expr = new_in_slot;
-                }
-            }
-        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(expr.get());
-                   topn_pred == nullptr) {
+        } else {
             visit_slot(expr.get());
         }
     }
@@ -565,17 +536,6 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
     }
-
-    return Status::OK();
-}
-
-Status ParquetReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    _lazy_read_ctx.fill_partition_columns = partition_columns;
-    _lazy_read_ctx.fill_missing_columns = missing_columns;
-    RETURN_IF_ERROR(_update_lazy_read_ctx(_lazy_read_ctx.conjuncts));
 
     if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
         return Status::EndOfFile("No row group to read");
@@ -714,13 +674,6 @@ Status ParquetReader::_next_row_group_reader() {
 
         if (_filter_groups && _is_misaligned_range_group(row_group)) {
             continue;
-        }
-
-        bool has_late_rf_cond = false;
-        VExprContextSPtrs new_push_down_conjuncts;
-        RETURN_IF_ERROR(_call_late_rf_func(&has_late_rf_cond, new_push_down_conjuncts));
-        if (has_late_rf_cond) {
-            RETURN_IF_ERROR(_update_lazy_read_ctx(new_push_down_conjuncts));
         }
 
         candidate_row_ranges.clear();
