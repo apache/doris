@@ -678,6 +678,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 LOG.debug("remotePath:{}, result:{}", remotePath, result);
             }
             return new GlobListResult(Status.OK, currentMaxFile, bucket, finalPrefix);
+        } catch (NoSuchKeyException e0) {
+            List<RemoteObject> remoteObjects = new ArrayList<>();
+            return new RemoteObjects(remoteObjects, false, "");
         } catch (Exception e) {
             LOG.warn("Errors while getting file status", e);
             return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
