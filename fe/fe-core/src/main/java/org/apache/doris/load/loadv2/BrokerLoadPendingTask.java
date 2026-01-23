@@ -95,7 +95,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                     long groupFileSize = 0;
                     List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                     for (String path : fileGroup.getFilePaths()) {
-                        BrokerUtil.parseFile(path, brokerDesc, fileStatuses, maxFileCount);
+                        BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                     }
                     if (!fileStatuses.isEmpty()) {
                         fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses);

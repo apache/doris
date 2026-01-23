@@ -108,11 +108,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
         if (ConnectContext.get() != null) {
-            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            enableProfile = sessionVariable.enableProfile();
-            enableMemTableOnSinkNode = sessionVariable.enableMemtableOnSinkNode;
-            batchSize = sessionVariable.brokerLoadBatchSize;
-            maxS3ListObjectsCount = sessionVariable.maxS3ListObjectsCount;
+            enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
+            enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            batchSize = ConnectContext.get().getSessionVariable().brokerLoadBatchSize;
         }
     }
 
@@ -121,12 +119,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(type, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null) {
-            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            if (sessionVariable.enableProfile()) {
-                enableProfile = true;
-            }
-            maxS3ListObjectsCount = sessionVariable.maxS3ListObjectsCount;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
+            enableProfile = true;
         }
     }
 
