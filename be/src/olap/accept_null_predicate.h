@@ -121,6 +121,10 @@ public:
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
         _nested->evaluate_and(statistic, row_ranges);
+        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        if (!(statistic->get_stat_func)(&stat, column_id())) {
+            return true;
+        }
 
         for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {
             if (stat->has_null[page_id]) {
