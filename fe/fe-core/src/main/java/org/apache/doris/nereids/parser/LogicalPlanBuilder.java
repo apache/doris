@@ -3161,7 +3161,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitDefaultValue(DorisParser.DefaultValueContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> new Default(getExpression(ctx.expression())));
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<String> nameParts = ctx.qualifiedName().identifier()
+                    .stream()
+                    .map(RuleContext::getText)
+                    .collect(ImmutableList.toImmutableList());
+            return new Default(new UnboundSlot(nameParts));
+        });
     }
 
     @Override

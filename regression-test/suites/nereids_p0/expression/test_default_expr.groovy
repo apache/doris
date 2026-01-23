@@ -17,6 +17,24 @@
 
 suite("test_default_expr") {
     
+    def testConstantFoldingConsistency = { String querySql ->
+        def baseRes = sql querySql
+
+        sql "SET debug_skip_fold_constant = true;"
+        def skipFoldConstantRes = sql querySql
+        assertTrue(skipFoldConstantRes == baseRes, 
+            "Results differ with debug_skip_fold_constant=true for query: ${querySql}")
+
+        sql "SET debug_skip_fold_constant = false;"
+        sql "SET enable_fold_constant_by_be = true;"
+        def beFoldConstantRes = sql querySql
+        assertTrue(beFoldConstantRes == baseRes, 
+            "Results differ with enable_fold_constant_by_be=true for query: ${querySql}")
+
+        sql "SET debug_skip_fold_constant = default;"
+        sql "SET enable_fold_constant_by_be = default;" 
+    }
+    
     def tableName = "test_default_scalar"
     def aggTableName = "test_default_agg"
     def notNullTableName = "test_default_not_null"
@@ -196,6 +214,10 @@ suite("test_default_expr") {
     qt_null_column_default """
         SELECT DEFAULT(optional_col) FROM ${notNullTableName} LIMIT 1
     """
+    
+    testConstantFoldingConsistency """
+        SELECT DEFAULT(optional_col) FROM ${notNullTableName} LIMIT 1
+    """
 
     def nullColResult = sql """
         SELECT DEFAULT(optional_col) FROM ${notNullTableName}
@@ -232,6 +254,25 @@ suite("test_default_expr") {
     sql "INSERT INTO ${boundaryTableName} (c_tinyint_min) VALUES (1)"
 
     qt_boundary_defaults """
+        SELECT
+            DEFAULT(c_tinyint_min),
+            DEFAULT(c_tinyint_max),
+            DEFAULT(c_smallint_min),
+            DEFAULT(c_smallint_max),
+            DEFAULT(c_int_min),
+            DEFAULT(c_int_max),
+            DEFAULT(c_bigint_min),
+            DEFAULT(c_bigint_max),
+            DEFAULT(c_float_zero),
+            DEFAULT(c_double_zero),
+            DEFAULT(c_decimal_zero),
+            DEFAULT(c_empty_string),
+            DEFAULT(c_null_default)
+        FROM ${boundaryTableName}
+        LIMIT 1
+    """
+    
+    testConstantFoldingConsistency """
         SELECT
             DEFAULT(c_tinyint_min),
             DEFAULT(c_tinyint_max),
@@ -303,6 +344,18 @@ suite("test_default_expr") {
         FROM ${complexTableName}
         LIMIT 1
     """
+    
+    testConstantFoldingConsistency """
+        SELECT
+            DEFAULT(c_array_empty),
+            DEFAULT(c_array_null),
+            DEFAULT(c_map_null),
+            DEFAULT(c_struct_null),
+            DEFAULT(c_json_null),
+            DEFAULT(c_variant_null)
+        FROM ${complexTableName}
+        LIMIT 1
+    """
 
     def complexResult = sql """
         SELECT
@@ -322,17 +375,17 @@ suite("test_default_expr") {
     // Test 7: Error case test - illegal parameter
     test {
         sql "SELECT DEFAULT(123)"
-        exception "DEFAULT requires a column reference"
+        exception "mismatched input"
     }
 
     test {
         sql "SELECT DEFAULT('literal_string')"
-        exception "DEFAULT requires a column reference"
+        exception "mismatched input"
     }
 
     test {
         sql "SELECT DEFAULT(c_bool + 1) FROM ${tableName} LIMIT 1"
-        exception "DEFAULT requires a column reference"
+        exception "missing ')' at '+'"
     }
 
     def baseDefault = sql """
@@ -417,6 +470,14 @@ suite("test_default_expr") {
         FROM ${dateTimeTableName}
         LIMIT 1
     """
+    
+    testConstantFoldingConsistency """
+        SELECT
+            DEFAULT(c_date_std),
+            DEFAULT(c_datetime_std)
+        FROM ${dateTimeTableName}
+        LIMIT 1
+    """
 
     def dateTimeResult = sql """
         SELECT
@@ -446,6 +507,16 @@ suite("test_default_expr") {
     sql "INSERT INTO ${ipTableName} (c_ipv4_localhost) VALUES ('172.16.0.1')"
 
     qt_ip_defaults """
+        SELECT
+            DEFAULT(c_ipv4_localhost),
+            DEFAULT(c_ipv4_private),
+            DEFAULT(c_ipv6_localhost),
+            DEFAULT(c_ipv6_example)
+        FROM ${ipTableName}
+        LIMIT 1
+    """
+    
+    testConstantFoldingConsistency """
         SELECT
             DEFAULT(c_ipv4_localhost),
             DEFAULT(c_ipv4_private),
@@ -495,6 +566,17 @@ suite("test_default_expr") {
         FROM ${stringTableName}
         LIMIT 1
     """
+    
+    testConstantFoldingConsistency """
+        SELECT
+            DEFAULT(c_char_fixed),
+            DEFAULT(c_varchar_var),
+            DEFAULT(c_string_long),
+            DEFAULT(c_char_empty),
+            DEFAULT(c_varchar_empty)
+        FROM ${stringTableName}
+        LIMIT 1
+    """
 
     def stringResult = sql """
         SELECT
@@ -530,6 +612,14 @@ suite("test_default_expr") {
         FROM ${pieTableName}
         LIMIT 1
     """
+    
+    testConstantFoldingConsistency """
+        SELECT
+            DEFAULT(c_pi),
+            DEFAULT(c_e)
+        FROM ${pieTableName}
+        LIMIT 1
+    """
 
     def pieResult = sql """
         SELECT
@@ -553,6 +643,14 @@ suite("test_default_expr") {
     """
 
     qt_empty_table_defaults """
+        SELECT
+            DEFAULT(c_int),
+            DEFAULT(c_string)
+        FROM ${emptyTableName}
+        LIMIT 1
+    """
+    
+    testConstantFoldingConsistency """
         SELECT
             DEFAULT(c_int),
             DEFAULT(c_string)
@@ -597,6 +695,13 @@ suite("test_default_expr") {
     sql "INSERT INTO ${tableA}(id) VALUES (1), (2), (3);"
     sql "INSERT INTO ${tableB}(id) VALUES (1), (2), (3);"
     qt_same_col_name """SELECT
+                            DEFAULT(a.val), DEFAULT(a.dt),
+                            DEFAULT(b.val), DEFAULT(b.dt)
+                        FROM ${tableA} AS a
+                        JOIN ${tableB} AS b
+                        ON a.id = b.id;"""
+    
+    testConstantFoldingConsistency """SELECT
                             DEFAULT(a.val), DEFAULT(a.dt),
                             DEFAULT(b.val), DEFAULT(b.dt)
                         FROM ${tableA} AS a

@@ -1617,7 +1617,7 @@ primaryExpression
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                           #tryCast
-    | DEFAULT LEFT_PAREN expression RIGHT_PAREN                                                 #defaultValue
+    | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                                 #defaultValue
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK (exceptOrReplace)*                                                              #star
