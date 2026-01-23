@@ -232,4 +232,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.30.80.0/24
+        - subnet: 168.4.0.0/24
