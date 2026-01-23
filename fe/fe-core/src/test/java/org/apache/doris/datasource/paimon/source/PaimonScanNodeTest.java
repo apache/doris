@@ -389,6 +389,10 @@ public class PaimonScanNodeTest {
         sv.setMaxFileSplitNum(100);
         PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), false, sv);
 
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");
+        node.setSource(source);
+
         RawFile rawFile = Mockito.mock(RawFile.class);
         Mockito.when(rawFile.path()).thenReturn("file.parquet");
         Mockito.when(rawFile.fileSize()).thenReturn(10_000L * 1024L * 1024L);
