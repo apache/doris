@@ -57,8 +57,8 @@ private:
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
     void _reset_with_next_probe_row();
-    void _append_left_data_with_null(vectorized::Block& block) const;
-    void _process_left_child_block(vectorized::Block& block,
+    void _append_probe_data_with_null(vectorized::Block& block) const;
+    void _process_probe_child_block(vectorized::Block& block,
                                    const vectorized::Block& now_process_build_block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block,
@@ -87,9 +87,9 @@ private:
             }
             if constexpr (SetProbeSideFlag) {
                 int64_t end = filter.size();
-                for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
-                                                                     : _left_block_pos;
-                     i >= _left_block_start_pos; i--) {
+                for (int i = _probe_block_pos == _child_block->rows() ? _probe_block_pos - 1
+                                                                      : _probe_block_pos;
+                     i >= _probe_block_start_pos; i--) {
                     int64_t offset = 0;
                     if (!_probe_offset_stack.empty()) {
                         offset = _probe_offset_stack.top();
@@ -176,9 +176,9 @@ private:
     }
 
     bool _matched_rows_done;
-    int _left_block_start_pos = 0;
-    int _left_block_pos; // current scan pos in _left_block
-    int _left_side_process_count = 0;
+    int _probe_block_start_pos = 0;
+    int _probe_block_pos; // current scan pos in _probe_block
+    int _probe_side_process_count = 0;
     bool _need_more_input_data = true;
     // Visited flags for current row in probe side.
     std::vector<int8_t> _cur_probe_row_visited_flags;
@@ -230,7 +230,7 @@ public:
 
 private:
     friend class NestedLoopJoinProbeLocalState;
-    bool _is_output_left_side_only;
+    bool _is_output_probe_side_only;
     vectorized::VExprContextSPtrs _join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
