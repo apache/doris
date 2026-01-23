@@ -185,7 +185,7 @@ add_thirdparty(pugixml LIB64)
 add_thirdparty(paimon LIB64)
 # File format libraries
 add_thirdparty(paimon_parquet_file_format LIB64)
-# add_thirdparty(paimon_orc_file_format LIB64)
+add_thirdparty(paimon_orc_file_format LIB64)
 # add_thirdparty(paimon_avro_file_format LIB64)
 add_thirdparty(paimon_blob_file_format LIB64)
 # File system libraries
