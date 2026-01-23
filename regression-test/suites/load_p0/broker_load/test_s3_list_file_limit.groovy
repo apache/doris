@@ -35,8 +35,13 @@ suite("test_s3_list_file_limit", "load_p0, nonConcurrent") {
         )
     """
 
+    // Save original config value
+    def original_config_result = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'max_s3_list_objects_count'; """
+    def original_value = original_config_result[0][1]
+    logger.info("Original max_s3_list_objects_count: ${original_value}")
+
     // Test 1: TVF with limit=15, should succeed (12 files < 15)
-    sql """ SET max_s3_list_objects_count = 15; """
+    sql """ ADMIN SET FRONTEND CONFIG ("max_s3_list_objects_count" = "15"); """
     sql """
         INSERT INTO ${tableName}
         SELECT * FROM S3
@@ -55,7 +60,6 @@ suite("test_s3_list_file_limit", "load_p0, nonConcurrent") {
     sql """ TRUNCATE TABLE ${tableName}; """
 
     // Test 2: Broker Load with limit=15, should succeed (12 files < 15)
-    sql """ SET max_s3_list_objects_count = 15; """
     def test2_label = "test_s3_list_load_positive_" + UUID.randomUUID().toString().replace("-", "0")
     sql """
         LOAD LABEL ${test2_label} (
@@ -97,7 +101,7 @@ suite("test_s3_list_file_limit", "load_p0, nonConcurrent") {
     sql """ TRUNCATE TABLE ${tableName}; """
 
     // Test 3: TVF with limit=10, should fail (12 files > 10)
-    sql """ SET max_s3_list_objects_count = 10; """
+    sql """ ADMIN SET FRONTEND CONFIG ("max_s3_list_objects_count" = "10"); """
     try {
         sql """
             INSERT INTO ${tableName}
@@ -115,14 +119,13 @@ suite("test_s3_list_file_limit", "load_p0, nonConcurrent") {
         assertTrue(false, "Test 3: should fail but succeeded")
     } catch (Exception e) {
         def errorMsg = e.getMessage()
-        assertTrue(errorMsg.contains("Too many files"), 
-                   "Test 3: error should contain 'Too many files', actual: ${errorMsg}")
+        assertTrue(errorMsg.contains("Too many files") || errorMsg.contains("max_s3_list_objects_count"), 
+                   "Test 3: error should contain 'Too many files' or 'max_s3_list_objects_count', actual: ${errorMsg}")
     }
     
     qt_sql """ SELECT COUNT(*) FROM ${tableName}; """
     
     // Test 4: Broker Load with limit=10, should fail (12 files > 10)
-    sql """ SET max_s3_list_objects_count = 10; """
     def test4_label = "test_s3_list_load_negative_" + UUID.randomUUID().toString().replace("-", "0")
     sql """
         LOAD LABEL ${test4_label} (
@@ -145,7 +148,8 @@ suite("test_s3_list_file_limit", "load_p0, nonConcurrent") {
         if (result.length > 0) {
             if (result[0][2].equals("CANCELLED")) {
                 def reason = result[0][7]
-                assertTrue(reason.contains("Too many files"), "Test 4: should fail with 'Too many files' error")
+                assertTrue(reason.contains("Too many files") || reason.contains("max_s3_list_objects_count"), 
+                          "Test 4: should fail with 'Too many files' or 'max_s3_list_objects_count' error")
                 assertTrue(reason.contains("10"), "Test 4: error should mention limit value")
                 break
             }
@@ -162,5 +166,7 @@ suite("test_s3_list_file_limit", "load_p0, nonConcurrent") {
     
     qt_sql """ SELECT COUNT(*) FROM ${tableName}; """
 
+    // Restore original config value
+    sql """ ADMIN SET FRONTEND CONFIG ("max_s3_list_objects_count" = "${original_value}"); """
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
