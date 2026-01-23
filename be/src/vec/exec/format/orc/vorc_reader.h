@@ -42,6 +42,7 @@
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
+#include "runtime/primitive_type.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_array.h"
@@ -408,7 +409,7 @@ private:
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
                                            const orc::ColumnVectorBatch* cvb, size_t num_values) {
-        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType;
+        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType;
         auto* data = dynamic_cast<const OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
@@ -548,6 +549,39 @@ private:
                     v.set_microsecond(data->nanoseconds[i] / 1000);
                 }
             }
+        }
+        return Status::OK();
+    }
+
+    template <bool is_filter>
+    Status _decode_timestamp_tz_column(const std::string& col_name,
+                                       const MutableColumnPtr& data_column,
+                                       const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        const auto* data = dynamic_cast<const orc::TimestampVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError(
+                    "Wrong data type for timestamp_tz column '{}', expected {}", col_name,
+                    cvb->toString());
+        }
+        auto& column_data = assert_cast<ColumnTimeStampTz&>(*data_column).get_data();
+        auto origin_size = column_data.size();
+        column_data.resize(origin_size + num_values);
+        UInt8* __restrict filter_data;
+        if constexpr (is_filter) {
+            filter_data = _filter->data();
+        }
+        static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
+        for (int i = 0; i < num_values; ++i) {
+            auto& tz = column_data[origin_size + i];
+            if constexpr (is_filter) {
+                if (!filter_data[i]) {
+                    continue;
+                }
+            }
+            tz.from_unixtime(data->data[i], utc_time_zone);
+            // nanoseconds will lose precision. only keep microseconds.
+            tz.set_microsecond(data->nanoseconds[i] / 1000);
         }
         return Status::OK();
     }

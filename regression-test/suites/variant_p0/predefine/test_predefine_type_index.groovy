@@ -20,6 +20,7 @@ suite("test_variant_predefine_index_type", "p0"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
 
     def tableName = "test_variant_predefine_index_type"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -31,7 +32,7 @@ suite("test_variant_predefine_index_type", "p0"){
             MATCH_NAME 'path.string' : string,
             properties("variant_max_subcolumns_count" = "10")
         > NULL,
-        INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="path.int", "parser"="unicode", "support_phrase" = "true") COMMENT '',
+        INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="path.int", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_c (var) USING INVERTED PROPERTIES("field_pattern"="path.decimal") COMMENT '',
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("field_pattern"="path.string", "parser"="unicode", "support_phrase" = "true") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
@@ -75,7 +76,7 @@ suite("test_variant_predefine_index_type", "p0"){
             properties("variant_max_subcolumns_count" = "10")
           > NULL,
           INDEX idx1 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "color", "support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
-          INDEX idx2 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "tags", "support_phrase" = "true", "parser" = "english", "lower_case" = "true")
+          INDEX idx2 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "tags", "support_phrase" = "true", "lower_case" = "true")
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY RANDOM BUCKETS 1

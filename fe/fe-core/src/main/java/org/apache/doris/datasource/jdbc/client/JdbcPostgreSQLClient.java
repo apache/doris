@@ -129,14 +129,21 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return Type.DOUBLE;
             case "bpchar":
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());
-            case "timestamp":
-            case "timestamptz": {
+            case "timestamp": {
                 // postgres can support microsecond
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }
                 return ScalarType.createDatetimeV2Type(scale);
+            }
+            case "timestamptz": {
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
+                        : ScalarType.createDatetimeV2Type(scale);
             }
             case "date":
                 return ScalarType.createDateV2Type();

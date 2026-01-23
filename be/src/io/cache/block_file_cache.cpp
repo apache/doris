@@ -280,6 +280,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
 
+    _no_warmup_num_read_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks");
+    _no_warmup_num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks");
+
+#ifndef BE_TEST
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
     _num_read_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
@@ -289,12 +295,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
             3600);
-
-    _no_warmup_num_read_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks");
-    _no_warmup_num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks");
-
     _no_warmup_num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks_5m",
             _no_warmup_num_hit_blocks.get(), 300);
@@ -307,6 +307,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _no_warmup_num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks_1h",
             _no_warmup_num_read_blocks.get(), 3600);
+#endif
 
     _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                         "file_cache_hit_ratio", 0.0);
@@ -1967,11 +1968,11 @@ void BlockFileCache::run_background_monitor() {
                 _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
                                       (double)_num_read_blocks->get_value());
             }
-            if (_num_read_blocks_5m->get_value() > 0) {
+            if (_num_read_blocks_5m && _num_read_blocks_5m->get_value() > 0) {
                 _hit_ratio_5m->set_value((double)_num_hit_blocks_5m->get_value() /
                                          (double)_num_read_blocks_5m->get_value());
             }
-            if (_num_read_blocks_1h->get_value() > 0) {
+            if (_num_read_blocks_1h && _num_read_blocks_1h->get_value() > 0) {
                 _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
                                          (double)_num_read_blocks_1h->get_value());
             }
@@ -1980,12 +1981,12 @@ void BlockFileCache::run_background_monitor() {
                 _no_warmup_hit_ratio->set_value((double)_no_warmup_num_hit_blocks->get_value() /
                                                 (double)_no_warmup_num_read_blocks->get_value());
             }
-            if (_no_warmup_num_hit_blocks_5m->get_value() > 0) {
+            if (_no_warmup_num_hit_blocks_5m && _no_warmup_num_hit_blocks_5m->get_value() > 0) {
                 _no_warmup_hit_ratio_5m->set_value(
                         (double)_no_warmup_num_hit_blocks_5m->get_value() /
                         (double)_no_warmup_num_read_blocks_5m->get_value());
             }
-            if (_no_warmup_num_hit_blocks_1h->get_value() > 0) {
+            if (_no_warmup_num_hit_blocks_1h && _no_warmup_num_hit_blocks_1h->get_value() > 0) {
                 _no_warmup_hit_ratio_1h->set_value(
                         (double)_no_warmup_num_hit_blocks_1h->get_value() /
                         (double)_no_warmup_num_read_blocks_1h->get_value());

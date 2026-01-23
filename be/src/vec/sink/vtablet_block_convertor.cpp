@@ -183,14 +183,14 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr
         return DecimalType(iter->second);
     }
 
-    typename DecimalType::NativeType value;
+    DecimalType value;
     if constexpr (IsMin) {
         value = vectorized::min_decimal_value<DecimalType::PType>(type->get_precision());
     } else {
         value = vectorized::max_decimal_value<DecimalType::PType>(type->get_precision());
     }
-    pmap->emplace(type->get_precision(), value);
-    return DecimalType(value);
+    pmap->emplace(type->get_precision(), value.value);
+    return value;
 }
 
 Status OlapTableBlockConvertor::_internal_validate_column(

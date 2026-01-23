@@ -68,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -163,6 +164,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setSrcTupleId(-1);
         // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
+        params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -217,6 +219,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setColumnIdxs(columnIdxs);
             return;
         }
+
+        // Pre-index columns into a Map for O(1) lookup
+        List<Column> columns = getColumns();
+        Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
+        for (int i = 0; i < columns.size(); i++) {
+            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
+        }
+
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
             if (!slot.isIsFileSlot()) {
                 continue;
@@ -227,15 +237,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 continue;
             }
 
-            int idx = -1;
-            List<Column> columns = getColumns();
-            for (int i = 0; i < columns.size(); i++) {
-                if (columns.get(i).getName().equals(colName)) {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx == -1) {
+            Integer idx = columnNameMap.get(colName);
+            if (idx == null) {
                 throw new UserException("Column " + colName + " not found in table " + tbl.getName());
             }
             columnIdxs.add(idx);
@@ -574,6 +577,30 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } catch (Exception e) {
             LOG.info("Failed to get enable_mapping_varbinary from catalog, use default value false. Error: {}",
+                    e.getMessage());
+        }
+        return false;
+    }
+
+    protected boolean getEnableMappingTimestampTz() {
+        try {
+            TableIf table = getTargetTable();
+            // For External Catalog tables get from catalog properties
+            if (table instanceof ExternalTable) {
+                ExternalTable externalTable = (ExternalTable) table;
+                CatalogIf<?> catalog = externalTable.getCatalog();
+                if (catalog instanceof ExternalCatalog) {
+                    return ((ExternalCatalog) catalog).getEnableMappingTimestampTz();
+                }
+            }
+            // For TVF read directly from fileFormatProperties
+            if (table instanceof FunctionGenTable) {
+                FunctionGenTable functionGenTable = (FunctionGenTable) table;
+                ExternalFileTableValuedFunction tvf = (ExternalFileTableValuedFunction) functionGenTable.getTvf();
+                return tvf.fileFormatProperties.enableMappingTimestampTz;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to get enable_mapping_timestamp_tz from catalog, use default value false. Error: {}",
                     e.getMessage());
         }
         return false;

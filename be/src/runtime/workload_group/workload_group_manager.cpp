@@ -871,6 +871,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
 }
 
 void WorkloadGroupMgr::stop() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
     }

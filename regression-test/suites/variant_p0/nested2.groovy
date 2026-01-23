@@ -18,6 +18,10 @@
 // this test is used to test the type conflict of nested array
 suite("variant_nested_type_conflict", "p0"){
 
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_max_subcolumns_count = 0"
+    sql "set default_variant_sparse_hash_shard_count = 0"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
     try {
 
         def table_name = "var_nested_type_conflict"

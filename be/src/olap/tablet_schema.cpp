@@ -656,17 +656,26 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         // _parent_col_unique_id = _unique_id;
     }
     if (column.has_variant_max_subcolumns_count()) {
-        _variant_max_subcolumns_count = column.variant_max_subcolumns_count();
+        _variant.max_subcolumns_count = column.variant_max_subcolumns_count();
     }
     if (column.has_variant_enable_typed_paths_to_sparse()) {
-        _variant_enable_typed_paths_to_sparse = column.variant_enable_typed_paths_to_sparse();
+        _variant.enable_typed_paths_to_sparse = column.variant_enable_typed_paths_to_sparse();
     }
     if (column.has_variant_max_sparse_column_statistics_size()) {
-        _variant_max_sparse_column_statistics_size =
+        _variant.max_sparse_column_statistics_size =
                 column.variant_max_sparse_column_statistics_size();
     }
     if (column.has_variant_sparse_hash_shard_count()) {
-        _variant_sparse_hash_shard_count = column.variant_sparse_hash_shard_count();
+        _variant.sparse_hash_shard_count = column.variant_sparse_hash_shard_count();
+    }
+    if (column.has_variant_enable_doc_mode()) {
+        _variant.enable_doc_mode = column.variant_enable_doc_mode();
+    }
+    if (column.has_variant_doc_materialization_min_rows()) {
+        _variant.doc_materialization_min_rows = column.variant_doc_materialization_min_rows();
+    }
+    if (column.has_variant_doc_hash_shard_count()) {
+        _variant.doc_hash_shard_count = column.variant_doc_hash_shard_count();
     }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
@@ -745,12 +754,15 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         }
         column->set_index_length(0);
     }
-    column->set_variant_max_subcolumns_count(_variant_max_subcolumns_count);
+    column->set_variant_max_subcolumns_count(_variant.max_subcolumns_count);
     column->set_pattern_type(_pattern_type);
-    column->set_variant_enable_typed_paths_to_sparse(_variant_enable_typed_paths_to_sparse);
+    column->set_variant_enable_typed_paths_to_sparse(_variant.enable_typed_paths_to_sparse);
     column->set_variant_max_sparse_column_statistics_size(
-            _variant_max_sparse_column_statistics_size);
-    column->set_variant_sparse_hash_shard_count(_variant_sparse_hash_shard_count);
+            _variant.max_sparse_column_statistics_size);
+    column->set_variant_sparse_hash_shard_count(_variant.sparse_hash_shard_count);
+    column->set_variant_enable_doc_mode(_variant.enable_doc_mode);
+    column->set_variant_doc_materialization_min_rows(_variant.doc_materialization_min_rows);
+    column->set_variant_doc_hash_shard_count(_variant.doc_hash_shard_count);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {

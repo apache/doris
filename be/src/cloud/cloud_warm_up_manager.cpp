@@ -130,6 +130,9 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
                                                bool is_index, std::function<void(Status)> done_cb) {
+    VLOG_DEBUG << "submit warm up task for file: " << path << ", file_size: " << file_size
+               << ", expiration_time: " << expiration_time
+               << ", is_index: " << (is_index ? "true" : "false");
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
         if (!st.ok()) [[unlikely]] {
@@ -246,20 +249,23 @@ void CloudWarmUpManager::handle_jobs() {
                 }
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
                     // 1st. download segment files
-                    submit_download_tasks(
-                            storage_resource.value()->remote_segment_path(*rs, seg_id),
-                            rs->segment_file_size(cast_set<int>(seg_id)),
-                            storage_resource.value()->fs, expiration_time, wait, false,
-                            [tablet, rs, seg_id](Status st) {
-                                VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
-                                           << seg_id << " completed";
-                                if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB,
-                                                                           rs->rowset_id(), st, 1,
-                                                                           0)
-                                            .trigger_source == WarmUpTriggerSource::JOB) {
-                                    VLOG_DEBUG << "warmup rowset " << rs->version() << " completed";
-                                }
-                            });
+                    if (!config::file_cache_enable_only_warm_up_idx) {
+                        submit_download_tasks(
+                                storage_resource.value()->remote_segment_path(*rs, seg_id),
+                                rs->segment_file_size(cast_set<int>(seg_id)),
+                                storage_resource.value()->fs, expiration_time, wait, false,
+                                [tablet, rs, seg_id](Status st) {
+                                    VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
+                                               << seg_id << " completed";
+                                    if (tablet->complete_rowset_segment_warmup(
+                                                      WarmUpTriggerSource::JOB, rs->rowset_id(), st,
+                                                      1, 0)
+                                                .trigger_source == WarmUpTriggerSource::JOB) {
+                                        VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                   << " completed";
+                                    }
+                                });
+                    }
 
                     // 2nd. download inverted index files
                     int64_t file_size = -1;

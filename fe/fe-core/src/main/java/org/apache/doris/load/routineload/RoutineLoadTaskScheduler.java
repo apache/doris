@@ -165,6 +165,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             throw e;
         }
 
+        // update adaptive timeout before beginTxn to ensure transaction timeout matches task timeout
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+        routineLoadTaskInfo.updateAdaptiveTimeout(routineLoadJob);
+
         // begin txn
         try {
             if (!routineLoadTaskInfo.beginTxn()) {

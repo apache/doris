@@ -30,7 +30,7 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
 
     // Helper function to execute qt_sql with retry on NoSuchNamespaceException
     // If exception occurs, refresh catalog and retry once
-    def qtWithRefreshRetry = { String tag, String sqlStmt ->
+    def qtWithRefreshRetry = { String tag, String sqlStmt, String res ->
         def maxRetries = 2
         def retryCount = 0
         def success = false
@@ -38,7 +38,14 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
         while (!success && retryCount < maxRetries) {
             try {
                 // Use owner to access suite methods in closure
-                owner."qt_${tag}"(sqlStmt)
+                def actual_res = owner.sql("""${sqlStmt}""")
+                println(actual_res) 
+                if (res.equals(""))
+                    assertTrue(actual_res.size() == 0)
+                else {
+                    assertTrue(actual_res.size() > 0)
+                    assertEquals(res, actual_res[0][0])
+                }
                 success = true
             } catch (Exception e) {
                 def errorMsg = e.getMessage()
@@ -145,7 +152,7 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     sql """drop database if exists `ns1` force"""
     qt_sql01 """show databases like 'ns1.ns2.ns3'""" // empty
     sql """refresh catalog ${catalog_name}"""
-    qtWithRefreshRetry("sql02", """show databases like 'ns1.ns2.ns3'""") // empty
+    qtWithRefreshRetry("sql02", """show databases like 'ns1.ns2.ns3'""", "") // empty
 
     sql """create database `ns1.ns2.ns3`"""
     // will see 3 ns, flat
@@ -205,13 +212,13 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     sql """drop database `ns1.ns2` force"""
     qt_sql15 """show databases like "ns1.ns2"""" // empty
     sql """refresh catalog ${catalog_name}"""
-    qtWithRefreshRetry("sql16", """show databases like "ns1.ns2"""") // 1
+    qtWithRefreshRetry("sql16", """show databases like "ns1.ns2"""", "ns1.ns2") // 1
     // then we drop ns1.ns2.ns3, after refresh, ns1.ns2 also disappear
     sql """drop database `ns1.ns2.ns3` force"""
     qt_sql17 """show databases like "ns1.ns2"""" // 1
     qt_sql18 """show databases like "ns1.ns2.ns3"""" // empty
     sql """refresh catalog ${catalog_name}"""
-    qtWithRefreshRetry("sql19", """show databases like "ns1.ns2"""") // empty
+    qtWithRefreshRetry("sql19", """show databases like "ns1.ns2"""", "") // empty
     qt_sql20 """show databases like "ns1.ns2.ns3"""" // empty
 
     // recreate ns1.ns2.ns3
@@ -221,7 +228,7 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     // drop ns1.ns2.ns3, and ns1.ns2 will disappear too
     sql """drop database `ns1.ns2.ns3`"""
     sql """refresh catalog ${catalog_name}"""
-    qtWithRefreshRetry("sql23", """show databases like "ns1.ns2"""") // empty
+    qtWithRefreshRetry("sql23", """show databases like "ns1.ns2"""", "") // empty
     qt_sql24 """show databases like "ns1.ns2.ns3"""" // empty
 
     // recreate ns1.ns2.ns3, and create table in ns1.ns2
@@ -234,13 +241,13 @@ suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docke
     // drop ns1.ns2.ns3, ns1.ns2 will still exist
     sql """drop database `ns1.ns2.ns3`"""
     sql """refresh catalog ${catalog_name}"""
-    qtWithRefreshRetry("sql27", """show databases like "ns1.ns2"""") // 1
+    qtWithRefreshRetry("sql27", """show databases like "ns1.ns2"""", "ns1.ns2") // 1
     qt_sql28 """show databases like "ns1.ns2.ns3"""" // empty
     qt_sql29 """select * from `ns1.ns2`.test_table2"""
     // drop `ns1.ns2`.test_table2, and then ns1.ns2 will disappeal
     sql """drop table `ns1.ns2`.test_table2"""
     sql """refresh catalog ${catalog_name}"""
-    qtWithRefreshRetry("sql30", """show databases like "ns1.ns2"""") // empty
+    qtWithRefreshRetry("sql30", """show databases like "ns1.ns2"""", "") // empty
 
     // test dropping and creating table in nested ns spark created
     sql """drop table if exists `nested.db1`.spark_table"""

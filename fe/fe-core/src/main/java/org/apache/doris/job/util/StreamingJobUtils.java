@@ -355,6 +355,14 @@ public class StreamingJobUtils {
                 } else {
                     col.setType(ScalarType.createVarcharType(len));
                 }
+            } else if (col.getType().isChar()) {
+                // The length of char needs to be multiplied by 3.
+                int len = col.getType().getLength() * 3;
+                if (len > ScalarType.MAX_CHAR_LENGTH) {
+                    col.setType(ScalarType.createVarcharType(len));
+                } else {
+                    col.setType(ScalarType.createCharType(len));
+                }
             }
 
             // string can not to be key

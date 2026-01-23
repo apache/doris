@@ -1752,7 +1752,10 @@ int InstanceRecycler::abort_job_for_related_rowset(const RowsetMetaCloudPB& rows
 
     TabletIndexPB tablet_idx;
     int ret = get_tablet_idx(txn_kv_.get(), instance_id_, rowset_meta.tablet_id(), tablet_idx);
-    if (ret != 0) {
+    if (ret == 1) {
+        // tablet maybe recycled, directly return 0
+        return 0;
+    } else if (ret != 0) {
         LOG(WARNING) << "failed to get tablet index, tablet_id=" << rowset_meta.tablet_id()
                      << " instance_id=" << instance_id_ << " ret=" << ret;
         return ret;
@@ -2796,6 +2799,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
             return -1;
         }
         if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
+        if (!tablet_keys.empty() &&
+            std::ranges::all_of(tablet_keys, [](const auto& k) { return k.first.empty(); })) {
+            return -1;
+        }
         // sort the vector using key's order
         std::sort(tablet_keys.begin(), tablet_keys.end(),
                   [](const auto& prev, const auto& last) { return prev.first < last.first; });

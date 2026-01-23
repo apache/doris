@@ -30,7 +30,7 @@ template <PrimitiveType T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 };
 template <typename DataType>

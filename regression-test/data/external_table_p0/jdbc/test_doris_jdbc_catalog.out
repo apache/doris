@@ -136,7 +136,7 @@ double_col	double	Yes	true	\N	NONE
 decimal_col	decimal(10,5)	Yes	true	\N	NONE
 decimal_col2	decimal(30,10)	Yes	true	\N	NONE
 date_col	date	Yes	true	\N	NONE
-datetime_col	datetime(6)	Yes	true	\N	NONE
+datetime_col	datetime	Yes	true	\N	NONE
 char_col	char(85)	Yes	true	\N	NONE
 varchar_col	char(85)	Yes	true	\N	NONE
 json_col	text	Yes	true	\N	NONE

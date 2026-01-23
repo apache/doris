@@ -28,12 +28,12 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/json/json_parser.h"
-#include "vec/json/parse2column.cpp"
 
 namespace doris {
 
@@ -111,9 +111,9 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
 Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                             const FormatOptions& options) const {
     vectorized::ParseConfig config;
-    auto parser = parsers_pool.get([] { return new JsonParser(); });
+    StringRef json_ref(slice.data, slice.size);
     RETURN_IF_CATCH_EXCEPTION(
-            parse_json_to_variant(column, slice.data, slice.size, parser.get(), config));
+            variant_util::parse_json_to_variant(column, json_ref, nullptr, config));
     return Status::OK();
 }
 

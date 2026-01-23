@@ -137,9 +137,7 @@ protected:
                               .build(&_pool);
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
 
-        std::string test_path = "s3_fs_test_dir";
-        global_test_prefix_ = get_unique_test_path(test_path);
-        auto status = s3_fs_->delete_directory(global_test_prefix_);
+        auto status = s3_fs_->delete_directory("/");
         EXPECT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();
     }
 
@@ -170,23 +168,21 @@ protected:
         // Cleanup resources
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
         if (s3_fs_) {
-            auto status = s3_fs_->delete_directory(global_test_prefix_);
+            auto status = s3_fs_->delete_directory("/");
             EXPECT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();
         }
     }
 
-    std::string get_unique_test_path(const std::string& test_name) {
+    std::string get_unique_test_path() {
         std::string path = config_->get_prefix();
         if (!path.empty() && path.back() != '/') {
             path += '/';
         }
-        path += "ut_" + test_name + "/";
         return path;
     }
 
     std::shared_ptr<S3TestConfig> config_;
     std::shared_ptr<io::S3FileSystem> s3_fs_;
-    std::string global_test_prefix_;
 };
 
 // Test: Simple put object test
@@ -194,7 +190,7 @@ TEST_F(S3FileSystemTest, SimplePutObjectTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
     // Generate a unique test file path
-    std::string test_file = global_test_prefix_ + "test_file.txt";
+    std::string test_file = "test_file.txt";
     std::cout << "Test file path: " << test_file << std::endl;
 
     // Create file writer
@@ -238,7 +234,7 @@ TEST_F(S3FileSystemTest, SimplePutObjectTest) {
 TEST_F(S3FileSystemTest, MultipartUploadTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_file = global_test_prefix_ + "large_file.dat";
+    std::string test_file = "large_file.dat";
     std::cout << "Test file path: " << test_file << std::endl;
 
     // Create file writer
@@ -288,7 +284,7 @@ TEST_F(S3FileSystemTest, MultipartUploadTest) {
 TEST_F(S3FileSystemTest, ListObjectsTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_dir = global_test_prefix_ + "list_test_dir/";
+    std::string test_dir = "list_test_dir/";
     std::cout << "Test directory path: " << test_dir << std::endl;
 
     // Create multiple test files
@@ -337,7 +333,7 @@ TEST_F(S3FileSystemTest, ListObjectsTest) {
 TEST_F(S3FileSystemTest, BatchDeleteTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_dir = global_test_prefix_ + "batch_delete_test/";
+    std::string test_dir = "batch_delete_test/";
     std::cout << "Test directory path: " << test_dir << std::endl;
 
     // Create multiple test files
@@ -392,7 +388,7 @@ TEST_F(S3FileSystemTest, BatchDeleteTest) {
 TEST_F(S3FileSystemTest, DeleteDirectoryRecursivelyTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_dir = global_test_prefix_ + "recursive_delete_test/";
+    std::string test_dir = "recursive_delete_test/";
     std::cout << "Test directory path: " << test_dir << std::endl;
 
     // Create nested directory structure with files
@@ -455,7 +451,7 @@ TEST_F(S3FileSystemTest, UploadDownloadTest) {
     ofs << test_content;
     ofs.close();
 
-    std::string remote_file = global_test_prefix_ + "uploaded_file.txt";
+    std::string remote_file = "uploaded_file.txt";
     std::cout << "Remote file path: " << remote_file << std::endl;
 
     // Upload local file to S3
@@ -472,7 +468,9 @@ TEST_F(S3FileSystemTest, UploadDownloadTest) {
 
     // Download file from S3
     std::string download_file = "/tmp/test_download_file.txt";
-    status = s3_fs_->download(remote_file, download_file);
+    std::string need_download_file =
+            "s3://" + config_->get_bucket() + "/" + config_->get_prefix() + "/" + remote_file;
+    status = s3_fs_->download(need_download_file, download_file);
     ASSERT_TRUE(status.ok()) << "Failed to download file: " << status.to_string();
 
     std::cout << "Successfully downloaded file" << std::endl;
@@ -499,7 +497,7 @@ TEST_F(S3FileSystemTest, UploadDownloadTest) {
 TEST_F(S3FileSystemTest, OpenFileAndReadTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_file = global_test_prefix_ + "read_test_file.txt";
+    std::string test_file = "read_test_file.txt";
     std::cout << "Test file path: " << test_file << std::endl;
 
     // Create and write test file
@@ -560,7 +558,7 @@ TEST_F(S3FileSystemTest, OpenFileAndReadTest) {
 TEST_F(S3FileSystemTest, GeneratePresignedUrlTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_file = global_test_prefix_ + "presigned_url_test.txt";
+    std::string test_file = "presigned_url_test.txt";
     std::cout << "Test file path: " << test_file << std::endl;
 
     // Create test file
@@ -604,7 +602,7 @@ TEST_F(S3FileSystemTest, GeneratePresignedUrlTest) {
 TEST_F(S3FileSystemTest, CreateDirectoryTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_dir = global_test_prefix_ + "test_directory/";
+    std::string test_dir = "test_directory/";
 
     // Create directory (should succeed but is essentially a no-op for S3)
     Status status = s3_fs_->create_directory(test_dir);
@@ -617,7 +615,7 @@ TEST_F(S3FileSystemTest, CreateDirectoryTest) {
 TEST_F(S3FileSystemTest, FileSizeHeadObjectTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_file = global_test_prefix_ + "size_test_file.txt";
+    std::string test_file = "size_test_file.txt";
 
     // Create file with known size
     io::FileWriterPtr writer;
@@ -650,7 +648,7 @@ TEST_F(S3FileSystemTest, FileSizeHeadObjectTest) {
 TEST_F(S3FileSystemTest, ExistsNonExistentFileTest) {
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string non_existent_file = global_test_prefix_ + "non_existent_file_12345.txt";
+    std::string non_existent_file = "non_existent_file_12345.txt";
 
     bool exists = true;
     Status status = s3_fs_->exists(non_existent_file, &exists);
@@ -673,7 +671,7 @@ TEST_F(S3FileSystemTest, RateLimiterGetTest) {
     config::enable_s3_rate_limiter = true;
 
     // Create a test file first
-    std::string test_file = global_test_prefix_ + "rate_limit_get_test.txt";
+    std::string test_file = "rate_limit_get_test.txt";
     std::cout << "Test file path: " << test_file << std::endl;
 
     io::FileWriterPtr writer;
@@ -762,8 +760,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutTest) {
     Status status;
 
     for (int i = 0; i < 2; ++i) {
-        std::string test_file =
-                global_test_prefix_ + "rate_limit_put_test_" + std::to_string(i) + ".txt";
+        std::string test_file = "rate_limit_put_test_" + std::to_string(i) + ".txt";
         test_files.push_back(test_file);
 
         io::FileWriterPtr writer;
@@ -784,7 +781,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutTest) {
     }
 
     // Third write operation should fail due to rate limit
-    std::string test_file_fail = global_test_prefix_ + "rate_limit_put_test_fail.txt";
+    std::string test_file_fail = "rate_limit_put_test_fail.txt";
     io::FileWriterPtr writer;
     status = s3_fs_->create_file(test_file_fail, &writer);
     if (status.ok()) {
@@ -827,8 +824,7 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
     // Create test files first
     std::vector<std::string> test_files;
     for (int i = 0; i < 3; ++i) {
-        std::string test_file =
-                global_test_prefix_ + "rate_limit_download_test_" + std::to_string(i) + ".txt";
+        std::string test_file = "rate_limit_download_test_" + std::to_string(i) + ".txt";
         test_files.push_back(test_file);
 
         io::FileWriterPtr writer;
@@ -855,7 +851,9 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
     Status status;
     for (int i = 0; i < 2; ++i) {
         std::string local_file = "/tmp/rate_limit_download_" + std::to_string(i) + ".txt";
-        status = s3_fs_->download(test_files[i], local_file);
+        std::string need_download_file =
+                "s3://" + config_->get_bucket() + "/" + config_->get_prefix() + "/" + test_files[i];
+        status = s3_fs_->download(need_download_file, local_file);
         ASSERT_TRUE(status.ok()) << "Failed to download file on attempt " << i + 1 << ": "
                                  << status.to_string();
         std::cout << "Download attempt " << i + 1 << " succeeded" << std::endl;
@@ -864,7 +862,9 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
 
     // Third download operation should fail due to rate limit
     std::string local_file_fail = "/tmp/rate_limit_download_fail.txt";
-    status = s3_fs_->download(test_files[2], local_file_fail);
+    std::string need_download_file_fail =
+            "s3://" + config_->get_bucket() + "/" + config_->get_prefix() + "/" + test_files[2];
+    status = s3_fs_->download(need_download_file_fail, local_file_fail);
 
     EXPECT_FALSE(status.ok()) << "Third download should fail due to rate limit";
     std::cout << "Third download failed as expected: " << status.to_string() << std::endl;
@@ -887,6 +887,14 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartTest) {
+    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
+    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
+    // failure timing that makes the test assertions invalid for Azure.
+    if (config_->get_provider() == "AZURE") {
+        GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
+                        "behavior, not applicable for Azure";
+    }
+
     ASSERT_NE(s3_fs_, nullptr);
 
     // Save original config value
@@ -904,7 +912,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutMultipartTest) {
     std::cout << "Rate limiter set: limit 3 total requests for PUT operations (multipart)"
               << std::endl;
 
-    std::string test_file = global_test_prefix_ + "rate_limit_multipart_test.dat";
+    std::string test_file = "rate_limit_multipart_test.dat";
 
     // Create file writer
     io::FileWriterPtr writer;
@@ -976,8 +984,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutUploadTest) {
         ofs << "Upload test data " << i;
         ofs.close();
 
-        remote_files.push_back(global_test_prefix_ + "rate_limit_upload_" + std::to_string(i) +
-                               ".txt");
+        remote_files.push_back("rate_limit_upload_" + std::to_string(i) + ".txt");
     }
 
     // Set rate limit for PUT operations
@@ -1037,8 +1044,7 @@ TEST_F(S3FileSystemTest, RateLimiterGetHeadObjectTest) {
     // Create test files first
     std::vector<std::string> test_files;
     for (int i = 0; i < 3; ++i) {
-        std::string test_file =
-                global_test_prefix_ + "rate_limit_head_test_" + std::to_string(i) + ".txt";
+        std::string test_file = "rate_limit_head_test_" + std::to_string(i) + ".txt";
         test_files.push_back(test_file);
 
         io::FileWriterPtr writer;
@@ -1108,8 +1114,7 @@ TEST_F(S3FileSystemTest, RateLimiterGetListTest) {
     // Create test directories with files
     std::vector<std::string> test_dirs;
     for (int i = 0; i < 3; ++i) {
-        std::string test_dir =
-                global_test_prefix_ + "rate_limit_list_test_" + std::to_string(i) + "/";
+        std::string test_dir = "rate_limit_list_test_" + std::to_string(i) + "/";
         test_dirs.push_back(test_dir);
 
         // Create a file in each directory
@@ -1182,8 +1187,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutDeleteTest) {
     // Create test files first (without rate limit)
     std::vector<std::string> test_files;
     for (int i = 0; i < 3; ++i) {
-        std::string test_file =
-                global_test_prefix_ + "rate_limit_delete_test_" + std::to_string(i) + ".txt";
+        std::string test_file = "rate_limit_delete_test_" + std::to_string(i) + ".txt";
         test_files.push_back(test_file);
 
         io::FileWriterPtr writer;
@@ -1251,8 +1255,8 @@ TEST_F(S3FileSystemTest, RateLimiterPutBatchDeleteTest) {
     for (int batch = 0; batch < 3; ++batch) {
         std::vector<std::string> batch_files;
         for (int i = 0; i < 3; ++i) {
-            std::string test_file = global_test_prefix_ + "rate_limit_batch_delete_batch_" +
-                                    std::to_string(batch) + "_file_" + std::to_string(i) + ".txt";
+            std::string test_file = "rate_limit_batch_delete_batch_" + std::to_string(batch) +
+                                    "_file_" + std::to_string(i) + ".txt";
             batch_files.push_back(test_file);
 
             io::FileWriterPtr writer;
@@ -1329,8 +1333,7 @@ TEST_F(S3FileSystemTest, RateLimiterGetDeleteDirectoryListTest) {
     // Create multiple test directories with files
     std::vector<std::string> test_dirs;
     for (int i = 0; i < 3; ++i) {
-        std::string test_dir =
-                global_test_prefix_ + "rate_limit_delete_dir_list_" + std::to_string(i) + "/";
+        std::string test_dir = "rate_limit_delete_dir_list_" + std::to_string(i) + "/";
         test_dirs.push_back(test_dir);
 
         // Create multiple files in each directory
@@ -1393,6 +1396,14 @@ TEST_F(S3FileSystemTest, RateLimiterGetDeleteDirectoryListTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload with UploadPart failure
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartUploadPartFailureTest) {
+    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
+    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
+    // failure timing that makes the test assertions invalid for Azure.
+    if (config_->get_provider() == "AZURE") {
+        GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
+                        "behavior, not applicable for Azure";
+    }
+
     ASSERT_NE(s3_fs_, nullptr);
 
     // Save original config value
@@ -1409,7 +1420,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutMultipartUploadPartFailureTest) {
     std::cout << "Rate limiter set: limit 1 total request for PUT operations (UploadPart will fail)"
               << std::endl;
 
-    std::string test_file = global_test_prefix_ + "rate_limit_upload_part_test.dat";
+    std::string test_file = "rate_limit_upload_part_test.dat";
 
     // Create file writer
     io::FileWriterPtr writer;
@@ -1472,9 +1483,14 @@ TEST_F(S3FileSystemTest, RateLimiterPutMultipartUploadPartFailureTest) {
 
 // Test: S3 DeleteObjects with partial failure - some objects fail to delete
 TEST_F(S3FileSystemTest, DeleteDirectoryPartialFailureTest) {
+    // Skip if using Azure provider - SyncPoint mechanism is S3-specific
+    if (config_->get_provider() == "AZURE") {
+        GTEST_SKIP() << "This test uses S3-specific SyncPoint mechanism, not applicable for Azure";
+    }
+
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_dir = global_test_prefix_ + "delete_partial_failure_test/";
+    std::string test_dir = "delete_partial_failure_test/";
     std::cout << "Test directory path: " << test_dir << std::endl;
 
     // Create multiple test files
@@ -1548,9 +1564,14 @@ TEST_F(S3FileSystemTest, DeleteDirectoryPartialFailureTest) {
 
 // Test: S3 batch_delete (delete_objects) with partial failure - some objects fail to delete
 TEST_F(S3FileSystemTest, BatchDeletePartialFailureTest) {
+    // Skip if using Azure provider - SyncPoint mechanism is S3-specific
+    if (config_->get_provider() == "AZURE") {
+        GTEST_SKIP() << "This test uses S3-specific SyncPoint mechanism, not applicable for Azure";
+    }
+
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_dir = global_test_prefix_ + "batch_delete_partial_failure_test/";
+    std::string test_dir = "batch_delete_partial_failure_test/";
     std::cout << "Test directory path: " << test_dir << std::endl;
 
     // Create multiple test files
@@ -1646,9 +1667,14 @@ TEST_F(S3FileSystemTest, BatchDeletePartialFailureTest) {
 
 // Test: S3 get_object with incomplete read - bytes_read != size_return
 TEST_F(S3FileSystemTest, GetObjectIncompleteReadTest) {
+    // Skip if using Azure provider - SyncPoint mechanism is S3-specific
+    if (config_->get_provider() == "AZURE") {
+        GTEST_SKIP() << "This test uses S3-specific SyncPoint mechanism, not applicable for Azure";
+    }
+
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_file = global_test_prefix_ + "incomplete_read_test.txt";
+    std::string test_file = "incomplete_read_test.txt";
     std::cout << "Test file path: " << test_file << std::endl;
 
     // Create a test file with known content
@@ -1734,8 +1760,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutDeleteDirectoryDeleteObjectsTest) {
     // Create multiple test directories with files
     std::vector<std::string> test_dirs;
     for (int i = 0; i < 3; ++i) {
-        std::string test_dir =
-                global_test_prefix_ + "rate_limit_delete_dir_objects_" + std::to_string(i) + "/";
+        std::string test_dir = "rate_limit_delete_dir_objects_" + std::to_string(i) + "/";
         test_dirs.push_back(test_dir);
 
         // Create multiple files in each directory
@@ -1800,9 +1825,16 @@ TEST_F(S3FileSystemTest, RateLimiterPutDeleteDirectoryDeleteObjectsTest) {
 
 // Test: S3 CreateMultipartUpload failure - simulates error when initiating multipart upload
 TEST_F(S3FileSystemTest, CreateMultipartUploadFailureTest) {
+    // Skip if using Azure provider - SyncPoint mechanism is S3-specific
+    // Also, Azure's create_multipart_upload is a no-op that always succeeds
+    if (config_->get_provider() == "AZURE") {
+        GTEST_SKIP() << "This test uses S3-specific SyncPoint mechanism and multipart semantics, "
+                        "not applicable for Azure";
+    }
+
     ASSERT_NE(s3_fs_, nullptr);
 
-    std::string test_file = global_test_prefix_ + "create_multipart_upload_failure_test.dat";
+    std::string test_file = "create_multipart_upload_failure_test.dat";
     std::cout << "Test file path: " << test_file << std::endl;
 
     // Set up sync point to simulate CreateMultipartUpload failure
@@ -1890,6 +1922,527 @@ TEST_F(S3FileSystemTest, CreateMultipartUploadFailureTest) {
 
     // Try to cleanup (file should not exist since upload failed)
     std::ignore = s3_fs_->delete_file(test_file);
+}
+
+// Test: Azure-specific rate limiter exception handling for PUT operations
+TEST_F(S3FileSystemTest, AzureRateLimiterPutExceptionHandlingTest) {
+    // Skip if not using Azure provider
+    if (config_->get_provider() != "AZURE") {
+        GTEST_SKIP() << "This test is only for Azure provider. Current provider: "
+                     << config_->get_provider();
+    }
+
+    ASSERT_NE(s3_fs_, nullptr);
+
+    // Save original config value
+    bool original_enable_rate_limiter = config::enable_s3_rate_limiter;
+
+    // Enable S3 rate limiter for this test
+    config::enable_s3_rate_limiter = true;
+
+    // Set a very strict rate limit for PUT operations to trigger exception
+    // The exception "Azure exceeds request limit" should be caught and converted to error
+    // limit: 1 (allow only 1 request total, the 2nd will fail with exception)
+    int ret = reset_s3_rate_limiter(S3RateLimitType::PUT, 10, 10, 1);
+    ASSERT_EQ(ret, 0) << "Failed to set rate limiter for PUT operations";
+
+    std::cout << "Rate limiter set: limit 1 total request for PUT operations" << std::endl;
+
+    std::string test_file1 = "azure_rate_limit_exception_test_1.txt";
+    std::string test_file2 = "azure_rate_limit_exception_test_2.txt";
+
+    // First write operation should succeed
+    io::FileWriterPtr writer1;
+    Status status = s3_fs_->create_file(test_file1, &writer1);
+    ASSERT_TRUE(status.ok()) << "Failed to create file: " << status.to_string();
+
+    std::string test_data1 = "Test data 1 for Azure rate limiter exception handling";
+    status = writer1->append(test_data1);
+    ASSERT_TRUE(status.ok()) << "Failed to write data: " << status.to_string();
+
+    status = writer1->close();
+    ASSERT_TRUE(status.ok()) << "Failed to close writer: " << status.to_string();
+
+    std::cout << "First PUT succeeded" << std::endl;
+
+    // Second write operation should fail due to rate limit exception
+    // The exception should be caught in do_azure_client_call and converted to error status
+    io::FileWriterPtr writer2;
+    status = s3_fs_->create_file(test_file2, &writer2);
+    if (status.ok()) {
+        std::string test_data2 = "Test data 2";
+        status = writer2->append(test_data2);
+        if (status.ok()) {
+            status = writer2->close();
+        }
+    }
+
+    // Verify the exception was caught and converted to error response
+    EXPECT_FALSE(status.ok()) << "Second PUT should fail due to rate limit exception";
+    std::cout << "Second PUT failed as expected: " << status.to_string() << std::endl;
+
+    // Verify error message contains information about Azure rate limit or request failure
+    std::string error_msg = status.to_string();
+    bool has_expected_error = error_msg.find("Azure exceeds request limit") != std::string::npos ||
+                              error_msg.find("Azure request failed") != std::string::npos ||
+                              error_msg.find("exceeds request limit") != std::string::npos;
+    EXPECT_TRUE(has_expected_error)
+            << "Error message should mention Azure rate limit exception. Got: " << error_msg;
+
+    // Reset rate limiter to default (no limit)
+    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+
+    // Restore original config
+    config::enable_s3_rate_limiter = original_enable_rate_limiter;
+
+    std::cout << "Azure rate limiter PUT exception handling test completed successfully!"
+              << std::endl;
+
+    // Cleanup: Delete the first successfully created file
+    status = s3_fs_->delete_file(test_file1);
+    ASSERT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();
+}
+
+// Test: Azure-specific rate limiter exception handling for GET operations
+TEST_F(S3FileSystemTest, AzureRateLimiterGetExceptionHandlingTest) {
+    // Skip if not using Azure provider
+    if (config_->get_provider() != "AZURE") {
+        GTEST_SKIP() << "This test is only for Azure provider. Current provider: "
+                     << config_->get_provider();
+    }
+
+    ASSERT_NE(s3_fs_, nullptr);
+
+    // Save original config value
+    bool original_enable_rate_limiter = config::enable_s3_rate_limiter;
+
+    // Enable S3 rate limiter for this test
+    config::enable_s3_rate_limiter = true;
+
+    // Create a test file first (without rate limit)
+    std::string test_file = "azure_rate_limit_get_exception_test.txt";
+    io::FileWriterPtr writer;
+    Status status = s3_fs_->create_file(test_file, &writer);
+    ASSERT_TRUE(status.ok()) << "Failed to create file: " << status.to_string();
+
+    std::string test_data = "Test data for Azure GET rate limiter exception handling";
+    status = writer->append(test_data);
+    ASSERT_TRUE(status.ok()) << "Failed to write data: " << status.to_string();
+
+    status = writer->close();
+    ASSERT_TRUE(status.ok()) << "Failed to close writer: " << status.to_string();
+
+    std::cout << "Created test file: " << test_file << std::endl;
+
+    // Set a very strict rate limit for GET operations to trigger exception
+    // limit: 1 (allow only 1 request total, the 2nd will fail with exception)
+    int ret = reset_s3_rate_limiter(S3RateLimitType::GET, 10, 10, 1);
+    ASSERT_EQ(ret, 0) << "Failed to set rate limiter for GET operations";
+
+    std::cout << "Rate limiter set: limit 1 total request for GET operations" << std::endl;
+
+    // First GET operation (file_size uses head_object) should succeed
+    int64_t file_size = 0;
+    status = s3_fs_->file_size(test_file, &file_size);
+    ASSERT_TRUE(status.ok()) << "Failed to get file size: " << status.to_string();
+    EXPECT_EQ(file_size, test_data.size()) << "File size should match";
+    std::cout << "First GET (head_object) succeeded, file size: " << file_size << std::endl;
+
+    // Second GET operation should fail due to rate limit exception
+    // The exception should be caught in do_azure_client_call and converted to error status
+    io::FileReaderSPtr reader;
+    status = s3_fs_->open_file(test_file, &reader);
+    if (status.ok()) {
+        std::vector<char> buffer(test_data.size());
+        size_t bytes_read = 0;
+        status = reader->read_at(0, Slice(buffer.data(), test_data.size()), &bytes_read);
+    }
+
+    // Verify the exception was caught and converted to error response
+    EXPECT_FALSE(status.ok()) << "Second GET should fail due to rate limit exception";
+    std::cout << "Second GET failed as expected: " << status.to_string() << std::endl;
+
+    // Verify error message contains information about Azure rate limit or request failure
+    std::string error_msg = status.to_string();
+    bool has_expected_error = error_msg.find("Azure exceeds request limit") != std::string::npos ||
+                              error_msg.find("Azure request failed") != std::string::npos ||
+                              error_msg.find("exceeds request limit") != std::string::npos;
+    EXPECT_TRUE(has_expected_error)
+            << "Error message should mention Azure rate limit exception. Got: " << error_msg;
+
+    // Reset rate limiter to default (no limit)
+    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+
+    // Restore original config
+    config::enable_s3_rate_limiter = original_enable_rate_limiter;
+
+    std::cout << "Azure rate limiter GET exception handling test completed successfully!"
+              << std::endl;
+
+    // Cleanup
+    status = s3_fs_->delete_file(test_file);
+    ASSERT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();
+}
+
+// Test: Azure-specific rate limiter exception handling for list operations
+TEST_F(S3FileSystemTest, AzureRateLimiterListExceptionHandlingTest) {
+    // Skip if not using Azure provider
+    if (config_->get_provider() != "AZURE") {
+        GTEST_SKIP() << "This test is only for Azure provider. Current provider: "
+                     << config_->get_provider();
+    }
+
+    ASSERT_NE(s3_fs_, nullptr);
+
+    // Save original config value
+    bool original_enable_rate_limiter = config::enable_s3_rate_limiter;
+
+    // Enable S3 rate limiter for this test
+    config::enable_s3_rate_limiter = true;
+
+    // Create test directory with files (without rate limit)
+    std::string test_dir1 = "azure_list_exception_test_1/";
+    std::string test_dir2 = "azure_list_exception_test_2/";
+
+    // Create files in both directories
+    for (const auto& test_dir : {test_dir1, test_dir2}) {
+        for (int i = 0; i < 3; ++i) {
+            std::string test_file = test_dir + "file_" + std::to_string(i) + ".txt";
+            io::FileWriterPtr writer;
+            Status status = s3_fs_->create_file(test_file, &writer);
+            ASSERT_TRUE(status.ok()) << "Failed to create file: " << status.to_string();
+
+            std::string test_data = "List test data " + std::to_string(i);
+            status = writer->append(test_data);
+            ASSERT_TRUE(status.ok()) << "Failed to write data: " << status.to_string();
+
+            status = writer->close();
+            ASSERT_TRUE(status.ok()) << "Failed to close writer: " << status.to_string();
+        }
+    }
+    std::cout << "Created test directories with files" << std::endl;
+
+    // Set a very strict rate limit for GET operations (list uses GET limiter)
+    // limit: 1 (allow only 1 request total, the 2nd will fail with exception)
+    int ret = reset_s3_rate_limiter(S3RateLimitType::GET, 10, 10, 1);
+    ASSERT_EQ(ret, 0) << "Failed to set rate limiter for GET operations";
+
+    std::cout << "Rate limiter set: limit 1 total request for GET operations" << std::endl;
+
+    // First list operation should succeed
+    bool exists = false;
+    std::vector<io::FileInfo> files;
+    Status status = s3_fs_->list(test_dir1, true, &files, &exists);
+    ASSERT_TRUE(status.ok()) << "Failed to list first directory: " << status.to_string();
+    EXPECT_TRUE(exists);
+    EXPECT_GE(files.size(), 3) << "Should list all created files";
+    std::cout << "First list succeeded, found " << files.size() << " files" << std::endl;
+
+    // Second list operation should fail due to rate limit exception
+    files.clear();
+    exists = false;
+    status = s3_fs_->list(test_dir2, true, &files, &exists);
+
+    // Verify the exception was caught and converted to error response
+    EXPECT_FALSE(status.ok()) << "Second list should fail due to rate limit exception";
+    std::cout << "Second list failed as expected: " << status.to_string() << std::endl;
+
+    // Verify error message contains information about Azure rate limit or request failure
+    std::string error_msg = status.to_string();
+    bool has_expected_error = error_msg.find("Azure exceeds request limit") != std::string::npos ||
+                              error_msg.find("Azure request failed") != std::string::npos ||
+                              error_msg.find("exceeds request limit") != std::string::npos;
+    EXPECT_TRUE(has_expected_error)
+            << "Error message should mention Azure rate limit exception. Got: " << error_msg;
+
+    // Reset rate limiter to default (no limit)
+    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+
+    // Restore original config
+    config::enable_s3_rate_limiter = original_enable_rate_limiter;
+
+    std::cout << "Azure rate limiter list exception handling test completed successfully!"
+              << std::endl;
+
+    // Cleanup
+    status = s3_fs_->delete_directory(test_dir1);
+    ASSERT_TRUE(status.ok()) << "Failed to delete test directory 1: " << status.to_string();
+
+    status = s3_fs_->delete_directory(test_dir2);
+    ASSERT_TRUE(status.ok()) << "Failed to delete test directory 2: " << status.to_string();
+}
+
+// Test: Azure-specific rate limiter exception handling for delete operations
+TEST_F(S3FileSystemTest, AzureRateLimiterDeleteExceptionHandlingTest) {
+    // Skip if not using Azure provider
+    if (config_->get_provider() != "AZURE") {
+        GTEST_SKIP() << "This test is only for Azure provider. Current provider: "
+                     << config_->get_provider();
+    }
+
+    ASSERT_NE(s3_fs_, nullptr);
+
+    // Save original config value
+    bool original_enable_rate_limiter = config::enable_s3_rate_limiter;
+
+    // Enable S3 rate limiter for this test
+    config::enable_s3_rate_limiter = true;
+
+    // Create test files first (without rate limit)
+    std::string test_file1 = "azure_delete_exception_test_1.txt";
+    std::string test_file2 = "azure_delete_exception_test_2.txt";
+
+    for (const auto& test_file : {test_file1, test_file2}) {
+        io::FileWriterPtr writer;
+        Status status = s3_fs_->create_file(test_file, &writer);
+        ASSERT_TRUE(status.ok()) << "Failed to create file: " << status.to_string();
+
+        std::string test_data = "Delete exception test data";
+        status = writer->append(test_data);
+        ASSERT_TRUE(status.ok()) << "Failed to write data: " << status.to_string();
+
+        status = writer->close();
+        ASSERT_TRUE(status.ok()) << "Failed to close writer: " << status.to_string();
+    }
+    std::cout << "Created test files for delete exception test" << std::endl;
+
+    // Set a very strict rate limit for PUT operations (delete uses PUT limiter in Azure)
+    // limit: 1 (allow only 1 request total, the 2nd will fail with exception)
+    int ret = reset_s3_rate_limiter(S3RateLimitType::PUT, 10, 10, 1);
+    ASSERT_EQ(ret, 0) << "Failed to set rate limiter for PUT operations";
+
+    std::cout << "Rate limiter set: limit 1 total request for PUT operations" << std::endl;
+
+    // First delete operation should succeed
+    Status status = s3_fs_->delete_file(test_file1);
+    ASSERT_TRUE(status.ok()) << "Failed to delete first file: " << status.to_string();
+    std::cout << "First delete succeeded" << std::endl;
+
+    // Second delete operation should fail due to rate limit exception
+    status = s3_fs_->delete_file(test_file2);
+
+    // Verify the exception was caught and converted to error response
+    EXPECT_FALSE(status.ok()) << "Second delete should fail due to rate limit exception";
+    std::cout << "Second delete failed as expected: " << status.to_string() << std::endl;
+
+    // Verify error message contains information about Azure rate limit or request failure
+    std::string error_msg = status.to_string();
+    bool has_expected_error = error_msg.find("Azure exceeds request limit") != std::string::npos ||
+                              error_msg.find("Azure request failed") != std::string::npos ||
+                              error_msg.find("exceeds request limit") != std::string::npos;
+    EXPECT_TRUE(has_expected_error)
+            << "Error message should mention Azure rate limit exception. Got: " << error_msg;
+
+    // Reset rate limiter to default (no limit)
+    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+
+    // Restore original config
+    config::enable_s3_rate_limiter = original_enable_rate_limiter;
+
+    std::cout << "Azure rate limiter delete exception handling test completed successfully!"
+              << std::endl;
+
+    // Cleanup: Delete the remaining file
+    status = s3_fs_->delete_file(test_file2);
+    ASSERT_TRUE(status.ok()) << "Failed to cleanup test file: " << status.to_string();
+}
+
+// Test: Azure-specific rate limiter exception handling for batch delete operations
+TEST_F(S3FileSystemTest, AzureRateLimiterBatchDeleteExceptionHandlingTest) {
+    // Skip if not using Azure provider
+    if (config_->get_provider() != "AZURE") {
+        GTEST_SKIP() << "This test is only for Azure provider. Current provider: "
+                     << config_->get_provider();
+    }
+
+    ASSERT_NE(s3_fs_, nullptr);
+
+    // Save original config value
+    bool original_enable_rate_limiter = config::enable_s3_rate_limiter;
+
+    // Enable S3 rate limiter for this test
+    config::enable_s3_rate_limiter = true;
+
+    // Create test files first (without rate limit)
+    std::vector<std::string> test_files;
+    for (int i = 0; i < 6; ++i) {
+        std::string test_file = "azure_batch_delete_exception_" + std::to_string(i) + ".txt";
+        test_files.push_back(test_file);
+
+        io::FileWriterPtr writer;
+        Status status = s3_fs_->create_file(test_file, &writer);
+        ASSERT_TRUE(status.ok()) << "Failed to create file: " << status.to_string();
+
+        std::string test_data = "Batch delete exception test data";
+        status = writer->append(test_data);
+        ASSERT_TRUE(status.ok()) << "Failed to write data: " << status.to_string();
+
+        status = writer->close();
+        ASSERT_TRUE(status.ok()) << "Failed to close writer: " << status.to_string();
+    }
+    std::cout << "Created " << test_files.size() << " test files for batch delete exception test"
+              << std::endl;
+
+    // Set a very strict rate limit for PUT operations (batch delete uses PUT limiter)
+    // limit: 1 (allow only 1 batch delete request, the 2nd will fail with exception)
+    int ret = reset_s3_rate_limiter(S3RateLimitType::PUT, 10, 10, 1);
+    ASSERT_EQ(ret, 0) << "Failed to set rate limiter for PUT operations";
+
+    std::cout << "Rate limiter set: limit 1 total request for PUT operations" << std::endl;
+
+    // First batch delete (3 files) should succeed
+    std::vector<io::Path> first_batch = {test_files[0], test_files[1], test_files[2]};
+    Status status = s3_fs_->batch_delete(first_batch);
+    ASSERT_TRUE(status.ok()) << "Failed to batch delete first batch: " << status.to_string();
+    std::cout << "First batch delete succeeded, deleted " << first_batch.size() << " files"
+              << std::endl;
+
+    // Second batch delete (3 files) should fail due to rate limit exception
+    std::vector<io::Path> second_batch = {test_files[3], test_files[4], test_files[5]};
+    status = s3_fs_->batch_delete(second_batch);
+
+    // Verify the exception was caught and converted to error response
+    EXPECT_FALSE(status.ok()) << "Second batch delete should fail due to rate limit exception";
+    std::cout << "Second batch delete failed as expected: " << status.to_string() << std::endl;
+
+    // Verify error message contains information about Azure rate limit or request failure
+    std::string error_msg = status.to_string();
+    bool has_expected_error = error_msg.find("Azure exceeds request limit") != std::string::npos ||
+                              error_msg.find("Azure request failed") != std::string::npos ||
+                              error_msg.find("exceeds request limit") != std::string::npos;
+    EXPECT_TRUE(has_expected_error)
+            << "Error message should mention Azure rate limit exception. Got: " << error_msg;
+
+    // Reset rate limiter to default (no limit)
+    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+
+    // Restore original config
+    config::enable_s3_rate_limiter = original_enable_rate_limiter;
+
+    std::cout << "Azure rate limiter batch delete exception handling test completed successfully!"
+              << std::endl;
+
+    // Cleanup: Delete remaining files from second batch
+    status = s3_fs_->batch_delete(second_batch);
+    ASSERT_TRUE(status.ok()) << "Failed to cleanup remaining files: " << status.to_string();
+}
+
+// Test: Azure-specific rate limiter exception handling for delete_directory operations
+TEST_F(S3FileSystemTest, AzureRateLimiterDeleteDirectoryExceptionHandlingTest) {
+    // Skip if not using Azure provider
+    if (config_->get_provider() != "AZURE") {
+        GTEST_SKIP() << "This test is only for Azure provider. Current provider: "
+                     << config_->get_provider();
+    }
+
+    ASSERT_NE(s3_fs_, nullptr);
+
+    // Save original config value
+    bool original_enable_rate_limiter = config::enable_s3_rate_limiter;
+
+    // Enable S3 rate limiter for this test
+    config::enable_s3_rate_limiter = true;
+
+    // Create test directories with files (without rate limit)
+    std::string test_dir1 = "azure_delete_dir_exception_1/";
+    std::string test_dir2 = "azure_delete_dir_exception_2/";
+
+    for (const auto& test_dir : {test_dir1, test_dir2}) {
+        for (int i = 0; i < 5; ++i) {
+            std::string test_file = test_dir + "file_" + std::to_string(i) + ".txt";
+            io::FileWriterPtr writer;
+            Status status = s3_fs_->create_file(test_file, &writer);
+            ASSERT_TRUE(status.ok()) << "Failed to create file: " << status.to_string();
+
+            std::string test_data = "Delete directory exception test data";
+            status = writer->append(test_data);
+            ASSERT_TRUE(status.ok()) << "Failed to write data: " << status.to_string();
+
+            status = writer->close();
+            ASSERT_TRUE(status.ok()) << "Failed to close writer: " << status.to_string();
+        }
+    }
+    std::cout << "Created test directories with files for delete_directory exception test"
+              << std::endl;
+
+    // Set a very strict rate limit for GET operations (list in delete_directory uses GET limiter)
+    // limit: 1 (allow only 1 ListBlobs request, the 2nd will fail with exception)
+    int ret = reset_s3_rate_limiter(S3RateLimitType::GET, 10, 10, 1);
+    ASSERT_EQ(ret, 0) << "Failed to set rate limiter for GET operations";
+
+    std::cout << "Rate limiter set: limit 1 total request for GET operations (ListBlobs)"
+              << std::endl;
+
+    // First delete_directory operation should succeed
+    Status status = s3_fs_->delete_directory(test_dir1);
+    ASSERT_TRUE(status.ok()) << "Failed to delete first directory: " << status.to_string();
+    std::cout << "First delete_directory succeeded" << std::endl;
+
+    // Second delete_directory operation should fail due to rate limit exception during list
+    status = s3_fs_->delete_directory(test_dir2);
+
+    // Verify the exception was caught and converted to error response
+    EXPECT_FALSE(status.ok()) << "Second delete_directory should fail due to rate limit exception";
+    std::cout << "Second delete_directory failed as expected: " << status.to_string() << std::endl;
+
+    // Verify error message contains information about Azure rate limit or request failure
+    std::string error_msg = status.to_string();
+    bool has_expected_error = error_msg.find("Azure exceeds request limit") != std::string::npos ||
+                              error_msg.find("Azure request failed") != std::string::npos ||
+                              error_msg.find("exceeds request limit") != std::string::npos;
+    EXPECT_TRUE(has_expected_error)
+            << "Error message should mention Azure rate limit exception. Got: " << error_msg;
+
+    // Reset rate limiter to default (no limit)
+    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+
+    // Restore original config
+    config::enable_s3_rate_limiter = original_enable_rate_limiter;
+
+    std::cout
+            << "Azure rate limiter delete_directory exception handling test completed successfully!"
+            << std::endl;
+
+    // Cleanup: Delete the remaining directory
+    status = s3_fs_->delete_directory(test_dir2);
+    ASSERT_TRUE(status.ok()) << "Failed to cleanup remaining directory: " << status.to_string();
+}
+
+TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
+    // Save original config values
+    int64_t original_get_bucket_tokens = config::s3_get_bucket_tokens;
+    int64_t original_get_token_per_second = config::s3_get_token_per_second;
+    int64_t original_get_token_limit = config::s3_get_token_limit;
+
+    std::cout << "Original GET config: bucket_tokens=" << original_get_bucket_tokens
+              << ", token_per_second=" << original_get_token_per_second
+              << ", limit=" << original_get_token_limit << std::endl;
+
+    int64_t new_s3_get_bucket_tokens_val = 50;
+    int64_t new_s3_get_token_per_second_val = 1;
+
+    auto [success1, msg7] = config::set_config(
+            "s3_get_bucket_tokens", std::to_string(new_s3_get_bucket_tokens_val), false, false);
+    ASSERT_EQ(success1, 0) << "Failed to set s3_get_bucket_tokens: " << msg7;
+    auto [success2, msg8] =
+            config::set_config("s3_get_token_per_second",
+                               std::to_string(new_s3_get_token_per_second_val), false, false);
+    ASSERT_EQ(success2, 0) << "Failed to set s3_get_token_per_second: " << msg8;
+
+    auto st = create_client();
+    ASSERT_TRUE(st.ok());
+
+    // Verify restoration
+    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_burst(),
+              new_s3_get_bucket_tokens_val);
+    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_speed(),
+              new_s3_get_token_per_second_val);
 }
 
 } // namespace doris

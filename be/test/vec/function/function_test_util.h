@@ -35,7 +35,6 @@
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
-#include "udf/udf.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -60,6 +59,7 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_varbinary.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -262,13 +262,13 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else if constexpr (std::is_same_v<ReturnType, DataTypeTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_TIMEV2,
                                                             false, precision, scale);
-    } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeDateTime>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIME,
                                                             false);
-    } else if (std::is_same_v<ReturnType, DateV2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDateV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATEV2,
                                                             false);
-    } else if (std::is_same_v<ReturnType, DateTimeV2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDateTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
                                                             false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimalV2>) {

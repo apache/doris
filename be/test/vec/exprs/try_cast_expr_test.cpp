@@ -20,11 +20,11 @@
 #include <memory>
 
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vcast_expr.h"
 
 namespace doris::vectorized {

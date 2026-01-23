@@ -556,6 +556,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.VARCHAR);
     }
 
+    public boolean isChar() {
+        return isScalarType(PrimitiveType.CHAR);
+    }
+
     public boolean isJsonbType() {
         return isScalarType(PrimitiveType.JSONB);
     }

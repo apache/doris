@@ -276,15 +276,14 @@ private:
             // [null, null, 1, 2, 3] -> [null, null, 1, 3, 6]
             // [null, 1, null, 2, 3] -> [null, 1, 1, 3, 6]
             // [null, null, null, null] -> [null, null, null, null]
-            typename PrimitiveTypeTraits<Result>::ColumnItemType accumulated {};
+            typename PrimitiveTypeTraits<Result>::CppType accumulated {};
 
             for (size_t pos = prev_offset; pos < cur_offset; ++pos) {
                 // treat null value as 0
                 if (src_null_map[pos]) {
-                    accumulated += typename PrimitiveTypeTraits<Result>::ColumnItemType(0);
+                    accumulated += typename PrimitiveTypeTraits<Result>::CppType(0);
                 } else {
-                    accumulated +=
-                            typename PrimitiveTypeTraits<Result>::ColumnItemType(src_datas[pos]);
+                    accumulated += typename PrimitiveTypeTraits<Result>::CppType(src_datas[pos]);
                 }
 
                 res_datas[pos] = accumulated;
