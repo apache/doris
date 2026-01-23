@@ -19,7 +19,7 @@ suite("eager_agg") {
     sql """
         set eager_aggregation_mode=1;
         set eager_aggregation_on_join=true;
-        set runtime_filter_mode=0;
+        set runtime_filter_mode=OFF;
         set broadcast_row_count_limit=-1;
         set disable_nereids_rules="SALT_JOIN";
     """
