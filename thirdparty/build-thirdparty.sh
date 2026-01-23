@@ -153,21 +153,10 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-download_packages=()
-if [[ "${#packages[@]}" -gt 0 ]]; then
-    for package in "${packages[@]}"; do
-        if [[ "${package}" != "paimon_cpp" ]]; then
-            download_packages+=("${package}")
-        fi
-    done
-fi
-
 if [[ "${#packages[@]}" -eq 0 ]]; then
     eval "${TP_DIR}/download-thirdparty.sh"
-elif [[ "${#download_packages[@]}" -gt 0 ]]; then
-    eval "${TP_DIR}/download-thirdparty.sh ${download_packages[*]}"
 else
-    echo "Skip downloading thirdparties for local-only packages: ${packages[*]}"
+    eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
 fi
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
@@ -1184,6 +1173,8 @@ build_paimon_cpp() {
         -DPAIMON_BUILD_STATIC=ON \
         -DPAIMON_BUILD_TESTS=OFF \
         -DPAIMON_ENABLE_JINDO=OFF \
+        -DPAIMON_USE_EXTERNAL_RAPIDJSON=ON \
+        -DRAPIDJSON_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
         -DPAIMON_USE_EXTERNAL_GLOG=ON \
         -DGLOG_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
         -DGLOG_STATIC_LIB="${TP_LIB_DIR}/libglog.a" \
@@ -1191,6 +1182,7 @@ build_paimon_cpp() {
         -DGFLAGS_STATIC_LIB="${TP_LIB_DIR}/libgflags.a" \
         -DPAIMON_USE_BSYMBOLIC=OFF \
         -DPAIMON_LINK_SHARED_STDLIB=OFF \
+        -DPAIMON_ORC_V1=ON \
         ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"

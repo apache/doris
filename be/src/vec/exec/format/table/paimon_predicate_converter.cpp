@@ -374,7 +374,7 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         if (literal_primitive != TYPE_BOOLEAN) {
             return std::nullopt;
         }
-        return paimon::Literal(field.get<TYPE_BOOLEAN>());
+        return paimon::Literal(static_cast<bool>(field.get<TYPE_BOOLEAN>()));
     }
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
@@ -429,16 +429,18 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
             return std::nullopt;
         }
         int64_t seconds = 0;
-        bool ok = false;
         if (literal_primitive == TYPE_DATE) {
             const auto& dt = field.get<TYPE_DATE>();
-            ok = dt.unix_timestamp(&seconds, _gmt_tz);
+            if (!dt.is_valid_date()) {
+                return std::nullopt;
+            }
+            dt.unix_timestamp(&seconds, _gmt_tz);
         } else if (literal_primitive == TYPE_DATEV2) {
             const auto& dt = field.get<TYPE_DATEV2>();
-            ok = dt.unix_timestamp(&seconds, _gmt_tz);
-        }
-        if (!ok) {
-            return std::nullopt;
+            if (!dt.is_valid_date()) {
+                return std::nullopt;
+            }
+            dt.unix_timestamp(&seconds, _gmt_tz);
         }
         int32_t days = _seconds_to_days(seconds);
         return paimon::Literal(paimon::FieldType::DATE, days);
@@ -450,17 +452,19 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         }
         if (literal_primitive == TYPE_DATETIME) {
             const auto& dt = field.get<TYPE_DATETIME>();
-            int64_t seconds = 0;
-            if (!dt.unix_timestamp(&seconds, _gmt_tz)) {
+            if (!dt.is_valid_date()) {
                 return std::nullopt;
             }
+            int64_t seconds = 0;
+            dt.unix_timestamp(&seconds, _gmt_tz);
             return paimon::Literal(paimon::Timestamp::FromEpochMillis(seconds * 1000));
         }
         std::pair<int64_t, int64_t> ts;
         const auto& dt = field.get<TYPE_DATETIMEV2>();
-        if (!dt.unix_timestamp(&ts, _gmt_tz)) {
+        if (!dt.is_valid_date()) {
             return std::nullopt;
         }
+        dt.unix_timestamp(&ts, _gmt_tz);
         int64_t millis = ts.first * 1000 + ts.second / 1000;
         return paimon::Literal(paimon::Timestamp::FromEpochMillis(millis));
     }
