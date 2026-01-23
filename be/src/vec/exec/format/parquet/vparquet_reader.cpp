@@ -1017,6 +1017,7 @@ Status ParquetReader::_process_page_index_filter(
         *ans = &sig_stat;
         return true;
     };
+    cached_page_index.row_group_range = {0, row_group.num_rows};
     cached_page_index.get_stat_func = get_stat_func;
 
     candidate_row_ranges->add({0, row_group.num_rows});

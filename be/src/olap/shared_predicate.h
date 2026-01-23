@@ -180,6 +180,7 @@ public:
 
         if (!_nested) {
             // at the begining _nested will be null, so return true.
+            row_ranges = statistic->row_group_range;
             return true;
         }
         return _nested->evaluate_and(statistic, row_ranges);
