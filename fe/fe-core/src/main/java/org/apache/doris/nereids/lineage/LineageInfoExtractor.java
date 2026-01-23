@@ -484,8 +484,8 @@ public class LineageInfoExtractor {
         /**
          * Add indirect lineage information based on expressions.
          *
-         * <p>Using the example SQL above, FILTER on r.r_name is recorded at dataset-level when some outputs do not
-         * directly reference r.r_name.
+         * <p>Using the example SQL above, FILTER on r.r_name is recorded at dataset-level when no output directly
+         * references r.r_name.
          *
          * @param type the type of indirect lineage
          * @param expressions the expressions contributing to indirect lineage, should be shuttled conjunction
@@ -495,21 +495,24 @@ public class LineageInfoExtractor {
                                         Set<Expression> expressions, LineageInfo lineageInfo) {
             Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap
                     = lineageInfo.getDirectLineageMap();
-            for (Map.Entry<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineage
-                    : directLineageMap.entrySet()) {
-                SlotReference outputSlot = directLineage.getKey();
-                SetMultimap<DirectLineageType, Expression> value = directLineage.getValue();
-                Set<Slot> directSlots = value.values().stream()
-                        .flatMap(expr -> expr.collectToList(Slot.class::isInstance).stream())
-                        .map(Slot.class::cast)
-                        .collect(Collectors.toSet());
-                for (Expression expr : expressions) {
-                    Set<Slot> exprSlots = expr.collectToSet(Slot.class::isInstance);
+            for (Expression expr : expressions) {
+                Set<Slot> exprSlots = expr.collectToSet(Slot.class::isInstance);
+                boolean hasPerOutputMatch = false;
+                for (Map.Entry<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineage
+                        : directLineageMap.entrySet()) {
+                    SlotReference outputSlot = directLineage.getKey();
+                    SetMultimap<DirectLineageType, Expression> value = directLineage.getValue();
+                    Set<Slot> directSlots = value.values().stream()
+                            .flatMap(valueExpr -> valueExpr.collectToList(Slot.class::isInstance).stream())
+                            .map(Slot.class::cast)
+                            .collect(Collectors.toSet());
                     if (!Sets.intersection(exprSlots, directSlots).isEmpty()) {
                         lineageInfo.addIndirectLineage(outputSlot, type, expr);
-                    } else {
-                        lineageInfo.addDatasetIndirectLineage(type, expr);
+                        hasPerOutputMatch = true;
                     }
+                }
+                if (!hasPerOutputMatch) {
+                    lineageInfo.addDatasetIndirectLineage(type, expr);
                 }
             }
         }

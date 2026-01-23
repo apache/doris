@@ -114,10 +114,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "custkey",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "total_price", LineageInfo.DirectLineageType.AGGREGATION);
+        assertIndirectContains(lineageInfo, "custkey", LineageInfo.IndirectLineageType.GROUP_BY);
         assertIndirectContains(lineageInfo, "total_price",
                 LineageInfo.IndirectLineageType.JOIN,
-                LineageInfo.IndirectLineageType.FILTER,
-                LineageInfo.IndirectLineageType.GROUP_BY);
+                LineageInfo.IndirectLineageType.FILTER);
         assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
@@ -267,10 +267,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "nation_name",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "revenue", LineageInfo.DirectLineageType.AGGREGATION);
+        assertIndirectContains(lineageInfo, "nation_name", LineageInfo.IndirectLineageType.GROUP_BY);
         assertIndirectContains(lineageInfo, "revenue",
                 LineageInfo.IndirectLineageType.JOIN,
-                LineageInfo.IndirectLineageType.FILTER,
-                LineageInfo.IndirectLineageType.GROUP_BY);
+                LineageInfo.IndirectLineageType.FILTER);
         assertTableLineageContains(lineageInfo, "customer", "orders", "lineitem", "supplier", "nation", "region");
     }
 
@@ -291,7 +291,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContainsAny(lineageInfo, "price",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
-        assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.SORT);
+        assertIndirectContains(lineageInfo, "price", LineageInfo.IndirectLineageType.SORT);
         assertTableLineageContains(lineageInfo, "orders");
     }
 
@@ -312,8 +312,8 @@ public class LineageInfoExtractorTest extends TestWithFeService {
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContainsAny(lineageInfo, "price",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
-        assertIndirectContains(lineageInfo, "price",
-                LineageInfo.IndirectLineageType.JOIN, LineageInfo.IndirectLineageType.FILTER);
+        assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.JOIN);
+        assertIndirectContains(lineageInfo, "price", LineageInfo.IndirectLineageType.FILTER);
         assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
@@ -351,10 +351,10 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "custkey",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "total_price", LineageInfo.DirectLineageType.AGGREGATION);
+        assertIndirectContains(lineageInfo, "custkey", LineageInfo.IndirectLineageType.GROUP_BY);
         assertIndirectContains(lineageInfo, "total_price",
                 LineageInfo.IndirectLineageType.JOIN,
-                LineageInfo.IndirectLineageType.FILTER,
-                LineageInfo.IndirectLineageType.GROUP_BY);
+                LineageInfo.IndirectLineageType.FILTER);
         assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
@@ -420,7 +420,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         assertDirectContainsAny(lineageInfo, "custkey",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContains(lineageInfo, "total_price", LineageInfo.DirectLineageType.AGGREGATION);
-        assertIndirectContains(lineageInfo, "total_price", LineageInfo.IndirectLineageType.GROUP_BY);
+        assertIndirectContains(lineageInfo, "custkey", LineageInfo.IndirectLineageType.GROUP_BY);
         assertTableLineageContains(lineageInfo, "orders", "customer");
     }
 
@@ -576,7 +576,7 @@ public class LineageInfoExtractorTest extends TestWithFeService {
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
         assertDirectContainsAny(lineageInfo, "tag",
                 LineageInfo.DirectLineageType.IDENTITY, LineageInfo.DirectLineageType.TRANSFORMATION);
-        assertIndirectContains(lineageInfo, "orderkey", LineageInfo.IndirectLineageType.SORT);
+        assertIndirectContains(lineageInfo, "price", LineageInfo.IndirectLineageType.SORT);
         assertTableLineageContains(lineageInfo, "orders", "lineitem");
     }
 
