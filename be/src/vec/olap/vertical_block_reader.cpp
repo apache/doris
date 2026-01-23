@@ -572,7 +572,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
 
             const size_t base_offset = target_columns.empty() ? 0 : target_columns[0]->size();
 
-            // Step 3: Sparse optimization - pre-fill with NULL and pre-cast destination columns
+            // Step 2: Sparse optimization - pre-fill with NULL and pre-cast destination columns
             // Pre-cast destination columns outside the loop to avoid repeated assert_cast
             std::vector<ColumnNullable*> nullable_dst_cols(column_count, nullptr);
             // Track which columns support in-place replacement (fixed-width types)
