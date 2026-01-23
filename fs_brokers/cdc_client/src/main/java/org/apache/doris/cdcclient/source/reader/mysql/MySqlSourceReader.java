@@ -17,7 +17,6 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
-import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.source.factory.DataSource;
@@ -183,7 +182,11 @@ public class MySqlSourceReader implements SourceReader {
             this.currentReader = getSnapshotSplitReader(baseReq);
         } else if (this.currentSplit instanceof MySqlBinlogSplit) {
             this.currentReader = getBinlogSplitReader(baseReq);
+        } else {
+            throw new IllegalStateException(
+                    "Unsupported MySqlSplit type: " + this.currentSplit.getClass().getName());
         }
+
         this.currentReader.submitSplit(this.currentSplit);
         MySqlSplitState currentSplitState = null;
         if (this.currentSplit.isSnapshotSplit()) {
@@ -421,91 +424,6 @@ public class MySqlSourceReader implements SourceReader {
         } catch (Exception e) {
             LOG.warn("Failed to close chunkSplitter via reflection,", e);
         }
-    }
-
-    private SplitRecords pollSplitRecordsWithSplit(MySqlSplit split, JobBaseConfig jobConfig)
-            throws Exception {
-        Preconditions.checkState(split != null, "split is null");
-        SourceRecords sourceRecords = null;
-        String currentSplitId = null;
-        DebeziumReader<SourceRecords, MySqlSplit> currentReader = null;
-        LOG.info("Get a split: {}", split.toString());
-        if (split instanceof MySqlSnapshotSplit) {
-            currentReader = getSnapshotSplitReader(jobConfig);
-        } else if (split instanceof MySqlBinlogSplit) {
-            currentReader = getBinlogSplitReader(jobConfig);
-        }
-        this.setCurrentReader(currentReader);
-        currentReader.submitSplit(split);
-        currentSplitId = split.splitId();
-        // make split record available
-        sourceRecords =
-                pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
-        if (currentReader instanceof SnapshotSplitReader) {
-            closeCurrentReader();
-        }
-        return new SplitRecords(currentSplitId, sourceRecords.iterator());
-    }
-
-    private SplitRecords pollSplitRecordsWithCurrentReader(
-            DebeziumReader<SourceRecords, MySqlSplit> currentReader) throws Exception {
-        Iterator<SourceRecords> dataIt = null;
-        if (currentReader instanceof BinlogSplitReader) {
-            dataIt = currentReader.pollSplitRecords();
-            return dataIt == null
-                    ? null
-                    : new SplitRecords(BINLOG_SPLIT_ID, dataIt.next().iterator());
-        } else {
-            throw new IllegalStateException("Unsupported reader type.");
-        }
-    }
-
-    /**
-     * Split tasks are submitted asynchronously, and data is sent to the Debezium queue. Therefore,
-     * there will be a time interval between retrieving data; it's necessary to fetch data until the
-     * queue has data.
-     */
-    private SourceRecords pollUntilDataAvailable(
-            DebeziumReader<SourceRecords, MySqlSplit> reader,
-            long maxWaitTimeMs,
-            long pollIntervalMs)
-            throws InterruptedException {
-        long startTime = System.currentTimeMillis();
-        long elapsedTime = 0;
-        int attemptCount = 0;
-        LOG.info("Polling until data available");
-        Iterator<SourceRecords> lastDataIt = null;
-        while (elapsedTime < maxWaitTimeMs) {
-            attemptCount++;
-            lastDataIt = reader.pollSplitRecords();
-            if (lastDataIt != null && lastDataIt.hasNext()) {
-                SourceRecords sourceRecords = lastDataIt.next();
-                if (sourceRecords != null && !sourceRecords.getSourceRecordList().isEmpty()) {
-                    LOG.info(
-                            "Data available after {} ms ({} attempts). {} Records received.",
-                            elapsedTime,
-                            attemptCount,
-                            sourceRecords.getSourceRecordList().size());
-                    // todo: Until debezium_heartbeat is consumed
-                    return sourceRecords;
-                }
-            }
-
-            // No records yet, continue polling
-            if (elapsedTime + pollIntervalMs < maxWaitTimeMs) {
-                Thread.sleep(pollIntervalMs);
-                elapsedTime = System.currentTimeMillis() - startTime;
-            } else {
-                // Last attempt before timeout
-                break;
-            }
-        }
-
-        LOG.warn(
-                "Timeout: No data (heartbeat or data change) received after {} ms ({} attempts).",
-                elapsedTime,
-                attemptCount);
-        return new SourceRecords(new ArrayList<>());
     }
 
     private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config) {
