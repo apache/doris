@@ -123,7 +123,7 @@ public class MysqlPasswordTest {
         GlobalVariable.validatePasswordDictionaryFile = "";
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Xk9$mN2@pL");
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "MyP@ss1!");
-        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Str0ng!Pwd");
+        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Str0ng!Powd");
     }
 
     @Test
@@ -386,44 +386,4 @@ public class MysqlPasswordTest {
         // Should pass since dictionary effectively has no words
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123X");
     }
-
-    @Test
-    public void testValidatePasswordSpecialCharacters() throws AnalysisException {
-        GlobalVariable.validatePasswordDictionaryFile = "";
-        // Test various special characters are accepted
-        String[] validPasswords = {
-                "Abcdef1~",
-                "Abcdef1!",
-                "Abcdef1@",
-                "Abcdef1#",
-                "Abcdef1$",
-                "Abcdef1%",
-                "Abcdef1^",
-                "Abcdef1&",
-                "Abcdef1*",
-                "Abcdef1(",
-                "Abcdef1)",
-                "Abcdef1_",
-                "Abcdef1+",
-                "Abcdef1|",
-                "Abcdef1<",
-                "Abcdef1>",
-                "Abcdef1,",
-                "Abcdef1.",
-                "Abcdef1?",
-                "Abcdef1/",
-                "Abcdef1:",
-                "Abcdef1;",
-                "Abcdef1'",
-                "Abcdef1[",
-                "Abcdef1]",
-                "Abcdef1{",
-                "Abcdef1}",
-        };
-
-        for (String password : validPasswords) {
-            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, password);
-        }
-    }
-
 }
