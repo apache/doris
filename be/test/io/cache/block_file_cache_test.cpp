@@ -983,6 +983,7 @@ TEST_F(BlockFileCacheTest, init) {
         )");
     cache_paths.clear();
     EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
+    config::enable_file_cache_query_limit = false;
 }
 
 TEST_F(BlockFileCacheTest, normal) {
@@ -1257,7 +1258,7 @@ TEST_F(BlockFileCacheTest, query_limit_heap_use_after_free) {
     query_id.hi = 1;
     query_id.lo = 1;
     context.query_id = query_id;
-    auto query_context_holder = cache.get_query_context_holder(query_id);
+    auto query_context_holder = cache.get_query_context_holder(query_id, 100);
     {
         auto holder = cache.get_or_set(key, 9, 1, context); /// Add range [9, 9]
         auto blocks = fromHolder(holder);
@@ -1344,7 +1345,7 @@ TEST_F(BlockFileCacheTest, query_limit_dcheck) {
     query_id.hi = 1;
     query_id.lo = 1;
     context.query_id = query_id;
-    auto query_context_holder = cache.get_query_context_holder(query_id);
+    auto query_context_holder = cache.get_query_context_holder(query_id, 100);
     {
         auto holder = cache.get_or_set(key, 9, 1, context); /// Add range [9, 9]
         auto blocks = fromHolder(holder);
@@ -3003,7 +3004,7 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
         }
         ASSERT_LT(i, 1000);
         auto query_context_holder =
-                FileCacheFactory::instance()->get_query_context_holders(query_id);
+                FileCacheFactory::instance()->get_query_context_holders(query_id, 50);
         for (int64_t offset = 0; offset < 60; offset += 5) {
             auto holder = cache->get_or_set(key, offset, 5, context);
             auto blocks = fromHolder(holder);
@@ -3178,7 +3179,7 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
             };
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        EXPECT_EQ(cache.get_query_context_holder(id), nullptr);
+        EXPECT_EQ(cache.get_query_context_holder(id, 50), nullptr);
     }
     config::enable_file_cache_query_limit = true;
     io::BlockFileCache cache(cache_base_path, settings);
@@ -3190,9 +3191,9 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     id.hi = id.lo = 0;
-    EXPECT_EQ(cache.get_query_context_holder(id)->context, nullptr);
+    EXPECT_EQ(cache.get_query_context_holder(id, 50)->context, nullptr);
     id.hi = id.lo = 1;
-    auto query_ctx_1 = cache.get_query_context_holder(id);
+    auto query_ctx_1 = cache.get_query_context_holder(id, 50);
     ASSERT_NE(query_ctx_1, nullptr);
     for (int64_t offset = 0; offset < 60; offset += 5) {
         auto holder = cache.get_or_set(key, offset, 5, context);
@@ -3205,7 +3206,7 @@ TEST_F(BlockFileCacheTest, query_file_cache) {
         assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 4),
                      io::FileBlock::State::DOWNLOADED);
     }
-    auto query_ctx_2 = cache.get_query_context_holder(id);
+    auto query_ctx_2 = cache.get_query_context_holder(id, 50);
     EXPECT_EQ(query_ctx_1->query_id, query_ctx_2->query_id);
     std::lock_guard lock(cache._mutex);
     EXPECT_EQ(query_ctx_1->context->get_cache_size(lock),
@@ -3248,7 +3249,7 @@ TEST_F(BlockFileCacheTest, query_file_cache_reserve) {
         };
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    auto query_ctx_1 = cache.get_query_context_holder(id);
+    auto query_ctx_1 = cache.get_query_context_holder(id, 50);
     ASSERT_NE(query_ctx_1, nullptr);
     {
         auto holder = cache.get_or_set(key, 0, 5, context);
