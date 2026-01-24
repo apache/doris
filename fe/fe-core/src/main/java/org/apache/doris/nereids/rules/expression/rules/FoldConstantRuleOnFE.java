@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gamma;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -86,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -185,7 +187,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(LastQueryId.class, this::visitLastQueryId),
                 matches(Nvl.class, this::visitNvl),
                 matches(NullIf.class, this::visitNullIf),
-                matches(Match.class, this::visitMatch)
+                matches(Match.class, this::visitMatch),
+                matches(Gamma.class, this::visitGamma)
         );
     }
 
@@ -216,6 +219,21 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitLiteral(Literal literal, ExpressionRewriteContext context) {
         return literal;
+    }
+
+    @Override
+    public Expression visitGamma(Gamma gamma, ExpressionRewriteContext context) {
+        gamma = rewriteChildren(gamma, context);
+        Optional<Expression> checkedExpr = preProcess(gamma);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        Expression child = gamma.child();
+        if (!(child instanceof Literal)) {
+            return gamma;
+        }
+        double value = ((Literal) child).getDouble();
+        return new DoubleLiteral(org.apache.commons.math3.special.Gamma.gamma(value));
     }
 
     @Override
