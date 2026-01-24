@@ -251,12 +251,14 @@ void CloudWarmUpManager::handle_jobs() {
                 }
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
                     // 1st. download segment files
+                    // Use rs->fs() instead of storage_resource.value()->fs to support packed
+                    // files. PackedFileSystem wrapper in RowsetMeta::fs() handles the index_map
+                    // lookup and reads from the correct packed file.
                     if (!config::file_cache_enable_only_warm_up_idx) {
                         submit_download_tasks(
                                 storage_resource.value()->remote_segment_path(*rs, seg_id),
-                                rs->segment_file_size(cast_set<int>(seg_id)),
-                                storage_resource.value()->fs, expiration_time, wait, false,
-                                [tablet, rs, seg_id](Status st) {
+                                rs->segment_file_size(cast_set<int>(seg_id)), rs->fs(),
+                                expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                                << seg_id << " completed";
                                     if (tablet->complete_rowset_segment_warmup(
@@ -301,8 +303,8 @@ void CloudWarmUpManager::handle_jobs() {
                             tablet->update_rowset_warmup_state_inverted_idx_num(
                                     WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
                             submit_download_tasks(
-                                    idx_path, file_size, storage_resource.value()->fs,
-                                    expiration_time, wait, true, [=](Status st) {
+                                    idx_path, file_size, rs->fs(), expiration_time, wait, true,
+                                    [=](Status st) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";
@@ -324,8 +326,8 @@ void CloudWarmUpManager::handle_jobs() {
                             tablet->update_rowset_warmup_state_inverted_idx_num(
                                     WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
                             submit_download_tasks(
-                                    idx_path, file_size, storage_resource.value()->fs,
-                                    expiration_time, wait, true, [=](Status st) {
+                                    idx_path, file_size, rs->fs(), expiration_time, wait, true,
+                                    [=](Status st) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";

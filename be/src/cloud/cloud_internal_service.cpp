@@ -522,12 +522,15 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     }
                 };
 
+                // Use rs_meta.fs() instead of storage_resource.value()->fs to support packed files.
+                // PackedFileSystem wrapper in rs_meta.fs() handles the index_map lookup and
+                // reads from the correct packed file.
                 io::DownloadFileMeta download_meta {
                         .path = storage_resource.value()->remote_segment_path(rs_meta, segment_id),
                         .file_size = segment_size,
                         .offset = 0,
                         .download_size = segment_size,
-                        .file_system = storage_resource.value()->fs,
+                        .file_system = rs_meta.fs(),
                         .ctx = {.is_index_data = false,
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
@@ -543,8 +546,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
                 _engine.file_cache_block_downloader().submit_download_task(download_meta);
             }
+
+            // Use rs_meta.fs() to support packed files for inverted index download.
             auto download_inverted_index = [&, tablet](std::string index_path, uint64_t idx_size) {
-                auto storage_resource = rs_meta.remote_storage_resource();
                 auto download_done = [=, version = rs_meta.version()](Status st) {
                     DBUG_EXECUTE_IF(
                             "CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
@@ -600,7 +604,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                 io::DownloadFileMeta download_meta {
                         .path = io::Path(index_path),
                         .file_size = static_cast<int64_t>(idx_size),
-                        .file_system = storage_resource.value()->fs,
+                        .file_system = rs_meta.fs(),
                         .ctx = {.is_index_data = false, // DORIS-20877
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
