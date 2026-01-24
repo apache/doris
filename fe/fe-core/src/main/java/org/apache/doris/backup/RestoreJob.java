@@ -242,8 +242,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
         // if backup snapshot is come from a cluster with force replication allocation,
-        // ignore the origin allocation
-        if (jobInfo.isForceReplicationAllocation) {
+        // or is cloud mode, ignore the origin allocation
+        if (jobInfo.isForceReplicationAllocation || Config.isCloudMode()) {
             this.reserveReplica = false;
         }
         this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
