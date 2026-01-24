@@ -42,12 +42,14 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -207,16 +209,17 @@ public class DemoMultiBackendsTest {
         // test show backends;
         BackendsProcDir dir = new BackendsProcDir(Env.getCurrentSystemInfo());
         ProcResult result = dir.fetchResult();
-        Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
+        ImmutableList<String> backendsTitleNames = BackendsTableValuedFunction.getBackendsTitleNames();
+        Assert.assertEquals(backendsTitleNames.size(), result.getColumnNames().size());
         Assert.assertEquals("{\"location\" : \"default\"}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 10));
+                result.getRows().get(0).get(backendsTitleNames.size() - 10));
         Assert.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
                         + "\"isLoadDisabled\":false,\"isActive\":true,\"isShutdown\":false,\"currentFragmentNum\":0,"
                         + "\"lastFragmentUpdateTime\":0}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 7));
-        Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
+                result.getRows().get(0).get(backendsTitleNames.size() - 7));
+        Assert.assertEquals("0", result.getRows().get(0).get(backendsTitleNames.size() - 6));
+        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 5));
     }
 
     protected void alterTable(String sql, ConnectContext connectContext) throws Exception {

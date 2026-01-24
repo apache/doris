@@ -19,7 +19,38 @@
 suite("test_backends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0)
-    assertEquals(25, table[0].size())
+    assertEquals(29, table[0].size())
+
+    List<List<Object>> titleNames = sql """ describe function backends(); """
+    assertTrue(titleNames[0][0] =="BackendId")
+    assertTrue(titleNames[1][0] =="Host")
+    assertTrue(titleNames[2][0] =="HeartbeatPort")
+    assertTrue(titleNames[3][0] =="BePort")
+    assertTrue(titleNames[4][0] =="HttpPort")
+    assertTrue(titleNames[5][0] =="BrpcPort")
+    assertTrue(titleNames[6][0] =="ArrowFlightSqlPort")
+    assertTrue(titleNames[7][0] =="LastStartTime")
+    assertTrue(titleNames[8][0] =="LastHeartbeat")
+    assertTrue(titleNames[9][0] =="Alive")
+    assertTrue(titleNames[10][0] =="SystemDecommissioned")
+    assertTrue(titleNames[11][0] =="TabletNum")
+    assertTrue(titleNames[12][0] =="DataUsedCapacity")
+    assertTrue(titleNames[13][0] =="TrashUsedCapacity")
+    assertTrue(titleNames[14][0] =="AvailCapacity")
+    assertTrue(titleNames[15][0] =="TotalCapacity")
+    assertTrue(titleNames[16][0] =="UsedPct")
+    assertTrue(titleNames[17][0] =="MaxDiskUsedPct")
+    assertTrue(titleNames[18][0] =="RemoteUsedCapacity")
+    assertTrue(titleNames[19][0] =="Tag")
+    assertTrue(titleNames[20][0] =="ErrMsg")
+    assertTrue(titleNames[21][0] =="Version")
+    assertTrue(titleNames[22][0] =="Status")
+    assertTrue(titleNames[23][0] =="HeartbeatFailureCounter")
+    assertTrue(titleNames[24][0] =="CpuCores")
+    assertTrue(titleNames[25][0] =="Memory")
+    assertTrue(titleNames[26][0] =="LiveSince")
+    assertTrue(titleNames[27][0] =="RunningTasks")
+    assertTrue(titleNames[28][0] =="NodeRole")
 
     // filter columns
     table = sql """ select BackendId, Host, Alive, TotalCapacity, Version, NodeRole from backends();"""
@@ -56,7 +87,7 @@ suite("test_backends_tvf","p0,external,tvf,external_docker") {
             SystemDecommissioned, tabletnum
             DataUsedCapacity, AvailCapacity, TotalCapacity, UsedPct
             MaxDiskUsedPct, RemoteUsedCapacity, Tag, ErrMsg, Version, Status
-            HeartbeatFailureCounter, NodeRole from backends();
+            HeartbeatFailureCounter, CpuCores, Memory, LiveSince, RunningTasks, NodeRole from backends();
     """
 
 
