@@ -42,7 +42,7 @@ class OlapTableSchemaParam;
 // origin_segid(index) -> new_segid(value in vector)
 using SegIdMapping = std::vector<uint32_t>;
 using FailedTablets = std::vector<std::pair<int64_t, Status>>;
-class TabletStream {
+class TabletStream : public std::enable_shared_from_this<TabletStream> {
 public:
     TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                  LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile);
