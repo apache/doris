@@ -20,7 +20,7 @@ suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from `frontends`(); """
     logger.info("${table}")
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 20)
+    assertTrue(table[0].size() == 21)
 
     List<List<Object>> titleNames =  sql """ describe function frontends(); """
     assertTrue(titleNames[0][0] == "Name")
@@ -43,6 +43,7 @@ suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     assertTrue(titleNames[17][0] == "Version")
     assertTrue(titleNames[18][0] == "CurrentConnected")
     assertTrue(titleNames[19][0] == "LiveSince")
+    assertTrue(titleNames[20][0] == "Ip")
 
     // filter columns
     table = sql """ select Name from `frontends`();"""
@@ -68,7 +69,7 @@ suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     sql """ select Name, Host, EditLogPort
             HttpPort, QueryPort, RpcPort, ArrowFlightSqlPort, `Role`, IsMaster, ClusterId
             `Join`, Alive, ReplayedJournalId, LastHeartbeat
-            IsHelper, ErrMsg, Version, CurrentConnected, LiveSince from frontends();
+            IsHelper, ErrMsg, Version, CurrentConnected, LiveSince, Ip from frontends();
     """
 
     // test exception

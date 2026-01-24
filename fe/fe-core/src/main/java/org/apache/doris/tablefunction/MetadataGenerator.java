@@ -78,6 +78,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -513,7 +514,8 @@ public class MetadataGenerator {
 
             // node role, show the value only when backend is alive.
             trow.addToColumnValue(new TCell().setStringVal(backend.isAlive() ? backend.getNodeRoleTag().value : ""));
-
+            // ip
+            trow.addToColumnValue(new TCell().setStringVal(HostUtils.resolveHostToIp(backend.getHost())));
             dataBatch.add(trow);
         }
 

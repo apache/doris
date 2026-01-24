@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
@@ -156,7 +157,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             // To indicate which FE we currently connected
             info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
             info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
-
+            info.add(HostUtils.resolveHostToIp(fe.getHost()));
             infos.add(info);
         }
     }
@@ -185,6 +186,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                     info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().available * 1024));
                     info.add(Integer.toString(disk.getSpaceInfo().useRate) + "%");
                     info.add(disk.getSpaceInfo().mountedOn);
+                    info.add(HostUtils.resolveHostToIp(fe.getHost()));
                     infos.add(info);
                 }
             }

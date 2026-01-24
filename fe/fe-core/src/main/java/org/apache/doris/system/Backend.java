@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
@@ -370,6 +371,7 @@ public class Backend implements Writable {
         StringBuilder sb = new StringBuilder("[");
         sb.append("backendId=").append(id);
         sb.append(", host=").append(host);
+        sb.append(", ip=").append(HostUtils.resolveHostToIp(host));
         if (!isAlive()) {
             sb.append(", isAlive=false, exclude it");
         } else if (isDecommissioned()) {
