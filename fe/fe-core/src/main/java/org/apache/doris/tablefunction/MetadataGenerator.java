@@ -77,6 +77,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -457,6 +458,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
             trow.addToColumnValue(new TCell().setBoolVal(backend.isAlive()));
+            trow.addToColumnValue(new TCell().setStringVal(HostUtils.resolveHostToIp(backend.getHost())));
             trow.addToColumnValue(new TCell().setBoolVal(backend.isDecommissioned()));
             trow.addToColumnValue(new TCell().setLongVal(tabletNum));
 

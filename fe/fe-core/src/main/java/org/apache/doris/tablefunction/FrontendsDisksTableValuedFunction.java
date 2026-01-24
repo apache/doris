@@ -46,6 +46,7 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Name", ScalarType.createStringType()),
             new Column("Host", ScalarType.createStringType()),
+            new Column("IP", ScalarType.createStringType()),
             new Column("DirType", ScalarType.createStringType()),
             new Column("Dir", ScalarType.createStringType()),
             new Column("Filesystem", ScalarType.createStringType()),
