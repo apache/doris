@@ -1728,6 +1728,13 @@ Status StorageEngine::_persist_broken_paths() {
         LOG(INFO) << "persist broken_storage_path " << config_value << st;
         return st;
     }
+    else
+    {
+        //reset broken_storage_path to ;
+        auto st = config::set_config("broken_storage_path", ";", true);
+        LOG(INFO) << "reset broken_storae_path: " <<st;
+        return st;
+    }
 
     return Status::OK();
 }
