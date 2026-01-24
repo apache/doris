@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.system.Backend;
 
@@ -81,7 +82,13 @@ public class BackendsAction extends RestBaseController {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             if (be != null) {
                 BackendRow backendRow = new BackendRow();
-                backendRow.ip = be.getHost();
+                if (Config.enable_fqdn_mode) {
+                    backendRow.setHost(be.getHost());
+                    backendRow.setIp(Env.getCurrentEnv().getDnsCache().get(be.getHost()));
+                } else {
+                    backendRow.setIp(be.getHost());
+                    backendRow.setHost(be.getHost());
+                }
                 backendRow.httpPort = be.getHttpPort();
                 backendRow.isAlive = be.isAlive();
                 backendInfo.backends.add(backendRow);
@@ -102,6 +109,8 @@ public class BackendsAction extends RestBaseController {
     public static class BackendRow {
         @JsonProperty("ip")
         public String ip;
+        @JsonProperty("host")
+        private String host;
         @JsonProperty("http_port")
         public int httpPort;
         @JsonProperty("is_alive")

@@ -46,6 +46,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -572,7 +573,11 @@ public class MetadataGenerator {
 
             // node role, show the value only when backend is alive.
             trow.addToColumnValue(new TCell().setStringVal(backend.isAlive() ? backend.getNodeRoleTag().value : ""));
-
+            // ip
+            if (Config.enable_fqdn_mode) {
+                trow.addToColumnValue(new TCell().setStringVal(
+                        Env.getCurrentEnv().getDnsCache().get(backend.getHost())));
+            }
             dataBatch.add(trow);
         }
 

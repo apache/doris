@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -167,6 +168,10 @@ public class BackendsProcDir implements ProcDirInterface {
             // node role, show the value only when backend is alive.
             backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
 
+            // ip
+            if (Config.enable_fqdn_mode) {
+                backendInfo.add(Env.getCurrentEnv().getDnsCache().get(backend.getHost()));
+            }
             comparableBackendInfos.add(backendInfo);
         }
 

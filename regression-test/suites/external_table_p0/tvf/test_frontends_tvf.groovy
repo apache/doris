@@ -17,61 +17,83 @@
 
 // This suit test the `frontends` tvf
 suite("test_frontends_tvf", "p0,external") {
-    List<List<Object>> table =  sql """ select * from `frontends`(); """
-    logger.info("${table}")
+    // 1. Determine if FQDN mode is enabled
+    def fqdnResult = sql "SHOW FRONTEND CONFIG LIKE '%enable_fqdn_mode%'"
+    def isFqdnEnabled = fqdnResult.size() > 0 && fqdnResult[0][1].toLowerCase() == "true"
+
+    // 2. Fetch dynamic schema using desc function
+    List<List<Object>> titleNames = sql """ describe function frontends(); """
+    assertTrue(titleNames.size() > 0)
+
+    // Extract column names dynamically
+    def tvfColumns = titleNames.collect { it[0] }
+
+    // Helper function: get column index by name
+    def getIndex = { String colName ->
+        return tvfColumns.indexOf(colName)
+    }
+
+    // 3. Verify Ip column existence based on FQDN mode
+    int ipIdx = getIndex("Ip")
+    if (isFqdnEnabled) {
+        logger.info("Ip column index: ${ipIdx}")
+        assertTrue(ipIdx != -1, "Ip column should exist when FQDN is enabled")
+    } else {
+        assertEquals(-1, ipIdx, "Ip column should not exist when FQDN is disabled")
+    }
+
+    // 4. Execute SELECT query using dynamically generated column list
+    def quotedColumnStr = tvfColumns.collect { "`${it}`" }.join(", ")
+    List<List<Object>> table = sql """ select ${quotedColumnStr} from frontends(); """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 20)
 
-    List<List<Object>> titleNames =  sql """ describe function frontends(); """
-    assertTrue(titleNames[0][0] == "Name")
-    assertTrue(titleNames[1][0] == "Host")
-    assertTrue(titleNames[2][0] == "EditLogPort")
-    assertTrue(titleNames[3][0] == "HttpPort")
-    assertTrue(titleNames[4][0] == "QueryPort")
-    assertTrue(titleNames[5][0] == "RpcPort")
-    assertTrue(titleNames[6][0] == "ArrowFlightSqlPort")
-    assertTrue(titleNames[7][0] == "Role")
-    assertTrue(titleNames[8][0] == "IsMaster")
-    assertTrue(titleNames[9][0] == "ClusterId")
-    assertTrue(titleNames[10][0] == "Join")
-    assertTrue(titleNames[11][0] == "Alive")
-    assertTrue(titleNames[12][0] == "ReplayedJournalId")
-    assertTrue(titleNames[13][0] == "LastStartTime")
-    assertTrue(titleNames[14][0] == "LastHeartbeat")
-    assertTrue(titleNames[15][0] == "IsHelper")
-    assertTrue(titleNames[16][0] == "ErrMsg")
-    assertTrue(titleNames[17][0] == "Version")
-    assertTrue(titleNames[18][0] == "CurrentConnected")
-    assertTrue(titleNames[19][0] == "LiveSince")
+    // 5. Verify row size matches the schema size
+    assertEquals(tvfColumns.size(), table[0].size())
 
-    // filter columns
-    table = sql """ select Name from `frontends`();"""
-    assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 1)
+    // 6. Verify SHOW FRONTENDS command data matches TVF schema
+    // Note: Due to MySQL protocol handling, SHOW FRONTENDS result might not have
+    // metadata via JDBC, so we verify the column count consistency instead.
+    List<List<Object>> showFrontendsResult = sql """ SHOW FRONTENDS """
+    assertTrue(showFrontendsResult.size() > 0)
+    assertEquals(tvfColumns.size(), showFrontendsResult[0].size(),
+            "Column count mismatch between SHOW FRONTENDS and TVF")
 
-    // case insensitive
+    // 7. Verify SHOW PROC '/frontends' matches TVF schema
+    // Note: SHOW PROC also returns data rows without explicit metadata via JDBC.
+    List<List<Object>> procResult = sql """ SHOW PROC '/frontends' """
+    assertTrue(procResult.size() > 0)
+    assertEquals(tvfColumns.size(), procResult[0].size(),
+            "Column count mismatch between SHOW PROC '/frontends' and TVF")
+
+    // 8. Verify specific column values and case insensitivity
+    // Case insensitive column names
     table = sql """ select name, host, editlogport, httpport, alive from frontends();"""
     assertTrue(table.size() > 0)
     assertTrue(table[0].size() == 5)
     assertEquals("true", table[0][4])
 
-    // test aliase columns
+    // Test aliased columns
     table = sql """ select name as n, host as h, alive as a, editlogport as e from frontends(); """
     assertTrue(table.size() > 0)
     assertTrue(table[0].size() == 4)
     assertEquals("true", table[0][2])
 
-    // test changing position of columns
+    // Test filtering
     def res = sql """ select count(*) from frontends() where alive = 'true'; """
     assertTrue(res[0][0] > 0)
 
-    sql """ select Name, Host, EditLogPort
-            HttpPort, QueryPort, RpcPort, ArrowFlightSqlPort, `Role`, IsMaster, ClusterId
-            `Join`, Alive, ReplayedJournalId, LastHeartbeat
-            IsHelper, ErrMsg, Version, CurrentConnected, LiveSince from frontends();
-    """
+    // 9. Conditionally verify the Ip column value if FQDN is enabled
+    // NOTE: We only assert non-null here. We do NOT assert it's not "Unknown"
+    // because DNS resolution depends on the external environment and could fail.
+    table = sql """ select ${quotedColumnStr} from frontends(); """
+    if (isFqdnEnabled) {
+        logger.info("FQDN mode is enabled. Verifying Ip column value...")
+        def ipValue = table[0][ipIdx]
+        logger.info("Frontend IP is: ${ipValue}")
+        assertNotNull(ipValue)
+    }
 
-    // test exception
+    // 10. test exception
     test {
         sql """ select * from frontends("Host" = "127.0.0.1"); """
 

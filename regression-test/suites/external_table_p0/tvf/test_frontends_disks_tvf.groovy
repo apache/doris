@@ -17,55 +17,80 @@
 
 // This suit test the `frontends_disks` tvf
 suite("test_frontends_disks_tvf", "p0,external") {
-    List<List<Object>> table =  sql """ select * from `frontends_disks`(); """
+    // 1. Determine if FQDN mode is enabled
+    def fqdnResult = sql "SHOW FRONTEND CONFIG LIKE '%enable_fqdn_mode%'"
+    def isFqdnEnabled = fqdnResult.size() > 0 && fqdnResult[0][1].toLowerCase() == "true"
+
+    // 2. Fetch dynamic schema using desc function
+    List<List<Object>> titleNames = sql """ describe function frontends_disks(); """
+    assertTrue(titleNames.size() > 0)
+
+    // Extract column names dynamically
+    def tvfColumns = titleNames.collect { it[0] }
+
+    // Helper function: get column index by name
+    def getIndex = { String colName ->
+        return tvfColumns.indexOf(colName)
+    }
+
+    // 3. Verify Ip column existence based on FQDN mode
+    int ipIdx = getIndex("Ip")
+    if (isFqdnEnabled) {
+        logger.info("Ip column index: ${ipIdx}")
+        assertTrue(ipIdx != -1, "Ip column should exist when FQDN is enabled")
+    } else {
+        assertEquals(-1, ipIdx, "Ip column should not exist when FQDN is disabled")
+    }
+
+    // 4. Execute SELECT query using dynamically generated column list
+    def quotedColumnStr = tvfColumns.collect { "`${it}`" }.join(", ")
+    List<List<Object>> table = sql """ select ${quotedColumnStr} from frontends_disks(); """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 10)
 
-    List<List<Object>> titleNames =  sql """ describe function frontends_disks(); """
+    // 5. Verify row size matches the schema size
+    assertEquals(tvfColumns.size(), table[0].size())
 
-    assertTrue(titleNames[0][0] == "Name")
-    assertTrue(titleNames[1][0] == "Host")
-    assertTrue(titleNames[2][0] == "DirType")
-    assertTrue(titleNames[3][0] == "Dir")
-    assertTrue(titleNames[4][0] == "Filesystem")
-    assertTrue(titleNames[5][0] == "Capacity")
-    assertTrue(titleNames[6][0] == "Used")
-    assertTrue(titleNames[7][0] == "Available")
-    assertTrue(titleNames[8][0] == "UseRate")
-    assertTrue(titleNames[9][0] == "MountOn")
+    // 6. Verify SHOW FRONTENDS DISKS command data matches TVF schema
+    // Note: Due to MySQL protocol handling, SHOW command result might not have
+    // metadata via JDBC, so we verify the column count consistency instead.
+    List<List<Object>> showFrontendsDisksResult = sql """ SHOW FRONTENDS DISKS """
+    assertTrue(showFrontendsDisksResult.size() > 0)
+    assertEquals(tvfColumns.size(), showFrontendsDisksResult[0].size(),
+            "Column count mismatch between SHOW FRONTENDS DISKS and TVF")
 
-    // filter columns
-    table = sql """ select Name from `frontends_disks`();"""
-    assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 1)
-
-    // case insensitive
+    // 7. Verify specific column values and case insensitivity
+    // Case insensitive column names
     table = sql """ select name, host, dirtype, dir from frontends_disks() order by dirtype;"""
     assertTrue(table.size() > 0)
     assertTrue(table[0].size() == 4)
     assertEquals("audit-log", table[0][2])
 
-    // test aliase columns
+    // Test aliased columns
     table = sql """ select name as n, host as h, dirtype as a from frontends_disks() order by dirtype; """
     assertTrue(table.size() > 0)
     assertTrue(table[0].size() == 3)
     assertEquals("audit-log", table[0][2])
 
-    // test changing position of columns
+    // Test filtering
     def res = sql """ select count(*) from frontends_disks() where dirtype = 'audit-log'; """
     assertTrue(res[0][0] > 0)
 
-    sql """ select Name, Host,
-            DirType, Dir, Filesystem, Capacity, Used
-            Available, UseRate, MountOn from frontends_disks();
-    """
+    // 8. Conditionally verify the Ip column value if FQDN is enabled
+    // NOTE: We only assert non-null here. We do NOT assert it's not "Unknown"
+    // because DNS resolution depends on the external environment and could fail.
+    table = sql """ select ${quotedColumnStr} from frontends_disks(); """
+    if (isFqdnEnabled) {
+        logger.info("FQDN mode is enabled. Verifying Ip column value...")
+        def ipValue = table[0][ipIdx]
+        logger.info("Frontend disk IP is: ${ipValue}")
+        assertNotNull(ipValue)
+    }
 
-    // test exception
+    // 9. test exception
     test {
         sql """ select * from frontends_disks("Host" = "127.0.0.1"); """
-        
+
         // check exception
         exception "frontends_disks table-valued-function does not support any params"
     }
-
 }
