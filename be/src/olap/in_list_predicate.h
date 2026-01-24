@@ -311,7 +311,7 @@ public:
                       RowRanges* row_ranges) const override {
         vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
         if (!(statistic->get_stat_func)(&stat, column_id())) {
-            row_ranges = statistic->row_group_range;
+            row_ranges->add(statistic->row_group_range);
             return true;
         }
 
