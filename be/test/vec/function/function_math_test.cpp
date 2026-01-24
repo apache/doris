@@ -906,13 +906,9 @@ TEST(MathFunctionTest, gamma_test) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
-    DataSet data_set = {
-            {{1.0}, 1.0},
-            {{2.0}, 1.0},
-            {{3.0}, 2.0}};
+    DataSet data_set = {{{1.0}, 1.0}, {{2.0}, 1.0}, {{3.0}, 2.0}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
-
-}
+} // namespace doris::vectorized
