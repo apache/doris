@@ -1077,6 +1077,43 @@ int InstanceRecycler::check_recycle_and_tmp_rowset_exists(int64_t tablet_id,
     return 0;
 }
 
+int InstanceRecycler::check_rowset_snapshot_ref(int64_t tablet_id, const std::string& rowset_id,
+                                                bool* has_snapshot_ref) {
+    *has_snapshot_ref = false;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn when checking rowset snapshot ref")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("err", err);
+        return -1;
+    }
+
+    // Check if versioned rowset key exists - if exists, rowset is still referenced
+    std::string meta_rowset_key = versioned::meta_rowset_key({instance_id_, tablet_id, rowset_id});
+    ValueBuf val_buf;
+    err = blob_get(txn.get(), meta_rowset_key, &val_buf);
+    if (err == TxnErrorCode::TXN_OK) {
+        *has_snapshot_ref = true;
+        LOG_INFO("rowset has snapshot reference (versioned rowset key exists)")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+        return 0;
+    } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG_WARNING("failed to get versioned rowset key")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("key", hex(meta_rowset_key))
+                .tag("err", err);
+        return -1;
+    }
+    return 0;
+}
+
 std::pair<std::string, std::shared_ptr<StorageVaultAccessor>>
 InstanceRecycler::resolve_packed_file_accessor(const std::string& hint) {
     if (!hint.empty()) {
@@ -1173,15 +1210,32 @@ int InstanceRecycler::correct_packed_file_info(cloud::PackedFileInfoPB* packed_i
             }
 
             if (!rowset_exists) {
-                if (!small_file->deleted()) {
-                    small_file->set_deleted(true);
-                    local_changed = true;
+                // Check if rowset is still referenced by snapshots
+                bool has_snapshot_ref = false;
+                if (check_rowset_snapshot_ref(tablet_id, rowset_id, &has_snapshot_ref) != 0) {
+                    return -1;
                 }
-                if (!small_file->corrected()) {
-                    small_file->set_corrected(true);
-                    local_changed = true;
+
+                if (has_snapshot_ref) {
+                    // Rowset is referenced by snapshot, keep the slice
+                    left_num++;
+                    left_bytes += small_file->size();
+                    // Don't mark as corrected since snapshot reference may change
+                    if (stats != nullptr) {
+                        ++stats->num_slices_kept_by_snapshot;
+                    }
+                } else {
+                    // No snapshot reference, safe to mark as deleted
+                    if (!small_file->deleted()) {
+                        small_file->set_deleted(true);
+                        local_changed = true;
+                    }
+                    if (!small_file->corrected()) {
+                        small_file->set_corrected(true);
+                        local_changed = true;
+                    }
+                    small_file_confirmed = true;
                 }
-                small_file_confirmed = true;
             } else {
                 left_num++;
                 left_bytes += small_file->size();

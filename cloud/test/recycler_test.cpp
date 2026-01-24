@@ -8551,4 +8551,171 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_failure) {
         EXPECT_EQ(it->size(), 0) << "All recycle rowset keys should be deleted";
     }
 }
+
+// Test that packed file slices are not deleted when rowset has snapshot reference
+TEST(RecyclerTest, recycle_packed_files_respects_snapshot_ref) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("packed_file_snapshot_ref_resource");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("packed_file_snapshot_ref_resource");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    const int64_t tablet_id = 99527;
+    const std::string rowset_id = "snapshot_ref_rowset";
+    const std::string packed_file_path = "data/merge_file/snapshot_ref_test.dat";
+    ASSERT_EQ(0, accessor->put_file(packed_file_path, "payload"));
+
+    // Create packed file info with one slice
+    PackedFileInfoPB packed_info;
+    packed_info.set_ref_cnt(1);
+    packed_info.set_total_slice_num(1);
+    packed_info.set_total_slice_bytes(64);
+    packed_info.set_remaining_slice_bytes(64);
+    packed_info.set_corrected(false);
+    packed_info.set_state(PackedFileInfoPB::NORMAL);
+    packed_info.set_created_at_sec(::time(nullptr) - 3600);
+    auto* slice = packed_info.add_slices();
+    slice->set_path(fmt::format("data/{}/{}_0.dat", tablet_id, rowset_id));
+    slice->set_offset(0);
+    slice->set_size(64);
+    slice->set_deleted(false);
+    slice->set_tablet_id(tablet_id);
+    slice->set_rowset_id(rowset_id);
+    slice->set_txn_id(next_small_file_txn_id());
+    packed_info.set_resource_id(obj_info->id());
+
+    std::string packed_val;
+    ASSERT_TRUE(packed_info.SerializeToString(&packed_val));
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string packed_key = packed_file_key({instance_id, packed_file_path});
+    txn->put(packed_key, packed_val);
+
+    // Create versioned rowset key to simulate snapshot reference
+    std::string versioned_rowset_key =
+            versioned::meta_rowset_key({instance_id, tablet_id, rowset_id});
+    doris::RowsetMetaCloudPB rowset_meta;
+    rowset_meta.set_tablet_id(tablet_id);
+    rowset_meta.set_rowset_id_v2(rowset_id);
+    std::string rowset_meta_val;
+    ASSERT_TRUE(rowset_meta.SerializeToString(&rowset_meta_val));
+    txn->put(versioned_rowset_key, rowset_meta_val);
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    auto old_grace = config::packed_file_correction_delay_seconds;
+    config::packed_file_correction_delay_seconds = 0;
+    DORIS_CLOUD_DEFER {
+        config::packed_file_correction_delay_seconds = old_grace;
+    };
+
+    // Run recycle_packed_files
+    EXPECT_EQ(0, recycler.recycle_packed_files());
+
+    // Verify the slice is NOT marked as deleted due to snapshot reference
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string updated_val;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(packed_key, &updated_val));
+
+    PackedFileInfoPB updated_info;
+    ASSERT_TRUE(updated_info.ParseFromString(updated_val));
+
+    // The slice should NOT be deleted because rowset has snapshot reference
+    ASSERT_EQ(1, updated_info.slices_size());
+    EXPECT_FALSE(updated_info.slices(0).deleted())
+            << "Slice should not be deleted when rowset has snapshot reference";
+    EXPECT_EQ(1, updated_info.ref_cnt()) << "ref_cnt should remain 1";
+    EXPECT_EQ(64, updated_info.remaining_slice_bytes())
+            << "remaining_slice_bytes should remain unchanged";
+    EXPECT_NE(PackedFileInfoPB::RECYCLING, updated_info.state()) << "State should not be RECYCLING";
+
+    // File should still exist
+    EXPECT_EQ(0, accessor->exists(packed_file_path));
+}
+
+// Test that packed file slices ARE deleted when rowset has no snapshot reference
+TEST(RecyclerTest, recycle_packed_files_deletes_without_snapshot_ref) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("packed_file_no_snapshot_ref_resource");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("packed_file_no_snapshot_ref_resource");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    const int64_t tablet_id = 99528;
+    const std::string rowset_id = "no_snapshot_ref_rowset";
+    const std::string packed_file_path = "data/merge_file/no_snapshot_ref_test.dat";
+    ASSERT_EQ(0, accessor->put_file(packed_file_path, "payload"));
+
+    // Create packed file info with one slice
+    PackedFileInfoPB packed_info;
+    packed_info.set_ref_cnt(1);
+    packed_info.set_total_slice_num(1);
+    packed_info.set_total_slice_bytes(64);
+    packed_info.set_remaining_slice_bytes(64);
+    packed_info.set_corrected(false);
+    packed_info.set_state(PackedFileInfoPB::NORMAL);
+    packed_info.set_created_at_sec(::time(nullptr) - 3600);
+    auto* slice = packed_info.add_slices();
+    slice->set_path(fmt::format("data/{}/{}_0.dat", tablet_id, rowset_id));
+    slice->set_offset(0);
+    slice->set_size(64);
+    slice->set_deleted(false);
+    slice->set_tablet_id(tablet_id);
+    slice->set_rowset_id(rowset_id);
+    slice->set_txn_id(next_small_file_txn_id());
+    packed_info.set_resource_id(obj_info->id());
+
+    std::string packed_val;
+    ASSERT_TRUE(packed_info.SerializeToString(&packed_val));
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string packed_key = packed_file_key({instance_id, packed_file_path});
+    txn->put(packed_key, packed_val);
+
+    // No versioned rowset key exists, so slice should be deleted
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    auto old_grace = config::packed_file_correction_delay_seconds;
+    config::packed_file_correction_delay_seconds = 0;
+    DORIS_CLOUD_DEFER {
+        config::packed_file_correction_delay_seconds = old_grace;
+    };
+
+    // Run recycle_packed_files
+    EXPECT_EQ(0, recycler.recycle_packed_files());
+
+    // Verify the packed file KV is deleted (since all slices are deleted)
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string updated_val;
+    EXPECT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(packed_key, &updated_val))
+            << "Packed file KV should be deleted when rowset has no snapshot reference";
+}
 } // namespace doris::cloud

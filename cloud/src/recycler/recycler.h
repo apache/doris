@@ -255,6 +255,7 @@ public:
         int64_t num_object_deleted = 0;   // packed-file objects deleted from storage (vault/HDFS)
         int64_t bytes_object_deleted = 0; // bytes deleted from storage objects
         int64_t rowset_scan_count = 0;    // rowset metas scanned during correction
+        int64_t num_slices_kept_by_snapshot = 0; // slices kept due to snapshot reference
     };
 
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
@@ -516,6 +517,10 @@ private:
                             PackedFileRecycleStats* stats = nullptr);
     int check_recycle_and_tmp_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
                                             int64_t txn_id, bool* recycle_exists, bool* tmp_exists);
+    // Check whether a rowset is still referenced by snapshots.
+    // Returns 0 on success, -1 on error. Sets has_snapshot_ref to true if ref_count > 1.
+    int check_rowset_snapshot_ref(int64_t tablet_id, const std::string& rowset_id,
+                                  bool* has_snapshot_ref);
     /**
      * Resolve which storage accessor should be used for a packed file.
      *
