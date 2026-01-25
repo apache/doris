@@ -400,8 +400,9 @@ public class HyperGraph {
                 Group group = ((GroupPlan) plan).getGroup();
                 GroupExpression groupExpression = group.getLogicalExpressions().get(0);
                 return buildForMv(groupExpression.getPlan()
-                        .withChildren(
-                                groupExpression.children().stream().map(GroupPlan::new).collect(Collectors.toList())));
+                        .withChildren(groupExpression.children().stream()
+                                .map(Group::getGroupPlan)
+                                .collect(Collectors.toList())));
             }
             // process Project
             if (isValidProject(plan)) {

@@ -1240,7 +1240,7 @@ querySpecification
     ;
 
 cte
-    : WITH aliasQuery (COMMA aliasQuery)*
+    : WITH RECURSIVE? aliasQuery (COMMA aliasQuery)*
     ;
 
 aliasQuery
@@ -1356,6 +1356,17 @@ lateralView
       tableName=identifier AS columnNames+=identifier (COMMA columnNames+=identifier)*
     ;
 
+unnest:
+    LATERAL? UNNEST LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN (
+        WITH ORDINALITY
+    )? (
+        AS? tableName = identifier (
+            LEFT_PAREN columnNames += identifier (
+                COMMA columnNames += identifier
+            )* RIGHT_PAREN
+        )?
+    )?;
+
 queryOrganization
     : sortClause? limitClause?
     ;
@@ -1415,6 +1426,7 @@ relationPrimary
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                               #tableValuedFunction
     | LEFT_PAREN relations RIGHT_PAREN                                                     #relationList
+    | unnest                                                                               #unnestFunction
     ;
 
 materializedViewName
@@ -1598,7 +1610,7 @@ valueExpression
     | operator=(SUBTRACT | PLUS | TILDE) valueExpression                                     #arithmeticUnary
     // split arithmeticBinary from 1 to 5 due to they have different operator precedence
     | left=valueExpression operator=HAT right=valueExpression                                #arithmeticBinary
-    | left=valueExpression operator=(ASTERISK | SLASH | MOD | DIV) right=valueExpression     #arithmeticBinary
+    | left=valueExpression operator=(ASTERISK | SLASH | MOD | MOD_ALT | DIV) right=valueExpression     #arithmeticBinary
     | left=valueExpression operator=(PLUS | SUBTRACT) right=valueExpression                  #arithmeticBinary
     | left=valueExpression operator=AMPERSAND right=valueExpression                          #arithmeticBinary
     | left=valueExpression operator=PIPE right=valueExpression                               #arithmeticBinary
@@ -1617,6 +1629,7 @@ primaryExpression
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                           #tryCast
+    | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                                 #defaultValue
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK (exceptOrReplace)*                                                              #star
@@ -1689,6 +1702,7 @@ functionNameIdentifier
     | CURRENT_USER
     | DATABASE
     | IF
+    | INTERVAL
     | LEFT
     | LIKE
     | PASSWORD
@@ -2102,6 +2116,7 @@ nonReserved
     | MIN
     | MINUTE
     | MINUTES
+    | MOD_ALT
     | MODIFY
     | MONTH
     | MTMV
@@ -2122,6 +2137,7 @@ nonReserved
     | OPEN
     | OPTIMIZE
     | OPTIMIZED
+    | ORDINALITY
     | PARAMETER
     | PARSED
     | PASSWORD
@@ -2159,6 +2175,7 @@ nonReserved
     | RANDOM
     | RECENT
     | RECOVER
+    | RECURSIVE
     | RECYCLE
     | REFRESH
     | REPEATABLE
@@ -2235,6 +2252,7 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UNNEST
     | UNSET
     | UP
     | USER

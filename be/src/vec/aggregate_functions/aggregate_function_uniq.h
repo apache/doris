@@ -62,7 +62,7 @@ struct AggregateFunctionUniqExactData {
             is_string_key, UInt128,
             std::conditional_t<T == TYPE_ARRAY, UInt64,
                                std::conditional_t<T == TYPE_BOOLEAN, UInt8,
-                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>>;
+                                                  typename PrimitiveTypeTraits<T>::CppType>>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
@@ -97,11 +97,6 @@ struct OneAdder {
             data.set.insert(Data::get_key(value));
         } else if constexpr (T == TYPE_ARRAY) {
             data.set.insert(Data::get_key(column, row_num));
-        } else if constexpr (is_decimal(T)) {
-            data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                        TypeCheckOnRelease::DISABLE>(column)
-                                    .get_data()[row_num]
-                                    .value);
         } else {
             data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                         TypeCheckOnRelease::DISABLE>(column)
@@ -119,10 +114,9 @@ class AggregateFunctionUniq final
           VarargsExpression,
           NotNullableAggregateFunction {
 public:
-    using KeyType =
-            std::conditional_t<is_string_type(T) || is_varbinary(T), UInt128,
-                               std::conditional_t<T == TYPE_ARRAY, UInt64,
-                                                  typename PrimitiveTypeTraits<T>::ColumnItemType>>;
+    using KeyType = std::conditional_t<
+            is_string_type(T) || is_varbinary(T), UInt128,
+            std::conditional_t<T == TYPE_ARRAY, UInt64, typename PrimitiveTypeTraits<T>::CppType>>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
 

@@ -48,6 +48,23 @@ public:
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
 
+    Status reset(RuntimeState* state) {
+        if (stream_recvr) {
+            stream_recvr->close();
+        }
+        create_stream_recvr(state);
+
+        is_ready = false;
+        num_rows_skipped = 0;
+
+        const auto& queues = stream_recvr->sender_queues();
+        for (size_t i = 0; i < queues.size(); i++) {
+            deps[i]->block();
+            queues[i]->set_dependency(deps[i]);
+        }
+        return Status::OK();
+    }
+
     std::vector<Dependency*> dependencies() const override {
         std::vector<Dependency*> dep_vec;
         std::for_each(deps.begin(), deps.end(),
@@ -82,6 +99,8 @@ public:
 #endif
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
+
+    Status reset(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

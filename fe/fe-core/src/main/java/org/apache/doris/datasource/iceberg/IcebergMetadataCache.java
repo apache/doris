@@ -54,14 +54,14 @@ import java.util.concurrent.ExecutorService;
 public class IcebergMetadataCache {
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataCache.class);
     private final ExecutorService executor;
-    private final IcebergExternalCatalog catalog;
+    private final ExternalCatalog catalog;
     private LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
     private LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
     private LoadingCache<IcebergMetadataCacheKey, IcebergSnapshotCacheValue> snapshotCache;
     private LoadingCache<IcebergMetadataCacheKey, View> viewCache;
     private IcebergManifestCache manifestCache;
 
-    public IcebergMetadataCache(IcebergExternalCatalog catalog, ExecutorService executor) {
+    public IcebergMetadataCache(ExternalCatalog catalog, ExecutorService executor) {
         this.executor = executor;
         this.catalog = catalog;
         init();

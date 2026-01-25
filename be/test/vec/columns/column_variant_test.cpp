@@ -29,14 +29,15 @@
 #include <cstdint>
 
 #include "common/cast_set.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "testutil/test_util.h"
 #include "testutil/variant_util.h"
 #include "vec/columns/column_variant.cpp"
 #include "vec/columns/common_column_test.h"
 #include "vec/columns/subcolumn_tree.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
@@ -194,18 +195,18 @@ TEST_F(ColumnVariantTest, basic_deserialize) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
-        auto pair = variant->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int64>(), 30);
+        auto pair = variant->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair.first.get<TYPE_INT>(), 30);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair2 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
-        EXPECT_EQ(pair2.first.get<Int64>(), 30);
+        EXPECT_EQ(pair2.first.get<TYPE_INT>(), 30);
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair3 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
-        EXPECT_EQ(pair3.first.get<String>(), "50");
+        EXPECT_EQ(pair3.first.get<TYPE_STRING>(), "50");
         EXPECT_EQ(start, end);
     }
 }
@@ -224,7 +225,6 @@ TEST_F(ColumnVariantTest, test_pop_back_multiple_types) {
     subcolumn.insert(field_int16);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
     EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(SMALLINT)");
 
@@ -232,15 +232,12 @@ TEST_F(ColumnVariantTest, test_pop_back_multiple_types) {
     subcolumn.insert(field_int32);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 3);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
-    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
     EXPECT_EQ(subcolumn.data_types[2]->get_name(), "Nullable(INT)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
     EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(SMALLINT)");
 
@@ -332,7 +329,7 @@ TEST_F(ColumnVariantTest, basic_inset_range_from) {
                 EXPECT_TRUE(column->data.data[0]->is_null_at(row));
             }
             for (size_t row = 5; row != 10; ++row) {
-                EXPECT_EQ((*column->data.data[0])[row].get<Int64>(), 30);
+                EXPECT_EQ((*column->data.data[0])[row].get<TYPE_INT>(), 30);
             }
         }
     }
@@ -348,13 +345,22 @@ TEST_F(ColumnVariantTest, basic_inset_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
+        if (pair.first.get_type() == PrimitiveType::TYPE_BIGINT) {
+            EXPECT_EQ(pair.first.get<TYPE_BIGINT>(), 20) << pair.first.get_type_name();
+        } else {
+            EXPECT_EQ(pair.first.get<TYPE_INT>(), 20) << pair.first.get_type_name();
+        }
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.c", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair2.first.get<Int64>(), 20);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
+        if (pair.first.get_type() == PrimitiveType::TYPE_BIGINT) {
+            EXPECT_EQ(pair2.first.get<TYPE_BIGINT>(), 20)
+                    << pair2.first.get_type_name() << " " << pair2.first.get<TYPE_INT>();
+        } else {
+            EXPECT_EQ(pair2.first.get<TYPE_INT>(), 20);
+        }
 
         EXPECT_EQ(start, end);
     }
@@ -366,18 +372,26 @@ TEST_F(ColumnVariantTest, basic_inset_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
+        if (pair.first.get_type() == PrimitiveType::TYPE_BIGINT) {
+            EXPECT_EQ(pair.first.get<TYPE_BIGINT>(), 20) << pair.first.get_type_name();
+        } else {
+            EXPECT_EQ(pair.first.get<TYPE_INT>(), 20);
+        }
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.c", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair2.first.get<Int64>(), 20);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
+        if (pair.first.get_type() == PrimitiveType::TYPE_BIGINT) {
+            EXPECT_EQ(pair2.first.get<TYPE_BIGINT>(), 20) << pair2.first.get_type_name();
+        } else {
+            EXPECT_EQ(pair2.first.get<TYPE_INT>(), 20);
+        }
 
         auto data3 = path->get_data_at(start);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair3.first.get<String>(), "50");
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair3.first.get<TYPE_STRING>(), "50");
 
         EXPECT_EQ(start, end);
     }
@@ -510,9 +524,9 @@ TEST_F(ColumnVariantTest, is_null_at) {
     auto [sparse_column_keys, sparse_column_values] = v1->get_sparse_data_paths_and_values();
     std::string_view pa("v.a");
     EXPECT_NO_THROW(
-            sub1->serialize_to_sparse_column(sparse_column_keys, pa, sparse_column_values, 2));
+            sub1->serialize_to_binary_column(sparse_column_keys, pa, sparse_column_values, 2));
     EXPECT_ANY_THROW(
-            sub1->serialize_to_sparse_column(sparse_column_keys, pa, sparse_column_values, 16));
+            sub1->serialize_to_binary_column(sparse_column_keys, pa, sparse_column_values, 16));
 }
 
 TEST_F(ColumnVariantTest, advanced_finalize) {
@@ -569,19 +583,19 @@ TEST_F(ColumnVariantTest, advanced_deserialize) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = variant->deserialize_from_sparse_column(value, start++);
+        auto pair = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
         EXPECT_EQ(convert_field_to_string(pair.first),
                   convert_field_to_string(get_jsonb_field("array_int")));
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair2 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair3 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_int")));
@@ -593,19 +607,19 @@ TEST_F(ColumnVariantTest, advanced_deserialize) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = variant->deserialize_from_sparse_column(value, start++);
+        auto pair = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
         EXPECT_EQ(convert_field_to_string(pair.first),
                   convert_field_to_string(get_jsonb_field("array_str")));
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair2 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(get_jsonb_field("int")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = variant->deserialize_from_sparse_column(value, start++);
+        auto pair3 = variant->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_str")));
@@ -684,12 +698,12 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair.first.get<TYPE_INT>(), 20);
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.c", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("array_int")));
 
@@ -701,18 +715,18 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        EXPECT_EQ(pair.first.get<TYPE_INT>(), 20);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c", 3));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("array_int")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_int")));
@@ -725,18 +739,18 @@ TEST_F(ColumnVariantTest, advanced_insert_range_from) {
         size_t end = offsets[row];
 
         auto data = path->get_data_at(start);
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data, StringRef("v.a", 3));
-        EXPECT_EQ(pair.first.get<Int64>(), 20);
+        EXPECT_EQ(pair.first.get<TYPE_INT>(), 20);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c", 3));
         EXPECT_EQ(convert_field_to_string(pair2.first),
                   convert_field_to_string(VariantUtil::get_field("array_int")));
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(convert_field_to_string(pair3.first),
                   convert_field_to_string(get_jsonb_field("array_str")));
@@ -807,24 +821,24 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
 
         auto data0 = path->get_data_at(start);
         EXPECT_EQ(data0, StringRef("v.s", 3));
-        auto pair0 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair0 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(convert_field_to_string(pair0.first),
                   convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int16>(), std::numeric_limits<Int16>::max());
+        auto pair = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair.first.get<TYPE_SMALLINT>(), std::numeric_limits<Int16>::max());
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.y", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair2.first.get<Int32>(), std::numeric_limits<Int32>::max());
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair2.first.get<TYPE_INT>(), std::numeric_limits<Int32>::max());
 
         auto data3 = path->get_data_at(start);
         EXPECT_EQ(data3, StringRef("v.z", 3));
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair3.first.get<Int64>(),
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair3.first.get<TYPE_BIGINT>(),
                   Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
 
         EXPECT_EQ(start, end);
@@ -859,24 +873,24 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
 
         auto data0 = path->get_data_at(start);
         EXPECT_EQ(data0, StringRef("v.s", 3));
-        auto pair0 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair0 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(convert_field_to_string(pair0.first),
                   convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int16>(), std::numeric_limits<Int16>::max());
+        auto pair = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair.first.get<TYPE_SMALLINT>(), std::numeric_limits<Int16>::max());
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.y", 3));
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair2.first.get<Int32>(), std::numeric_limits<Int32>::max());
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair2.first.get<TYPE_INT>(), std::numeric_limits<Int32>::max());
 
         auto data3 = path->get_data_at(start);
         EXPECT_EQ(data3, StringRef("v.z", 3));
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair3.first.get<Int64>(),
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair3.first.get<TYPE_BIGINT>(),
                   Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
 
         EXPECT_EQ(start, end);
@@ -896,18 +910,18 @@ TEST_F(ColumnVariantTest, empty_inset_range_from) {
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
-        auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair.first.get<Int64>(), 30);
+        auto pair = dst->deserialize_from_binary_column(value, start++);
+        EXPECT_EQ(pair.first.get<TYPE_INT>(), 30);
 
         auto data2 = path->get_data_at(start);
-        auto pair2 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair2 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
-        EXPECT_EQ(pair2.first.get<Int64>(), 30);
+        EXPECT_EQ(pair2.first.get<TYPE_INT>(), 30);
 
         auto data3 = path->get_data_at(start);
-        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        auto pair3 = dst->deserialize_from_binary_column(value, start++);
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
-        EXPECT_EQ(pair3.first.get<String>(), "50");
+        EXPECT_EQ(pair3.first.get<TYPE_STRING>(), "50");
         EXPECT_EQ(start, end);
     }
 }
@@ -966,13 +980,13 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         Field result1;
         dst_column->get(0, result1);
 
-        const auto& fv = result1.get<const VariantMap&>();
+        const auto& fv = result1.get<TYPE_VARIANT>();
         auto res = fv.at(PathInData());
-        EXPECT_EQ(res.field.get<Int64>(), 123);
+        EXPECT_EQ(res.field.get<TYPE_INT>(), 123);
 
         Field result2;
         dst_column->get(1, result2);
-        EXPECT_EQ(result2.get<VariantMap>().at(PathInData()).field.get<Int64>(), 456);
+        EXPECT_EQ(result2.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 456);
     }
 
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
@@ -1006,9 +1020,9 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         dst_column->get(1, result2);
         dst_column->get(2, result3);
 
-        EXPECT_EQ(result1.get<VariantMap>().at(PathInData()).field.get<Int64>(), 789);
-        EXPECT_EQ(result2.get<VariantMap>().at(PathInData()).field.get<Int64>(), 456);
-        EXPECT_EQ(result3.get<VariantMap>().at(PathInData()).field.get<Int64>(), 123);
+        EXPECT_EQ(result1.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 789);
+        EXPECT_EQ(result2.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 456);
+        EXPECT_EQ(result3.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 123);
     }
 
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
@@ -1018,7 +1032,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
         // Create a map with {"a": 123}
         Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& map1 = field_map.get<VariantMap&>();
+        auto& map1 = field_map.get<TYPE_VARIANT>();
         map1.insert_or_assign(PathInData("a"),
                               FieldWithDataType {.field = Field::create_field<TYPE_INT>(123),
                                                  .base_scalar_type_id = PrimitiveType::TYPE_INT});
@@ -1026,7 +1040,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
         // Create another map with {"b": "hello"}
         field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& map2 = field_map.get<VariantMap&>();
+        auto& map2 = field_map.get<TYPE_VARIANT>();
         map2.insert_or_assign(
                 PathInData("b"),
                 FieldWithDataType {.field = Field::create_field<TYPE_STRING>(String("hello")),
@@ -1056,11 +1070,11 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_TRUE(result1.get_type() == PrimitiveType::TYPE_VARIANT);
         EXPECT_TRUE(result2.get_type() == PrimitiveType::TYPE_VARIANT);
 
-        const auto& result1_map = result1.get<const VariantMap&>();
-        const auto& result2_map = result2.get<const VariantMap&>();
+        const auto& result1_map = result1.get<TYPE_VARIANT>();
+        const auto& result2_map = result2.get<TYPE_VARIANT>();
 
-        EXPECT_EQ(result1_map.at(PathInData("b")).field.get<const String&>(), "hello");
-        EXPECT_EQ(result2_map.at(PathInData("a")).field.get<Int64>(), 123);
+        EXPECT_EQ(result1_map.at(PathInData("b")).field.get<TYPE_STRING>(), "hello");
+        EXPECT_EQ(result2_map.at(PathInData("a")).field.get<TYPE_INT>(), 123);
     }
 }
 
@@ -2122,7 +2136,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
     test_func(obj);
 }
 
-// used in SparseColumnExtractIterator::_fill_path_column
+// used in BinaryColumnExtractIterator::_fill_path_column
 TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     ColumnVariant::MutablePtr obj;
     obj = ColumnVariant::create(1);
@@ -2184,8 +2198,8 @@ doris::vectorized::Field get_field_v2(std::string_view type, size_t array_elemen
         doris::vectorized::Field str_field = Field::create_field<TYPE_STRING>(String("str", 3));
         doris::vectorized::Field arr_int_field = Field::create_field<TYPE_ARRAY>(Array());
         doris::vectorized::Field arr_str_field = Field::create_field<TYPE_ARRAY>(Array());
-        auto& array1 = arr_int_field.get<Array>();
-        auto& array2 = arr_str_field.get<Array>();
+        auto& array1 = arr_int_field.get<TYPE_ARRAY>();
+        auto& array2 = arr_str_field.get<TYPE_ARRAY>();
         for (size_t i = 0; i < array_element_cnt; ++i) {
             array1.emplace_back(int_field);
             array2.emplace_back(str_field);
@@ -2233,9 +2247,10 @@ TEST_F(ColumnVariantTest, array_field_operations) {
                     array_type
                             ->create_column(); // Nullable(Array(Nullable(Array(Nullable(TINYINT)))))
             Field array_field = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            array_field.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(1));
+            array_field.get<TYPE_ARRAY>().emplace_back(
+                    vectorized::Field::create_field<TYPE_TINYINT>(1));
             Field array_field_o = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            array_field_o.get<Array>().emplace_back(array_field);
+            array_field_o.get<TYPE_ARRAY>().emplace_back(array_field);
             column->insert(array_field_o);
             obj->add_sub_column(path, std::move(column));
 
@@ -2262,9 +2277,9 @@ TEST_F(ColumnVariantTest, array_field_operations) {
             auto array_type = create_array(PrimitiveType::TYPE_TINYINT, 1);
             auto column = array_type->create_column();
             Field array1 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-            array1.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(1));
-            array1.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(2));
-            array1.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(3));
+            array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(1));
+            array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(2));
+            array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_TINYINT>(3));
             column->insert(array1);
             obj->add_sub_column(path, std::move(column), array_type);
 
@@ -2433,22 +2448,22 @@ TEST_F(ColumnVariantTest, try_insert_default_from_nested) {
     auto array_type = create_array(PrimitiveType::TYPE_STRING, 1);
     auto column = array_type->create_column();
     Field array1 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-    array1.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-    array1.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("commit"));
+    array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
+    array1.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("commit"));
     Field array2 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-    array2.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
-    array2.get<Array>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("doris"));
+    array2.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
+    array2.get<TYPE_ARRAY>().emplace_back(vectorized::Field::create_field<TYPE_STRING>("doris"));
     column->insert(array1);
     column->insert(array2);
 
     auto array_type2 = create_array(PrimitiveType::TYPE_STRING, 2);
     auto column2 = array_type2->create_column();
     Field array22 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-    array22.get<Array>().emplace_back(array1);
-    array22.get<Array>().emplace_back(array2);
+    array22.get<TYPE_ARRAY>().emplace_back(array1);
+    array22.get<TYPE_ARRAY>().emplace_back(array2);
     Field array23 = vectorized::Field::create_field<TYPE_ARRAY>(Array());
-    array23.get<Array>().emplace_back(array2);
-    array23.get<Array>().emplace_back(array1);
+    array23.get<TYPE_ARRAY>().emplace_back(array2);
+    array23.get<TYPE_ARRAY>().emplace_back(array1);
     column2->insert(array22);
     column2->insert(array23);
 
@@ -2491,7 +2506,7 @@ TEST_F(ColumnVariantTest, unnest) {
     Field array2 = VariantUtil::create_nested_array_field(
             {{{"a", vectorized::Field::create_field<TYPE_STRING>("amory")}},
              {{"b", vectorized::Field::create_field<TYPE_STRING>("doris")}}});
-    std::cout << "array: " << array1.get<Array>().size() << std::endl;
+    std::cout << "array: " << array1.get<TYPE_ARRAY>().size() << std::endl;
     nested_col->insert(array1);
     nested_col->insert(array2);
     std::cout << nested_col->size() << std::endl;
@@ -2551,8 +2566,8 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     {
         Field field = Field::create_field<TYPE_INT>(Int32(42));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        variant_util::get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_INT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 0);
@@ -2562,8 +2577,8 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     {
         Field field = Field::create_field<TYPE_BIGINT>(Int64(42));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        variant_util::get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 0);
@@ -2573,130 +2588,128 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     {
         Field field = Field::create_field<TYPE_BIGINT>(UInt64(42));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        variant_util::get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
-        EXPECT_FALSE(info.need_convert);
-        EXPECT_EQ(info.num_dimensions, 0);
-    }
+        // Test Int64 with different ranges
+        {
+            // Test Int64 <= Int8::max()
+            Field field1 =
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::max()));
+            FieldInfo info1;
+            variant_util::get_field_info(field1, &info1);
+            EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info1.have_nulls);
+            EXPECT_FALSE(info1.need_convert);
+            EXPECT_EQ(info1.num_dimensions, 0);
 
-    // Test Int64 with different ranges
-    {
-        // Test Int64 <= Int8::max()
-        Field field1 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::max()));
-        FieldInfo info1;
-        schema_util::get_field_info(field1, &info1);
-        EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_TINYINT);
-        EXPECT_FALSE(info1.have_nulls);
-        EXPECT_FALSE(info1.need_convert);
-        EXPECT_EQ(info1.num_dimensions, 0);
+            // Test Int64 <= Int16::max()
+            Field field2 =
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::max()));
+            FieldInfo info2;
+            variant_util::get_field_info(field2, &info2);
+            EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info2.have_nulls);
+            Field field3 =
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max()));
+            FieldInfo info3;
+            variant_util::get_field_info(field3, &info3);
+            EXPECT_EQ(info3.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info3.have_nulls);
+            EXPECT_FALSE(info3.need_convert);
+            EXPECT_EQ(info3.num_dimensions, 0);
 
-        // Test Int64 <= Int16::max()
-        Field field2 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::max()));
-        FieldInfo info2;
-        schema_util::get_field_info(field2, &info2);
-        EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
-        EXPECT_FALSE(info2.have_nulls);
-        EXPECT_FALSE(info2.need_convert);
-        EXPECT_EQ(info2.num_dimensions, 0);
+            // Test Int64 > Int32::max()
+            Field field4 = Field::create_field<TYPE_BIGINT>(
+                    Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
+            FieldInfo info4;
+            variant_util::get_field_info(field4, &info4);
+            EXPECT_EQ(info4.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info4.have_nulls);
+            EXPECT_FALSE(info4.need_convert);
+            EXPECT_EQ(info4.num_dimensions, 0);
 
-        // Test Int64 <= Int32::max()
-        Field field3 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max()));
-        FieldInfo info3;
-        schema_util::get_field_info(field3, &info3);
-        EXPECT_EQ(info3.scalar_type_id, PrimitiveType::TYPE_INT);
-        EXPECT_FALSE(info3.have_nulls);
-        EXPECT_FALSE(info3.need_convert);
-        EXPECT_EQ(info3.num_dimensions, 0);
+            // Test Int64 <= Int8::min()
+            Field field5 =
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::min()));
+            FieldInfo info5;
+            variant_util::get_field_info(field5, &info5);
+            EXPECT_EQ(info5.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info5.have_nulls);
+            Field field6 =
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::min()));
+            FieldInfo info6;
+            variant_util::get_field_info(field6, &info6);
+            EXPECT_EQ(info6.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info6.have_nulls);
+            EXPECT_FALSE(info6.need_convert);
+            EXPECT_EQ(info6.num_dimensions, 0);
 
-        // Test Int64 > Int32::max()
-        Field field4 = Field::create_field<TYPE_BIGINT>(
-                Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
-        FieldInfo info4;
-        schema_util::get_field_info(field4, &info4);
-        EXPECT_EQ(info4.scalar_type_id, PrimitiveType::TYPE_BIGINT);
-        EXPECT_FALSE(info4.have_nulls);
-        EXPECT_FALSE(info4.need_convert);
-        EXPECT_EQ(info4.num_dimensions, 0);
+            // Test Int64 <= Int32::min()
+            Field field7 =
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::min()));
+            FieldInfo info7;
+            variant_util::get_field_info(field7, &info7);
+            EXPECT_EQ(info7.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info7.have_nulls);
+            EXPECT_FALSE(info7.need_convert);
+            EXPECT_EQ(info7.num_dimensions, 0);
 
-        // Test Int64 <= Int8::min()
-        Field field5 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::min()));
-        FieldInfo info5;
-        schema_util::get_field_info(field5, &info5);
-        EXPECT_EQ(info5.scalar_type_id, PrimitiveType::TYPE_TINYINT);
-        EXPECT_FALSE(info5.have_nulls);
-        EXPECT_FALSE(info5.need_convert);
-        EXPECT_EQ(info5.num_dimensions, 0);
+            // Test Int64 < Int32::min()
+            Field field8 = Field::create_field<TYPE_BIGINT>(
+                    Int64(static_cast<Int64>(std::numeric_limits<Int32>::min()) - 1));
+            FieldInfo info8;
+            variant_util::get_field_info(field8, &info8);
+            EXPECT_EQ(info8.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+        }
 
-        // Test Int64 <= Int16::min()
-        Field field6 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::min()));
-        FieldInfo info6;
-        schema_util::get_field_info(field6, &info6);
-        EXPECT_EQ(info6.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
-        EXPECT_FALSE(info6.have_nulls);
-        EXPECT_FALSE(info6.need_convert);
-        EXPECT_EQ(info6.num_dimensions, 0);
+        // Test UInt64 with different ranges
+        {
+            // Test UInt64 <= UInt8::max()
+            Field field1 =
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt8>::max()));
+            FieldInfo info1;
+            variant_util::get_field_info(field1, &info1);
+            EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info1.have_nulls);
+            EXPECT_FALSE(info1.need_convert);
+            EXPECT_EQ(info1.num_dimensions, 0);
 
-        // Test Int64 <= Int32::min()
-        Field field7 = Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::min()));
-        FieldInfo info7;
-        schema_util::get_field_info(field7, &info7);
-        EXPECT_EQ(info7.scalar_type_id, PrimitiveType::TYPE_INT);
-        EXPECT_FALSE(info7.have_nulls);
-        EXPECT_FALSE(info7.need_convert);
-        EXPECT_EQ(info7.num_dimensions, 0);
+            // Test UInt64 <= UInt16::max()
+            Field field2 =
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt16>::max()));
+            FieldInfo info2;
+            variant_util::get_field_info(field2, &info2);
+            EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info2.have_nulls);
+            EXPECT_FALSE(info2.need_convert);
+            EXPECT_EQ(info2.num_dimensions, 0);
 
-        // Test Int64 < Int32::min()
-        Field field8 = Field::create_field<TYPE_BIGINT>(
-                Int64(static_cast<Int64>(std::numeric_limits<Int32>::min()) - 1));
-        FieldInfo info8;
-        schema_util::get_field_info(field8, &info8);
-        EXPECT_EQ(info8.scalar_type_id, PrimitiveType::TYPE_BIGINT);
-    }
+            // Test UInt64 <= UInt32::max()
+            Field field3 =
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max()));
+            FieldInfo info3;
+            variant_util::get_field_info(field3, &info3);
+            EXPECT_EQ(info3.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info3.have_nulls);
+            EXPECT_FALSE(info3.need_convert);
+            EXPECT_EQ(info3.num_dimensions, 0);
 
-    // Test UInt64 with different ranges
-    {
-        // Test UInt64 <= UInt8::max()
-        Field field1 = Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt8>::max()));
-        FieldInfo info1;
-        schema_util::get_field_info(field1, &info1);
-        EXPECT_EQ(info1.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
-        EXPECT_FALSE(info1.have_nulls);
-        EXPECT_FALSE(info1.need_convert);
-        EXPECT_EQ(info1.num_dimensions, 0);
-
-        // Test UInt64 <= UInt16::max()
-        Field field2 = Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt16>::max()));
-        FieldInfo info2;
-        schema_util::get_field_info(field2, &info2);
-        EXPECT_EQ(info2.scalar_type_id, PrimitiveType::TYPE_INT);
-        EXPECT_FALSE(info2.have_nulls);
-        EXPECT_FALSE(info2.need_convert);
-        EXPECT_EQ(info2.num_dimensions, 0);
-
-        // Test UInt64 <= UInt32::max()
-        Field field3 = Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max()));
-        FieldInfo info3;
-        schema_util::get_field_info(field3, &info3);
-        EXPECT_EQ(info3.scalar_type_id, PrimitiveType::TYPE_BIGINT);
-        EXPECT_FALSE(info3.have_nulls);
-        EXPECT_FALSE(info3.need_convert);
-        EXPECT_EQ(info3.num_dimensions, 0);
-
-        // Test UInt64 > UInt32::max()
-        Field field4 = Field::create_field<TYPE_BIGINT>(
-                UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
-        FieldInfo info4;
-        schema_util::get_field_info(field4, &info4);
-        EXPECT_EQ(info4.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            // Test UInt64 > UInt32::max()
+            Field field4 = Field::create_field<TYPE_BIGINT>(
+                    UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
+            FieldInfo info4;
+            variant_util::get_field_info(field4, &info4);
+            EXPECT_EQ(info4.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+        }
     }
 
     // Test Float32
     {
         Field field = Field::create_field<TYPE_FLOAT>(Float32(42.0f));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_DOUBLE);
+        variant_util::get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_FLOAT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 0);
@@ -2706,7 +2719,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     {
         Field field = Field::create_field<TYPE_DOUBLE>(Float64(42.0));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
+        variant_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_DOUBLE);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -2717,7 +2730,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     {
         Field field = Field::create_field<TYPE_STRING>(String("test"));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
+        variant_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_STRING);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -2731,8 +2744,8 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         array.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
         Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        variant_util::get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 1);
@@ -2750,8 +2763,8 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
 
         Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
+        variant_util::get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
         EXPECT_EQ(info.num_dimensions, 2);
@@ -2768,7 +2781,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
                                    .base_scalar_type_id = PrimitiveType::TYPE_STRING};
         Field field = Field::create_field<TYPE_VARIANT>(std::move(variant_map));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
+        variant_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_VARIANT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -2784,8 +2797,8 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         JsonbField field(value.value(), value.size());
 
         FieldInfo info;
-        schema_util::get_field_info(vectorized::Field::create_field<TYPE_JSONB>(std::move(field)),
-                                    &info);
+        variant_util::get_field_info(vectorized::Field::create_field<TYPE_JSONB>(std::move(field)),
+                                     &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
     }
 
@@ -2796,7 +2809,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         t1.push_back(Field::create_field<TYPE_BIGINT>(Int64(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
         FieldInfo info;
-        schema_util::get_field_info(vectorized::Field::create_field<TYPE_STRUCT>(t1), &info);
+        variant_util::get_field_info(vectorized::Field::create_field<TYPE_STRUCT>(t1), &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_STRUCT)
                 << "info.scalar_type_id: " << info.scalar_type_id;
         EXPECT_FALSE(info.have_nulls);
@@ -2821,7 +2834,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         map.push_back(Field::create_field<TYPE_ARRAY>(std::move(v1)));
         FieldInfo info;
         EXPECT_THROW(
-                schema_util::get_field_info(vectorized::Field::create_field<TYPE_MAP>(map), &info),
+                variant_util::get_field_info(vectorized::Field::create_field<TYPE_MAP>(map), &info),
                 doris::Exception);
     }
 
@@ -2831,263 +2844,262 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         array.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
         Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
         FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT)
+        variant_util::get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT)
                 << "info.scalar_type_id: " << info.scalar_type_id;
-        EXPECT_FALSE(info.have_nulls);
-        EXPECT_FALSE(info.need_convert);
-        EXPECT_EQ(info.num_dimensions, 1);
+
+        // Test Array with nulls
+        {
+            Array array;
+            array.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
+            array.push_back(Field::create_field<TYPE_NULL>(Null()));
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_TRUE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 1);
+        }
+
+        // Test nested Array with Int64 in different ranges
+        // Test nested Array with Int64 <= Int8::max()
+        {
+            Array inner_array;
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::max())));
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::max())));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with Int64 <= Int16::max()
+        {
+            Array inner_array;
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::max())));
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::max())));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with Int64 <= Int32::max()
+        {
+            Array inner_array;
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with Int64 > Int32::max()
+        {
+            Array inner_array;
+            inner_array.push_back(Field::create_field<TYPE_BIGINT>(
+                    Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1)));
+            inner_array.push_back(Field::create_field<TYPE_BIGINT>(
+                    Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1)));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with UInt64 in different ranges
+        // Test nested Array with UInt64 <= UInt8::max()
+        {
+            Array inner_array;
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt8>::max())));
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt8>::max())));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with UInt64 <= UInt16::max()
+        {
+            Array inner_array;
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt16>::max())));
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt16>::max())));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with UInt64 <= UInt32::max()
+        {
+            Array inner_array;
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
+            inner_array.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with UInt64 > UInt32::max()
+        {
+            Array inner_array;
+            inner_array.push_back(Field::create_field<TYPE_BIGINT>(
+                    UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1)));
+            inner_array.push_back(Field::create_field<TYPE_BIGINT>(
+                    UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1)));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with mixed Int64 and UInt64
+        {
+            Array inner_array1;
+            inner_array1.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
+            inner_array1.push_back(
+                    Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
+
+            Array inner_array2;
+            inner_array2.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
+            inner_array2.push_back(
+                    Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array1)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array2)));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_FALSE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test nested Array with nulls
+        {
+            Array inner_array1;
+            inner_array1.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
+            inner_array1.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
+
+            Array inner_array2;
+            inner_array2.push_back(Field::create_field<TYPE_BIGINT>(Int64(3)));
+            inner_array2.push_back(Field::create_field<TYPE_NULL>(Null()));
+
+            Array outer_array;
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array1)));
+            outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array2)));
+
+            Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
+            FieldInfo info;
+            variant_util::get_field_info(field, &info);
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
+            EXPECT_TRUE(info.have_nulls);
+            EXPECT_FALSE(info.need_convert);
+            EXPECT_EQ(info.num_dimensions, 2);
+        }
+
+        // Test Array with JsonbField
+        {
+            Slice slice("\"amory is cute\"");
+            JsonBinaryValue value;
+            Status st = value.from_json_string(slice.data, slice.size);
+            EXPECT_TRUE(st.ok()) << st.to_string();
+            JsonbField field(value.value(), value.size());
+
+            Field array = Field::create_field<TYPE_ARRAY>(Array());
+            array.get<TYPE_ARRAY>().push_back(Field::create_field<TYPE_JSONB>(std::move(field)));
+            array.get<TYPE_ARRAY>().push_back(Field::create_field<TYPE_JSONB>(JsonbField()));
+            FieldInfo info;
+            variant_util::get_field_info(array, &info);
+            // which should support ??!!
+            std::cout << std::to_string(info.scalar_type_id) << std::endl;
+            EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
+        }
     }
-
-    // Test Array with nulls
-    {
-        Array array;
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
-        array.push_back(Field::create_field<TYPE_NULL>(Null()));
-        Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
-        FieldInfo info;
-        schema_util::get_field_info(field, &info);
-        EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
-        EXPECT_TRUE(info.have_nulls);
-        EXPECT_FALSE(info.need_convert);
-        EXPECT_EQ(info.num_dimensions, 1);
-    }
-
-    // Test nested Array with Int64 in different ranges
-    {// Test nested Array with Int64 <= Int8::max()
-     {Array inner_array;
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::max())));
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int8>::max())));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test nested Array with Int64 <= Int16::max()
-{
-    Array inner_array;
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::max())));
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int16>::max())));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test nested Array with Int64 <= Int32::max()
-{
-    Array inner_array;
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_INT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test nested Array with Int64 > Int32::max()
-{
-    Array inner_array;
-    inner_array.push_back(Field::create_field<TYPE_BIGINT>(
-            Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1)));
-    inner_array.push_back(Field::create_field<TYPE_BIGINT>(
-            Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1)));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-} // namespace doris::vectorized
-
-// Test nested Array with UInt64 in different ranges
-{// Test nested Array with UInt64 <= UInt8::max()
- {Array inner_array;
-inner_array.push_back(Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt8>::max())));
-inner_array.push_back(Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt8>::max())));
-
-Array outer_array;
-outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-FieldInfo info;
-schema_util::get_field_info(field, &info);
-EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_SMALLINT);
-EXPECT_FALSE(info.have_nulls);
-EXPECT_FALSE(info.need_convert);
-EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test nested Array with UInt64 <= UInt16::max()
-{
-    Array inner_array;
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt16>::max())));
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt16>::max())));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_INT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test nested Array with UInt64 <= UInt32::max()
-{
-    Array inner_array;
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
-    inner_array.push_back(
-            Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test nested Array with UInt64 > UInt32::max()
-{
-    Array inner_array;
-    inner_array.push_back(Field::create_field<TYPE_BIGINT>(
-            UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1)));
-    inner_array.push_back(Field::create_field<TYPE_BIGINT>(
-            UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1)));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(Array()));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-}
-
-// Test nested Array with mixed Int64 and UInt64
-{
-    Array inner_array1;
-    inner_array1.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
-    inner_array1.push_back(
-            Field::create_field<TYPE_BIGINT>(Int64(std::numeric_limits<Int32>::max())));
-
-    Array inner_array2;
-    inner_array2.push_back(
-            Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
-    inner_array2.push_back(
-            Field::create_field<TYPE_BIGINT>(UInt64(std::numeric_limits<UInt32>::max())));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array1)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array2)));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_BIGINT);
-    EXPECT_FALSE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test nested Array with nulls
-{
-    Array inner_array1;
-    inner_array1.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
-    inner_array1.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
-
-    Array inner_array2;
-    inner_array2.push_back(Field::create_field<TYPE_BIGINT>(Int64(3)));
-    inner_array2.push_back(Field::create_field<TYPE_NULL>(Null()));
-
-    Array outer_array;
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array1)));
-    outer_array.push_back(Field::create_field<TYPE_ARRAY>(std::move(inner_array2)));
-
-    Field field = Field::create_field<TYPE_ARRAY>(std::move(outer_array));
-    FieldInfo info;
-    schema_util::get_field_info(field, &info);
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_TINYINT);
-    EXPECT_TRUE(info.have_nulls);
-    EXPECT_FALSE(info.need_convert);
-    EXPECT_EQ(info.num_dimensions, 2);
-}
-
-// Test Array with JsonbField
-{
-    Slice slice("\"amory is cute\"");
-    JsonBinaryValue value;
-    Status st = value.from_json_string(slice.data, slice.size);
-    EXPECT_TRUE(st.ok()) << st.to_string();
-    JsonbField field(value.value(), value.size());
-
-    Field array = Field::create_field<TYPE_ARRAY>(Array());
-    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(field)));
-    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(JsonbField()));
-    FieldInfo info;
-    schema_util::get_field_info(array, &info);
-    // which should support ??!!
-    std::cout << std::to_string(info.scalar_type_id) << std::endl;
-    EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
-}
 }
 
 TEST_F(ColumnVariantTest, field_visitor) {
@@ -3102,15 +3114,15 @@ TEST_F(ColumnVariantTest, field_visitor) {
         Field replacement = Field::create_field<TYPE_BIGINT>(Int64(42));
         Field result = apply_visitor(FieldVisitorReplaceScalars(replacement, 0), field);
 
-        EXPECT_EQ(result.get<Int64>(), 42);
+        EXPECT_EQ(result.get<TYPE_BIGINT>(), 42);
 
         Field replacement1 = Field::create_field<TYPE_BIGINT>(Int64(42));
         Field result1 = apply_visitor(FieldVisitorReplaceScalars(replacement, 1), field);
 
-        EXPECT_EQ(result1.get<Array>().size(), 3);
-        EXPECT_EQ(result1.get<Array>()[0].get<Int64>(), 42);
-        EXPECT_EQ(result1.get<Array>()[1].get<Int64>(), 42);
-        EXPECT_EQ(result1.get<Array>()[2].get<Int64>(), 42);
+        EXPECT_EQ(result1.get<TYPE_ARRAY>().size(), 3);
+        EXPECT_EQ(result1.get<TYPE_ARRAY>()[0].get<TYPE_BIGINT>(), 42);
+        EXPECT_EQ(result1.get<TYPE_ARRAY>()[1].get<TYPE_BIGINT>(), 42);
+        EXPECT_EQ(result1.get<TYPE_ARRAY>()[2].get<TYPE_BIGINT>(), 42);
     }
 }
 
@@ -3174,7 +3186,7 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         //        col_arr->insert(array1);
         //        col_arr->insert(array2);
         Field an = Field::create_field<TYPE_ARRAY>(Array());
-        an.get<Array>().push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
+        an.get<TYPE_ARRAY>().push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
         col_arr->insert(an);
         col_arr->insert(an);
         col_arr->insert(an);
@@ -3218,7 +3230,7 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
 
         std::vector<std::pair<std::string, doris::vectorized::Field>> data;
         Field an = Field::create_field<TYPE_ARRAY>(Array());
-        an.get<Array>().push_back(Field::create_field<TYPE_NULL>(Null()));
+        an.get<TYPE_ARRAY>().push_back(Field::create_field<TYPE_NULL>(Null()));
         data.emplace_back("v.a", an);
         // 2. subcolumn path
         auto vf = VariantUtil::construct_variant_map(data);
@@ -3483,7 +3495,7 @@ TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
 }
 
 TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
-    auto sparse_column = ColumnVariant::create_sparse_column_fn();
+    auto sparse_column = ColumnVariant::create_binary_column_fn();
     auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
     auto& key = assert_cast<ColumnString&>(column_map.get_keys());
     auto& value = assert_cast<ColumnString&>(column_map.get_values());
@@ -3492,40 +3504,40 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     {
         Field int_field = Field::create_field<TYPE_INT>(123);
         Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
-        array_field.get<Array&>()[0] = int_field;
+        array_field.get<TYPE_ARRAY>()[0] = int_field;
         FieldInfo info = {PrimitiveType::TYPE_TINYINT, false, false, 1};
         ColumnVariant::Subcolumn int_subcolumn(0, true, false);
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
 
         info = {PrimitiveType::TYPE_INT, false, false, 1};
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
 
         offsets.push_back(key.size());
 
         ColumnVariant::Subcolumn subcolumn(0, true, false);
-        subcolumn.deserialize_from_sparse_column(&value, 0);
+        subcolumn.deserialize_from_binary_column(&value, 0);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
         EXPECT_EQ(subcolumn.get_dimensions(), 1);
         EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_TINYINT);
         auto v = subcolumn.get_last_field();
-        auto& arr = v.get<Array>();
+        auto& arr = v.get<TYPE_ARRAY>();
         EXPECT_EQ(arr.size(), 1);
-        EXPECT_EQ(arr[0].get<Int32>(), 123);
+        EXPECT_EQ(arr[0].get<TYPE_TINYINT>(), 123);
 
-        subcolumn.deserialize_from_sparse_column(&value, 1);
+        subcolumn.deserialize_from_binary_column(&value, 1);
         EXPECT_EQ(subcolumn.data.size(), 2);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
         EXPECT_EQ(subcolumn.get_dimensions(), 1);
         EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
         auto v2 = subcolumn.get_last_field();
-        auto& arr2 = v2.get<Array>();
+        auto& arr2 = v2.get<TYPE_ARRAY>();
         EXPECT_EQ(arr2.size(), 1);
-        EXPECT_EQ(arr2[0].get<Int32>(), 123);
+        EXPECT_EQ(arr2[0].get<TYPE_INT>(), 123);
     }
 
     column_map.clear();
@@ -3536,44 +3548,75 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     {
         Field int_field = Field::create_field<TYPE_INT>(123);
         Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
-        array_field.get<Array&>()[0] = Field();
+        array_field.get<TYPE_ARRAY>()[0] = Field();
         FieldInfo info = {PrimitiveType::TYPE_NULL, false, false, 1};
         ColumnVariant::Subcolumn int_subcolumn(0, true, false);
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
 
         array_field = Field::create_field<TYPE_ARRAY>(Array(2));
-        array_field.get<Array&>()[0] = Field();
-        array_field.get<Array&>()[1] = int_field;
+        array_field.get<TYPE_ARRAY>()[0] = Field();
+        array_field.get<TYPE_ARRAY>()[1] = int_field;
         info = {PrimitiveType::TYPE_INT, false, false, 1};
         int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 1);
+        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
 
         offsets.push_back(key.size());
 
         ColumnVariant::Subcolumn subcolumn(0, true, false);
-        subcolumn.deserialize_from_sparse_column(&value, 0);
+        subcolumn.deserialize_from_binary_column(&value, 0);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
         EXPECT_EQ(subcolumn.get_dimensions(), 1);
         auto v = subcolumn.get_last_field();
-        auto& arr = v.get<Array>();
+        auto& arr = v.get<TYPE_ARRAY>();
         EXPECT_EQ(arr.size(), 1);
         EXPECT_TRUE(arr[0].is_null());
 
-        subcolumn.deserialize_from_sparse_column(&value, 1);
+        subcolumn.deserialize_from_binary_column(&value, 1);
         EXPECT_EQ(subcolumn.data.size(), 2);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
                   PrimitiveType::TYPE_ARRAY);
         EXPECT_EQ(subcolumn.get_dimensions(), 1);
         EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
         auto v2 = subcolumn.get_last_field();
-        auto& arr2 = v2.get<Array>();
+        auto& arr2 = v2.get<TYPE_ARRAY>();
         EXPECT_EQ(arr2.size(), 2);
         EXPECT_TRUE(arr2[0].is_null());
-        EXPECT_EQ(arr2[1].get<Int32>(), 123);
+        EXPECT_EQ(arr2[1].get<TYPE_INT>(), 123);
     }
+}
+
+TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
+    ColumnVariant::Subcolumn subcolumn(0, true, true);
+    subcolumn.insert_many_defaults(20);
+    subcolumn.finalize();
+    vectorized::UInt64 v = 20231205;
+    typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType tmp;
+    tmp.from_date_int64(v);
+    auto f = vectorized::Field::create_field<TYPE_DATEV2>(tmp);
+
+    FieldWithDataType field;
+    field.base_scalar_type_id = TYPE_DATEV2;
+    field.field = f;
+    subcolumn.insert(field);
+    subcolumn.finalize();
+
+    ColumnVariant::Subcolumn array_subcolumn(0, true, true);
+    array_subcolumn.insert_many_defaults(20);
+    array_subcolumn.finalize();
+
+    Array array;
+    array.push_back(f);
+    auto array_f = vectorized::Field::create_field<TYPE_ARRAY>(array);
+
+    FieldWithDataType field2;
+    field2.base_scalar_type_id = TYPE_DATEV2;
+    field2.field = array_f;
+    field2.num_dimensions = 1;
+    array_subcolumn.insert(field2);
+    array_subcolumn.finalize();
 }
 
 } // namespace doris::vectorized

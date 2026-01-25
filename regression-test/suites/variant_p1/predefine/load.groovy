@@ -20,6 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_predefine_type_multi_index", "p1"){
     
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
     
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -102,7 +103,7 @@ suite("test_predefine_type_multi_index", "p1"){
     sql """ create table github_events_2 like github_events """
     sql """ insert into github_events_2 select * from github_events """
 
-    trigger_and_wait_compaction(table_name, "cumulative")
+    trigger_and_wait_compaction(table_name, "cumulative", 1800)
     qt_sql """select cast(v["repo"]["name"] as string) from github_events where v["repo"]["name"] match 'apache' order by 1 limit 10;"""
     qt_sql """select cast(v["repo"]["name"] as string) from github_events where cast(v["repo"]["name"] as string) match 'xpressengine/xe-core' order by 1 limit 10;"""
     qt_sql """select cast(v["repo"]["name"] as string) from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""

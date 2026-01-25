@@ -231,6 +231,29 @@ void convert_tmp_rowsets(
     // tablet_id -> stats
     std::unordered_map<int64_t, TabletStats> tablet_stats;
 
+    OperationLogPB op_log;
+    if (is_versioned_write) {
+        std::string log_key = encode_versioned_key(versioned::log_key({instance_id}), versionstamp);
+        ValueBuf log_value;
+        err = blob_get(txn.get(), log_key, &log_value);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            ss << "failed to get operation log, txn_id=" << txn_id << " key=" << hex(log_key)
+               << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        if (!log_value.to_pb(&op_log)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            ss << "failed to parse operation log pb, txn_id=" << txn_id << " key=" << hex(log_key);
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+    }
+
     int64_t rowsets_visible_ts_ms =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
@@ -432,6 +455,18 @@ void convert_tmp_rowsets(
         }
         LOG(INFO) << "batch get " << existing_versioned_stats.size()
                   << " versioned tablet stats, txn_id=" << txn_id;
+
+        int64_t min_timestamp = meta_reader.min_read_versionstamp().version();
+        int64_t old_min_timestamp = op_log.min_timestamp();
+        if (min_timestamp < op_log.min_timestamp()) {
+            op_log.set_min_timestamp(min_timestamp);
+
+            std::string log_key_prefix = versioned::log_key({instance_id});
+            versioned::blob_put(txn.get(), log_key_prefix, versionstamp, op_log);
+            LOG(INFO) << "update operation log min_timestamp from " << old_min_timestamp << " to "
+                      << min_timestamp << " txn_id=" << txn_id
+                      << " log_versionstamp=" << versionstamp.to_string();
+        }
     }
 
     for (auto& [tablet_id, stats] : tablet_stats) {
@@ -602,6 +637,13 @@ void TxnLazyCommitTask::commit() {
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
         // The txn has been committed and made visible, no need to commit again.
         LOG(INFO) << "txn_id=" << txn_id_ << " is already visible, skip commit";
+        return;
+    }
+
+    if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
+        // The txn has been aborted, no need to commit again.
+        code_ = MetaServiceCode::TXN_ALREADY_ABORTED;
+        LOG(INFO) << "txn_id=" << txn_id_ << " is already aborted, skip commit";
         return;
     }
 

@@ -20,7 +20,6 @@ package org.apache.doris.nereids.pattern;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
@@ -111,7 +110,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
 
                     if (childrenPlan.isEmpty()) {
                         if (pattern instanceof SubTreePattern) {
-                            childrenPlan = ImmutableList.of(new GroupPlan(childGroup));
+                            childrenPlan = ImmutableList.of(childGroup.getGroupPlan());
                         } else {
                             // current pattern is match but children patterns not match
                             return;

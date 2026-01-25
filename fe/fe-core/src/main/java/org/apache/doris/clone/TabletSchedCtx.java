@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -1017,7 +1018,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 || tabletHealth.status == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
                 || tabletHealth.status == TabletStatus.COLOCATE_MISMATCH
                 || tabletHealth.status == TabletStatus.REPLICA_MISSING_FOR_TAG) {
-            replica = new Replica(
+            replica = new LocalReplica(
                     Env.getCurrentEnv().getNextId(), destBackendId,
                     -1 /* version */, schemaHash,
                     -1 /* data size */, -1, -1 /* row count */,

@@ -44,14 +44,15 @@ Usage: $0 <options>
   "
     exit 1
 }
-DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul,ranger,polaris"
+DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},trino,kafka,spark,lakesoul,ranger,polaris"
 COMPONENTS=$2
 HELP=0
 STOP=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
+export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -197,6 +198,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ICEBERG_REST=1
     elif [[ "${element}"x == "hudi"x ]]; then
         RUN_HUDI=1
+        RESERVED_PORTS="${RESERVED_PORTS},19083,19100,19101,18080"
     elif [[ "${element}"x == "trino"x ]]; then
         RUN_TRINO=1
     elif [[ "${element}"x == "spark"x ]]; then
@@ -346,8 +348,6 @@ start_clickhouse() {
 start_kafka() {
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
     cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
@@ -378,18 +378,6 @@ start_hive2() {
     # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
-    IP_HOST="127.0.0.1"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-
-    if [ "_${IP_HOST}" == "_" ]; then
-        echo "please set IP_HOST according to your actual situation"
-        exit -1
-    fi
-    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-
-    # generate hive-2x.yaml
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-2x.yaml
@@ -404,18 +392,6 @@ start_hive2() {
 start_hive3() {
     # hive3
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
-    #default value
-    IP_HOST="127.0.0.1"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-    if [ "_${IP_HOST}" == "_" ]; then
-        echo "please set IP_HOST according to your actual situation"
-        exit -1
-    fi
-    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    
-    # generate hive-3x.yaml
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
@@ -457,29 +433,34 @@ start_iceberg() {
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
+        if [[ ! -f "${ICEBERG_DIR}/data/input/jars/iceberg-aws-bundle-1.10.0.jar" ]]; then 
+            echo "iceberg 1.10.0 jars does not exist"
+            cd "${ICEBERG_DIR}" \
+            && rm -f iceberg_1_10_0*.jars.tar.gz\
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_1_10_0.jars.tar.gz \
+            && sudo tar xzvf iceberg_1_10_0.jars.tar.gz -C "data/input/jars" \
+            && sudo rm -rf iceberg_1_10_0.jars.tar.gz
+            cd -
+        else 
+            echo "iceberg 1.10.0 jars exist, continue !"
+        fi        
+
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
     fi
 }
 
 start_hudi() {
-    # hudi
-    cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env down
+    HUDI_DIR=${ROOT}/docker-compose/hudi
+    export CONTAINER_UID=${CONTAINER_UID}
+    envsubst <"${HUDI_DIR}"/hudi.env.tpl >"${HUDI_DIR}"/hudi.env
+    set -a
+    . "${HUDI_DIR}"/hudi.env
+    set +a
+    envsubst <"${HUDI_DIR}"/hudi.yaml.tpl >"${HUDI_DIR}"/hudi.yaml
+    sudo chmod +x "${HUDI_DIR}"/scripts/init.sh
+    sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/historyserver
-        sudo mkdir "${ROOT}"/docker-compose/hudi/historyserver
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
-        sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
-        if [[ ! -d "${ROOT}/docker-compose/hudi/scripts/hudi_docker_compose_attached_file" ]]; then
-            echo "Attached files does not exist, please download the https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/load/hudi/hudi_docker_compose_attached_file.zip file to the docker-compose/hudi/scripts/ directory and unzip it."
-            exit 1
-        fi
-        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
-        echo "sleep 15, wait server start"
-        sleep 15
-        docker exec -it adhoc-1 /bin/bash /var/scripts/setup_demo_container_adhoc_1.sh
-        docker exec -it adhoc-2 /bin/bash /var/scripts/setup_demo_container_adhoc_2.sh
+        sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env up -d --wait
     fi
 }
 
@@ -605,9 +586,6 @@ start_lakesoul() {
 
 start_kerberos() {
     echo "RUN_KERBEROS"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
@@ -630,7 +608,7 @@ start_kerberos() {
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
         sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
-        sudo rm -f /keytabs
+        sudo rm -df /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf

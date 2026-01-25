@@ -26,7 +26,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -47,6 +46,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
@@ -68,7 +68,6 @@ class FunctionConvertTZ : public IFunction {
     constexpr static PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
     using DateValueType = PrimitiveTypeTraits<PType>::CppType;
     using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
-    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
 
 public:
     static constexpr auto name = "convert_tz";
@@ -241,14 +240,11 @@ private:
                 continue;
             }
 
-            DateValueType ts_value =
-                    binary_cast<NativeType, DateValueType>(date_column->get_element(i));
+            DateValueType ts_value = date_column->get_element(i);
             DateValueType ts_value2;
 
             std::pair<int64_t, int64_t> timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, from_tz)) [[unlikely]] {
-                throw_invalid_string("convert_tz", from_tz.name());
-            }
+            ts_value.unix_timestamp(&timestamp, from_tz);
             ts_value2.from_unixtime(timestamp, to_tz);
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
@@ -256,8 +252,7 @@ private:
                                                              from_tz.name(), to_tz.name());
             }
 
-            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
-                    binary_cast<DateValueType, NativeType>(ts_value2)));
+            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
         }
     }
 
@@ -288,8 +283,7 @@ private:
     static void execute_inner_loop(const ColumnType* date_column, const std::string& from_tz_name,
                                    const std::string& to_tz_name, ColumnType* result_column,
                                    NullMap& result_null_map, const size_t index_now) {
-        DateValueType ts_value =
-                binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
+        DateValueType ts_value = date_column->get_element(index_now);
         cctz::time_zone from_tz {}, to_tz {};
         DateValueType ts_value2;
 
@@ -303,9 +297,7 @@ private:
         }
 
         std::pair<int64_t, int64_t> timestamp;
-        if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-            throw_invalid_string("convert_tz", from_tz.name());
-        }
+        ts_value.unix_timestamp(&timestamp, from_tz);
         ts_value2.from_unixtime(timestamp, to_tz);
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {
@@ -313,8 +305,7 @@ private:
                                                          from_tz.name(), to_tz.name());
         }
 
-        result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
-                binary_cast<DateValueType, NativeType>(ts_value2)));
+        result_column->insert(Field::create_field<TYPE_DATETIMEV2>(ts_value2));
     }
 };
 

@@ -26,7 +26,7 @@ suite("variant_mv") {
     sql """
     drop table if exists github_events1
     """
-
+    sql """ set default_variant_enable_doc_mode = false """
     sql """
     CREATE TABLE IF NOT EXISTS github_events1 (
         id BIGINT NOT NULL,

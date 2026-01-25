@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -71,6 +72,16 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final boolean hasUnbound;
     private final Supplier<Set<Slot>> inputSlots = LazyCompute.of(
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
+    private final Supplier<Set<ExprId>> inputExprIds = LazyCompute.of(
+            () -> {
+                Set<Slot> inputSlots = getInputSlots();
+                Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(inputSlots.size());
+                for (Slot inputSlot : inputSlots) {
+                    exprIds.add(inputSlot.getExprId());
+                }
+                return exprIds.build();
+            }
+    );
     private final int fastChildrenHashCode;
     private final Supplier<String> toSqlCache = LazyCompute.of(this::computeToSql);
     private final Supplier<Integer> hashCodeCache = LazyCompute.of(this::computeHashCode);
@@ -352,7 +363,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 || this instanceof Variable
                 || this instanceof VariableDesc
                 || this instanceof WindowExpression
-                || this instanceof WindowFrame) {
+                || this instanceof WindowFrame
+                || this instanceof TableGeneratingFunction) {
             // agg_fun(literal) is not constant, the result depends on the group by keys
             return false;
         }
@@ -394,12 +406,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * Note that the input slots of subquery's inner plan is not included.
      */
     public final Set<ExprId> getInputSlotExprIds() {
-        Set<Slot> inputSlots = getInputSlots();
-        Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(inputSlots.size());
-        for (Slot inputSlot : inputSlots) {
-            exprIds.add(inputSlot.getExprId());
-        }
-        return exprIds.build();
+        return inputExprIds.get();
     }
 
     public boolean isLiteral() {

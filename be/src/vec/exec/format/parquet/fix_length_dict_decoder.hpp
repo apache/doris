@@ -18,6 +18,7 @@
 #pragma once
 
 #include "util/bit_util.h"
+#include "util/memcpy_inlined.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -120,14 +121,41 @@ protected:
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
-                for (size_t i = 0; i < run_length; ++i) {
-                    if constexpr (PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                        auto& slice = _dict_items[_indexes[dict_index++]];
-                        memcpy(raw_data + data_index, slice.get_data(), _type_length);
-                    } else {
-                        *(cppType*)(raw_data + data_index) = _dict_items[_indexes[dict_index++]];
+                if constexpr (PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+                    // Optimized path: use memcpy_inlined and reduce address calculations
+                    char* dst_ptr = raw_data + data_index;
+                    size_t i = 0;
+                    // Loop unrolling: process 4 elements at a time
+                    for (; i + 4 <= run_length; i += 4) {
+                        auto& slice0 = _dict_items[_indexes[dict_index++]];
+                        doris::memcpy_inlined(dst_ptr, slice0.get_data(), _type_length);
+                        dst_ptr += _type_length;
+
+                        auto& slice1 = _dict_items[_indexes[dict_index++]];
+                        doris::memcpy_inlined(dst_ptr, slice1.get_data(), _type_length);
+                        dst_ptr += _type_length;
+
+                        auto& slice2 = _dict_items[_indexes[dict_index++]];
+                        doris::memcpy_inlined(dst_ptr, slice2.get_data(), _type_length);
+                        dst_ptr += _type_length;
+
+                        auto& slice3 = _dict_items[_indexes[dict_index++]];
+                        doris::memcpy_inlined(dst_ptr, slice3.get_data(), _type_length);
+                        dst_ptr += _type_length;
                     }
-                    data_index += _type_length;
+                    // Process remaining elements
+                    for (; i < run_length; ++i) {
+                        auto& slice = _dict_items[_indexes[dict_index++]];
+                        doris::memcpy_inlined(dst_ptr, slice.get_data(), _type_length);
+                        dst_ptr += _type_length;
+                    }
+                    data_index = dst_ptr - raw_data;
+                } else {
+                    // Original path for non-FIXED_LEN_BYTE_ARRAY types
+                    for (size_t i = 0; i < run_length; ++i) {
+                        *(cppType*)(raw_data + data_index) = _dict_items[_indexes[dict_index++]];
+                        data_index += _type_length;
+                    }
                 }
                 break;
             }

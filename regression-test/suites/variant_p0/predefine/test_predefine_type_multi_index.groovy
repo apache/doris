@@ -20,6 +20,7 @@ suite("test_variant_predefine_type_multi_index", "p0"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
 
     def tableName = "test_variant_predefine_type_multi_index"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -51,7 +52,7 @@ suite("test_variant_predefine_type_multi_index", "p0"){
         sql """ insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}') """
     }
 
-    trigger_and_wait_compaction(tableName, "cumulative")
+    trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
 
      qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """

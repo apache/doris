@@ -269,7 +269,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 );
                 rewrittenSubQueryAlias.add(subQueryAlias.withChildren(subQueryAliasChildren));
             }
-            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child()), predicates);
+            return super.visitLogicalCTE(new LogicalCTE<>(cte.isRecursive(),
+                    rewrittenSubQueryAlias, cte.child()), predicates);
         }
 
         @Override

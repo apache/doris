@@ -6,6 +6,7 @@ CREATE TABLE test_iceberg_systable_unpartitioned (
 )
 USING ICEBERG
 TBLPROPERTIES (
+  'format-version'='2',
   'primary-key' = 'id',
   'write.upsert.enabled' = 'true'
 );
@@ -17,6 +18,7 @@ CREATE TABLE test_iceberg_systable_partitioned (
 USING ICEBERG
 PARTITIONED BY (id)
 TBLPROPERTIES (
+  'format-version'='2',
   'primary-key' = 'id',
   'write.upsert.enabled' = 'true'
 );

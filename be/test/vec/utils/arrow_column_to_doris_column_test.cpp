@@ -235,7 +235,7 @@ template <typename ArrowType, PrimitiveType PType, bool is_nullable,
           typename ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType>
 void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTypeAndName& column,
                                   size_t num_elements, ArrowCppType arrow_numeric,
-                                  typename PrimitiveTypeTraits<PType>::ColumnItemType numeric,
+                                  typename PrimitiveTypeTraits<PType>::CppType numeric,
                                   size_t& counter) {
     ASSERT_EQ(column.column->size(), counter);
     auto array = create_constant_numeric_array<ArrowType, is_nullable>(num_elements, arrow_numeric,
@@ -273,10 +273,9 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
 
 template <typename ArrowType, PrimitiveType PType, bool is_nullable,
           typename ColumnType = ColumnVector<PType>>
-void test_numeric(
-        std::shared_ptr<ArrowType> type,
-        const std::vector<typename PrimitiveTypeTraits<PType>::ColumnItemType>& test_cases,
-        size_t num_elements) {
+void test_numeric(std::shared_ptr<ArrowType> type,
+                  const std::vector<typename PrimitiveTypeTraits<PType>::CppType>& test_cases,
+                  size_t num_elements) {
     using ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType;
     size_t counter = 0;
     auto pt = arrow_type_to_primitive_type(type->id());
@@ -633,7 +632,7 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
     auto& array_column = static_cast<ColumnArray&>(*data_column);
     EXPECT_EQ(array_column.size() - old_size, vec_offsets.size() - 1);
     for (size_t i = 0; i < array_column.size() - old_size; ++i) {
-        auto v = get<Array>(array_column[old_size + i]);
+        auto v = array_column[old_size + i].get<TYPE_ARRAY>();
         EXPECT_EQ(v.size(), vec_offsets[i + 1] - vec_offsets[i]);
         EXPECT_EQ(v.size(), array_column.get_offsets()[old_size + i] -
                                     array_column.get_offsets()[old_size + i - 1]);
@@ -646,14 +645,14 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
                 for (size_t j = 0; j < v.size(); ++j) {
                     // in nested column, values like [null, xx, null, xx, ...]
                     if ((vec_offsets[i] + j) % 2 != 0) {
-                        EXPECT_EQ(value, get<std::string>(v[j]));
+                        EXPECT_EQ(value, v[j].get<TYPE_STRING>());
                     }
                 }
             }
         } else {
             // check value
             for (size_t j = 0; j < v.size(); ++j) {
-                EXPECT_EQ(value, get<std::string>(v[j]));
+                EXPECT_EQ(value, v[j].get<TYPE_STRING>());
             }
         }
     }
