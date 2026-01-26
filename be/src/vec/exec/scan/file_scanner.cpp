@@ -336,9 +336,9 @@ Status FileScanner::_process_conjuncts() {
 
         std::vector<int> slot_ids;
         _get_slot_ids(cur_expr.get(), &slot_ids);
-        if (slot_ids.size() == 0) {
+        if (slot_ids.empty()) {
             _not_single_slot_filter_conjuncts.emplace_back(conjunct);
-            return Status::OK();
+            continue;
         }
         bool single_slot = true;
         for (int i = 1; i < slot_ids.size(); i++) {
