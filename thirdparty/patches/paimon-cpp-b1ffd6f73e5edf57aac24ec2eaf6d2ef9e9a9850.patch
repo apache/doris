@@ -2,14 +2,12 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index f942510..ef5b68c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -48,7 +48,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+@@ -48,7 +48,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
  option(PAIMON_USE_ASAN "Use Address Sanitizer" OFF)
  option(PAIMON_USE_UBSAN "Use Undefined Behavior Sanitizer" OFF)
  option(PAIMON_ENABLE_AVRO "Whether to enable avro file format" ON)
 -option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
 +option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
-+option(PAIMON_USE_EXTERNAL_ORC "Use external ORC target (orc::orc) instead of bundled ORC" OFF)
-+option(PAIMON_ORC_V1 "Build with ORC 1.x compatibility" OFF)
 +option(PAIMON_USE_EXTERNAL_GLOG "Use external glog library instead of bundled glog" OFF)
 +set(GLOG_INCLUDE_DIR "" CACHE PATH "External glog include directory")
 +set(GLOG_STATIC_LIB "" CACHE FILEPATH "External glog static library")
@@ -18,16 +16,6 @@ index f942510..ef5b68c 100644
  option(PAIMON_ENABLE_LANCE "Whether to enable lance file format" OFF)
  option(PAIMON_ENABLE_JINDO "Whether to enable jindo file system" OFF)
  option(PAIMON_ENABLE_LUMINA "Whether to enable lumina vector index" ON)
-@@ -56,6 +65,9 @@ option(PAIMON_ENABLE_LUMINA "Whether to enable lumina vector index" ON)
- if(PAIMON_ENABLE_ORC)
-     add_definitions(-DPAIMON_ENABLE_ORC)
- endif()
-+if(PAIMON_ORC_V1)
-+    add_definitions(-DPAIMON_ORC_V1)
-+endif()
- if(PAIMON_ENABLE_AVRO)
-     add_definitions(-DPAIMON_ENABLE_AVRO)
- endif()
 diff --git a/cmake_modules/BuildUtils.cmake b/cmake_modules/BuildUtils.cmake
 index c63d17f..73db743 100644
 --- a/cmake_modules/BuildUtils.cmake
@@ -52,6 +40,11 @@ index c63d17f..73db743 100644
      endif()
      set(LIB_DEPS $<TARGET_OBJECTS:${LIB_NAME}_objlib>)
      set(LIB_INCLUDES)
+@@ -72,3 +72,3 @@ function(add_paimon_lib LIB_NAME)
+     if(ARG_EXTRA_INCLUDES)
+-        target_include_directories(${LIB_NAME}_objlib SYSTEM PUBLIC ${ARG_EXTRA_INCLUDES})
++        target_include_directories(${LIB_NAME}_objlib SYSTEM BEFORE PUBLIC ${ARG_EXTRA_INCLUDES})
+     endif()
 diff --git a/cmake_modules/DefineOptions.cmake b/cmake_modules/DefineOptions.cmake
 index 0211f40..c4a6b2f 100644
 --- a/cmake_modules/DefineOptions.cmake
@@ -107,7 +100,7 @@ index 3f07104..dfe2ba3 100644
  build_snappy()
  build_zstd()
  build_zlib()
-@@ -1018,14 +1018,56 @@ build_zlib()
+@@ -1018,10 +1018,34 @@ build_zlib()
  build_lz4()
  build_arrow()
  build_tbb()
@@ -140,30 +133,6 @@ index 3f07104..dfe2ba3 100644
  
  if(PAIMON_ENABLE_AVRO)
      build_avro()
- endif()
- if(PAIMON_ENABLE_ORC)
--    build_protobuf()
--    build_orc()
-+    if(PAIMON_USE_EXTERNAL_ORC)
-+        if(TARGET orc::orc)
-+            message(STATUS "Using external ORC target: orc::orc")
-+        elseif(TARGET orc)
-+            add_library(orc::orc ALIAS orc)
-+            message(STATUS "Using external ORC target: orc (aliased to orc::orc)")
-+        else()
-+            message(FATAL_ERROR
-+                    "PAIMON_USE_EXTERNAL_ORC=ON but no ORC target found. Define target orc::orc "
-+                    "(or orc) before including ThirdpartyToolchain.cmake.")
-+        endif()
-+
-+        get_target_property(_orc_include_dirs orc::orc INTERFACE_INCLUDE_DIRECTORIES)
-+        if(_orc_include_dirs AND NOT _orc_include_dirs STREQUAL "NOTFOUND")
-+            set(ORC_INCLUDE_DIR "${_orc_include_dirs}")
-+        endif()
-+    else()
-+        build_protobuf()
-+        build_orc()
-+    endif()
  endif()
  if(PAIMON_ENABLE_JINDO)
      build_jindosdk_c()
@@ -233,155 +202,3 @@ index 6b2b6c9..8a5f6d7 100644
 +    other.size_ = 0;
      return *this;
  }
- 
-diff --git a/src/paimon/format/orc/CMakeLists.txt b/src/paimon/format/orc/CMakeLists.txt
-index 91319a1..69478be 100644
---- a/src/paimon/format/orc/CMakeLists.txt
-+++ b/src/paimon/format/orc/CMakeLists.txt
-@@ -24,6 +24,22 @@ if(PAIMON_ENABLE_ORC)
-         orc_stats_extractor.cpp
-         orc_format_writer.cpp)
- 
-+    set(PAIMON_ORC_DEFLATE_LIBS)
-+    if(TARGET deflate)
-+        list(APPEND PAIMON_ORC_DEFLATE_LIBS deflate)
-+    elseif(TARGET libdeflate)
-+        list(APPEND PAIMON_ORC_DEFLATE_LIBS libdeflate)
-+    else()
-+        find_library(PAIMON_LIBDEFLATE_LIBRARY
-+                     NAMES deflate libdeflate
-+                     HINTS
-+                     "$ENV{DORIS_THIRDPARTY}/installed/lib"
-+                     "$ENV{DORIS_THIRDPARTY}/installed/lib64")
-+        if(PAIMON_LIBDEFLATE_LIBRARY)
-+            list(APPEND PAIMON_ORC_DEFLATE_LIBS ${PAIMON_LIBDEFLATE_LIBRARY})
-+        endif()
-+    endif()
-+
-     add_paimon_lib(paimon_orc_file_format
-                    SOURCES
-                    ${PAIMON_ORC_FILE_FORMAT}
-@@ -40,8 +56,10 @@ if(PAIMON_ENABLE_ORC)
-                    tbb
-                    dl
-                    Threads::Threads
-+                   ${PAIMON_ORC_DEFLATE_LIBS}
-                    SHARED_LINK_LIBS
-                    paimon_shared
-+                   ${PAIMON_ORC_DEFLATE_LIBS}
-                    SHARED_LINK_FLAGS
-                    ${PAIMON_VERSION_SCRIPT_FLAGS})
- 
-diff --git a/src/paimon/format/orc/orc_adapter.cpp b/src/paimon/format/orc/orc_adapter.cpp
-index e986c79..20b9015 100644
---- a/src/paimon/format/orc/orc_adapter.cpp
-+++ b/src/paimon/format/orc/orc_adapter.cpp
-@@ -64,6 +64,41 @@
- namespace paimon::orc {
- namespace {
- template <typename T>
-+uint64_t OrcBufferSize(const ::orc::DataBuffer<T>& buffer) {
-+#if defined(PAIMON_ORC_V1)
-+    return const_cast<::orc::DataBuffer<T>&>(buffer).size();
-+#else
-+    return buffer.size();
-+#endif
-+}
-+
-+template <typename T>
-+void OrcBufferSetData(::orc::DataBuffer<T>* buffer, T* data, uint64_t size_bytes) {
-+#if defined(PAIMON_ORC_V1)
-+    uint64_t length = size_bytes / sizeof(T);
-+    buffer->resize(length);
-+    std::memcpy(buffer->data(), data, size_bytes);
-+#else
-+    buffer->setData(data, size_bytes);
-+#endif
-+}
-+
-+int64_t OrcInt128HighBits(const ::orc::Int128& value) {
-+#if defined(PAIMON_ORC_V1)
-+    return const_cast<::orc::Int128&>(value).getHighBits();
-+#else
-+    return value.getHighBits();
-+#endif
-+}
-+
-+uint64_t OrcInt128LowBits(const ::orc::Int128& value) {
-+#if defined(PAIMON_ORC_V1)
-+    return const_cast<::orc::Int128&>(value).getLowBits();
-+#else
-+    return value.getLowBits();
-+#endif
-+}
-+template <typename T>
- class OrcBackedArrowBuffer : public arrow::ResizableBuffer {
-  public:
-     explicit OrcBackedArrowBuffer(::orc::DataBuffer<T>&& buffer)
-@@ -473,12 +508,12 @@ class UnPooledStringDictionaryBuilder : public EmptyBuilder {
-         const auto& dict_data = orc_dictionary->dictionaryBlob;
-         auto offsets =
-             std::make_shared<arrow::Buffer>(reinterpret_cast<const uint8_t*>(dict_offset.data()),
--                                            dict_offset.size() * sizeof(int64_t));
-+                                            OrcBufferSize(dict_offset) * sizeof(int64_t));
-         auto data = std::make_shared<arrow::Buffer>(
--            reinterpret_cast<const uint8_t*>(dict_data.data()), dict_data.size());
-+            reinterpret_cast<const uint8_t*>(dict_data.data()), OrcBufferSize(dict_data));
-         dict_builder->SetData(data);
-         dict_builder->SetOffsets(offsets);
--        dict_builder->IncreaseLength(dict_offset.size() - 1);
-+        dict_builder->IncreaseLength(OrcBufferSize(dict_offset) - 1);
-         std::shared_ptr<arrow::Array> dictionary;
-         ARROW_RETURN_NOT_OK(dict_builder->Finish(&dictionary));
-         dictionary_.reset(new OrcStringDictionary(dictionary->data(), orc_dictionary));
-@@ -700,8 +735,8 @@ Result<std::shared_ptr<arrow::ArrayBuilder>> MakeOrcBackedDecimal128Builder(
-             arrow::internal::checked_cast<const ::orc::Decimal128VectorBatch*>(column_vector_batch);
-         for (size_t i = 0; i < typed_batch->numElements; i++) {
-             if (!has_nulls || typed_batch->notNull[i]) {
--                int64_t high_bits = typed_batch->values[i].getHighBits();
--                uint64_t low_bits = typed_batch->values[i].getLowBits();
-+                int64_t high_bits = OrcInt128HighBits(typed_batch->values[i]);
-+                uint64_t low_bits = OrcInt128LowBits(typed_batch->values[i]);
-                 PAIMON_RETURN_NOT_OK_FROM_ARROW(
-                     builder->Append(arrow::Decimal128(high_bits, low_bits)));
-             } else {
-@@ -1150,7 +1185,7 @@ arrow::Status ShallowCopyGenericBatch(const arrow::Array& array,
-         batch->notNull[i] = array_.IsValid(i) ? static_cast<char>(1) : static_cast<char>(0);
-     }
-     auto* raw_values = const_cast<value_type*>(array_.raw_values());
--    batch->data.setData(raw_values, sizeof(value_type) * length);
-+    OrcBufferSetData(&batch->data, raw_values, sizeof(value_type) * length);
-     batch->numElements = length;
-     return arrow::Status::OK();
- }
-diff --git a/src/paimon/format/orc/orc_input_stream_impl.cpp b/src/paimon/format/orc/orc_input_stream_impl.cpp
-index 72cb83a..65060de 100644
---- a/src/paimon/format/orc/orc_input_stream_impl.cpp
-+++ b/src/paimon/format/orc/orc_input_stream_impl.cpp
-@@ -71,10 +71,12 @@ void OrcInputStreamImpl::read(void* buf, uint64_t length, uint64_t offset) {
-     }
- }
- 
-+#if !defined(PAIMON_ORC_V1)
- std::future<void> OrcInputStreamImpl::readAsync(void* buf, uint64_t length, uint64_t offset) {
-     // TODO(liancheng.lsz)
-     throw ::orc::NotImplementedYet("do not support read async for now");
- }
-+#endif
- 
- const std::string& OrcInputStreamImpl::getName() const {
-     return uri_name_;
-diff --git a/src/paimon/format/orc/orc_input_stream_impl.h b/src/paimon/format/orc/orc_input_stream_impl.h
-index e32e861..e16d962 100644
---- a/src/paimon/format/orc/orc_input_stream_impl.h
-+++ b/src/paimon/format/orc/orc_input_stream_impl.h
-@@ -50,7 +50,9 @@ class OrcInputStreamImpl : public ::orc::InputStream {
-     uint64_t getLength() const override;
-     uint64_t getNaturalReadSize() const override;
-     void read(void* buf, uint64_t length, uint64_t offset) override;
-+#if !defined(PAIMON_ORC_V1)
-     std::future<void> readAsync(void* buf, uint64_t length, uint64_t offset) override;
-+#endif
-     const std::string& getName() const override;
- 
-  private:

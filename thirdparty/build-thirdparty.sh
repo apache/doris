@@ -1182,7 +1182,6 @@ build_paimon_cpp() {
         -DGFLAGS_STATIC_LIB="${TP_LIB_DIR}/libgflags.a" \
         -DPAIMON_USE_BSYMBOLIC=OFF \
         -DPAIMON_LINK_SHARED_STDLIB=OFF \
-        -DPAIMON_ORC_V1=ON \
         ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -1228,6 +1227,53 @@ build_paimon_cpp() {
     if [[ -z "${build_output}" ]]; then
         echo "Paimon build output dir not found under ${paimon_build_root}"
         exit 1
+    fi
+
+    local orc_symbol_prefix=""
+    if [[ -n "${PAIMON_ORC_SYMBOL_PREFIX+x}" ]]; then
+        orc_symbol_prefix="${PAIMON_ORC_SYMBOL_PREFIX}"
+    else
+        orc_symbol_prefix="paimon_orc_"
+    fi
+    if [[ -n "${orc_symbol_prefix}" ]]; then
+        local orc_lib_src="${paimon_build_root}/orc_ep-prefix/lib/liborc.a"
+        if [[ -f "${orc_lib_src}" ]]; then
+            local nm="${DORIS_BIN_UTILS}/nm"
+            local objcopy="${DORIS_BIN_UTILS}/objcopy"
+            if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
+            if [[ ! -f "${objcopy}" ]]; then
+                if ! objcopy="$(command -v objcopy)"; then
+                    objcopy="${TP_INSTALL_DIR}/binutils/bin/objcopy"
+                fi
+            fi
+            if [[ ! -x "${nm}" || ! -x "${objcopy}" ]]; then
+                echo "nm/objcopy not found, cannot prefix ORC symbols"
+                exit 1
+            fi
+            local map_file="${build_root}/orc_symbol_prefix.map"
+            "${nm}" --defined-only --extern-only "${orc_lib_src}" \
+                | awk 'NF>=3 {print $3}' \
+                | grep -v ':' \
+                | sort -u \
+                | awk -v p="${orc_symbol_prefix}" '{print $1" "p$1}' > "${map_file}"
+            if [[ -s "${map_file}" ]]; then
+                if "${nm}" --defined-only --extern-only "${orc_lib_src}" \
+                        | awk 'NF>=3 {print $3}' \
+                        | grep -q "^${orc_symbol_prefix}"; then
+                    echo "ORC symbols already prefixed with ${orc_symbol_prefix}, skip"
+                else
+                    "${objcopy}" --redefine-syms="${map_file}" "${orc_lib_src}"
+                    for lib in "${install_prefix}"/lib64/libpaimon*.a; do
+                        [[ -f "${lib}" ]] || continue
+                        "${objcopy}" --redefine-syms="${map_file}" "${lib}"
+                    done
+                fi
+            else
+                echo "No ORC symbols found in ${orc_lib_src}"
+            fi
+        else
+            echo "ORC static library not found at ${orc_lib_src}, skip symbol prefix"
+        fi
     fi
 
     cp -f "${fmt_lib}" "${deps_dir}/"
