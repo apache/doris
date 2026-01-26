@@ -289,31 +289,45 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
-    public void testGlueRestCatalogMissingAccessKeyId() {
+    public void testGlueRestCatalogPartialCredentialsNoError() {
+        // With unified S3Properties handling, partial credentials don't cause validation errors.
+        // When only one of access-key/secret-key is provided, the code will try other auth methods
+        // (assume role, credentials provider) and let Iceberg handle the final validation.
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "glue");
         props.put("iceberg.rest.signing-region", "us-east-1");
         props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
         props.put("iceberg.rest.sigv4-enabled", "true");
-        // Missing access-key-id
+        // Missing access-key-id - should not throw, will use fallback auth methods
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        Assertions.assertThrows(IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        // Should not have explicit credentials since only partial was provided
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
     }
 
     @Test
-    public void testGlueRestCatalogMissingSecretAccessKey() {
+    public void testGlueRestCatalogNoCredentialsUsesCredentialsProvider() {
+        // When no explicit credentials are provided but credentials-provider-type is set,
+        // should use the configured credentials provider
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "glue");
         props.put("iceberg.rest.signing-region", "us-east-1");
-        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
         props.put("iceberg.rest.sigv4-enabled", "true");
-        // Missing secret-access-key
+        props.put("iceberg.rest.credentials-provider-type", "INSTANCE_PROFILE");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        Assertions.assertThrows(IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
+        Assertions.assertTrue(catalogProps.containsKey("rest.credentials-provider"));
     }
 
     @Test
@@ -410,21 +424,69 @@ public class IcebergRestPropertiesTest {
 
     @Test
     public void testGlueRestCatalogMissingMultipleProperties() {
-        // Test error message when multiple required properties are missing
+        // Test error message when required Glue properties are missing
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "glue");
-        // Missing all required properties
+        // Missing required properties: signing-region and sigv4-enabled
+        // Note: access-key-id and secret-access-key are optional (can use other auth methods)
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
 
-        // The error message should mention the required properties
+        // The error message should mention the required properties (signing-region or sigv4-enabled)
         String errorMessage = exception.getMessage();
         Assertions.assertTrue(errorMessage.contains("signing-region")
-                || errorMessage.contains("access-key-id")
-                || errorMessage.contains("secret-access-key")
                 || errorMessage.contains("sigv4-enabled"));
+    }
+
+    @Test
+    public void testGlueRestCatalogWithS3PropertyAliases() {
+        // Test that S3Properties aliases work (s3.access_key instead of iceberg.rest.access-key-id)
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        // Use S3 property names instead of iceberg.rest names
+        props.put("s3.access_key", "AKIAIOSFODNN7EXAMPLE");
+        props.put("s3.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                catalogProps.get("rest.secret-access-key"));
+    }
+
+    @Test
+    public void testGlueRestCatalogWithAssumeRole() {
+        // Test assume role configuration when no explicit credentials
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.assume-role.arn", "arn:aws:iam::123456789012:role/MyRole");
+        props.put("iceberg.rest.assume-role.external-id", "my-external-id");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("org.apache.iceberg.aws.AssumeRoleAwsClientFactory",
+                catalogProps.get("client.factory"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyRole",
+                catalogProps.get("client.assume-role.arn"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("client.assume-role.region"));
+        Assertions.assertEquals("my-external-id", catalogProps.get("client.assume-role.external-id"));
+        // Should not have explicit credentials
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
     }
 }

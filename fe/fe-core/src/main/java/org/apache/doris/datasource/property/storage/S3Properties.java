@@ -165,6 +165,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
+    @Getter
     @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id"},
             required = false,
             description = "The external id of S3.")
