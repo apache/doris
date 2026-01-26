@@ -1116,6 +1116,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 }
 
                 persistOffsetProviderIfNeed();
+                log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",
+                        getJobId(), offsetRequest.getTaskId(), offsetRequest.getOffset());
                 ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
             }
 
