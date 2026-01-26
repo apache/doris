@@ -1403,11 +1403,11 @@ public class ConnectContext {
     }
 
     /**
-     * Tries to choose an available cluster in the following order
-     * 1. Do nothing if a cluster has been chosen for current session. It may be
-     *    chosen explicitly by `use @` command or setCloudCluster() or this method
-     * 2. Tries to choose a default cluster if current mysql user has been set any
-     * 3. Tries to choose an authorized cluster if all preceeding conditions failed
+     * Tries to choose an available cluster in the following order:
+     * 1. Get cluster from session variable (set by `use @` command or setCloudCluster())
+     * 2. Get cluster from cached variable (this.cloudCluster) if available (from previous policy selection)
+     * 3. Get cluster from user's default cluster property if set
+     * 4. Choose an authorized cluster by policy if all preceding conditions failed
      *
      * @param updateErr whether set the connect state to error if the returned cluster is null or empty
      * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
@@ -1430,18 +1430,7 @@ public class ConnectContext {
             return sessionCluster;
         }
 
-        // 2 get cluster from user
-        String userPropCluster = getDefaultCloudClusterFromUser(true);
-        if (!StringUtils.isEmpty(userPropCluster)) {
-            choseWay = "user property";
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", userPropCluster,
-                        getCurrentUserIdentity(), choseWay);
-            }
-            return userPropCluster;
-        }
-
-        // 3 get cluster from a cached variable in connect context
+        // 2 get cluster from a cached variable in connect context
         // this value comes from a cluster selection policy
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             choseWay = "user selection policy";
@@ -1450,6 +1439,18 @@ public class ConnectContext {
                         cloudCluster, getCurrentUserIdentity(), choseWay);
             }
             return cloudCluster;
+        }
+
+        // 3 get cluster from user
+        String userPropCluster = getDefaultCloudClusterFromUser(true);
+        if (!StringUtils.isEmpty(userPropCluster)) {
+            choseWay = "user property";
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", userPropCluster,
+                        getCurrentUserIdentity(), choseWay);
+            }
+            this.cloudCluster = userPropCluster;
+            return userPropCluster;
         }
 
         String policyCluster = "";
@@ -1472,9 +1473,8 @@ public class ConnectContext {
                 getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
             }
             throw exception;
-        } else {
-            this.cloudCluster = policyCluster;
         }
+        this.cloudCluster = policyCluster;
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", this.cloudCluster,

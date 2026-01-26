@@ -224,6 +224,9 @@ struct RowsetWriterContext {
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
             append_info.txn_id = txn_id;
+            append_info.expiration_time = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
+                                                  ? newest_write_timestamp + file_cache_ttl_sec
+                                                  : 0;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }
 
