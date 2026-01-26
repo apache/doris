@@ -19,7 +19,6 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
@@ -98,6 +97,10 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
     private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
+
+    public static boolean isDigitalString(String value) {
+        return value != null && DIGITAL_REGEX.matcher(value).matches();
+    }
 
     public static List<InternalRow> read(
             Table table, @Nullable int[] projection, @Nullable Predicate predicate,
@@ -532,41 +535,7 @@ public class PaimonUtil {
         }
     }
 
-    // get snapshot info from query like 'for version/time as of' or '@tag'
-    public static Snapshot getPaimonSnapshot(Table table, Optional<TableSnapshot> querySnapshot,
-            Optional<TableScanParams> scanParams) throws UserException {
-        Preconditions.checkArgument(querySnapshot.isPresent() || (scanParams.isPresent() && scanParams.get().isTag()),
-                "should spec version or time or tag");
-        Preconditions.checkArgument(!(querySnapshot.isPresent() && scanParams.isPresent()),
-                "should not spec both snapshot and scan params");
-
-        DataTable dataTable = (DataTable) table;
-        if (querySnapshot.isPresent()) {
-            return getPaimonSnapshotByTableSnapshot(dataTable, querySnapshot.get());
-        } else if (scanParams.isPresent() && scanParams.get().isTag()) {
-            return getPaimonSnapshotByTag(dataTable, extractBranchOrTagName(scanParams.get()));
-        } else {
-            throw new UserException("should spec version or time or tag");
-        }
-    }
-
-    private static Snapshot getPaimonSnapshotByTableSnapshot(DataTable table, TableSnapshot tableSnapshot)
-            throws UserException {
-        final String value = tableSnapshot.getValue();
-        final TableSnapshot.VersionType type = tableSnapshot.getType();
-        final boolean isDigital = DIGITAL_REGEX.matcher(value).matches();
-
-        switch (type) {
-            case TIME:
-                return getPaimonSnapshotByTimestamp(table, value, isDigital);
-            case VERSION:
-                return isDigital ? getPaimonSnapshotBySnapshotId(table, value) : getPaimonSnapshotByTag(table, value);
-            default:
-                throw new UserException("Unsupported snapshot type: " + type);
-        }
-    }
-
-    private static Snapshot getPaimonSnapshotByTimestamp(DataTable table, String timestamp, boolean isDigital)
+    static Snapshot getPaimonSnapshotByTimestamp(DataTable table, String timestamp, boolean isDigital)
             throws UserException {
         long timestampMillis = 0;
         if (isDigital) {
@@ -594,7 +563,7 @@ public class PaimonUtil {
         return snapshot;
     }
 
-    private static Snapshot getPaimonSnapshotBySnapshotId(DataTable table, String snapshotString)
+    static Snapshot getPaimonSnapshotBySnapshotId(DataTable table, String snapshotString)
             throws UserException {
         long snapshotId = Long.parseLong(snapshotString);
         try {
@@ -605,11 +574,12 @@ public class PaimonUtil {
         }
     }
 
-    private static Snapshot getPaimonSnapshotByTag(DataTable table, String tagName)
+    static Snapshot getPaimonSnapshotByTag(DataTable table, String tagName)
             throws UserException {
         Optional<Tag> tag = table.tagManager().get(tagName);
         return tag.orElseThrow(() -> new UserException("can't find snapshot by tag: " + tagName));
     }
+
 
     public static String resolvePaimonBranch(TableScanParams tableScanParams, Table baseTable)
             throws UserException {

@@ -108,3 +108,37 @@ INSERT INTO test_paimon_time_travel_db.tbl_time_travel VALUES
 (6006, 9006, '2024-02-16', 123.75, '987 Advanced Court, Silicon Valley, CA 94301', 'CANCELLED', true, 600);
 
 CALL sys.create_tag(table => 'test_paimon_time_travel_db.tbl_time_travel', tag => 't_6', snapshot => 6);
+
+-- table for expired snapshot tag time travel
+drop table if exists test_paimon_time_travel_db.tbl_time_travel_expired_tag;
+CREATE TABLE test_paimon_time_travel_db.tbl_time_travel_expired_tag (
+  id INT NOT NULL,
+  name STRING
+)
+USING paimon
+TBLPROPERTIES (
+  'bucket' = '1',
+  'primary-key' = 'id',
+  'file.format' = 'parquet'
+);
+
+-- snapshot 1
+INSERT INTO test_paimon_time_travel_db.tbl_time_travel_expired_tag VALUES
+(1, 'alpha'),
+(2, 'beta');
+CALL sys.create_tag(table => 'test_paimon_time_travel_db.tbl_time_travel_expired_tag', tag => 't_exp_1', snapshot => 1);
+
+-- snapshot 2
+INSERT INTO test_paimon_time_travel_db.tbl_time_travel_expired_tag VALUES
+(3, 'gamma'),
+(4, 'delta');
+CALL sys.create_tag(table => 'test_paimon_time_travel_db.tbl_time_travel_expired_tag', tag => 't_exp_2', snapshot => 2);
+
+-- snapshot 3
+INSERT INTO test_paimon_time_travel_db.tbl_time_travel_expired_tag VALUES
+(5, 'epsilon'),
+(6, 'zeta');
+CALL sys.create_tag(table => 'test_paimon_time_travel_db.tbl_time_travel_expired_tag', tag => 't_exp_3', snapshot => 3);
+
+-- expire snapshots so tag points to expired snapshot file
+CALL sys.expire_snapshots(table => 'test_paimon_time_travel_db.tbl_time_travel_expired_tag', retain_max => 1);
