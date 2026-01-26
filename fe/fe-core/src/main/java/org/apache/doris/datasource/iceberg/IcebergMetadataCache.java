@@ -100,7 +100,8 @@ public class IcebergMetadataCache {
 
     public IcebergSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(dorisTable.getOrBuildNameMapping());
-        return tableCache.get(key).getSnapshotCacheValue(() -> loadSnapshot(dorisTable));
+        IcebergTableCacheValue tableCacheValue = tableCache.get(key);
+        return tableCacheValue.getSnapshotCacheValue(() -> loadSnapshot(dorisTable, tableCacheValue.getIcebergTable()));
     }
 
     public List<Snapshot> getSnapshotList(ExternalTable dorisTable) {
@@ -145,7 +146,7 @@ public class IcebergMetadataCache {
     }
 
     @NotNull
-    private IcebergSnapshotCacheValue loadSnapshot(ExternalTable dorisTable) {
+    private IcebergSnapshotCacheValue loadSnapshot(ExternalTable dorisTable, Table icebergTable) {
         if (!(dorisTable instanceof MTMVRelatedTableIf)) {
             throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
                     dorisTable.getDbName(), dorisTable.getName()));
@@ -153,12 +154,12 @@ public class IcebergMetadataCache {
 
         try {
             MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
-            IcebergSnapshot lastedIcebergSnapshot = IcebergUtils.getLastedIcebergSnapshot(dorisTable);
+            IcebergSnapshot lastedIcebergSnapshot = IcebergUtils.getLastedIcebergSnapshot(icebergTable);
             IcebergPartitionInfo icebergPartitionInfo;
             if (!table.isValidRelatedTable()) {
                 icebergPartitionInfo = IcebergPartitionInfo.empty();
             } else {
-                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable,
+                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
                         lastedIcebergSnapshot.getSnapshotId());
             }
             return new IcebergSnapshotCacheValue(icebergPartitionInfo, lastedIcebergSnapshot);

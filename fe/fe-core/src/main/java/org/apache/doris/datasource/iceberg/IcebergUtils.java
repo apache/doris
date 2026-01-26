@@ -1225,20 +1225,18 @@ public class IcebergUtils {
         return (IcebergSchemaCacheValue) schemaCacheValue.get();
     }
 
-    public static IcebergSnapshot getLastedIcebergSnapshot(ExternalTable dorisTable) {
-        Table table = IcebergUtils.getIcebergTable(dorisTable);
+    public static IcebergSnapshot getLastedIcebergSnapshot(Table table) {
         Snapshot snapshot = table.currentSnapshot();
         long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : snapshot.snapshotId();
         return new IcebergSnapshot(snapshotId, table.schema().schemaId());
     }
 
-    public static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, long snapshotId)
+    public static IcebergPartitionInfo loadPartitionInfo(ExternalTable dorisTable, Table table, long snapshotId)
             throws AnalysisException {
         // snapshotId == UNKNOWN_SNAPSHOT_ID means this is an empty table, haven't contained any snapshot yet.
         if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
             return IcebergPartitionInfo.empty();
         }
-        Table table = getIcebergTable(dorisTable);
         List<IcebergPartition> icebergPartitions;
         try {
             icebergPartitions = dorisTable.getCatalog().getExecutionAuthenticator()
