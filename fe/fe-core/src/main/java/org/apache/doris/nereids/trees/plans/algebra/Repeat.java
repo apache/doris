@@ -117,18 +117,40 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
 
     /**
      * flatten the grouping sets and build to a GroupingSetShapes.
+     * This method ensures that all expressions referenced by grouping functions are included
+     * in the flattenGroupingSetExpression, even if they are not in any grouping set.
+     * This is necessary for optimization scenarios where some expressions may only exist
+     * in the maximum grouping set that was removed during optimization.
      */
     default GroupingSetShapes toShapes() {
-        Set<Expression> flattenGroupingSet = ImmutableSet.copyOf(ExpressionUtils.flatExpressions(getGroupingSets()));
+        Set<Expression> flattenGroupingSet = ImmutableSet.copyOf(getGroupByExpressions());
+        // Collect all expressions referenced by grouping functions to ensure they are included
+        // in flattenGroupingSetExpression, even if they are not in any grouping set.
+        // This maintains semantic constraints while allowing optimization.
+        List<GroupingScalarFunction> groupingFunctions = ExpressionUtils.collectToList(
+                getOutputExpressions(), GroupingScalarFunction.class::isInstance);
+        Set<Expression> groupingFunctionArgs = Sets.newLinkedHashSet();
+        for (GroupingScalarFunction function : groupingFunctions) {
+            groupingFunctionArgs.addAll(function.getArguments());
+        }
+        // Merge grouping set expressions with grouping function arguments
+        // Use LinkedHashSet to preserve order: grouping sets first, then grouping function args
+        Set<Expression> allExpressions = Sets.newLinkedHashSet(flattenGroupingSet);
+        for (Expression arg : groupingFunctionArgs) {
+            if (!allExpressions.contains(arg)) {
+                allExpressions.add(arg);
+            }
+        }
         List<GroupingSetShape> shapes = Lists.newArrayList();
         for (List<Expression> groupingSet : getGroupingSets()) {
-            List<Boolean> shouldBeErasedToNull = Lists.newArrayListWithCapacity(flattenGroupingSet.size());
-            for (Expression groupingSetExpression : flattenGroupingSet) {
-                shouldBeErasedToNull.add(!groupingSet.contains(groupingSetExpression));
+            List<Boolean> shouldBeErasedToNull = Lists.newArrayListWithCapacity(allExpressions.size());
+            for (Expression expression : allExpressions) {
+                // If expression is not in the current grouping set, it should be erased to null
+                shouldBeErasedToNull.add(!groupingSet.contains(expression));
             }
             shapes.add(new GroupingSetShape(shouldBeErasedToNull));
         }
-        return new GroupingSetShapes(flattenGroupingSet, shapes);
+        return new GroupingSetShapes(allExpressions, shapes);
     }
 
     /**
@@ -273,9 +295,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         }
 
         public boolean shouldBeErasedToNull(int index) {
-            if (index == -1) {
-                return true;
-            }
             return shouldBeErasedToNull.get(index);
         }
 
