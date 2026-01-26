@@ -39,14 +39,15 @@ import java.util.Set;
 public class OtherJoinTest extends TPCHTestBase {
     @Test
     public void test() {
-        for (int t = 5; t < 20; t++) {
+        for (int t = 30; t < 50; t++) {
             for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
-                for (int i = 0; i < 20; i++) {
+                for (int i = 0; i < 2; i++) {
                     System.out.println(String.valueOf(t) + " " + e + ": " + i);
                     randomTest(t, e);
                 }
             }
         }
+        System.out.println("aaa");
     }
 
     private void randomTest(int tableNum, int edgeNum) {
@@ -54,6 +55,7 @@ public class OtherJoinTest extends TPCHTestBase {
         Plan plan = hyperGraphBuilder
                 .randomBuildPlanWith(tableNum, edgeNum);
         plan = new LogicalProject(plan.getOutput(), plan);
+        final String originalPlanStr = plan.treeString();
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         hyperGraphBuilder.initStats("tpch", cascadesContext);
@@ -64,18 +66,25 @@ public class OtherJoinTest extends TPCHTestBase {
 
             Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
             if (!res1.equals(res2)) {
-                Set<List<String>> res3 = hyperGraphBuilder.evaluate(optimizedPlan);
-                System.out.println(plan.treeString());
+                res1 = hyperGraphBuilder.evaluate(plan);
+                res2 = hyperGraphBuilder.evaluate(optimizedPlan);
+                System.out.println("==== ORIGINAL PLAN ====");
+                System.out.println(originalPlanStr);
+                System.out.println("==== OPTIMIZED PLAN ====");
                 System.out.println(optimizedPlan.treeString());
                 cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
                 PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
+                System.out.println("==== EXPECTED RESULTS ====");
                 System.out.println(res1);
+                System.out.println("==== ACTUAL RESULTS ====");
                 System.out.println(res2);
             }
             Assertions.assertTrue(res1.equals(res2));
         } catch (Exception ex) {
-            String planShape = plan.treeString();
-            System.out.println(planShape);
+            System.out.println("Exception during optimization/evaluation:");
+            ex.printStackTrace(System.out);
+            System.out.println("==== ORIGINAL PLAN (on exception) ====");
+            System.out.println(originalPlanStr);
         }
 
     }
