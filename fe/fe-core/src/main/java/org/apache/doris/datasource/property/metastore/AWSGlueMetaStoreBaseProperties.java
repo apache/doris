@@ -40,10 +40,39 @@ import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AWSGlueMetaStoreBaseProperties {
+    // Cached credential providers to prevent thread leak.
+    // Each credential provider creates internal ScheduledExecutorService threads for credential refresh.
+    // Without caching, every call creates new threads that are never cleaned up.
+    private static volatile AwsCredentialsProvider cachedDefaultChainProvider = null;
+    private static final Object LOCK = new Object();
+
+    // Cache for role-based credential providers, keyed by region:roleArn:externalId
+    private static final ConcurrentMap<String, AwsCredentialsProvider> ROLE_CREDENTIALS_CACHE =
+            new ConcurrentHashMap<>();
+
+    private static AwsCredentialsProvider getCachedDefaultChainProvider() {
+        if (cachedDefaultChainProvider == null) {
+            synchronized (LOCK) {
+                if (cachedDefaultChainProvider == null) {
+                    cachedDefaultChainProvider = AwsCredentialsProviderChain.of(
+                            WebIdentityTokenFileCredentialsProvider.create(),
+                            ContainerCredentialsProvider.create(),
+                            InstanceProfileCredentialsProvider.create(),
+                            SystemPropertyCredentialsProvider.create(),
+                            EnvironmentVariableCredentialsProvider.create(),
+                            ProfileCredentialsProvider.create());
+                }
+            }
+        }
+        return cachedDefaultChainProvider;
+    }
+
     @Getter
     @ConnectorProperty(names = {"glue.endpoint", "aws.endpoint", "aws.glue.endpoint"},
             description = "The endpoint of the AWS Glue.")
@@ -176,36 +205,30 @@ public class AWSGlueMetaStoreBaseProperties {
                         glueSessionToken));
             }
         }
-        // If IAM role is configured, use STS AssumeRole
+        // If IAM role is configured, use STS AssumeRole with cached providers
         if (StringUtils.isNotBlank(glueIAMRole)) {
-            StsClient stsClient = StsClient.builder()
-                    .region(Region.of(glueRegion))
-                    .credentialsProvider(AwsCredentialsProviderChain.of(
-                            WebIdentityTokenFileCredentialsProvider.create(),
-                            ContainerCredentialsProvider.create(),
-                            InstanceProfileCredentialsProvider.create(),
-                            SystemPropertyCredentialsProvider.create(),
-                            EnvironmentVariableCredentialsProvider.create(),
-                            ProfileCredentialsProvider.create()))
-                    .build();
+            // Cache role-based credentials by region:roleArn:externalId
+            String cacheKey = glueRegion + ":" + glueIAMRole + ":"
+                    + (glueExternalId != null ? glueExternalId : "");
+            return ROLE_CREDENTIALS_CACHE.computeIfAbsent(cacheKey, k -> {
+                // Note: StsClient is intentionally not closed as it's cached for the FE process lifetime
+                StsClient stsClient = StsClient.builder()
+                        .region(Region.of(glueRegion))
+                        .credentialsProvider(getCachedDefaultChainProvider())
+                        .build();
 
-            return StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(builder -> {
-                        builder.roleArn(glueIAMRole).roleSessionName("aws-glue-java-fe");
-                        if (StringUtils.isNotBlank(glueExternalId)) {
-                            builder.externalId(glueExternalId);
-                        }
-                    }).build();
+                return StsAssumeRoleCredentialsProvider.builder()
+                        .stsClient(stsClient)
+                        .refreshRequest(builder -> {
+                            builder.roleArn(glueIAMRole).roleSessionName("aws-glue-java-fe");
+                            if (StringUtils.isNotBlank(glueExternalId)) {
+                                builder.externalId(glueExternalId);
+                            }
+                        }).build();
+            });
         }
 
-        return AwsCredentialsProviderChain.of(
-                WebIdentityTokenFileCredentialsProvider.create(),
-                ContainerCredentialsProvider.create(),
-                InstanceProfileCredentialsProvider.create(),
-                SystemPropertyCredentialsProvider.create(),
-                EnvironmentVariableCredentialsProvider.create(),
-                ProfileCredentialsProvider.create());
+        return getCachedDefaultChainProvider();
     }
 }
 

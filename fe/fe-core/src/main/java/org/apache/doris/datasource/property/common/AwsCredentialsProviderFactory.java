@@ -33,11 +33,25 @@ import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsPr
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public final class AwsCredentialsProviderFactory {
 
     private AwsCredentialsProviderFactory() {
     }
+
+    // Cache for AWS SDK V2 credential providers to prevent thread leak
+    // Each credential provider type creates internal ScheduledExecutorService threads
+    // for credential refresh. Without caching, every call to createV2() creates new
+    // threads that are never cleaned up, causing memory exhaustion.
+    // Key format: "mode:includeAnonymous" for DEFAULT mode, "mode" for others
+    private static final ConcurrentMap<String, AwsCredentialsProvider> V2_PROVIDER_CACHE =
+            new ConcurrentHashMap<>();
+
+    // Cache for AWS SDK V1 credential providers
+    private static final ConcurrentMap<String, com.amazonaws.auth.AWSCredentialsProvider> V1_PROVIDER_CACHE =
+            new ConcurrentHashMap<>();
 
     /* =========================
      * AWS SDK V1
@@ -45,7 +59,12 @@ public final class AwsCredentialsProviderFactory {
 
     public static com.amazonaws.auth.AWSCredentialsProvider createV1(
             AwsCredentialsProviderMode mode) {
+        String cacheKey = mode.name();
+        return V1_PROVIDER_CACHE.computeIfAbsent(cacheKey, k -> createV1Internal(mode));
+    }
 
+    private static com.amazonaws.auth.AWSCredentialsProvider createV1Internal(
+            AwsCredentialsProviderMode mode) {
         switch (mode) {
             case ENV:
                 return new com.amazonaws.auth.EnvironmentVariableCredentialsProvider();
@@ -89,6 +108,16 @@ public final class AwsCredentialsProviderFactory {
      * ========================= */
 
     public static AwsCredentialsProvider createV2(
+            AwsCredentialsProviderMode mode,
+            boolean includeAnonymousInDefault) {
+        // Create cache key: for DEFAULT mode, include the anonymous flag
+        String cacheKey = mode == AwsCredentialsProviderMode.DEFAULT
+                ? mode.name() + ":" + includeAnonymousInDefault
+                : mode.name();
+        return V2_PROVIDER_CACHE.computeIfAbsent(cacheKey, k -> createV2Internal(mode, includeAnonymousInDefault));
+    }
+
+    private static AwsCredentialsProvider createV2Internal(
             AwsCredentialsProviderMode mode,
             boolean includeAnonymousInDefault) {
         switch (mode) {
