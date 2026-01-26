@@ -372,7 +372,6 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
      * 2. All aggregate functions must be in SUPPORT_AGG_FUNCTIONS.
      * 3. More than 3 grouping sets
      * 4. There exists a grouping set that contains all other grouping sets
-     * 5. Grouping scalar functions do not reference expressions that only exist in the largest grouping set.
      * @param aggregate the aggregate plan to check
      * @return value -1 means can not be optimized, values other than -1
      *      represent the index of the set that contains all other sets
@@ -404,30 +403,6 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         if (maxGroupIndex < 0) {
             return -1;
         }
-        // Find the grouping function among the children of the aggregate function.If any of its parameters
-        // are expressions that only exist in the largest group, then optimization is not possible.
-        // e.g. 1. select a,b,c, grouping(c) from t1 group by grouping sets((a,b,c),(a,b),(a),());
-        // e.g. 2. select a,b,c, grouping_id(a,b,c,d) from t1 group by grouping sets((a,b,c,d),(a,b),(a),());
-        // The above two examples cannot be optimized because c and d only exist in the largest group.
-        // e.g. 3. select a,b,c, grouping_id(a,b) from t1 group by grouping sets((a,b,c,d),(a,b),(a),());
-        // Example 3 can be optimized because a and b also exist in other groups.
-        // Set<GroupingScalarFunction> groupingScalarFunctions = repeat.getGroupingScalarFunctions();
-        // Set<Expression> maxGroupingSetExprs =
-        //         Utils.fastToImmutableSet(repeat.getGroupingSets().get(maxGroupIndex));
-        // Set<Expression> otherGroupingSetExprs = new HashSet<>();
-        // for (int i = 0; i < groupingSets.size(); ++i) {
-        //     if (i == maxGroupIndex) {
-        //         continue;
-        //     }
-        //     otherGroupingSetExprs.addAll(groupingSets.get(i));
-        // }
-        // Set<Expression> onlyInMaxSetExprs = new HashSet<>(maxGroupingSetExprs);
-        // onlyInMaxSetExprs.removeAll(otherGroupingSetExprs);
-        // for (GroupingScalarFunction groupingScalarFunction : groupingScalarFunctions) {
-        //     if (CollectionUtils.containsAny(onlyInMaxSetExprs, groupingScalarFunction.getInputSlots())) {
-        //         return -1;
-        //     }
-        // }
         return maxGroupIndex;
     }
 
