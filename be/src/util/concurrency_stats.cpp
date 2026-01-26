@@ -22,6 +22,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "util/thread.h"
 
 namespace doris {
 ConcurrencyStatsManager::ConcurrencyStatsManager() : _running(false) {
@@ -109,6 +110,7 @@ void ConcurrencyStatsManager::dump_to_log() {
 }
 
 void ConcurrencyStatsManager::_dump_thread_func() {
+    Thread::set_self_name("ConcurrencyStatsManager_dump_thread");
     while (_running.load(std::memory_order_relaxed)) {
         // Check if dumping is enabled
         if (config::enable_concurrency_stats_dump) {
