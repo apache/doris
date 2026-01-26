@@ -266,6 +266,7 @@ public class PipelineCoordinator {
 
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
+                    LOG.info("No records polled, continuing...");
 
                     // Check if should stop
                     long elapsedTime = System.currentTimeMillis() - startTime;

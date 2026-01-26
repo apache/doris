@@ -163,19 +163,29 @@ public class DorisBatchStreamLoad implements Serializable {
                 lock.unlock();
             }
         }
+
+        // Single table flush according to the STREAM_LOAD_MAX_BYTES
+        if (buffer.getBufferSizeBytes() >= STREAM_LOAD_MAX_BYTES) {
+            boolean flush = bufferFullFlush();
+            LOG.info("trigger flush by buffer full, flush: {}", flush);
+        }
     }
 
     public boolean cacheFullFlush() {
         return doFlush(true, true);
     }
 
+    public boolean bufferFullFlush() {
+        return doFlush(false, true);
+    }
+
     public boolean forceFlush() {
         return doFlush(true, false);
     }
 
-    private synchronized boolean doFlush(boolean waitUtilDone, boolean cacheFull) {
+    private synchronized boolean doFlush(boolean waitUtilDone, boolean bufferFull) {
         checkFlushException();
-        if (waitUtilDone || cacheFull) {
+        if (waitUtilDone || bufferFull) {
             return flush(waitUtilDone);
         }
         return false;
