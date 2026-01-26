@@ -285,40 +285,49 @@ class StreamLoadAction implements SuiteAction {
 
     @Override
     void run() {
-        String responseText = null
-        Throwable ex = null
-        long startTime = System.currentTimeMillis()
-        def isHttpStream = headers.containsKey("version")
-        def httpType = enableTLS ? "https" : "http"
         try {
-            def uri = ""
-            if (isHttpStream) {
-                uri = "${httpType}://${address.hostString}:${address.port}/api/_http_stream"
-            } else if (twoPhaseCommit) {
-                uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
-            } else {
-                uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
-            }
-
-            buildHttpClient().withCloseable { client ->
-                RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(client)
-                if (!directToBe) {
-                    String beLocation = streamLoadToFe(client, requestBuilder)
-                    log.info("Redirect stream load to ${beLocation}".toString())
-                    requestBuilder.setUri(beLocation)
+            String responseText = null
+            Throwable ex = null
+            long startTime = System.currentTimeMillis()
+            def isHttpStream = headers.containsKey("version")
+            def httpType = enableTLS ? "https" : "http"
+            try {
+                def uri = ""
+                if (isHttpStream) {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/_http_stream"
+                } else if (twoPhaseCommit) {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
+                } else {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
                 }
-                requestBuilder.setEntity(httpEntity)
-                responseText = streamLoadToBe(client, requestBuilder)
-            }
-        } catch (Throwable t) {
-            ex = t
-        }
-        long endTime = System.currentTimeMillis()
 
-        log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
-                " response: ${responseText}" + ex.toString())
-        checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
+                buildHttpClient().withCloseable { client ->
+                    RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
+                    HttpEntity httpEntity = prepareHttpEntity(client)
+                    if (!directToBe) {
+                        String beLocation = streamLoadToFe(client, requestBuilder)
+                        log.info("Redirect stream load to ${beLocation}".toString())
+                        requestBuilder.setUri(beLocation)
+                    }
+                    requestBuilder.setEntity(httpEntity)
+                    responseText = streamLoadToBe(client, requestBuilder)
+                }
+            } catch (Throwable t) {
+                ex = t
+            }
+            long endTime = System.currentTimeMillis()
+
+            log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
+                    " response: ${responseText}" + ex.toString())
+            checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
+        } finally {
+            // the multiple frontends environment may not see the newest data, so we should sync after stream load
+            try {
+                JdbcUtils.executeToList(context.getConn(), "sync")
+            } catch (Throwable t2) {
+                log.warn("Execute sync failed", t2)
+            }
+        }
     }
 
     private CloseableHttpClient buildHttpClient() {

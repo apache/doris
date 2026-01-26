@@ -476,6 +476,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
+    public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
@@ -915,6 +917,14 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
     public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
+
+    public static final String DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "default_variant_doc_materialization_min_rows";
+
+    public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
@@ -1611,6 +1621,11 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.EXPERIMENTAL)
     public int topNLazyMaterializationThreshold = 1024;
 
+    @VariableMgr.VarAttr(name = "topn_lazy_materialization_using_index", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public boolean topNLazyMaterializationUsingIndex = false;
+
     @VariableMgr.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL,
@@ -1628,6 +1643,14 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
         } else {
             return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
+        }
+    }
+
+    public static boolean getTopNLazyMaterializationUsingIndex() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationUsingIndex;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationUsingIndex;
         }
     }
 
@@ -2747,6 +2770,23 @@ public class SessionVariable implements Serializable, Writable {
             "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
     public int mergeReadSliceSizeBytes = 8388608;
 
+    @VariableMgr.VarAttr(name = FILE_CACHE_QUERY_LIMIT_PERCENT, needForward = true,
+            checker = "checkFileCacheQueryLimitPercent",
+            description = {"限制用户的单个查询能使用的 FILE_CACHE 比例 "
+                    + "（用户设置，取值范围 1 到 Config.file_cache_query_limit_max_percent）。",
+                    "Limit the FILE_CACHE percent that a single query of a user can use "
+                    + "(set by user via session variables, range: 1 to Config.file_cache_query_limit_max_percent)."})
+    public int fileCacheQueryLimitPercent = -1;
+
+    public void checkFileCacheQueryLimitPercent(String fileCacheQueryLimitPercentStr) {
+        int fileCacheQueryLimitPct = Integer.valueOf(fileCacheQueryLimitPercentStr);
+        if (fileCacheQueryLimitPct < 1 || fileCacheQueryLimitPct > Config.file_cache_query_limit_max_percent) {
+            throw new InvalidParameterException(
+                String.format("file_cache_query_limit_percent should be between 1 and %d",
+                Config.file_cache_query_limit_max_percent));
+        }
+    }
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -2892,7 +2932,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
-    public static long cloudPartitionVersionCacheTtlMs = 0;
+    public long cloudPartitionVersionCacheTtlMs = 0;
     @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
     public long cloudTableVersionCacheTtlMs = 0;
     // CLOUD_VARIABLES_END
@@ -3237,6 +3277,29 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantSparseHashShardCount = 0;
 
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultVariantEnableDocMode = false;
+
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            needForward = true,
+            fuzzy = true
+    )
+    public long defaultVariantDocMaterializationMinRows = 0L;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantDocHashShardCount = 64;
+
     @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
             fuzzy = true,
@@ -3284,6 +3347,17 @@ public class SessionVariable implements Serializable, Writable {
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
         this.useV3StorageFormat = random.nextBoolean();
+        this.defaultVariantEnableDocMode = random.nextBoolean();
+        this.defaultVariantDocHashShardCount = random.nextInt(5);
+        boolean zeroOrOne = random.nextBoolean();
+        this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
+        if (this.defaultVariantEnableDocMode) {
+            this.defaultVariantMaxSubcolumnsCount = 0;
+            this.defaultEnableTypedPathsToSparse = false;
+        } else {
+            this.defaultVariantDocMaterializationMinRows = 0L;
+            this.defaultVariantDocHashShardCount = 0;
+        }
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -5046,6 +5120,12 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIvfNprobe(ivfNprobe);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
+        if (fileCacheQueryLimitPercent > 0) {
+            tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
+                    Config.file_cache_query_limit_max_percent));
+        } else {
+            tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_max_percent);
+        }
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
@@ -5859,6 +5939,18 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantSparseHashShardCount() {
         return defaultVariantSparseHashShardCount;
+    }
+
+    public boolean getDefaultVariantEnableDocMode() {
+        return defaultVariantEnableDocMode;
+    }
+
+    public long getDefaultVariantDocMaterializationMinRows() {
+        return defaultVariantDocMaterializationMinRows;
+    }
+
+    public int getDefaultVariantDocHashShardCount() {
+        return defaultVariantDocHashShardCount;
     }
 
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {

@@ -465,7 +465,7 @@ TEST_F(DataTypeDecimalTest, get_default) {
         using DataType = decltype(dt);
         using ColumnType = typename DataType::ColumnType;
         auto default_field = dt.get_default();
-        auto decimal_field = default_field.template get<typename ColumnType::value_type>();
+        auto decimal_field = default_field.template get<DataType::PType>();
         EXPECT_EQ(decimal_field, typename ColumnType::value_type());
     };
     test_func(dt_decimal32_1);
@@ -482,7 +482,6 @@ TEST_F(DataTypeDecimalTest, get_field) {
     std::string line;
     auto test_func = [&](auto dt, const std::string& input_data_file_name) {
         using DataType = decltype(dt);
-        using ColumnType = typename DataType::ColumnType;
         {
             expr_node.decimal_literal.value = "abc";
             EXPECT_THROW(dt.get_field(expr_node), Exception);
@@ -505,7 +504,7 @@ TEST_F(DataTypeDecimalTest, get_field) {
             }
             expr_node.decimal_literal.value = line;
             auto field = dt.get_field(expr_node);
-            auto decimal_field = field.template get<typename ColumnType::value_type>();
+            auto decimal_field = field.template get<DataType::PType>();
             res.push_back(decimal_field.to_string(dt.get_scale()));
         }
         check_or_generate_res_file(output_file, {res});

@@ -120,8 +120,8 @@ public:
     }
 
     void insert(const Field& x) override {
-        DCHECK_EQ(vectorized::get<const String&>(x).length(), _item_size);
-        insert_data(vectorized::get<const String&>(x).data(), _item_size);
+        DCHECK_EQ(x.get<TYPE_STRING>().length(), _item_size);
+        insert_data(x.get<TYPE_STRING>().data(), _item_size);
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {

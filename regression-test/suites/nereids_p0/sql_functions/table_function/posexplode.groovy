@@ -100,6 +100,7 @@ suite("posexplode") {
       (4, "lily", ["t1_d","t1_e"], null),
       (5, "alice", null, null);
     """
+
     order_qt_pos_exp_multi_args_all """
     select * from test_posexplode_multi_args;
     """
@@ -131,5 +132,78 @@ suite("posexplode") {
       lateral view posexplode(non_nullable(tags1), non_nullable(tags2)) tmp as s1
       lateral view posexplode_outer(tags1, tags2) tmp as s2
     where tags1 is not null and tags2 is not null order by 1,2;
+    """
+
+    sql """ DROP TABLE IF EXISTS test_posexplode_mixed_nullable"""
+    sql """
+        CREATE TABLE `test_posexplode_mixed_nullable`(
+                   `id` INT NULL,
+                   `tags_not_null1` array<string> NOT NULL,
+                   `tags_not_null2` array<string> NOT NULL,
+                   `tags_null1` array<string> NULL,
+                   `tags_null2` array<string> NULL,
+                 )  PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+    insert into test_posexplode_mixed_nullable values
+      (1, ["t_not_null1_a","t_not_null1_b"],  ["t_not_null2_a","t_not_null2_b"], ["t_null1_a","t_null1_b"],  ["t_null2_a","t_null2_b"]),
+      (2, ["t_not_null1_c"],                  ["t_not_null2_c","t_not_null2_d"], ["t_null1_c"],              ["t_null2_c","t_null2_d"]),
+      (3, ["t_not_null1_d", "t_not_null1_e"], ["t_not_null2_e"],                 ["t_null1_d", "t_null1_e"], ["t_null2_e"]),
+      (4, ["t_not_null1_f"], ["t_not_null2_f"], null,            ["t_null2_f"]),
+      (5, ["t_not_null1_g"], ["t_not_null2_g"], ["t_null1_f"], null),
+      (6, ["t_not_null1_h"], ["t_not_null2_h"], null, null);
+    """
+    order_qt_mixed_nullable_all """
+    select * from test_posexplode_mixed_nullable;
+    """
+    order_qt_mixed_nullable_not_null0 """
+    select id, st from test_posexplode_mixed_nullable lateral view posexplode(tags_not_null1) tmp as st order by 1, 2;
+    """
+    order_qt_mixed_nullable_not_null1 """
+    select id, pos, tmp0 from test_posexplode_mixed_nullable lateral view posexplode(tags_not_null1) tmp as pos, tmp0 order by 1, 2, 3;
+    """
+    order_qt_mixed_nullable_not_null2 """
+    select id, st from test_posexplode_mixed_nullable lateral view posexplode(tags_not_null1, tags_not_null2) tmp as st order by 1, 2;
+    """
+    order_qt_mixed_nullable_not_null3 """
+    select id, pos, tmp0, tmp1 from test_posexplode_mixed_nullable lateral view posexplode(tags_not_null1, tags_not_null2) tmp as pos, tmp0, tmp1 order by 1, 2, 3, 4;
+    """
+
+    order_qt_mixed_nullable_not_null_outer0 """
+    select id, st from test_posexplode_mixed_nullable lateral view posexplode_outer(tags_not_null1) tmp as st order by 1, 2;
+    """
+    order_qt_mixed_nullable_not_null_outer1 """
+    select id, pos, tmp0 from test_posexplode_mixed_nullable lateral view posexplode_outer(tags_not_null1) tmp as pos, tmp0 order by 1, 2, 3;
+    """
+    order_qt_mixed_nullable_not_null_outer2 """
+    select id, st from test_posexplode_mixed_nullable lateral view posexplode_outer(tags_not_null1, tags_not_null2) tmp as st order by 1, 2;
+    """
+    order_qt_mixed_nullable_not_null_outer3 """
+    select id, pos, tmp0, tmp1 from test_posexplode_mixed_nullable lateral view posexplode_outer(tags_not_null1, tags_not_null2) tmp as pos, tmp0, tmp1 order by 1, 2, 3, 4;
+    """
+
+    order_qt_mixed_nullable2 """
+    select id, st from test_posexplode_mixed_nullable lateral view posexplode(tags_not_null1, tags_null1) tmp as st order by 1, 2;
+    """
+    order_qt_mixed_nullable3 """
+    select id, pos, tmp0, tmp1 from test_posexplode_mixed_nullable lateral view posexplode(tags_not_null1, tags_null1) tmp as pos, tmp0, tmp1 order by 1, 2, 3, 4;
+    """
+
+    order_qt_mixed_nullable_outer2 """
+    select id, st from test_posexplode_mixed_nullable lateral view posexplode_outer(tags_not_null1, tags_null1) tmp as st order by 1, 2;
+    """
+    order_qt_mixed_nullable_outer3 """
+    select id, pos, tmp0, tmp1 from test_posexplode_mixed_nullable lateral view posexplode_outer(tags_not_null1, tags_null1) tmp as pos, tmp0, tmp1 order by 1, 2, 3, 4;
+    """
+
+    qt_fix_return_type """
+    SELECT 
+    *
+    FROM (
+        SELECT 
+            1 AS id,
+            ARRAY(1, 2, 3) AS arr_int,
+            ARRAY(CAST(10.5 AS DECIMAL(10,2)), CAST(20.0 AS DECIMAL(10,2))) AS arr_decimal
+    ) t lateral view posexplode(t.arr_int, t.arr_decimal) t2 AS v order by 1,2,3,4;
     """
 }

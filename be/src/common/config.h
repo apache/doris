@@ -432,6 +432,12 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
 DECLARE_mBool(disable_segment_cache);
+// Enable checking segment rows consistency between rowset meta and segment footer
+DECLARE_mBool(enable_segment_rows_consistency_check);
+DECLARE_mBool(enable_segment_rows_check_core);
+// ATTENTION: For test only. In test environment, there are no historical data,
+// so all rowset meta should have segment rows info.
+DECLARE_mBool(fail_when_segment_rows_not_in_rowset_meta);
 DECLARE_String(row_cache_mem_limit);
 
 // Cache for storage page size
@@ -610,6 +616,13 @@ DECLARE_String(ssl_private_key_path);
 DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
+
+// Async replies: stream load only now
+// reply wait timeout only happens if:
+// 1. Stream load fragment execution times out
+//    HTTP request freed → stream load canceled
+// 2. Client disconnects
+DECLARE_mInt32(async_reply_timeout_s);
 
 DECLARE_Bool(enable_single_replica_load);
 // Number of download workers for single replica load
@@ -1159,7 +1172,7 @@ DECLARE_Bool(enable_file_cache);
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
-DECLARE_Bool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1208,6 +1221,8 @@ DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+
+DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

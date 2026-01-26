@@ -41,10 +41,15 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "gen_cpp/cloud.pb.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_block.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/packed_file_trailer.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "util/coding.h"
+#include "util/slice.h"
 #include "util/uid_util.h"
 
 namespace doris::io {
@@ -74,6 +79,12 @@ bvar::Window<bvar::IntRecorder> g_packed_file_ready_to_upload_ms_window(
 bvar::Window<bvar::IntRecorder> g_packed_file_uploading_to_uploaded_ms_window(
         "packed_file_uploading_to_uploaded_ms", &g_packed_file_uploading_to_uploaded_ms_recorder,
         /*window_size=*/10);
+
+// Metrics for async small file cache write
+bvar::Adder<int64_t> g_packed_file_cache_async_write_count("packed_file_cache",
+                                                           "async_write_count");
+bvar::Adder<int64_t> g_packed_file_cache_async_write_bytes("packed_file_cache",
+                                                           "async_write_bytes");
 
 Status append_packed_info_trailer(FileWriter* writer, const std::string& packed_file_path,
                                   const cloud::PackedFileInfoPB& packed_file_info) {
@@ -106,6 +117,107 @@ Status append_packed_info_trailer(FileWriter* writer, const std::string& packed_
     put_fixed32_le(&trailer, kPackedFileTrailerVersion);
 
     return writer->append(Slice(trailer));
+}
+
+// write small file data to file cache
+void do_write_to_file_cache(const std::string& small_file_path, const std::string& data,
+                            int64_t tablet_id, uint64_t expiration_time) {
+    if (data.empty()) {
+        return;
+    }
+
+    // Generate cache key from small file path (e.g., "rowset_id_seg_id.dat")
+    Path path(small_file_path);
+    UInt128Wrapper cache_hash = BlockFileCache::hash(path.filename().native());
+
+    VLOG_DEBUG << "packed_file_cache_write: path=" << small_file_path
+               << " filename=" << path.filename().native() << " hash=" << cache_hash.to_string()
+               << " size=" << data.size() << " tablet_id=" << tablet_id
+               << " expiration_time=" << expiration_time;
+
+    BlockFileCache* file_cache = FileCacheFactory::instance()->get_by_path(cache_hash);
+    if (file_cache == nullptr) {
+        return; // Cache not available, skip
+    }
+
+    // Allocate cache blocks
+    CacheContext ctx;
+    ctx.cache_type = expiration_time > 0 ? FileCacheType::TTL : FileCacheType::NORMAL;
+    ctx.expiration_time = expiration_time;
+    ctx.tablet_id = tablet_id;
+    ReadStatistics stats;
+    ctx.stats = &stats;
+
+    FileBlocksHolder holder = file_cache->get_or_set(cache_hash, 0, data.size(), ctx);
+
+    // Write data to cache blocks
+    size_t data_offset = 0;
+    for (auto& block : holder.file_blocks) {
+        if (data_offset >= data.size()) {
+            break;
+        }
+        size_t block_size = block->range().size();
+        size_t write_size = std::min(block_size, data.size() - data_offset);
+
+        if (block->state() == FileBlock::State::EMPTY) {
+            block->get_or_set_downloader();
+            if (block->is_downloader()) {
+                Slice s(data.data() + data_offset, write_size);
+                Status st = block->append(s);
+                if (st.ok()) {
+                    st = block->finalize();
+                }
+                if (!st.ok()) {
+                    LOG(WARNING) << "Write small file to cache failed: " << st.msg();
+                }
+            }
+        }
+        data_offset += write_size;
+    }
+}
+
+// Async wrapper: submit cache write task to thread pool
+// The data is copied into the lambda capture to ensure its lifetime extends beyond
+// the async task execution. The original Slice may reference a buffer that gets
+// reused or freed before the async task runs.
+void write_small_file_to_cache_async(const std::string& small_file_path, const Slice& data,
+                                     int64_t tablet_id, uint64_t expiration_time) {
+    if (!config::enable_file_cache || data.size == 0) {
+        return;
+    }
+
+    // Copy data since original buffer may be reused before async task executes
+    // For small files (< 1MB), copy overhead is acceptable
+    std::string data_copy(data.data, data.size);
+    size_t data_size = data.size;
+
+    auto* thread_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    if (thread_pool == nullptr) {
+        // Fallback to sync write if thread pool not available
+        do_write_to_file_cache(small_file_path, data_copy, tablet_id, expiration_time);
+        return;
+    }
+
+    // Track async write count and bytes
+    g_packed_file_cache_async_write_count << 1;
+    g_packed_file_cache_async_write_bytes << static_cast<int64_t>(data_size);
+
+    Status st = thread_pool->submit_func([path = small_file_path, data = std::move(data_copy),
+                                          tablet_id, data_size, expiration_time]() {
+        do_write_to_file_cache(path, data, tablet_id, expiration_time);
+        // Decrement async write count after completion
+        g_packed_file_cache_async_write_count << -1;
+        g_packed_file_cache_async_write_bytes << -static_cast<int64_t>(data_size);
+    });
+
+    if (!st.ok()) {
+        // Revert metrics since task was not submitted
+        g_packed_file_cache_async_write_count << -1;
+        g_packed_file_cache_async_write_bytes << -static_cast<int64_t>(data_size);
+        LOG(WARNING) << "Failed to submit cache write task for " << small_file_path << ": "
+                     << st.msg();
+        // Don't block on failure, cache write is best-effort
+    }
 }
 
 } // namespace
@@ -150,8 +262,11 @@ Status PackedFileManager::create_new_packed_file_context(
     // Create file writer for the packed file
     FileWriterPtr new_writer;
     FileWriterOptions opts;
-    // enable write file cache for packed file
-    opts.write_file_cache = true;
+    // Disable write_file_cache for packed file itself.
+    // We write file cache for each small file separately in append_small_file()
+    // using the small file path as cache key, ensuring cache entries can be
+    // properly cleaned up when stale rowsets are removed.
+    opts.write_file_cache = false;
     RETURN_IF_ERROR(
             packed_file_ctx->file_system->create_file(Path(relative_path), &new_writer, &opts));
     packed_file_ctx->writer = std::move(new_writer);
@@ -252,6 +367,11 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
 
     // Write data to current packed file
     RETURN_IF_ERROR(active_state->writer->append(data));
+
+    // Async write data to file cache using small file path as cache key.
+    // This ensures cache key matches the cleanup key in Rowset::clear_cache(),
+    // allowing proper cache cleanup when stale rowsets are removed.
+    write_small_file_to_cache_async(path, data, info.tablet_id, info.expiration_time);
 
     // Update index
     PackedSliceLocation location;

@@ -172,14 +172,14 @@ Status JniConnector::close() {
             COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
 
             RETURN_ERROR_IF_EXC(env);
-            int64_t _append = 0;
+            jlong _append = 0;
             RETURN_IF_ERROR(
                     _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
                             .call(&_append));
 
             COUNTER_UPDATE(_java_append_data_time, _append);
 
-            int64_t _create = 0;
+            jlong _create = 0;
             RETURN_IF_ERROR(
                     _jni_scanner_obj
                             .call_long_method(env, _jni_scanner_get_create_vector_table_time)
@@ -497,6 +497,10 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         buffer << "datetimev2(" << type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMPTZ: {
+        buffer << "timestamptz(" << type->get_scale() << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_DECIMALV2: {
@@ -586,6 +590,10 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
         [[fallthrough]];
     case TYPE_TIMEV2: {
         buffer << "datetimev2(" << data_type->get_scale() << ")";
+        return buffer.str();
+    }
+    case TYPE_TIMESTAMPTZ: {
+        buffer << "timestamptz(" << data_type->get_scale() << ")";
         return buffer.str();
     }
     case TYPE_BINARY:

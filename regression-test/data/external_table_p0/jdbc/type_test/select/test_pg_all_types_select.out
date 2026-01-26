@@ -35,3 +35,30 @@ uuid_val	text	Yes	true	\N
 -- !select_all_types_multi_block --
 4100
 
+-- !desc_timestamp_tz --
+id	int	Yes	true	\N	
+ts_tz	timestamptz(6)	Yes	true	\N	
+ts_ntz	datetime(6)	Yes	true	\N	
+
+-- !select_timestamp_tz --
+1	2025-01-01 12:00:00.000000+08:00	2025-01-01T12:00
+2	\N	\N
+
+-- !select_timestamp_tz2 --
+0
+
+-- !select_timestamp_tz3 --
+0
+
+-- !select_timestamp_tz5 --
+1	2025-01-01 12:00:00.000000+08:00	2025-01-01T12:00
+2	\N	\N
+3	1999-10-10 04:00:00.000000+08:00	1999-10-10T12:00
+4	\N	\N
+
+-- !select_timestamp_tz6 --
+1	2025-01-01 04:00:00.000000+00:00	2025-01-01T12:00
+2	\N	\N
+3	1999-10-09 20:00:00.000000+00:00	1999-10-10T12:00
+4	\N	\N
+

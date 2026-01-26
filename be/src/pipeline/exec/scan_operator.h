@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -87,6 +88,10 @@ public:
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
 
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
+
+    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts);
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::Scanner;
@@ -120,6 +125,7 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
+    std::mutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
@@ -302,12 +308,13 @@ protected:
 
     Status _get_topn_filters(RuntimeState* state);
 
-    // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
-    // so that it will be destroyed uniformly at the end of the query.
+    // Stores conjuncts that have been fully pushed down to the storage layer as predicate columns.
+    // These expr contexts are kept alive to prevent their FunctionContext and constant strings
+    // from being freed prematurely.
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
@@ -412,9 +419,6 @@ protected:
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
 
-    // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
-    // so that it will be destroyed uniformly at the end of the query.
-    vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
     // If sort info is set, push limit to each scanner;

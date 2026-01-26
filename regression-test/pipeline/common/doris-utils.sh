@@ -704,6 +704,8 @@ archive_doris_logs() {
         if [[ -d "${DORIS_HOME}"/be/storage/error_log ]]; then
             cp --parents -rf "be/storage/error_log" "${archive_dir}"/
         fi
+        # dmesg log
+        dmesg -T | tail -n2000 >"${archive_dir}"/dmesg.log
     )
 
     if tar -I pigz \

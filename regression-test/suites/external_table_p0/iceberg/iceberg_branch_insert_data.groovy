@@ -45,7 +45,6 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
 
     String tmp_tb1 = catalog_name + "_tmp_tb1"
     String tmp_tb2 = catalog_name + "_tmp_tb2"
-
     // create an unpartitioned table
     sql """ drop table if exists ${tmp_tb1} """
     sql """ create table ${tmp_tb1} (id int, par string) """

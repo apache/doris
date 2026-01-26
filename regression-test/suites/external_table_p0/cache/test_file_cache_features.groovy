@@ -121,7 +121,17 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
         assertTrue(false, INITIAL_VALUES_NOT_ZERO_CHECK_FAILED_MSG +
             "disk_resource_limit_mode: ${initialDiskResourceLimitMode}, need_evict_cache_in_advance: ${initialNeedEvictCacheInAdvance}")
     }
-    
+
+    def fileCacheBackgroundMonitorIntervalMsResult = sql """show backend config like 'file_cache_background_monitor_interval_ms';"""
+    logger.info("file_cache_background_monitor_interval_ms configuration: " + fileCacheBackgroundMonitorIntervalMsResult)
+    assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
+            fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), "file_cache_background_monitor_interval_ms is empty or not set to true")
+
+    // brpc metrics will be updated at most 5 seconds
+    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toInteger() / 1000) as int
+    def interval = 1
+    def iterations = totalWaitTime / interval
+
     // Set backend configuration parameters for testing
     boolean diskResourceLimitModeTestPassed = true
     setBeConfigTemporary([
@@ -134,26 +144,31 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
         
         // Wait for disk_resource_limit_mode metric to change to 1
         try {
-            Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until {
-                def updatedDiskResourceLimitModeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics 
-                    where METRIC_NAME = 'disk_resource_limit_mode' limit 1;"""
-                logger.info("Checking disk_resource_limit_mode result: " + updatedDiskResourceLimitModeResult)
-                
-                if (updatedDiskResourceLimitModeResult.size() > 0) {
-                    double updatedDiskResourceLimitMode = Double.valueOf(updatedDiskResourceLimitModeResult[0][0])
-                    logger.info("Current disk_resource_limit_mode value: ${updatedDiskResourceLimitMode}")
-                    
-                    if (updatedDiskResourceLimitMode == 1.0) {
-                        logger.info("Disk resource limit mode is now active (value = 1)")
-                        return true
-                    } else {
-                        logger.info("Disk resource limit mode is not yet active (value = ${updatedDiskResourceLimitMode}), waiting...")
-                        return false
-                    }
+            (1..iterations).each { count ->
+                Thread.sleep(interval * 1000)
+                def elapsedSeconds = count * interval
+                def remainingSeconds = totalWaitTime - elapsedSeconds
+                logger.info("Waited for backend configuration update ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
+            }
+
+            def updatedDiskResourceLimitModeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
+                where METRIC_NAME = 'disk_resource_limit_mode' limit 1;"""
+            logger.info("Checking disk_resource_limit_mode result: " + updatedDiskResourceLimitModeResult)
+
+            if (updatedDiskResourceLimitModeResult.size() > 0) {
+                double updatedDiskResourceLimitMode = Double.valueOf(updatedDiskResourceLimitModeResult[0][0])
+                logger.info("Current disk_resource_limit_mode value: ${updatedDiskResourceLimitMode}")
+
+                if (updatedDiskResourceLimitMode == 1.0) {
+                    logger.info("Disk resource limit mode is now active (value = 1)")
+                    return true
                 } else {
-                    logger.info("Failed to get disk_resource_limit_mode metric, waiting...")
+                    logger.info("Disk resource limit mode is not yet active (value = ${updatedDiskResourceLimitMode}), waiting...")
                     return false
                 }
+            } else {
+                logger.info("Failed to get disk_resource_limit_mode metric, waiting...")
+                return false
             }
         } catch (Exception e) {
             logger.info(DISK_RESOURCE_LIMIT_MODE_TEST_FAILED_MSG + e.getMessage())
@@ -182,26 +197,31 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
         
         // Wait for need_evict_cache_in_advance metric to change to 1
         try {
-            Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until {
-                def updatedNeedEvictCacheInAdvanceResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics 
-                    where METRIC_NAME = 'need_evict_cache_in_advance' limit 1;"""
-                logger.info("Checking need_evict_cache_in_advance result: " + updatedNeedEvictCacheInAdvanceResult)
-                
-                if (updatedNeedEvictCacheInAdvanceResult.size() > 0) {
-                    double updatedNeedEvictCacheInAdvance = Double.valueOf(updatedNeedEvictCacheInAdvanceResult[0][0])
-                    logger.info("Current need_evict_cache_in_advance value: ${updatedNeedEvictCacheInAdvance}")
-                    
-                    if (updatedNeedEvictCacheInAdvance == 1.0) {
-                        logger.info("Need evict cache in advance mode is now active (value = 1)")
-                        return true
-                    } else {
-                        logger.info("Need evict cache in advance mode is not yet active (value = ${updatedNeedEvictCacheInAdvance}), waiting...")
-                        return false
-                    }
+            (1..iterations).each { count ->
+                Thread.sleep(interval * 1000)
+                def elapsedSeconds = count * interval
+                def remainingSeconds = totalWaitTime - elapsedSeconds
+                logger.info("Waited for backend configuration update ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
+            }
+
+            def updatedNeedEvictCacheInAdvanceResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
+                where METRIC_NAME = 'need_evict_cache_in_advance' limit 1;"""
+            logger.info("Checking need_evict_cache_in_advance result: " + updatedNeedEvictCacheInAdvanceResult)
+
+            if (updatedNeedEvictCacheInAdvanceResult.size() > 0) {
+                double updatedNeedEvictCacheInAdvance = Double.valueOf(updatedNeedEvictCacheInAdvanceResult[0][0])
+                logger.info("Current need_evict_cache_in_advance value: ${updatedNeedEvictCacheInAdvance}")
+
+                if (updatedNeedEvictCacheInAdvance == 1.0) {
+                    logger.info("Need evict cache in advance mode is now active (value = 1)")
+                    return true
                 } else {
-                    logger.info("Failed to get need_evict_cache_in_advance metric, waiting...")
+                    logger.info("Need evict cache in advance mode is not yet active (value = ${updatedNeedEvictCacheInAdvance}), waiting...")
                     return false
                 }
+            } else {
+                logger.info("Failed to get need_evict_cache_in_advance metric, waiting...")
+                return false
             }
         } catch (Exception e) {
             logger.info(NEED_EVICT_CACHE_IN_ADVANCE_TEST_FAILED_MSG + e.getMessage())
@@ -219,4 +239,3 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
     sql """set global enable_file_cache=false"""
     return true
 }
-

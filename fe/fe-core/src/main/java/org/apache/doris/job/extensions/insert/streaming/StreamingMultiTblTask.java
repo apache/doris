@@ -108,12 +108,13 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
         }
-        log.info("start to run streaming multi task, offset is {}", runningOffset.toString());
         sendWriteRequest();
     }
 
     private void sendWriteRequest() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
+        log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
+                taskId, backend.getId(), backend.getHost(), runningOffset.toString());
         this.runningBackendId = backend.getId();
         WriteRecordRequest params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -305,7 +306,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 log.warn("Failed to get task timeout reason, response: {}", response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Send get fail reason request failed: ", ex);
+            log.error("Send get task fail reason request failed: ", ex);
         }
         return "";
     }

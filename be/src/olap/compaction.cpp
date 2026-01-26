@@ -82,7 +82,7 @@
 #include "util/pretty_printer.h"
 #include "util/time.h"
 #include "util/trace.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 
 using std::vector;
 
@@ -340,6 +340,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     auto seg_id = 0;
     bool segments_key_bounds_truncated {false};
     std::vector<KeyBoundsPB> segment_key_bounds;
+    std::vector<uint32_t> num_segment_rows;
     for (auto rowset : _input_rowsets) {
         RETURN_IF_ERROR(rowset->link_files_to(tablet()->tablet_path(),
                                               _output_rs_writer->rowset_id(), seg_id));
@@ -348,6 +349,10 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
+        std::vector<uint32_t> input_segment_rows;
+        rowset->get_num_segment_rows(&input_segment_rows);
+        num_segment_rows.insert(num_segment_rows.end(), input_segment_rows.begin(),
+                                input_segment_rows.end());
     }
     // build output rowset
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
@@ -361,11 +366,12 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    rowset_meta->set_num_segment_rows(num_segment_rows);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
             _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
@@ -416,7 +422,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
         RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                         _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();
@@ -1418,7 +1424,7 @@ Status Compaction::check_correctness() {
                 _output_rowset->num_rows());
     }
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
             _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
@@ -1482,7 +1488,7 @@ Status CloudCompactionMixin::build_basic_info() {
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
         RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                         _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();
