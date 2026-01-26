@@ -498,6 +498,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
+    public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
 
     public static final String MINIDUMP_PATH = "minidump_path";
 
@@ -2201,6 +2202,13 @@ public class SessionVariable implements Serializable, Writable {
                     + "The default value is true."},
             needForward = true)
     public boolean enablePageCache = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_FILE_PAGE_CACHE,
+            description = {"控制是否启用 Parquet file page cache。默认为 true。",
+                    "Controls whether to use Parquet file page cache. The default is true."},
+            needForward = true)
+    public boolean enableParquetFilePageCache = true;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
@@ -5018,6 +5026,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnablePageCache(enablePageCache);
 
+        tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
+
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
@@ -5032,6 +5042,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
         tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);
+
+        tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 

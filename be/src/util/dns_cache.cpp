@@ -51,9 +51,46 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     }
 }
 
+// Resolve hostname to IP address, similar to Java's DNSCache.resolveHostname.
+// If resolution fails, falls back to cached IP if available.
+// Returns the resolved IP, or cached IP on failure, or empty string if no cache available.
+std::string DNSCache::_resolve_hostname(const std::string& hostname) {
+    // Get cached IP first (if any)
+    std::string cached_ip;
+    {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        auto it = cache.find(hostname);
+        if (it != cache.end()) {
+            cached_ip = it->second;
+        }
+    }
+
+    // Try to resolve hostname
+    std::string resolved_ip;
+    Status status = hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
+
+    if (!status.ok() || resolved_ip.empty()) {
+        // Resolution failed
+        if (!cached_ip.empty()) {
+            LOG(WARNING) << "Failed to resolve hostname " << hostname
+                         << ", use cached ip: " << cached_ip;
+            return cached_ip;
+        } else {
+            LOG(WARNING) << "Failed to resolve hostname " << hostname << ", no cached ip available";
+            return "";
+        }
+    }
+
+    return resolved_ip;
+}
+
 Status DNSCache::_update(const std::string& hostname) {
-    std::string real_ip = "";
-    RETURN_IF_ERROR(hostname_to_ip(hostname, real_ip, BackendOptions::is_bind_ipv6()));
+    std::string real_ip = _resolve_hostname(hostname);
+    if (real_ip.empty()) {
+        return Status::InternalError("Failed to resolve hostname {} and no cached ip available",
+                                     hostname);
+    }
+
     std::unique_lock<std::shared_mutex> lock(mutex);
     auto it = cache.find(hostname);
     if (it == cache.end() || it->second != real_ip) {
@@ -73,9 +110,12 @@ void DNSCache::_refresh_cache() {
             std::transform(cache.begin(), cache.end(), std::inserter(keys, keys.end()),
                            [](const auto& pair) { return pair.first; });
         }
-        Status st;
         for (auto& key : keys) {
-            st = _update(key);
+            Status st = _update(key);
+            if (!st.ok()) {
+                LOG(WARNING) << "Failed to update DNS cache for hostname " << key << ": "
+                             << st.to_string();
+            }
         }
     }
 }
