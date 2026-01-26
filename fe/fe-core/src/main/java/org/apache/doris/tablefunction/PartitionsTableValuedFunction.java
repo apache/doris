@@ -140,7 +140,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             // check ctl, db, tbl
             validParams.put(key.toLowerCase(), params.get(key));
         }
-        String catalogName = validParams.get(CATALOG);
+        String catalogName = validParams.getOrDefault(CATALOG, InternalCatalog.INTERNAL_CATALOG_NAME);
         String dbName = validParams.get(DB);
         String tableName = validParams.get(TABLE);
         if (StringUtils.isEmpty(catalogName) || StringUtils.isEmpty(dbName) || StringUtils.isEmpty(tableName)) {
@@ -156,6 +156,10 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     private void analyze(String catalogName, String dbName, String tableName) {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog == null) {
+            throw new AnalysisException("can not find catalog: " + catalogName);
+        }
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), catalogName, dbName,
                         tableName, PrivPredicate.SHOW)) {
@@ -163,10 +167,6 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     catalogName + ": " + dbName + ": " + tableName);
             throw new AnalysisException(message);
-        }
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-        if (catalog == null) {
-            throw new AnalysisException("can not find catalog: " + catalogName);
         }
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
