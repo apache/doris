@@ -927,9 +927,8 @@ struct StGeometryType {
     }
 };
 
-template <typename Func>
-struct StDualGeoDoubleFunction {
-    static constexpr auto NAME = Func::NAME;
+struct StDistance {
+    static constexpr auto NAME = "st_distance";
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeFloat64;
 
@@ -960,60 +959,86 @@ struct StDualGeoDoubleFunction {
         return Status::OK();
     }
 
+    static bool decode_shape(const StringRef& value, std::unique_ptr<GeoShape>& shape) {
+        shape = GeoShape::from_encoded(value.data, value.size);
+        return static_cast<bool>(shape);
+    }
+
     static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
                         std::vector<std::unique_ptr<GeoShape>>& shapes,
                         ColumnFloat64::MutablePtr& res, NullMap& null_map, int row) {
         StringRef* strs[2] = {&lhs_value, &rhs_value};
         for (int i = 0; i < 2; ++i) {
-            std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-            shapes[i] = std::move(shape);
-            if (!shapes[i]) {
+            if (!decode_shape(*strs[i], shapes[i])) {
                 null_map[row] = 1;
                 res->insert_default();
                 return;
             }
         }
-        if (shapes[0] && shapes[1]) {
-            double distance = Func::compute(shapes[0].get(), shapes[1].get());
-            res->insert_value(distance);
-        }
+        res->insert_value(shapes[0]->Distance(shapes[1].get()));
     }
 
     static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnFloat64::MutablePtr& res, NullMap& null_map, const size_t size) {
         auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::unique_ptr<GeoShape>> shapes(2);
+        std::unique_ptr<GeoShape> lhs_shape;
+        if (!decode_shape(lhs_value, lhs_shape)) {
+            for (int row = 0; row < size; ++row) {
+                null_map[row] = 1;
+                res->insert_default();
+            }
+            return;
+        }
+
+        std::unique_ptr<GeoShape> rhs_shape;
         for (int row = 0; row < size; ++row) {
             auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+            if (!decode_shape(rhs_value, rhs_shape)) {
+                null_map[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(lhs_shape->Distance(rhs_shape.get()));
         }
     }
 
     static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnFloat64::MutablePtr& res, NullMap& null_map, const size_t size) {
         auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::unique_ptr<GeoShape>> shapes(2);
+        std::unique_ptr<GeoShape> rhs_shape;
+        if (!decode_shape(rhs_value, rhs_shape)) {
+            for (int row = 0; row < size; ++row) {
+                null_map[row] = 1;
+                res->insert_default();
+            }
+            return;
+        }
+
+        std::unique_ptr<GeoShape> lhs_shape;
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+            if (!decode_shape(lhs_value, lhs_shape)) {
+                null_map[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(lhs_shape->Distance(rhs_shape.get()));
         }
     }
 
     static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                               ColumnFloat64::MutablePtr& res, NullMap& null_map,
                               const size_t size) {
+        const auto* left_string = assert_cast<const ColumnString*>(left_column.get());
+        const auto* right_string = assert_cast<const ColumnString*>(right_column.get());
+
         std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            auto rhs_value = right_column->get_data_at(row);
+            auto lhs_value = left_string->get_data_at(row);
+            auto rhs_value = right_string->get_data_at(row);
             loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
-};
-
-struct StDistanceImpl {
-    static constexpr auto NAME = "st_distance";
-    static double compute(GeoShape* shape1, GeoShape* shape2) { return shape1->Distance(shape2); }
 };
 
 void register_function_geo(SimpleFunctionFactory& factory) {
@@ -1045,7 +1070,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
-    factory.register_function<GeoFunction<StDualGeoDoubleFunction<StDistanceImpl>>>();
+    factory.register_function<GeoFunction<StDistance>>();
 }
 
 } // namespace doris::vectorized
