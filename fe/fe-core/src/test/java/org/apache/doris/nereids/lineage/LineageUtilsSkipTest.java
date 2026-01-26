@@ -73,9 +73,9 @@ public class LineageUtilsSkipTest extends TestWithFeService {
         createTable("create table " + dbName + ".t1(k1 int, v1 varchar(16)) "
                 + "distributed by hash(k1) buckets 1 properties('replication_num'='1');");
 
-        LineageEvent event = buildLineageEvent(
+        LineageInfo lineageInfo = buildLineageInfo(
                 "insert into " + dbName + ".t1 values (1, 'a')");
-        Assertions.assertNull(event);
+        Assertions.assertNull(lineageInfo);
     }
 
     @Test
@@ -96,11 +96,11 @@ public class LineageUtilsSkipTest extends TestWithFeService {
                 + " '1', '1', 1, cast('2026-01-20 10:46:41' as datetime), '1:1.0'"
                 + " from " + dbName + ".src limit 1";
 
-        LineageEvent event = buildLineageEvent(sql);
-        Assertions.assertNull(event);
+        LineageInfo lineageInfo = buildLineageInfo(sql);
+        Assertions.assertNull(lineageInfo);
     }
 
-    private LineageEvent buildLineageEvent(String sql) throws Exception {
+    private LineageInfo buildLineageInfo(String sql) throws Exception {
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
         InsertIntoTableCommand command = (InsertIntoTableCommand) parsedPlan;
@@ -117,6 +117,6 @@ public class LineageUtilsSkipTest extends TestWithFeService {
         if (LineageUtils.shouldSkipLineage(lineagePlan)) {
             return null;
         }
-        return LineageUtils.buildLineageEvent(lineagePlan, command.getClass(), connectContext, executor);
+        return LineageUtils.buildLineageInfo(lineagePlan, command.getClass(), connectContext, executor);
     }
 }

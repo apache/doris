@@ -32,6 +32,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * Processor that queues lineage events and dispatches them to lineage plugins.
@@ -43,7 +44,7 @@ public class LineageEventProcessor {
     private final PluginMgr pluginMgr;
     private List<Plugin> lineagePlugins;
     private long lastUpdateTime = 0;
-    private final BlockingQueue<LineageEvent> eventQueue =
+    private final BlockingQueue<LineageInfo> eventQueue =
             new LinkedBlockingDeque<>(Config.lineage_event_queue_size);
     private final AtomicBoolean isInit = new AtomicBoolean(false);
     private Thread workerThread;
@@ -75,20 +76,20 @@ public class LineageEventProcessor {
      * @param lineageEvent lineage event to submit
      * @return true if accepted, false otherwise
      */
-    public boolean submitLineageEvent(LineageEvent lineageEvent) {
-        if (lineageEvent == null) {
+    public boolean submitLineageEvent(LineageInfo lineageInfo) {
+        if (lineageInfo == null) {
             return false;
         }
         try {
-            if (!eventQueue.offer(lineageEvent)) {
-                String queryId = getQueryId(lineageEvent);
+            if (!eventQueue.offer(lineageInfo)) {
+                String queryId = getQueryId(lineageInfo);
                 LOG.warn("the lineage event queue is full with size {}, discard the lineage event: {}",
                         eventQueue.size(), queryId);
                 return false;
             }
             return true;
         } catch (Exception e) {
-            String queryId = getQueryId(lineageEvent);
+            String queryId = getQueryId(lineageInfo);
             LOG.warn("encounter exception when handle lineage event {}, discard the event",
                     queryId, e);
             return false;
@@ -104,7 +105,7 @@ public class LineageEventProcessor {
          */
         @Override
         public void run() {
-            LineageEvent lineageEvent;
+            LineageInfo lineageInfo;
             while (true) {
                 // update lineage plugin list every UPDATE_PLUGIN_INTERVAL_MS.
                 if (lineagePlugins == null || System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
@@ -114,13 +115,21 @@ public class LineageEventProcessor {
                         lineagePlugins = Collections.emptyList();
                     }
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("update lineage plugins. num: {}", lineagePlugins.size());
+                        LOG.debug("update lineage plugins. num: {}", lineagePlugins.size(),
+                                lineagePlugins.stream().map(plugin -> {
+                                            if (plugin instanceof AbstractLineagePlugin) {
+                                                return ((AbstractLineagePlugin) plugin).getName();
+                                            } else {
+                                                return "";
+                                            }
+                                        }
+                                ).collect(Collectors.toList()));
                     }
                 }
 
                 try {
-                    lineageEvent = eventQueue.poll(5, TimeUnit.SECONDS);
-                    if (lineageEvent == null) {
+                    lineageInfo = eventQueue.poll(5, TimeUnit.SECONDS);
+                    if (lineageInfo == null) {
                         continue;
                     }
                 } catch (InterruptedException e) {
@@ -130,29 +139,28 @@ public class LineageEventProcessor {
                 for (Plugin plugin : lineagePlugins) {
                     try {
                         AbstractLineagePlugin lineagePlugin = (AbstractLineagePlugin) plugin;
-                        if (!lineagePlugin.eventFilter()) {
+                        if (lineageInfo == null) {
+                            LOG.warn("lineage info is null for event {}, skip", getQueryId(lineageInfo));
                             continue;
                         }
-                        LineageInfo lineageInfo = lineageEvent.getLineageInfo();
-                        if (lineageInfo == null) {
-                            LOG.warn("lineage info is null for event {}, skip", getQueryId(lineageEvent));
+                        if (!lineagePlugin.eventFilter()) {
                             continue;
                         }
                         lineagePlugin.exec(lineageInfo);
                     } catch (Throwable e) {
                         LOG.warn("encounter exception when processing lineage event {}, ignore",
-                                getQueryId(lineageEvent), e);
+                                getQueryId(lineageInfo), e);
                     }
                 }
             }
         }
     }
 
-    private static String getQueryId(LineageEvent lineageEvent) {
-        if (lineageEvent == null || lineageEvent.getLineageInfo() == null) {
+    private static String getQueryId(LineageInfo lineageInfo) {
+        if (lineageInfo == null) {
             return "";
         }
-        LineageContext context = lineageEvent.getLineageInfo().getContext();
+        LineageContext context = lineageInfo.getContext();
         return context == null ? "" : context.getQueryId();
     }
 }

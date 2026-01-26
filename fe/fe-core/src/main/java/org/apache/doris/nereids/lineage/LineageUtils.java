@@ -87,14 +87,14 @@ public final class LineageUtils {
     }
 
     /**
-     * Build a lineage event and compute lineage info if lineage plugins are enabled.
+     * Build lineage info and compute lineage context if lineage plugins are enabled.
      *
      * @param plan the plan to extract lineage from
      * @param sourceCommand the command type for the event
      * @param ctx connect context holding query metadata
      * @param executor statement executor for query text
      */
-    public static LineageEvent buildLineageEvent(Plan plan, Class<? extends Command> sourceCommand,
+    public static LineageInfo buildLineageInfo(Plan plan, Class<? extends Command> sourceCommand,
             ConnectContext ctx, StmtExecutor executor) {
         if (plan == null || ctx == null) {
             return null;
@@ -105,7 +105,7 @@ public final class LineageUtils {
         context.setCatalog(catalog);
         context.setExternalCatalogProperties(collectExternalCatalogProperties(lineageInfo));
         lineageInfo.setContext(context);
-        return new LineageEvent(lineageInfo);
+        return lineageInfo;
     }
 
     /**
@@ -119,10 +119,10 @@ public final class LineageUtils {
     public static void submitLineageEventIfNeeded(StmtExecutor executor, Optional<Plan> lineagePlan,
                                             LogicalPlan currentPlan,
                                             Class<? extends Command> currentHandleClass) {
-        if (!LineageUtils.isSameParsedCommand(executor, currentHandleClass)) {
+        if (!isLineagePluginConfigured()) {
             return;
         }
-        if (!isLineagePluginConfigured()) {
+        if (!LineageUtils.isSameParsedCommand(executor, currentHandleClass)) {
             return;
         }
         Plan plan = lineagePlan.orElse(currentPlan);
@@ -130,10 +130,10 @@ public final class LineageUtils {
             return;
         }
         try {
-            LineageEvent lineageEvent = LineageUtils.buildLineageEvent(plan, currentHandleClass,
+            LineageInfo lineageInfo = LineageUtils.buildLineageInfo(plan, currentHandleClass,
                     executor.getContext(), executor);
-            if (lineageEvent != null) {
-                Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageEvent);
+            if (lineageInfo != null) {
+                Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageInfo);
             }
         } catch (Exception e) {
             // Log and ignore exceptions during lineage processing to avoid impacting query execution

@@ -726,10 +726,9 @@ public class LineageInfoExtractorTest extends TestWithFeService {
         Plan lineagePlan = insertCommand.getLineagePlan().orElse(null);
         Assertions.assertNotNull(lineagePlan);
 
-        LineageEvent event = LineageUtils.buildLineageEvent(lineagePlan, sourceCommand, connectContext, executor);
-        Assertions.assertNotNull(event);
-        Assertions.assertNotNull(event.getLineageInfo());
-        return event.getLineageInfo();
+        LineageInfo lineageInfo = LineageUtils.buildLineageInfo(lineagePlan, sourceCommand, connectContext, executor);
+        Assertions.assertNotNull(lineageInfo);
+        return lineageInfo;
     }
 
     private InsertIntoTableCommand toInsertCommand(LogicalPlan parsedPlan) throws Exception {
