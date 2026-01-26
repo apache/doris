@@ -64,15 +64,14 @@
 //   DEFINE_ON_UPDATE(my_config, [](int64_t old_val, int64_t new_val) {
 //       LOG(INFO) << "my_config changed from " << old_val << " to " << new_val;
 //   });
-#define DEFINE_ON_UPDATE_IMPL(FIELD_NAME, CALLBACK)                                                      \
-    static auto on_update_callback_##FIELD_NAME = CALLBACK;                                              \
-    static RegisterConfUpdateCallback reg_update_callback_##FIELD_NAME(#FIELD_NAME,                      \
-                                                                       [](const void* old_ptr,           \
-                                                                          const void* new_ptr) {         \
-                                                                           on_update_callback_##FIELD_NAME( \
-                                                                                   *reinterpret_cast<const decltype(FIELD_NAME)*>(old_ptr), \
-                                                                                   *reinterpret_cast<const decltype(FIELD_NAME)*>(new_ptr)); \
-                                                                       });
+#define DEFINE_ON_UPDATE_IMPL(FIELD_NAME, CALLBACK)                               \
+    static auto on_update_callback_##FIELD_NAME = CALLBACK;                       \
+    static RegisterConfUpdateCallback reg_update_callback_##FIELD_NAME(           \
+            #FIELD_NAME, [](const void* old_ptr, const void* new_ptr) {           \
+                on_update_callback_##FIELD_NAME(                                  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(old_ptr),  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(new_ptr)); \
+            });
 
 #define DEFINE_ON_UPDATE(name, callback) DEFINE_ON_UPDATE_IMPL(name, callback)
 
