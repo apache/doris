@@ -176,7 +176,8 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         INSERT INTO ${tb_name} VALUES
             (1, '{"age":25,"city":"beijing","score":88}'),
             (2,   '{"age":30,"city":"shanghai","score":92}') """
-
+        sleep(10000);
+        
         try {
             sql """select * from ${tb_name} where json_extract_double(data, '.age') = 25; """
         } catch (Exception e) {
