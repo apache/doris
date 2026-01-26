@@ -116,7 +116,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
             query_options.__isset.file_cache_query_limit_percent &&
             query_options.file_cache_query_limit_percent < 100;
 
-    // Initialize file cache context holders
+    // Init query context holders for file cache, if enable query limit feature
     if (initialize_context_holder) {
         _query_context_holders = io::FileCacheFactory::instance()->get_query_context_holders(
                 _query_id, query_options.file_cache_query_limit_percent);
