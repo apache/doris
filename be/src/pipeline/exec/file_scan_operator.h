@@ -66,6 +66,12 @@ private:
     PushDownType _should_push_down_topn_filter() const override {
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
+    bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
+        // For external table/ file scan, first try push down the predicate,
+        // and then determine whether it can be pushed down within the (parquet/orc) reader.
+        return true;
+    }
+
     PushDownType _should_push_down_bitmap_filter() const override {
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
@@ -108,6 +114,17 @@ public:
     // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
     int parallelism(RuntimeState* state) const override {
         return _batch_split_mode ? 1 : ScanOperatorX<FileScanLocalState>::parallelism(state);
+    }
+
+    int get_column_id(const std::string& col_name) const override {
+        int column_id_counter = 0;
+        for (const auto& slot : _output_tuple_desc->slots()) {
+            if (slot->col_name() == col_name) {
+                return column_id_counter;
+            }
+            column_id_counter++;
+        }
+        return column_id_counter;
     }
 
 private:

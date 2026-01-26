@@ -565,6 +565,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VEx
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
+    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
+        return false;
+    }
     *range = &(sid_to_range->second);
     return true;
 }
@@ -1217,6 +1220,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
+            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
+                continue;
+            }
             auto col_name = s->col_name();
             cid = get_column_id(col_name);
         }
