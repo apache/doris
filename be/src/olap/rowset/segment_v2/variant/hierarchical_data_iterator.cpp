@@ -172,9 +172,9 @@ Status HierarchicalDataIterator::init_prefetcher(const SegmentPrefetchParams& pa
         DCHECK(_root_reader->inited);
         RETURN_IF_ERROR(_root_reader->iterator->init_prefetcher(params));
     }
-    if (_sparse_column_reader) {
-        DCHECK(_sparse_column_reader->inited);
-        RETURN_IF_ERROR(_sparse_column_reader->iterator->init_prefetcher(params));
+    if (_binary_column_reader) {
+        DCHECK(_binary_column_reader->inited);
+        RETURN_IF_ERROR(_binary_column_reader->iterator->init_prefetcher(params));
     }
     return Status::OK();
 }
@@ -190,9 +190,9 @@ void HierarchicalDataIterator::collect_prefetchers(
         DCHECK(_root_reader->inited);
         _root_reader->iterator->collect_prefetchers(prefetchers, init_method);
     }
-    if (_sparse_column_reader) {
-        DCHECK(_sparse_column_reader->inited);
-        _sparse_column_reader->iterator->collect_prefetchers(prefetchers, init_method);
+    if (_binary_column_reader) {
+        DCHECK(_binary_column_reader->inited);
+        _binary_column_reader->iterator->collect_prefetchers(prefetchers, init_method);
     }
 }
 
