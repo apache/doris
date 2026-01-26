@@ -99,12 +99,41 @@ public final class LineageUtils {
         if (plan == null || ctx == null) {
             return null;
         }
+        long startNs = 0L;
+        if (LOG.isDebugEnabled()) {
+            startNs = System.nanoTime();
+        }
         LineageInfo lineageInfo = LineageInfoExtractor.extractLineageInfo(plan);
         LineageContext context = buildLineageContext(sourceCommand, ctx, executor);
         String catalog = safeString(ctx.getDefaultCatalog());
         context.setCatalog(catalog);
         context.setExternalCatalogProperties(collectExternalCatalogProperties(lineageInfo));
         lineageInfo.setContext(context);
+        if (LOG.isDebugEnabled()) {
+            int directSize = lineageInfo.getDirectLineageMap() == null
+                    ? 0
+                    : lineageInfo.getDirectLineageMap().size();
+            int indirectSize = lineageInfo.getInDirectLineageMap() == null
+                    ? 0
+                    : lineageInfo.getInDirectLineageMap().size();
+            int tableLineageSize = lineageInfo.getTableLineageSet() == null
+                    ? 0
+                    : lineageInfo.getTableLineageSet().size();
+            int targetColumns = lineageInfo.getTargetColumns() == null
+                    ? 0
+                    : lineageInfo.getTargetColumns().size();
+            String targetTable = lineageInfo.getTargetTable() == null
+                    ? "null"
+                    : lineageInfo.getTargetTable().getName();
+            int externalCatalogs = context.getExternalCatalogProperties() == null
+                    ? 0
+                    : context.getExternalCatalogProperties().size();
+            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+            LOG.debug("Lineage info built: plan={}, targetTable={}, targetColumns={}, directMap={},"
+                            + " indirectMap={}, tableLineage={}, externalCatalogs={}, elapsedMs={}",
+                    plan.getClass().getSimpleName(), targetTable, targetColumns, directSize, indirectSize,
+                    tableLineageSize, externalCatalogs, elapsedMs);
+        }
         return lineageInfo;
     }
 
@@ -120,19 +149,47 @@ public final class LineageUtils {
                                             LogicalPlan currentPlan,
                                             Class<? extends Command> currentHandleClass) {
         if (!isLineagePluginConfigured()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Skip lineage: no plugin configured");
+            }
             return;
         }
         if (!LineageUtils.isSameParsedCommand(executor, currentHandleClass)) {
+            if (LOG.isDebugEnabled()) {
+                String parsedCommand = executor == null || executor.getParsedStmt() == null
+                        ? "null"
+                        : executor.getParsedStmt().getClass().getSimpleName();
+                LOG.debug("Skip lineage: parsed command mismatch, parsed={}, current={}",
+                        parsedCommand, currentHandleClass == null ? "null" : currentHandleClass.getSimpleName());
+            }
             return;
         }
         Plan plan = lineagePlan.orElse(currentPlan);
+        if (plan == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Skip lineage: plan is null");
+            }
+            return;
+        }
+        boolean valuesOnly = isValuesOnly(plan);
+        boolean internalTarget = !valuesOnly && isInternalSchemaTarget(plan);
         if (shouldSkipLineage(plan)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Skip lineage: valuesOnly={}, internalSchemaTarget={}, plan={}",
+                        valuesOnly, internalTarget, plan.getClass().getSimpleName());
+            }
             return;
         }
         try {
             LineageInfo lineageInfo = LineageUtils.buildLineageInfo(plan, currentHandleClass,
                     executor.getContext(), executor);
             if (lineageInfo != null) {
+                if (LOG.isDebugEnabled()) {
+                    LineageContext context = lineageInfo.getContext();
+                    LOG.debug("Submit lineage: queryId={}, plan={}",
+                            context == null ? "" : context.getQueryId(),
+                            plan.getClass().getSimpleName());
+                }
                 Env.getCurrentEnv().getLineageEventProcessor().submitLineageEvent(lineageInfo);
             }
         } catch (Exception e) {
@@ -142,7 +199,7 @@ public final class LineageUtils {
     }
 
     public static boolean shouldSkipLineage(Plan plan) {
-        return isValuesOnly(plan) || isInternalSchemaTarget(plan);
+        return plan == null || isValuesOnly(plan) || isInternalSchemaTarget(plan);
     }
 
     private static boolean isValuesOnly(Plan plan) {

@@ -73,7 +73,7 @@ public class LineageEventProcessor {
     /**
      * Submit a lineage event to the processing queue.
      *
-     * @param lineageEvent lineage event to submit
+     * @param lineageInfo lineage info to submit
      * @return true if accepted, false otherwise
      */
     public boolean submitLineageEvent(LineageInfo lineageInfo) {
@@ -86,6 +86,10 @@ public class LineageEventProcessor {
                 LOG.warn("the lineage event queue is full with size {}, discard the lineage event: {}",
                         eventQueue.size(), queryId);
                 return false;
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Lineage event enqueued: queryId={}, queueSize={}",
+                        getQueryId(lineageInfo), eventQueue.size());
             }
             return true;
         } catch (Exception e) {
@@ -115,7 +119,7 @@ public class LineageEventProcessor {
                         lineagePlugins = Collections.emptyList();
                     }
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("update lineage plugins. num: {}", lineagePlugins.size(),
+                        LOG.debug("update lineage plugins. num: {}, names: {}", lineagePlugins.size(),
                                 lineagePlugins.stream().map(plugin -> {
                                             if (plugin instanceof AbstractLineagePlugin) {
                                                 return ((AbstractLineagePlugin) plugin).getName();
@@ -146,7 +150,15 @@ public class LineageEventProcessor {
                         if (!lineagePlugin.eventFilter()) {
                             continue;
                         }
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Lineage plugin start: plugin={}, queryId={}",
+                                    lineagePlugin.getName(), getQueryId(lineageInfo));
+                        }
                         lineagePlugin.exec(lineageInfo);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Lineage plugin end: plugin={}, queryId={}",
+                                    lineagePlugin.getName(), getQueryId(lineageInfo));
+                        }
                     } catch (Throwable e) {
                         LOG.warn("encounter exception when processing lineage event {}, ignore",
                                 getQueryId(lineageInfo), e);

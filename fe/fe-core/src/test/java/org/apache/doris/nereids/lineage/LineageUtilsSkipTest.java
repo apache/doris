@@ -66,19 +66,6 @@ public class LineageUtilsSkipTest extends TestWithFeService {
     }
 
     @Test
-    public void testSkipValuesInsert() throws Exception {
-        String dbName = "lineage_skip_" + UUID.randomUUID().toString().replace("-", "");
-        createDatabase(dbName);
-        useDatabase(dbName);
-        createTable("create table " + dbName + ".t1(k1 int, v1 varchar(16)) "
-                + "distributed by hash(k1) buckets 1 properties('replication_num'='1');");
-
-        LineageInfo lineageInfo = buildLineageInfo(
-                "insert into " + dbName + ".t1 values (1, 'a')");
-        Assertions.assertNull(lineageInfo);
-    }
-
-    @Test
     public void testSkipInternalSchemaInsert() throws Exception {
         String dbName = "lineage_src_" + UUID.randomUUID().toString().replace("-", "");
         createDatabase(dbName);

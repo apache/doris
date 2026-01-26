@@ -50,6 +50,8 @@ import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.Ex
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -79,6 +81,8 @@ import java.util.stream.Collectors;
  * GROUP BY n.n_name;
  */
 public class LineageInfoExtractor {
+    private static final Logger LOG = LogManager.getLogger(LineageInfoExtractor.class);
+
     /**
      * Register analyze-plan hook for lineage extraction.
      *
@@ -126,7 +130,6 @@ public class LineageInfoExtractor {
      */
     private static ExpressionLineageReplacer.ExpressionReplaceContext extractDirectLineage(Plan plan,
                                                                                            LineageInfo lineageInfo) {
-
         List<Slot> outputs = plan.getOutput();
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
                 new ExpressionLineageReplacer.ExpressionReplaceContext(outputs);
