@@ -166,49 +166,51 @@ public class DorisBatchStreamLoad implements Serializable {
 
         // Single table flush according to the STREAM_LOAD_MAX_BYTES
         if (buffer.getBufferSizeBytes() >= STREAM_LOAD_MAX_BYTES) {
-            boolean flush = bufferFullFlush();
-            LOG.info("trigger flush by buffer full, flush: {}", flush);
+            bufferFullFlush(bufferKey);
         }
     }
 
-    public boolean cacheFullFlush() {
-        return doFlush(true, true);
+    public void bufferFullFlush(String bufferKey) {
+         doFlush(bufferKey, false, true);
     }
 
-    public boolean bufferFullFlush() {
-        return doFlush(false, true);
+    public void forceFlush() {
+         doFlush(null, true, false);
     }
 
-    public boolean forceFlush() {
-        return doFlush(true, false);
+    public void cacheFullFlush() {
+         doFlush(null, true, true);
     }
 
-    private synchronized boolean doFlush(boolean waitUtilDone, boolean bufferFull) {
+
+    private synchronized void doFlush(String bufferKey, boolean waitUtilDone, boolean bufferFull) {
         checkFlushException();
         if (waitUtilDone || bufferFull) {
-            return flush(waitUtilDone);
+            flush(bufferKey, waitUtilDone);
         }
-        return false;
     }
 
-    private synchronized boolean flush(boolean waitUtilDone) {
+    private synchronized void flush(String bufferKey, boolean waitUtilDone) {
         if (!waitUtilDone && bufferMap.isEmpty()) {
             // bufferMap may have been flushed by other threads
             LOG.info("bufferMap is empty, no need to flush");
-            return false;
+            return;
         }
-        for (String key : bufferMap.keySet()) {
-            if (waitUtilDone) {
-                // Ensure that the interval satisfies intervalMS
-                flushBuffer(key);
+
+        if (null == bufferKey) {
+            for (String key : bufferMap.keySet()) {
+                if (waitUtilDone) {
+                    flushBuffer(key);
+                }
             }
-        }
-        if (!waitUtilDone) {
-            return false;
+        } else if (bufferMap.containsKey(bufferKey)) {
+            flushBuffer(bufferKey);
         } else {
+            LOG.warn("buffer not found for key: {}, may be already flushed.", bufferKey);
+        }
+        if (waitUtilDone) {
             waitAsyncLoadFinish();
         }
-        return true;
     }
 
     private synchronized void flushBuffer(String bufferKey) {
