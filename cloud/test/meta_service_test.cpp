@@ -13048,7 +13048,8 @@ TEST(MetaServiceTest, CreateTabletRestoreModeTest) {
 
         // get tablet stats and verify restore mode settings
         GetTabletStatsResponse stats_res;
-        get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, stats_res);
+        get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id,
+                         stats_res);
         ASSERT_EQ(stats_res.status().code(), MetaServiceCode::OK);
         ASSERT_EQ(stats_res.tablet_stats_size(), 1);
         EXPECT_EQ(stats_res.tablet_stats(0).num_rowsets(), 0);
