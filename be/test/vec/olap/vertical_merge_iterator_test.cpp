@@ -37,13 +37,14 @@ namespace doris::vectorized {
 class SparseColumnOptimizationTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Enable sparse column optimization for tests (use large threshold to always enable)
-        config::sparse_column_compaction_threshold = INT64_MAX;
+        // Enable sparse column optimization for tests (use max threshold to always enable)
+        original_threshold_percent_ = config::sparse_column_compaction_threshold_percent;
+        config::sparse_column_compaction_threshold_percent = 1.0;
     }
 
     void TearDown() override {
-        // Reset to default
-        config::sparse_column_compaction_threshold = 100;
+        // Reset to original value
+        config::sparse_column_compaction_threshold_percent = original_threshold_percent_;
     }
 
     // Helper function to create a nullable column with specific NULL pattern
@@ -138,6 +139,8 @@ protected:
         }
         return true;
     }
+
+    double original_threshold_percent_ = 0.0;
 };
 
 TEST_F(SparseColumnOptimizationTest, AllNullColumn) {
@@ -333,7 +336,7 @@ TEST_F(SparseColumnOptimizationTest, MultipleCopies) {
 
 TEST_F(SparseColumnOptimizationTest, DisabledOptimization) {
     // Test with optimization disabled (threshold = 0 means disabled)
-    config::sparse_column_compaction_threshold = 0;
+    config::sparse_column_compaction_threshold_percent = 0.0;
 
     std::vector<Int64> values = {1, 2, 3, 4, 5};
     std::vector<bool> null_flags = {true, true, true, true, true};
@@ -1002,52 +1005,49 @@ TEST_F(SparseColumnOptimizationTest, CountZeroNumRandomPattern) {
 
 TEST_F(SparseColumnOptimizationTest, ThresholdZeroDisablesOptimization) {
     // Test that threshold = 0 means optimization disabled
-    config::sparse_column_compaction_threshold = 0;
+    config::sparse_column_compaction_threshold_percent = 0.0;
 
     // With threshold = 0, optimization should be disabled
     // This affects the decision in Merger::vertical_merge_rowsets
-    EXPECT_EQ(config::sparse_column_compaction_threshold, 0);
-
-    // Reset
-    config::sparse_column_compaction_threshold = 100;
+    double density = 0.2;
+    bool use_optimization = density <= config::sparse_column_compaction_threshold_percent;
+    EXPECT_FALSE(use_optimization);
+    EXPECT_DOUBLE_EQ(config::sparse_column_compaction_threshold_percent, 0.0);
 }
 
 TEST_F(SparseColumnOptimizationTest, ThresholdMaxAlwaysEnabled) {
-    // Test that threshold = INT64_MAX means always enabled
-    config::sparse_column_compaction_threshold = INT64_MAX;
+    // Test that threshold = 1 means always enabled
+    config::sparse_column_compaction_threshold_percent = 1.0;
 
-    // With max threshold, any avg_row_bytes will be <= threshold
-    int64_t avg_row_bytes = 10000; // Large value
-    EXPECT_LE(avg_row_bytes, config::sparse_column_compaction_threshold);
-
-    // Reset
-    config::sparse_column_compaction_threshold = 100;
+    // With max threshold, any density in [0, 1] will be <= threshold
+    double density = 1.0;
+    EXPECT_LE(density, config::sparse_column_compaction_threshold_percent);
 }
 
 TEST_F(SparseColumnOptimizationTest, ThresholdBasedDecision) {
     // Test threshold-based decision logic
-    // avg_row_bytes <= threshold means sparse (enable optimization)
+    // density <= threshold means sparse (enable optimization)
 
-    config::sparse_column_compaction_threshold = 100;
+    config::sparse_column_compaction_threshold_percent = 0.1;
 
-    // Case 1: avg_row_bytes = 50 <= 100, should enable
-    int64_t avg_row_bytes1 = 50;
-    bool use_optimization1 = (avg_row_bytes1 <= config::sparse_column_compaction_threshold);
+    // Case 1: density = 0.05 <= 0.1, should enable
+    double density1 = 0.05;
+    bool use_optimization1 = (density1 <= config::sparse_column_compaction_threshold_percent);
     EXPECT_TRUE(use_optimization1);
 
-    // Case 2: avg_row_bytes = 100 <= 100, should enable (boundary)
-    int64_t avg_row_bytes2 = 100;
-    bool use_optimization2 = (avg_row_bytes2 <= config::sparse_column_compaction_threshold);
+    // Case 2: density = 0.1 <= 0.1, should enable (boundary)
+    double density2 = 0.1;
+    bool use_optimization2 = (density2 <= config::sparse_column_compaction_threshold_percent);
     EXPECT_TRUE(use_optimization2);
 
-    // Case 3: avg_row_bytes = 101 > 100, should disable
-    int64_t avg_row_bytes3 = 101;
-    bool use_optimization3 = (avg_row_bytes3 <= config::sparse_column_compaction_threshold);
+    // Case 3: density = 0.11 > 0.1, should disable
+    double density3 = 0.11;
+    bool use_optimization3 = (density3 <= config::sparse_column_compaction_threshold_percent);
     EXPECT_FALSE(use_optimization3);
 
-    // Case 4: avg_row_bytes = 1000 > 100, should disable
-    int64_t avg_row_bytes4 = 1000;
-    bool use_optimization4 = (avg_row_bytes4 <= config::sparse_column_compaction_threshold);
+    // Case 4: density = 0.9 > 0.1, should disable
+    double density4 = 0.9;
+    bool use_optimization4 = (density4 <= config::sparse_column_compaction_threshold_percent);
     EXPECT_FALSE(use_optimization4);
 }
 

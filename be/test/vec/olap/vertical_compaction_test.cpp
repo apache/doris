@@ -1053,8 +1053,8 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
 // This test creates a UNIQUE_KEYS table with nullable columns and sparse data
 TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColumn) {
     // Save original threshold and set to 1 to always enable sparse optimization
-    double original_threshold = config::sparse_column_compaction_threshold;
-    config::sparse_column_compaction_threshold = 1.0;
+    double original_threshold = config::sparse_column_compaction_threshold_percent;
+    config::sparse_column_compaction_threshold_percent = 1.0;
 
     auto num_input_rowset = 2;
     auto num_segments = 1;
@@ -1191,7 +1191,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), num_input_rowset * rows_per_segment);
 
     // Restore original threshold
-    config::sparse_column_compaction_threshold = original_threshold;
+    config::sparse_column_compaction_threshold_percent = original_threshold;
 }
 
 } // namespace vectorized
