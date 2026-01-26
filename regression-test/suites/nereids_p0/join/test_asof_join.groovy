@@ -1291,4 +1291,16 @@ suite("test_asof_join", "nereids_p0") {
         """
         exception "ASOF join's hash conjuncts must be in form of"
     }
+
+    test {
+        sql """
+        SELECT l.id, l.ts, r.id as rid, r.ts as rts, r.value
+        FROM asof_precision_left l
+        ASOF LEFT JOIN asof_precision_right r
+        MATCH_CONDITION(l.ts >= r.ts)
+        ON l.grp = r.grp and l.grp = 1
+        ORDER BY l.id
+        """
+        exception "ASOF join's hash conjuncts must be in form of"
+    }
 }
