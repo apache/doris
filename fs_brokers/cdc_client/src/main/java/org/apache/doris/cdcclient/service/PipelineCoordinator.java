@@ -265,8 +265,7 @@ public class PipelineCoordinator {
                         sourceReader.pollRecords(readResult.getSplitState());
 
                 if (!recordIterator.hasNext()) {
-                    Thread.sleep(50);
-                    LOG.info("No records polled, continuing...");
+                    Thread.sleep(100);
 
                     // Check if should stop
                     long elapsedTime = System.currentTimeMillis() - startTime;
