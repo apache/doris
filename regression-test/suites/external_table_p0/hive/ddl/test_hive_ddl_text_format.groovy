@@ -122,6 +122,45 @@ suite("test_hive_ddl_text_format", "p0,external,hive,external_docker,external_do
             order_qt_different_properties """ select * from text_table_different_properties """
             order_qt_hive_docker_different_properties """ select * from text_table_different_properties order by id; """
 
+            // timezone in text data should not cause core, expect parse failure
+            String tz_raw_tbl = "text_tz_raw"
+            String tz_typed_tbl = "text_tz_typed"
+            String tz_tbl_loc = "hdfs://${externalEnvIp}:${hdfs_port}/tmp/hive/text_tz_case_${hivePrefix}"
+
+            sql """ drop table if exists ${tz_raw_tbl} """
+            sql """
+                create table ${tz_raw_tbl} (
+                    id string,
+                    ts string
+                ) ENGINE=hive
+                PROPERTIES (
+                    'file_format'='text',
+                    'location'='${tz_tbl_loc}'
+                );
+            """
+            sql """
+                insert overwrite table ${tz_raw_tbl} values
+                    ('1', '2025-11-21 00:02:48+08:00'),
+                    ('2', '2025-11-21 00:02:48');
+            """
+            order_qt_tz_raw """ select * from ${tz_raw_tbl} order by id; """
+
+            sql """ drop table if exists ${tz_typed_tbl} """
+            sql """
+                create table ${tz_typed_tbl} (
+                    id string,
+                    ts timestamp
+                ) ENGINE=hive
+                PROPERTIES (
+                    'file_format'='text',
+                    'location'='${tz_tbl_loc}'
+                );
+            """
+            test {
+                sql """ select * from ${tz_typed_tbl} """
+                exception "parse date fail"
+            }
+
             String serde = "'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'"
             String input_format = "'org.apache.hadoop.mapred.TextInputFormat'"
             String output_format = "'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'"
