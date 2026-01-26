@@ -179,7 +179,7 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
             if (!local_state._shared_state->spill_partitions.empty()) {
                 local_state._current_partition_eos = false;
                 local_state._need_to_merge_data_for_current_partition = true;
-                status = local_state._shared_state->in_mem_shared_state->reset_hash_table();
+                status = _agg_source_operator->reset_hash_table(runtime_state);
                 RETURN_IF_ERROR(status);
                 *eos = false;
             }
