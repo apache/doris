@@ -25,7 +25,7 @@ PhysicalResultSink
 ------------------------------filter(s_county IN ('Arthur County', 'Halifax County', 'Lunenburg County', 'Oglethorpe County', 'Perry County', 'Salem County', 'Sumner County', 'Terrell County'))
 --------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.2) and hd_buy_potential IN ('>10000', 'Unknown'))
+--------------------------filter(((cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)) > 1.2) and (household_demographics.hd_vehicle_count > 0) and hd_buy_potential IN ('>10000', 'Unknown'))
 ----------------------------PhysicalOlapScan[household_demographics]
 ------------PhysicalProject
 --------------PhysicalOlapScan[customer]

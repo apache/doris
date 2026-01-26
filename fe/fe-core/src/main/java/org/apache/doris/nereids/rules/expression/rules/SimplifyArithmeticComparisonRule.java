@@ -83,7 +83,7 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(ComparisonPredicate.class)
-                        .thenApply(ctx -> simplify(ctx.expr, new ExpressionRewriteContext(ctx.cascadesContext)))
+                        .thenApply(ctx -> simplify(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC_COMPARISON)
         );
     }
