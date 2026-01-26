@@ -19,9 +19,13 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include <type_traits>
+
+#include "common/exception.h"
 #include "common/object_pool.h"
 #include "exprs/filter_base.h"
 #include "runtime/primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "runtime_filter/utils.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -174,6 +178,84 @@ private:
     size_t _size {};
 };
 
+// BitSet container is used as a storage container for integer data with a relatively small range.
+// Given its intended usage, we do not provide an iterator interface.
+template <typename T>
+class BitSetContainer {
+    static_assert(std::is_integral_v<T>);
+
+public:
+    using Self = BitSetContainer<T>;
+    using ElementType = T;
+
+    using Iterator = std::vector<T>::iterator; // fake iterator
+
+    BitSetContainer() = default;
+
+    ~BitSetContainer() = default;
+
+    void init_bitset(T min_value, T max_value) {
+        _min_value = min_value;
+        _max_value = max_value;
+        auto bitset_size = static_cast<size_t>(max_value - min_value + 1);
+        _bitset.resize(bitset_size, false);
+    }
+
+    void insert(const T& value) {
+        DCHECK(value >= _min_value && value <= _max_value)
+                << "value out of range in BitSetContainer: " << value
+                << ", min_value: " << _min_value << ", max_value: " << _max_value;
+
+        size_t index = get_index(value);
+        if (!_bitset[index]) {
+            _bitset[index] = true;
+            _size++;
+        }
+    }
+
+    void insert(Iterator begin, Iterator end) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "BitSetContainer does not support insert by iterator.");
+    }
+
+    // Use '|' instead of '||' has better performance by test.
+    ALWAYS_INLINE bool find(const T& value) const {
+        if (!check_range(value)) {
+            return false;
+        }
+        size_t index = get_index(value);
+        return _bitset[index];
+    }
+
+    size_t size() const { return _size; }
+
+    Iterator begin() {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "BitSetContainer does not support begin iterator.");
+    }
+    Iterator end() {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "BitSetContainer does not support end iterator.");
+    }
+
+    void clear() {
+        _bitset.clear();
+        _size = 0;
+        _min_value = 0;
+        _max_value = 0;
+    }
+
+private:
+    std::vector<bool> _bitset;
+    size_t _size {0};
+    T _min_value {0};
+    T _max_value {0};
+
+    size_t get_index(const T& value) const { return static_cast<size_t>(value - _min_value); }
+
+    bool check_range(const T& value) const { return value >= _min_value && value <= _max_value; }
+};
+
 template <typename T>
 struct IsFixedContainer : std::false_type {};
 
@@ -271,7 +353,17 @@ public:
     };
 
     virtual IteratorBase* begin() = 0;
+
+    virtual std::shared_ptr<HybridSetBase> try_convert_to_bitset(RuntimeState* state) {
+        return nullptr;
+    }
 };
+
+template <typename T>
+constexpr bool is_dynamic_container_v = false;
+
+template <typename T>
+constexpr bool is_dynamic_container_v<DynamicContainer<T>> = true;
 
 template <PrimitiveType T,
           typename _ContainerType = DynamicContainer<typename PrimitiveTypeTraits<T>::CppType>,
@@ -447,7 +539,70 @@ public:
         return HashUtil::crc_hash64(&_contain_null, sizeof(_contain_null), seed);
     }
 
+    std::shared_ptr<HybridSetBase> try_convert_to_bitset(RuntimeState* state) override {
+        if constexpr (is_dynamic_container_v<ContainerType>) {
+            return _try_convert_to_bitset_impl(state);
+        } else {
+            return nullptr;
+        }
+    }
+
 private:
+    template <PrimitiveType U, typename ContainerU, typename ColumnU>
+    friend class HybridSet;
+
+    std::shared_ptr<HybridSetBase> _try_convert_to_bitset_impl(RuntimeState* state) {
+        if (state == nullptr) {
+            return nullptr;
+        }
+        if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                      T == TYPE_BIGINT) {
+            const size_t max_bitset_size = state->in_set_to_bitset_max_size();
+            const size_t max_range = state->in_set_to_bitset_max_range();
+
+            if (this->size() > static_cast<int>(max_bitset_size) || this->size() == 0) {
+                return nullptr;
+            }
+
+            ElementType min_value = std::numeric_limits<ElementType>::max();
+            ElementType max_value = std::numeric_limits<ElementType>::min();
+
+            // First pass: find min and max
+            for (auto it = _set.begin(); it != _set.end(); ++it) {
+                const ElementType& value = *it;
+                if (value < min_value) {
+                    min_value = value;
+                }
+                if (value > max_value) {
+                    max_value = value;
+                }
+            }
+
+            // Check if range is acceptable
+            auto range = static_cast<uint64_t>(max_value) - static_cast<uint64_t>(min_value);
+            if (range > max_range) {
+                return nullptr;
+            }
+
+            // Create bitset-based HybridSet
+            auto bitset_set =
+                    std::make_shared<HybridSet<T, BitSetContainer<ElementType>, ColumnType>>(
+                            _null_aware);
+
+            auto& set = bitset_set->_set;
+            set.init_bitset(min_value, max_value);
+
+            // Second pass: insert values
+            for (auto it = _set.begin(); it != _set.end(); ++it) {
+                set.insert(*it);
+            }
+            bitset_set->_contain_null = this->_contain_null;
+            return bitset_set;
+        } else {
+            return nullptr;
+        }
+    }
+
     ContainerType _set;
     ObjectPool _pool;
 };

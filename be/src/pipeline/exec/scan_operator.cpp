@@ -714,7 +714,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 return Status::OK();
             }
 
-            iter = state->hybrid_set->begin();
+            iter = state->get_hybrid_set()->begin();
         }
 
         while (iter->has_next()) {
@@ -855,9 +855,9 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             return Status::OK();
         }
 
-        HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
+        HybridSetBase::IteratorBase* iter = state->get_hybrid_set()->begin();
         auto fn_name = std::string("");
-        if (state->hybrid_set->contain_null()) {
+        if (state->get_hybrid_set()->contain_null()) {
             _eos = true;
             _scan_dependency->set_ready();
         }
