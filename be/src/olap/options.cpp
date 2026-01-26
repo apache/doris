@@ -259,7 +259,7 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             return Status::InvalidArgument("total_size or query_limit should not less than zero");
         }
         if (config::enable_file_cache_normal_queue_2qlru) {
-            // This limit is inspired by MySQL's innodb_old_blocks_pct
+            // The configurable range is inspired by MySQL's innodb_old_blocks_pct
             // Reference: https://dev.mysql.com/doc/refman/8.4/en/innodb-parameters.html#sysvar_innodb_old_blocks_pct
             if (config::file_cache_2qlru_cold_blocks_percent < 5 ||
                 config::file_cache_2qlru_cold_blocks_percent > 95) {
