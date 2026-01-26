@@ -383,8 +383,18 @@ public class MysqlPasswordTest {
         GlobalVariable.validatePasswordDictionaryFile = "empty_dict.txt";
 
         // With empty dictionary, only character requirements should be checked
-        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123X");
-        MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Admin@12X");
+        try {
+            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123X");
+            Assert.fail("Expected AnalysisException for test");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("test"));
+        }
+        try {
+            MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Admin@12X");
+            Assert.fail("Expected AnalysisException for admin");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("admin"));
+        }
     }
 
     @Test
