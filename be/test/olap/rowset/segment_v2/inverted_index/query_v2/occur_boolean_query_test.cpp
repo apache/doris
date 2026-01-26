@@ -25,6 +25,7 @@
 #include <set>
 #include <vector>
 
+#include "olap/rowset/segment_v2/inverted_index/query_v2/all_query/all_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur_boolean_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
@@ -777,6 +778,25 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchZeroWithNoShouldClausesReturnsIg
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs2));
 
     OccurBooleanQuery query(std::move(clauses), 0);
+    auto weight = query.weight(false);
+    auto scorer = weight->scorer(_ctx);
+    auto result = collect_docs(scorer);
+
+    EXPECT_EQ(result, expected);
+}
+
+TEST_F(OccurBooleanQueryTest, MinimumShouldMatchEqualsNumShouldWithMustClause) {
+    auto must_docs = std::vector<uint32_t> {10, 20};
+    auto should1_docs = std::vector<uint32_t> {10, 20, 30, 100};
+    auto should2_docs = std::vector<uint32_t> {10, 20, 30, 200};
+    auto expected = std::vector<uint32_t> {10, 20};
+
+    std::vector<std::pair<Occur, QueryPtr>> clauses;
+    clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
+    clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should1_docs));
+    clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should2_docs));
+
+    OccurBooleanQuery query(std::move(clauses), 2);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);

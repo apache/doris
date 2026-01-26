@@ -32,11 +32,19 @@ public:
     ~RegexpQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
+        auto pattern = make_exact_match(_pattern);
         return std::make_shared<RegexpWeight>(std::move(_context), std::move(_field),
-                                              std::move(_pattern), enable_scoring, _nullable);
+                                              std::move(pattern), enable_scoring, _nullable);
     }
 
 private:
+    static std::string make_exact_match(const std::string& pattern) {
+        if (!pattern.empty() && pattern.front() == '^' && pattern.back() == '$') {
+            return pattern;
+        }
+        return "^(" + pattern + ")$";
+    }
+
     IndexQueryContextPtr _context;
 
     std::wstring _field;
