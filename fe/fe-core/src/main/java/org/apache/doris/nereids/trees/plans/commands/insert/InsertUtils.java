@@ -97,6 +97,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -362,6 +363,17 @@ public class InsertUtils {
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
         List<Column> columns = table.getBaseSchema(false);
+        if (unboundLogicalSink instanceof UnboundIcebergTableSink
+                && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {
+            UnboundIcebergTableSink<?> icebergSink = (UnboundIcebergTableSink<?>) unboundLogicalSink;
+            Map<String, Expression> staticPartitions = icebergSink.getStaticPartitionKeyValues();
+            if (staticPartitions != null && !staticPartitions.isEmpty()) {
+                Set<String> staticPartitionColNames = staticPartitions.keySet();
+                columns = columns.stream()
+                        .filter(column -> !staticPartitionColNames.contains(column.getName()))
+                        .collect(ImmutableList.toImmutableList());
+            }
+        }
 
         ConnectContext context = ConnectContext.get();
         ExpressionRewriteContext rewriteContext = null;

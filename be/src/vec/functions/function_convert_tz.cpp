@@ -26,7 +26,7 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
+#include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -46,6 +46,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
@@ -243,9 +244,7 @@ private:
             DateValueType ts_value2;
 
             std::pair<int64_t, int64_t> timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, from_tz)) [[unlikely]] {
-                throw_invalid_string("convert_tz", from_tz.name());
-            }
+            ts_value.unix_timestamp(&timestamp, from_tz);
             ts_value2.from_unixtime(timestamp, to_tz);
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
@@ -298,9 +297,7 @@ private:
         }
 
         std::pair<int64_t, int64_t> timestamp;
-        if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-            throw_invalid_string("convert_tz", from_tz.name());
-        }
+        ts_value.unix_timestamp(&timestamp, from_tz);
         ts_value2.from_unixtime(timestamp, to_tz);
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {

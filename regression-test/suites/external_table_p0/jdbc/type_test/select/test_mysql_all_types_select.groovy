@@ -58,5 +58,26 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
         qt_select_varbinary_type5 """select * from test_varbinary order by id;"""
 
         sql """drop catalog if exists mysql_all_type_test """
+
+        sql """drop catalog if exists mysql_timestamp_tz_type_test """
+        sql """create catalog if not exists mysql_timestamp_tz_type_test properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "enable.mapping.varbinary" = "true",
+            "enable.mapping.timestamp_tz" = "true"
+        );"""
+        sql """SET time_zone = '+08:00';"""
+        sql """use mysql_timestamp_tz_type_test.test_timestamp_tz_db"""
+        qt_desc_timestamp_tz """desc ts_test;"""
+        qt_select_timestamp_tz """select * from ts_test order by id;"""
+        qt_select_timestamp_tz2 """insert into ts_test values(3,"1999-10-10 12:00:00+08:00","1999-10-10 12:00:00");"""
+        qt_select_timestamp_tz3 """insert into ts_test values(4,NULL, NULL);"""
+        qt_select_timestamp_tz5 """select * from ts_test order by id;"""
+        sql """SET time_zone = '+00:00';"""
+        qt_select_timestamp_tz6 """select * from ts_test order by id;"""
     }
 }

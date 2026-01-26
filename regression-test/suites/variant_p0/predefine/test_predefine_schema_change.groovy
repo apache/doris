@@ -18,6 +18,7 @@
 suite("test_predefine_schema_change", "p0"){
     def tableName = "test_predefine_schema_change"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,

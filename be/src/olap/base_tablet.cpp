@@ -54,7 +54,6 @@
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
 

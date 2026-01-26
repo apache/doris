@@ -32,7 +32,6 @@
 #include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -46,6 +45,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {

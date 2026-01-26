@@ -543,6 +543,14 @@ size_t AggSourceOperatorX::get_estimated_memory_size_for_merging(RuntimeState* s
     return size;
 }
 
+Status AggSourceOperatorX::reset_hash_table(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    auto& ss = *local_state.Base::_shared_state;
+    RETURN_IF_ERROR(ss.reset_hash_table());
+    ss.agg_arena_pool.clear(true);
+    return Status::OK();
+}
+
 void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                              vectorized::ColumnRawPtrs& key_columns,
                                              uint32_t num_rows) {

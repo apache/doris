@@ -382,9 +382,6 @@ public:
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
-
-protected:
-    uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
@@ -395,6 +392,8 @@ protected:
         }
     }
 
+protected:
+    uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     Container data;
 };
 

@@ -34,10 +34,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_selectivity.h"
-#include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {

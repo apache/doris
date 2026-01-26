@@ -183,10 +183,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         _condition_cache_digest = 0;
     }
 
-    _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
-    for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
-    }
     RETURN_IF_ERROR(_process_conjuncts(state));
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
@@ -295,7 +291,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     continue;
                 }
             } else { // All conjuncts are pushed down as predicate column
-                _stale_expr_ctxs.emplace_back(conjunct);
+                _stale_expr_ctxs.emplace_back(
+                        conjunct); // avoid function context and constant str being freed
                 it = _conjuncts.erase(it);
                 continue;
             }
@@ -461,6 +458,9 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BLOOM_PRED == root->node_type());
@@ -487,6 +487,9 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(root->is_topn_filter());
@@ -511,6 +514,9 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
@@ -575,6 +581,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VEx
     }
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == sid_to_range) {
+        return false;
+    }
+    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -659,6 +668,9 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -757,6 +769,9 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -934,6 +949,9 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(!root->is_rf_wrapper()) << root->debug_string();
@@ -1220,6 +1238,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
+            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
+                continue;
+            }
             auto col_name = s->col_name();
             cid = get_column_id(col_name);
         }

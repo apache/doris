@@ -20,6 +20,10 @@ suite("regression_test_variant_nested", "p0"){
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_max_subcolumns_count = 0"
+    sql "set default_variant_sparse_hash_shard_count = 0"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
     try {
 
         def table_name = "var_nested"

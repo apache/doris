@@ -39,6 +39,7 @@ suite("prepare_stmt_with_sql_cache") {
 
         connect(context.config.jdbcUser, context.config.jdbcPassword, serverPrepareUrl) {
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
             for (def i in 0..<10) {
                 try (PreparedStatement pstmt = prepareStatement("select * from test_prepare_stmt_with_sql_cache where id=?")) {
                     pstmt.setInt(1, i)
@@ -55,6 +56,7 @@ suite("prepare_stmt_with_sql_cache") {
         connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db}"
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
             test {
                 sql "select * from test_prepare_stmt_with_sql_cache where id=10"
                 result([[10]])
@@ -64,6 +66,7 @@ suite("prepare_stmt_with_sql_cache") {
         connect(context.config.jdbcUser, context.config.jdbcPassword, serverPrepareUrl) {
             sql "use ${db}"
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
             test {
                 sql "select * from test_prepare_stmt_with_sql_cache where id=10"
                 result(([[10]]))

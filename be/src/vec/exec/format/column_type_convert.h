@@ -615,7 +615,7 @@ public:
         }
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
@@ -625,16 +625,8 @@ public:
             auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
 
             int64_t ts_s = 0;
-            if (!src_value.unix_timestamp(&ts_s, cctz::utc_time_zone())) {
-                if (null_map == nullptr) {
-                    char buf[30];
-                    src_data[i].to_string(buf);
-                    return Status::InternalError("Failed to cast value '{}' to {} column", buf,
-                                                 dst_col->get_name());
-                } else {
-                    (*null_map)[start_idx + i] = 1;
-                }
-            }
+            src_value.unix_timestamp(&ts_s, cctz::utc_time_zone());
+
             auto micro = src_value.microsecond();
             int64_t ts_ms = ts_s * 1000 + micro / 1000;
             if constexpr (DstPrimitiveType != TYPE_LARGEINT && DstPrimitiveType != TYPE_BIGINT) {

@@ -590,7 +590,7 @@ public:
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
-    bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
@@ -1100,10 +1100,10 @@ public:
     //unix_timestamp is called with a timezone argument,
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
-    bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
     //the first arg is result of fixed point
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
-    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
+    void unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
     //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
