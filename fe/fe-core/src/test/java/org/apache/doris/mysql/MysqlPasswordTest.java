@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.After;
@@ -38,17 +39,20 @@ public class MysqlPasswordTest {
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     private String originalDictionaryFile;
+    private String originalSecurityPluginsDir;
 
     @Before
     public void setUp() {
-        // Save original value
+        // Save original values
         originalDictionaryFile = GlobalVariable.validatePasswordDictionaryFile;
+        originalSecurityPluginsDir = Config.security_plugins_dir;
     }
 
     @After
     public void tearDown() {
-        // Restore original value
+        // Restore original values
         GlobalVariable.validatePasswordDictionaryFile = originalDictionaryFile;
+        Config.security_plugins_dir = originalSecurityPluginsDir;
     }
 
     @Test
@@ -264,7 +268,10 @@ public class MysqlPasswordTest {
 
     @Test
     public void testValidatePasswordWithExternalDictionary() throws IOException, AnalysisException {
-        // Create a temporary dictionary file
+        // Set security_plugins_dir to temp folder
+        Config.security_plugins_dir = tempFolder.getRoot().getAbsolutePath();
+
+        // Create a temporary dictionary file in the security_plugins_dir
         File dictFile = tempFolder.newFile("test_dictionary.txt");
         try (FileWriter writer = new FileWriter(dictFile)) {
             writer.write("# This is a comment\n");
@@ -274,7 +281,8 @@ public class MysqlPasswordTest {
             writer.write("forbidden\n");
         }
 
-        GlobalVariable.validatePasswordDictionaryFile = dictFile.getAbsolutePath();
+        // Use just the filename (not full path)
+        GlobalVariable.validatePasswordDictionaryFile = "test_dictionary.txt";
 
         // Password containing custom dictionary word should fail
         try {
@@ -305,8 +313,11 @@ public class MysqlPasswordTest {
 
     @Test
     public void testValidatePasswordDictionaryFileNotFound() throws AnalysisException {
+        // Set security_plugins_dir to a valid path
+        Config.security_plugins_dir = tempFolder.getRoot().getAbsolutePath();
+
         // When dictionary file doesn't exist, should fall back to built-in dictionary
-        GlobalVariable.validatePasswordDictionaryFile = "/non/existent/path/dictionary.txt";
+        GlobalVariable.validatePasswordDictionaryFile = "non_existent_dictionary.txt";
 
         // Built-in dictionary word should still fail
         try {
@@ -322,13 +333,17 @@ public class MysqlPasswordTest {
 
     @Test
     public void testValidatePasswordDictionaryFileReload() throws IOException, AnalysisException {
+        // Set security_plugins_dir to temp folder
+        Config.security_plugins_dir = tempFolder.getRoot().getAbsolutePath();
+
         // Create first dictionary file
         File dictFile1 = tempFolder.newFile("dict1.txt");
         try (FileWriter writer = new FileWriter(dictFile1)) {
             writer.write("wordone\n");
         }
 
-        GlobalVariable.validatePasswordDictionaryFile = dictFile1.getAbsolutePath();
+        // Use just the filename
+        GlobalVariable.validatePasswordDictionaryFile = "dict1.txt";
 
         // Should fail for wordone
         try {
@@ -344,8 +359,8 @@ public class MysqlPasswordTest {
             writer.write("wordtwo\n");
         }
 
-        // Change to second dictionary file
-        GlobalVariable.validatePasswordDictionaryFile = dictFile2.getAbsolutePath();
+        // Change to second dictionary file (just filename)
+        GlobalVariable.validatePasswordDictionaryFile = "dict2.txt";
 
         // Should now pass for wordone (not in new dictionary)
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Wordone12!");
@@ -361,10 +376,14 @@ public class MysqlPasswordTest {
 
     @Test
     public void testValidatePasswordEmptyDictionaryFile() throws IOException, AnalysisException {
+        // Set security_plugins_dir to temp folder
+        Config.security_plugins_dir = tempFolder.getRoot().getAbsolutePath();
+
         // Create an empty dictionary file
         File dictFile = tempFolder.newFile("empty_dict.txt");
 
-        GlobalVariable.validatePasswordDictionaryFile = dictFile.getAbsolutePath();
+        // Use just the filename
+        GlobalVariable.validatePasswordDictionaryFile = "empty_dict.txt";
 
         // With empty dictionary, only character requirements should be checked
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123X");
@@ -373,6 +392,9 @@ public class MysqlPasswordTest {
 
     @Test
     public void testValidatePasswordDictionaryWithCommentsOnly() throws IOException, AnalysisException {
+        // Set security_plugins_dir to temp folder
+        Config.security_plugins_dir = tempFolder.getRoot().getAbsolutePath();
+
         // Create a dictionary file with only comments
         File dictFile = tempFolder.newFile("comments_dict.txt");
         try (FileWriter writer = new FileWriter(dictFile)) {
@@ -381,7 +403,8 @@ public class MysqlPasswordTest {
             writer.write("   # comment with leading spaces\n");
         }
 
-        GlobalVariable.validatePasswordDictionaryFile = dictFile.getAbsolutePath();
+        // Use just the filename
+        GlobalVariable.validatePasswordDictionaryFile = "comments_dict.txt";
 
         // Should pass since dictionary effectively has no words
         MysqlPassword.validatePlainPassword(GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG, "Test@123X");

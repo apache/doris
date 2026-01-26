@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.GlobalVariable;
@@ -31,6 +32,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -131,12 +133,16 @@ public class MysqlPassword {
      * @return the set of dictionary words (all in lowercase)
      */
     private static Set<String> getDictionaryWords() {
-        String configuredFilePath = GlobalVariable.validatePasswordDictionaryFile;
+        String configuredFileName = GlobalVariable.validatePasswordDictionaryFile;
 
         // If no file is configured, use built-in dictionary
-        if (Strings.isNullOrEmpty(configuredFilePath)) {
+        if (Strings.isNullOrEmpty(configuredFileName)) {
             return BUILTIN_DICTIONARY_WORDS;
         }
+
+        // Construct full path: security_plugins_dir/<configured_file_name> and normalize for safe comparison
+        String configuredFilePath = Paths.get(Config.security_plugins_dir, configuredFileName)
+                .normalize().toString();
 
         // Check if we need to (re)load the dictionary
         // Double-checked locking for thread safety

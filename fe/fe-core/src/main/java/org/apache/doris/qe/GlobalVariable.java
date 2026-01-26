@@ -197,12 +197,12 @@ public final class GlobalVariable {
     public static boolean enable_get_row_count_from_file_list = true;
 
     @VariableMgr.VarAttr(name = READ_ONLY, flag = VariableMgr.GLOBAL,
-            description = {"仅用于兼容MySQL生态，暂无实际意义",
+            description = {"仅用于兼容 MySQL 生态，暂无实际意义",
                     "Only for compatibility with MySQL ecosystem, no practical meaning"})
     public static boolean read_only = true;
 
     @VariableMgr.VarAttr(name = SUPER_READ_ONLY, flag = VariableMgr.GLOBAL,
-            description = {"仅用于兼容MySQL生态，暂无实际意义",
+            description = {"仅用于兼容 MySQL 生态，暂无实际意义",
                     "Only for compatibility with MySQL ecosystem, no practical meaning"})
     public static boolean super_read_only = true;
 
@@ -220,7 +220,7 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = ENABLE_FETCH_ICEBERG_STATS, flag = VariableMgr.GLOBAL,
             description = {
-                "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
+                "当 HMS catalog 中的 Iceberg 表没有统计信息时，是否通过 Iceberg Api 获取统计信息",
                 "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
     public static boolean enableFetchIcebergStats = false;
 
@@ -241,7 +241,7 @@ public final class GlobalVariable {
                     "控制隐式类型转换的行为，当设置为 true 时，使用新的行为。新行为更为合理。类型优先级从高到低为时间相关类型 > "
                             + "数值类型 > 复杂类型 / JSON 类型 / IP 类型 > 字符串类型 > VARIANT 类型。当两个或多个不同类型的表达式"
                             + "进行比较时，强制类型转换优先向高优先级类型转换。转换时尽可能保留精度，如："
-                            + "当转换为时间相关类型时，当无法确定精度时，优先使用6位精度的 DATETIME 类型。"
+                            + "当转换为时间相关类型时，当无法确定精度时，优先使用 6 位精度的 DATETIME 类型。"
                             + "当转换为数值类型时，当无法确定精度时，优先使用 DECIMAL 类型。",
                     "Controls the behavior of implicit type conversion. When set to true, the new behavior is used,"
                             + " which is more reasonable. The type priority, from highest to lowest, is: time-related"
