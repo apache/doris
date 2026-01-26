@@ -23,7 +23,7 @@ public class Constants {
 
     // Debezium default properties
     public static final long DEBEZIUM_HEARTBEAT_INTERVAL_MS = 3000L;
-    public static final String DEBEZIUM_MAX_QUEUE_SIZE = "162580";
-    public static final String DEBEZIUM_MAX_BATCH_SIZE = "40960";
+    public static final String DEBEZIUM_MAX_QUEUE_SIZE = "327680";
+    public static final String DEBEZIUM_MAX_BATCH_SIZE = "81920";
     public static final String DEBEZIUM_POLL_INTERVAL_MS = "50";
 }
