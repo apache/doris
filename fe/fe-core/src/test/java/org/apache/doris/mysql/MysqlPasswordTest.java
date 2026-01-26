@@ -379,9 +379,6 @@ public class MysqlPasswordTest {
         // Set security_plugins_dir to temp folder
         Config.security_plugins_dir = tempFolder.getRoot().getAbsolutePath();
 
-        // Create an empty dictionary file
-        File dictFile = tempFolder.newFile("empty_dict.txt");
-
         // Use just the filename
         GlobalVariable.validatePasswordDictionaryFile = "empty_dict.txt";
 
