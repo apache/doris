@@ -154,15 +154,15 @@ public class IcebergMetadataCache {
 
         try {
             MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
-            IcebergSnapshot lastedIcebergSnapshot = IcebergUtils.getLastedIcebergSnapshot(icebergTable);
+            IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(icebergTable);
             IcebergPartitionInfo icebergPartitionInfo;
             if (!table.isValidRelatedTable()) {
                 icebergPartitionInfo = IcebergPartitionInfo.empty();
             } else {
                 icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
-                        lastedIcebergSnapshot.getSnapshotId());
+                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
             }
-            return new IcebergSnapshotCacheValue(icebergPartitionInfo, lastedIcebergSnapshot);
+            return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot);
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
