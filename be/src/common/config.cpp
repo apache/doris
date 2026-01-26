@@ -439,7 +439,7 @@ DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
 // When density <= threshold, enable sparse optimization
 // 0 = disable optimization, 1 = always enable
 // Default 0.05 means enable sparse optimization when desity <= 5%
-DEFINE_mDouble(sparse_column_compaction_threshold, "0.05");
+DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
 // Enable RLE batch Put optimization for compaction
 DEFINE_mBool(enable_rle_batch_put_optimization, "true");
 

@@ -187,7 +187,7 @@ public:
 
         // For sparse column compaction optimization
         // When true, use optimized path for sparse wide tables
-        bool use_sparse_optimization = false;
+        bool enable_sparse_optimization = false;
 
         bool is_segcompaction = false;
 
