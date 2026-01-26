@@ -1,30 +1,13 @@
-diff --git a/.gitignore b/.gitignore
-index bbf839e..adda78d 100644
---- a/.gitignore
-+++ b/.gitignore
-@@ -16,6 +16,7 @@
- build
- build-release
- build-debug
-+build-asan
- 
- # IDE settings
- .idea
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index f942510..ef5b68c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -44,11 +44,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
- 
- option(PAIMON_BUILD_STATIC "Build static library" ON)
- option(PAIMON_BUILD_SHARED "Build shared library" ON)
-+option(PAIMON_USE_BSYMBOLIC "Link shared libraries with -Bsymbolic" OFF)
-+option(PAIMON_LINK_SHARED_STDLIB "Link shared libraries with shared libstdc++/libgcc" ON)
- option(PAIMON_BUILD_TESTS "Build tests" OFF)
+@@ -48,7 +48,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
  option(PAIMON_USE_ASAN "Use Address Sanitizer" OFF)
  option(PAIMON_USE_UBSAN "Use Undefined Behavior Sanitizer" OFF)
  option(PAIMON_ENABLE_AVRO "Whether to enable avro file format" ON)
- option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
+-option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
++option(PAIMON_ENABLE_ORC "Whether to enable orc file format" ON)
 +option(PAIMON_USE_EXTERNAL_ORC "Use external ORC target (orc::orc) instead of bundled ORC" OFF)
 +option(PAIMON_ORC_V1 "Build with ORC 1.x compatibility" OFF)
 +option(PAIMON_USE_EXTERNAL_GLOG "Use external glog library instead of bundled glog" OFF)
@@ -45,85 +28,16 @@ index f942510..ef5b68c 100644
  if(PAIMON_ENABLE_AVRO)
      add_definitions(-DPAIMON_ENABLE_AVRO)
  endif()
-@@ -79,7 +91,7 @@ set(CLANG_TIDY_BIN "clang-tidy")
- set(PAIMON_SOURCE_DIR ${PROJECT_SOURCE_DIR})
- set(PAIMON_BINARY_DIR ${PROJECT_BINARY_DIR})
- set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules")
--set(BUILD_SUPPORT_DIR "${CMAKE_SOURCE_DIR}/build_support")
-+set(BUILD_SUPPORT_DIR "${PAIMON_SOURCE_DIR}/build_support")
- set(PAIMON_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
- 
- include(GNUInstallDirs)
-@@ -101,8 +113,8 @@ endif()
- 
- set(LINT_EXCLUSIONS_FILE ${BUILD_SUPPORT_DIR}/lint_exclusions.txt)
- 
--set(LINT_SOURCE_DIRS ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src
--                     ${CMAKE_SOURCE_DIR}/test ${CMAKE_SOURCE_DIR}/examples)
-+set(LINT_SOURCE_DIRS ${PAIMON_SOURCE_DIR}/include ${PAIMON_SOURCE_DIR}/src
-+                     ${PAIMON_SOURCE_DIR}/test ${PAIMON_SOURCE_DIR}/examples)
- 
- set(CLANG_TIDY_OPTIONS
-     ${PAIMON_LINT_QUIET}
-@@ -121,7 +133,7 @@ if(PAIMON_LINT_GIT_DIFF_MODE)
-                       COMMAND git diff-index --name-only --diff-filter=d --cached
-                               ${PAIMON_LINT_GIT_TARGET_COMMIT} > ${GIT_DIFF_FILE_PATH}
-                       # convert to absolute path
--                      COMMAND sed -i \"s|^|${CMAKE_SOURCE_DIR}/|\" ${GIT_DIFF_FILE_PATH}
-+                      COMMAND sed -i \"s|^|${PAIMON_SOURCE_DIR}/|\" ${GIT_DIFF_FILE_PATH}
-                       # filter with ${LINT_SOURCE_DIRS} dirs
-                       COMMAND sed -nE -i '\\@${LINT_DIR_REGEX}@p' ${GIT_DIFF_FILE_PATH}
-                       COMMENT "Generate git_diff_files.txt for git-diff lint"
-@@ -280,15 +292,15 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
- set(CMAKE_C_VISIBILITY_PRESET hidden)
- 
- include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
--include_directories("${CMAKE_SOURCE_DIR}/third_party/roaring_bitmap")
--include_directories("${CMAKE_SOURCE_DIR}/third_party/xxhash")
-+include_directories("${PAIMON_SOURCE_DIR}/third_party/roaring_bitmap")
-+include_directories("${PAIMON_SOURCE_DIR}/third_party/xxhash")
- 
- if(PAIMON_ENABLE_LANCE)
--    include_directories("${CMAKE_SOURCE_DIR}/third_party/lance")
-+    include_directories("${PAIMON_SOURCE_DIR}/third_party/lance")
- endif()
- 
- if(PAIMON_ENABLE_LUMINA)
--    include_directories("${CMAKE_SOURCE_DIR}/third_party/lumina/include")
-+    include_directories("${PAIMON_SOURCE_DIR}/third_party/lumina/include")
- endif()
- 
- include_directories(SYSTEM ${ARROW_INCLUDE_DIR})
-@@ -300,9 +312,9 @@ add_compile_definitions("GLOG_USE_GLOG_EXPORT")
- set(THREADS_PREFER_PTHREAD_FLAG ON)
- find_package(Threads REQUIRED)
- set(PAIMON_VERSION_SCRIPT_FLAGS
--    "-Wl,--version-script=${CMAKE_SOURCE_DIR}/src/paimon/symbols.map")
-+    "-Wl,--version-script=${PAIMON_SOURCE_DIR}/src/paimon/symbols.map")
- 
--set(ENV{PAIMON_TEST_DATA} "${CMAKE_SOURCE_DIR}/test/test_data")
-+set(ENV{PAIMON_TEST_DATA} "${PAIMON_SOURCE_DIR}/test/test_data")
- 
- if(PAIMON_BUILD_TESTS)
-     if(NOT PAIMON_ENABLE_ORC)
-@@ -322,7 +334,7 @@ if(PAIMON_BUILD_TESTS)
-     add_dependencies(unittest paimon-tests)
- 
-     include_directories(SYSTEM ${GTEST_INCLUDE_DIR})
--    include_directories("${CMAKE_SOURCE_DIR}/test/")
-+    include_directories("${PAIMON_SOURCE_DIR}/test/")
- 
-     set(TEST_STATIC_LINK_LIBS
-         "-Wl,--whole-archive"
 diff --git a/cmake_modules/BuildUtils.cmake b/cmake_modules/BuildUtils.cmake
 index c63d17f..73db743 100644
 --- a/cmake_modules/BuildUtils.cmake
 +++ b/cmake_modules/BuildUtils.cmake
-@@ -55,7 +55,17 @@ function(add_paimon_lib LIB_NAME)
+@@ -55,7 +55,18 @@ function(add_paimon_lib LIB_NAME)
      # Necessary to make static linking into other shared libraries work properly
      set_property(TARGET ${LIB_NAME}_objlib PROPERTY POSITION_INDEPENDENT_CODE 1)
      if(ARG_DEPENDENCIES)
 -        add_dependencies(${LIB_NAME}_objlib ${ARG_DEPENDENCIES})
++        # Avoid add_dependencies on non-existent targets (e.g. when building static only).
 +        set(_paimon_objlib_deps)
 +        foreach(_paimon_dep IN LISTS ARG_DEPENDENCIES)
 +            if(TARGET ${_paimon_dep})
@@ -138,37 +52,14 @@ index c63d17f..73db743 100644
      endif()
      set(LIB_DEPS $<TARGET_OBJECTS:${LIB_NAME}_objlib>)
      set(LIB_INCLUDES)
-@@ -106,10 +116,17 @@ function(add_paimon_lib LIB_NAME)
-         target_link_options(${LIB_NAME}_shared
-                             PRIVATE
-                             -Wl,--exclude-libs,ALL
--                            -Wl,-Bsymbolic
-                             -Wl,-z,defs
-                             -Wl,--gc-sections)
- 
-+        if(PAIMON_USE_BSYMBOLIC)
-+            target_link_options(${LIB_NAME}_shared PRIVATE -Wl,-Bsymbolic)
-+        endif()
-+
-+        if(PAIMON_LINK_SHARED_STDLIB AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-+            target_link_options(${LIB_NAME}_shared PRIVATE -shared-libstdc++ -shared-libgcc)
-+        endif()
-+
-         install(TARGETS ${LIB_NAME}_shared ${INSTALL_IS_OPTIONAL}
-                 EXPORT ${LIB_NAME}_targets
-                 RUNTIME DESTINATION ${RUNTIME_INSTALL_DIR}
 diff --git a/cmake_modules/DefineOptions.cmake b/cmake_modules/DefineOptions.cmake
 index 0211f40..c4a6b2f 100644
 --- a/cmake_modules/DefineOptions.cmake
 +++ b/cmake_modules/DefineOptions.cmake
-@@ -95,6 +95,11 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
+@@ -95,6 +95,7 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
      define_option(PAIMON_BUILD_STATIC "Build static libraries" OFF)
  
      define_option(PAIMON_BUILD_SHARED "Build shared libraries" ON)
-+
-+    define_option(PAIMON_USE_BSYMBOLIC "Link shared libraries with -Bsymbolic" OFF)
-+    define_option(PAIMON_LINK_SHARED_STDLIB "Link shared libraries with shared libstdc++/libgcc"
-+                  ON)
 +    define_option(PAIMON_USE_EXTERNAL_RAPIDJSON "Use external RapidJSON headers" OFF)
      #----------------------------------------------------------------------
      set_option_category("Test")
@@ -305,108 +196,6 @@ index 997cb6b..c7b1cf4 100644
 +   list(GET Thrift_VERSION_LIST 1 Thrift_VERSION_MINOR)
 +   list(GET Thrift_VERSION_LIST 2 Thrift_VERSION_PATCH)
 + endif()
-diff --git a/cmake_modules/san-config.cmake b/cmake_modules/san-config.cmake
-index 13399f6..6a8b6db 100644
---- a/cmake_modules/san-config.cmake
-+++ b/cmake_modules/san-config.cmake
-@@ -17,6 +17,9 @@ if(PAIMON_USE_ASAN)
-         target_compile_options(paimon_sanitizer_flags INTERFACE -fsanitize=address
-                                                                 -fno-omit-frame-pointer)
-         target_link_options(paimon_sanitizer_flags INTERFACE -fsanitize=address)
-+        if(PAIMON_LINK_SHARED_STDLIB AND NOT APPLE)
-+            target_link_options(paimon_sanitizer_flags INTERFACE -shared-libasan)
-+        endif()
-         message(STATUS "Address Sanitizer enabled")
-     else()
-         message(WARNING "Address Sanitizer is only supported for GCC and Clang compilers")
-diff --git a/scripts/check_paimon_deps.sh b/scripts/check_paimon_deps.sh
-new file mode 100755
-index 0000000..4b54e5b
---- /dev/null
-+++ b/scripts/check_paimon_deps.sh
-@@ -0,0 +1,82 @@
-+#!/bin/bash
-+# Paimon-cpp 依赖库检查脚本
-+
-+# 默认 PAIMON_HOME
-+PAIMON_HOME="${PAIMON_HOME:-/mnt/disk1/chenjunwei/paimon-install-asan}"
-+
-+echo "=============================================="
-+echo "  Paimon-cpp 依赖库检查工具"
-+echo "=============================================="
-+echo "PAIMON_HOME: $PAIMON_HOME"
-+echo ""
-+
-+MISSING_COUNT=0
-+FOUND_COUNT=0
-+
-+check_file() {
-+    local file_path="$1"
-+    local description="$2"
-+    
-+    if [ -f "$file_path" ]; then
-+        echo "[OK] $description"
-+        FOUND_COUNT=$((FOUND_COUNT + 1))
-+    else
-+        echo "[MISSING] $description"
-+        echo "         -> $file_path"
-+        MISSING_COUNT=$((MISSING_COUNT + 1))
-+    fi
-+}
-+
-+echo "=== Paimon 核心库 ==="
-+check_file "$PAIMON_HOME/lib64/libpaimon.a" "libpaimon.a"
-+check_file "$PAIMON_HOME/lib64/libpaimon_parquet_file_format.a" "libpaimon_parquet_file_format.a"
-+check_file "$PAIMON_HOME/lib64/libpaimon_file_index.a" "libpaimon_file_index.a"
-+check_file "$PAIMON_HOME/lib64/libpaimon_global_index.a" "libpaimon_global_index.a"
-+check_file "$PAIMON_HOME/lib64/libpaimon_local_file_system.a" "libpaimon_local_file_system.a"
-+
-+echo ""
-+echo "=== Paimon 可选模块 ==="
-+check_file "$PAIMON_HOME/lib64/libpaimon_orc_file_format.a" "libpaimon_orc_file_format.a (ORC)"
-+check_file "$PAIMON_HOME/lib64/libpaimon_avro_file_format.a" "libpaimon_avro_file_format.a (Avro)"
-+
-+echo ""
-+echo "=== paimon_deps 依赖库 ==="
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libfmtd.a" "libfmtd.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libtbb_debug.a" "libtbb_debug.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libroaring_bitmap.a" "libroaring_bitmap.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libarrow_dataset.a" "libarrow_dataset.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libarrow_acero.a" "libarrow_acero.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libarrow.a" "libarrow.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libarrow_bundled_dependencies.a" "libarrow_bundled_dependencies.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/liborc.a" "liborc.a"
-+check_file "$PAIMON_HOME/lib64/paimon_deps/libglog.a" "libglog.a (Paimon版)"
-+
-+echo ""
-+echo "=== CMake 配置 ==="
-+check_file "$PAIMON_HOME/lib/cmake/Paimon/PaimonConfig.cmake" "PaimonConfig.cmake"
-+
-+echo ""
-+echo "=== 符号检查 ==="
-+if [ -f "$PAIMON_HOME/lib64/paimon_deps/libglog.a" ]; then
-+    if nm "$PAIMON_HOME/lib64/paimon_deps/libglog.a" 2>/dev/null | grep -q "RawLog__"; then
-+        echo "[OK] glog 包含 RawLog__ 符号"
-+    else
-+        echo "[MISSING] glog 缺少 RawLog__ 符号"
-+        MISSING_COUNT=$((MISSING_COUNT + 1))
-+    fi
-+else
-+    echo "[SKIP] glog 库不存在，无法检查符号"
-+fi
-+
-+echo ""
-+echo "=============================================="
-+echo "结果: 找到 $FOUND_COUNT 个, 缺失 $MISSING_COUNT 个"
-+echo "=============================================="
-+
-+if [ $MISSING_COUNT -gt 0 ]; then
-+    echo "警告: 有依赖缺失，请修复后再编译 Doris BE"
-+    exit 1
-+else
-+    echo "所有依赖检查通过!"
-+    exit 0
-+fi
 diff --git a/src/paimon/common/logging/logging.cpp b/src/paimon/common/logging/logging.cpp
 index 5892436..ce599f1 100644
 --- a/src/paimon/common/logging/logging.cpp
@@ -445,59 +234,6 @@ index 6b2b6c9..8a5f6d7 100644
      return *this;
  }
  
-diff --git a/src/paimon/core/schema/schema_manager.cpp b/src/paimon/core/schema/schema_manager.cpp
-index 94ed36a..bb33572 100644
---- a/src/paimon/core/schema/schema_manager.cpp
-+++ b/src/paimon/core/schema/schema_manager.cpp
-@@ -66,17 +66,23 @@ Result<std::optional<std::shared_ptr<TableSchema>>> SchemaManager::Latest() cons
- }
- 
- Result<std::shared_ptr<TableSchema>> SchemaManager::ReadSchema(int64_t schema_id) const {
--    auto iter = schema_cache_.find(schema_id);
--    if (iter != schema_cache_.end()) {
--        return iter->second;
-+    {
-+        std::lock_guard lock(schema_cache_lock_);
-+        auto iter = schema_cache_.find(schema_id);
-+        if (iter != schema_cache_.end()) {
-+            return iter->second;
-+        }
-     }
-     auto path = ToSchemaPath(schema_id);
-     std::string content;
-     PAIMON_RETURN_NOT_OK(file_system_->ReadFile(path, &content));
-     PAIMON_ASSIGN_OR_RAISE(std::shared_ptr<TableSchema> schema,
-                            TableSchema::CreateFromJson(content));
--    schema_cache_[schema_id] = schema;
--    return schema;
-+    {
-+        std::lock_guard lock(schema_cache_lock_);
-+        auto [iter, _] = schema_cache_.emplace(schema_id, schema);
-+        return iter->second;
-+    }
- }
- 
- std::string SchemaManager::SchemaDirectory() const {
-diff --git a/src/paimon/core/schema/schema_manager.h b/src/paimon/core/schema/schema_manager.h
-index c70bc45..2a2a9b2 100644
---- a/src/paimon/core/schema/schema_manager.h
-+++ b/src/paimon/core/schema/schema_manager.h
-@@ -19,6 +19,7 @@
- #include <cstdint>
- #include <map>
- #include <memory>
-+#include <mutex>
- #include <optional>
- #include <string>
- #include <vector>
-@@ -67,6 +68,7 @@ class SchemaManager {
-     std::string table_root_;
-     const std::string branch_;
-     mutable std::map<int64_t, std::shared_ptr<TableSchema>> schema_cache_;
-+    mutable std::mutex schema_cache_lock_;
- };
- 
- }  // namespace paimon
 diff --git a/src/paimon/format/orc/CMakeLists.txt b/src/paimon/format/orc/CMakeLists.txt
 index 91319a1..69478be 100644
 --- a/src/paimon/format/orc/CMakeLists.txt
