@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/wand/block_wand.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -49,6 +50,9 @@ public:
     ~OccurBooleanWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context) override;
+
+    void for_each_pruning(const QueryExecutionContext& context, float threshold,
+                          PruningCallback callback) override;
 
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
@@ -84,5 +88,28 @@ private:
 
     uint32_t _max_doc = 0;
 };
+
+template <typename ScoreCombinerPtrT>
+void OccurBooleanWeight<ScoreCombinerPtrT>::for_each_pruning(const QueryExecutionContext& context,
+                                                             float threshold,
+                                                             PruningCallback callback) {
+    if (_sub_weights.empty()) {
+        return;
+    }
+
+    _max_doc = context.segment_num_rows;
+    auto specialized = complex_scorer(context, _score_combiner);
+
+    std::visit(
+            [&](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, std::vector<TermScorerPtr>>) {
+                    block_wand(std::move(arg), threshold, std::move(callback));
+                } else {
+                    for_each_pruning_scorer(std::move(arg), threshold, std::move(callback));
+                }
+            },
+            std::move(specialized));
+}
 
 } // namespace doris::segment_v2::inverted_index::query_v2

@@ -17,28 +17,17 @@
 
 #pragma once
 
-#include <cstdint>
 #include <memory>
+#include <roaring/roaring.hh>
 
-#include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/collection_similarity.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
-namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
+namespace doris::segment_v2::inverted_index::query_v2 {
 
-class Similarity {
-public:
-    Similarity() = default;
-    virtual ~Similarity() = default;
+void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecutionContext& context,
+                                   const std::string& binding_key,
+                                   const std::shared_ptr<roaring::Roaring>& roaring,
+                                   const CollectionSimilarityPtr& similarity, bool enable_scoring);
 
-    virtual void for_one_term(const IndexQueryContextPtr& context, const std::wstring& field_name,
-                              const std::wstring& term) = 0;
-    virtual void for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
-                           const std::vector<std::wstring>& terms) = 0;
-
-    virtual float score(float freq, int64_t encoded_norm) = 0;
-    virtual float max_score() = 0;
-};
-using SimilarityPtr = std::shared_ptr<Similarity>;
-
-#include "common/compile_check_end.h"
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index::query_v2

@@ -46,7 +46,7 @@ private:
 
     std::wstring _field;
     std::string _pattern;
-    bool _enable_scoring = false;
+    [[maybe_unused]] bool _enable_scoring = false;
     bool _nullable = true;
     int32_t _max_expansions = 50;
 };

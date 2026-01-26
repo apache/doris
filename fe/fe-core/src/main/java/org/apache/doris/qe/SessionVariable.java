@@ -606,6 +606,7 @@ public class SessionVariable implements Serializable, Writable {
     // used for cross-platform (x86/arm) inverted index compatibility
     // may removed in the future
     public static final String INVERTED_INDEX_COMPATIBLE_READ = "inverted_index_compatible_read";
+    public static final String ENABLE_INVERTED_INDEX_WAND_QUERY = "enable_inverted_index_wand_query";
 
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
@@ -840,6 +841,10 @@ public class SessionVariable implements Serializable, Writable {
                         "When collecting column statistics, collect the top values ranked by their "
                                 + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
     public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_WAND_QUERY,
+            description = {"是否开启倒排索引WAND查询优化", "Whether to enable inverted index WAND query optimization"})
+    public boolean enableInvertedIndexWandQuery = true;
 
     public void setHotValueCollectCount(int count) {
         this.hotValueCollectCount = count;
@@ -5060,6 +5065,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
 
         tResult.setInvertedIndexCompatibleRead(invertedIndexCompatibleRead);
+        tResult.setEnableInvertedIndexWandQuery(enableInvertedIndexWandQuery);
         tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);

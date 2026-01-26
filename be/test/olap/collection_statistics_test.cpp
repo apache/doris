@@ -618,36 +618,6 @@ TEST_F(CollectionStatisticsTest, CollectWithDoubleCastWrappedSlotRef) {
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
-TEST_F(CollectionStatisticsTest, FindSlotRefHandlesNullDirectCastAndNested) {
-    // null
-    vectorized::VExprSPtr null_expr;
-    EXPECT_EQ(find_slot_ref(null_expr), nullptr);
-
-    // direct SLOT_REF
-    auto slot_ref_direct =
-            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
-    EXPECT_EQ(find_slot_ref(slot_ref_direct),
-              static_cast<vectorized::VSlotRef*>(slot_ref_direct.get()));
-
-    // CAST(SLOT_REF)
-    auto slot_ref_cast =
-            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
-    auto cast_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
-    cast_expr->_children.push_back(slot_ref_cast);
-    EXPECT_EQ(find_slot_ref(cast_expr), static_cast<vectorized::VSlotRef*>(slot_ref_cast.get()));
-
-    // BINARY_PRED(CAST(SLOT_REF), literal)
-    auto slot_ref_nested =
-            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
-    auto inner_cast = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
-    inner_cast->_children.push_back(slot_ref_nested);
-    auto lit = std::make_shared<collection_statistics::MockVLiteral>("x");
-    auto bin = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::BINARY_PRED);
-    bin->_children.push_back(inner_cast);
-    bin->_children.push_back(lit);
-    EXPECT_EQ(find_slot_ref(bin), static_cast<vectorized::VSlotRef*>(slot_ref_nested.get()));
-}
-
 TEST(TermInfoComparerTest, OrdersByTermAndDedups) {
     using doris::TermInfoComparer;
     using doris::segment_v2::TermInfo;
