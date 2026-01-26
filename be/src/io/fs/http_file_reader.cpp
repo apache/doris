@@ -34,7 +34,7 @@ Result<FileReaderSPtr> HttpFileReader::create(const std::string& url,
     ofi.path = Path(url);
     ofi.extend_info = props;
 
-    auto reader = std::make_shared<HttpFileReader>(ofi, url);
+    auto reader = std::make_shared<HttpFileReader>(ofi, url, opts.mtime);
 
     // Open the file to detect Range support and validate configuration
     RETURN_IF_ERROR_RESULT(reader->open(opts));
@@ -42,11 +42,12 @@ Result<FileReaderSPtr> HttpFileReader::create(const std::string& url,
     return reader;
 }
 
-HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url)
+HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url, int64_t mtime)
         : _extend_kv(fileInfo.extend_info),
           _path(fileInfo.path),
           _url(std::move(url)),
-          _client(std::make_unique<HttpClient>()) {
+          _client(std::make_unique<HttpClient>()),
+          _mtime(mtime) {
     auto etag_iter = _extend_kv.find("etag");
     if (etag_iter != _extend_kv.end()) {
         _etag = etag_iter->second;
