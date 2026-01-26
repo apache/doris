@@ -331,40 +331,38 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
     const int num_row_groups = file_metadata->num_row_groups();
     const int num_columns = file_metadata->num_columns();
     for (int col_idx = 0; col_idx < num_columns; ++col_idx) {
-        int64_t col_size = 0;
-        int64_t col_value_count = 0;
+        auto field_id = file_metadata->schema()->Column(col_idx)->schema_node()->field_id();
 
         for (int rg_idx = 0; rg_idx < num_row_groups; ++rg_idx) {
             auto row_group = file_metadata->RowGroup(rg_idx);
             auto column_chunk = row_group->ColumnChunk(col_idx);
-            col_size += column_chunk->total_compressed_size();
-            col_value_count += column_chunk->num_values();
+            column_sizes[field_id] += column_chunk->total_compressed_size();
+
             if (column_chunk->is_stats_set()) {
                 auto column_stat = column_chunk->statistics();
-                if (!merged_column_stats.contains(col_idx)) {
-                    merged_column_stats[col_idx] = column_stat;
+                if (!merged_column_stats.contains(field_id)) {
+                    merged_column_stats[field_id] = column_stat;
                 } else {
-                    parquet_utils::merge_stats(merged_column_stats[col_idx], column_stat);
+                    parquet_utils::merge_stats(merged_column_stats[field_id], column_stat);
                 }
             }
         }
-        column_sizes[col_idx] = col_size;
-        value_counts[col_idx] = col_value_count;
     }
 
     bool has_any_null_count = false;
     bool has_any_min_max = false;
-    for (const auto& [col_idx, column_stat] : merged_column_stats) {
+    for (const auto& [field_id, column_stat] : merged_column_stats) {
+        value_counts[field_id] = column_stat->num_values();
         if (column_stat->HasNullCount()) {
             has_any_null_count = true;
             int64_t null_count = column_stat->null_count();
-            null_value_counts[col_idx] = null_count;
-            value_counts[col_idx] += null_count;
+            null_value_counts[field_id] = null_count;
+            value_counts[field_id] += null_count;
         }
         if (column_stat->HasMinMax()) {
             has_any_min_max = true;
-            lower_bounds[col_idx] = column_stat->EncodeMin();
-            upper_bounds[col_idx] = column_stat->EncodeMax();
+            lower_bounds[field_id] = column_stat->EncodeMin();
+            upper_bounds[field_id] = column_stat->EncodeMax();
         }
     }
 

@@ -25,7 +25,7 @@ suite("test_iceberg_write_stats2", "p0,external,iceberg,external_docker,external
     for (String hivePrefix : ["hive2"]) {
         setHivePrefix(hivePrefix)
         String catalog_name = "test_iceberg_write_stats"
-        String db_name = "write_test"
+        String db_name = "test_stats"
         String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -43,6 +43,7 @@ suite("test_iceberg_write_stats2", "p0,external,iceberg,external_docker,external
         );"""
 
         sql """switch ${catalog_name}"""
+        sql """create database if not exists ${db_name}"""
         sql """use ${db_name}"""
 
         sql """ DROP TABLE IF EXISTS `iceberg_all_types_parquet`; """

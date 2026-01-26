@@ -506,36 +506,48 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
                        dynamic_cast<const orc::DecimalColumnStatistics*>(col_stats)) {
         if (decimal_stats->hasMinimum() && decimal_stats->hasMaximum()) {
             has_bounds = true;
-            (*lower_bounds)[field_id] =
-                    _decimal_to_bytes(decimal_stats->getMinimum(), data_type->get_precision());
-            (*upper_bounds)[field_id] =
-                    _decimal_to_bytes(decimal_stats->getMaximum(), data_type->get_precision());
+            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum());
+            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum());
         }
     }
 
     return has_bounds;
 }
 
-std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal, int32_t precision) {
+std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
     orc::Int128 val = decimal.value;
-    if (precision <= 9) {
-        int32_t v = static_cast<int32_t>(val.getLowBits());
-        v = __builtin_bswap32(v);
-        return std::string(reinterpret_cast<const char*>(&v), sizeof(int32_t));
-    } else if (precision <= 18) {
-        int64_t v = val.getLowBits();
-        v = __builtin_bswap64(v);
-        return std::string(reinterpret_cast<const char*>(&v), sizeof(int64_t));
-    } else {
-        int64_t high = val.getHighBits();
-        uint64_t low = val.getLowBits();
-        high = __builtin_bswap64(high);
-        low = __builtin_bswap64(low);
-        std::string result;
-        result.append(reinterpret_cast<const char*>(&high), sizeof(int64_t));
-        result.append(reinterpret_cast<const char*>(&low), sizeof(uint64_t));
-        return result;
+    if (val == 0) {
+        char zero = 0;
+        return std::string(&zero, 1);
     }
+
+    // Convert Int128 -> signed big-endian minimal bytes
+    bool negative = val < 0;
+    auto high = static_cast<uint64_t>(val.getHighBits());
+    auto low = val.getLowBits();
+
+    // If negative, convert to two's complement explicitly
+    if (negative) {
+        // two's complement for 128-bit
+        low = ~low + 1;
+        high = ~high + (low == 0 ? 1 : 0);
+    }
+
+    // Serialize to big-endian bytes
+    uint8_t buf[16];
+    for (int i = 0; i < 8; ++i) {
+        buf[i] = static_cast<uint8_t>(high >> (56 - i * 8));
+        buf[i + 8] = static_cast<uint8_t>(low >> (56 - i * 8));
+    }
+
+    // Strip leading sign-extension bytes (Iceberg minimal encoding)
+    int start = 0;
+    uint8_t sign_byte = negative ? 0xFF : 0x00;
+    while (start < 15 && buf[start] == sign_byte &&
+           ((buf[start + 1] & 0x80) == (sign_byte & 0x80))) {
+        ++start;
+    }
+    return std::string(reinterpret_cast<const char*>(buf + start), 16 - start);
 }
 
 Status VOrcTransformer::write(const Block& block) {

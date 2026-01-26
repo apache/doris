@@ -113,7 +113,7 @@ private:
                                 const DataTypePtr& data_type,
                                 std::map<int32_t, std::string>* lower_bounds,
                                 std::map<int32_t, std::string>* upper_bounds);
-    std::string _decimal_to_bytes(const orc::Decimal& decimal, int32_t precision);
+    std::string _decimal_to_bytes(const orc::Decimal& decimal);
     std::shared_ptr<io::FileSystem> _fs = nullptr;
     doris::io::FileWriter* _file_writer = nullptr;
     std::vector<std::string> _column_names;

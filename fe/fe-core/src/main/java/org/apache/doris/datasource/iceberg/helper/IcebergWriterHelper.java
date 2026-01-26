@@ -31,7 +31,6 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.WriteResult;
-import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -173,62 +172,7 @@ public class IcebergWriterHelper {
             }
         }
 
-        for (Types.NestedField field : table.schema().columns()) {
-            if ((fileFormat == FileFormat.PARQUET)
-                    && field.type() instanceof Types.DecimalType
-                    && ((Types.DecimalType) field.type()).precision() <= 18) {
-                reverseBuffer(lowerBounds.get(field.fieldId()));
-                reverseBuffer(upperBounds.get(field.fieldId()));
-            }
-        }
-
-        Map<Integer, ByteBuffer> validatedLowerBounds = validateBounds(table, lowerBounds);
-        Map<Integer, ByteBuffer> validatedUpperBounds = validateBounds(table, upperBounds);
         return new Metrics(commitData.getRowCount(), columnSizes, valueCounts,
-                nullValueCounts, null, validatedLowerBounds, validatedUpperBounds);
-    }
-
-    private static Map<Integer, ByteBuffer> validateBounds(
-            Table table, Map<Integer, ByteBuffer> bounds) {
-        if (bounds == null || bounds.isEmpty()) {
-            return bounds;
-        }
-
-        Map<Integer, ByteBuffer> validated = new HashMap<>();
-        for (Types.NestedField field : table.schema().columns()) {
-            if (!field.type().isPrimitiveType()) {
-                continue;
-            }
-
-            int fieldId = field.fieldId();
-            ByteBuffer value = bounds.get(fieldId);
-            if (value != null) {
-                try {
-                    Conversions.fromByteBuffer(field.type().asPrimitiveType(), value);
-                    validated.put(fieldId, value);
-                } catch (Exception e) {
-                    LOG.warn("Invalid bound for field {}, type: {}, skipping. Error: {}",
-                            field.name(), field.type(), e.getMessage());
-                }
-            }
-        }
-        return validated;
-    }
-
-    public static void reverseBuffer(ByteBuffer buf) {
-        if (buf == null || buf.remaining() <= 1) {
-            return;
-        }
-        int lo = buf.position();
-        int hi = buf.limit() - 1;
-
-        while (lo < hi) {
-            byte bLo = buf.get(lo);
-            byte bHi = buf.get(hi);
-            buf.put(lo, bHi);
-            buf.put(hi, bLo);
-            lo++;
-            hi--;
-        }
+                nullValueCounts, null, lowerBounds, upperBounds);
     }
 }
