@@ -13022,4 +13022,37 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
     }
 }
 
+TEST(MetaServiceTest, CreateTabletRestoreModeTest) {
+    auto meta_service = get_meta_service();
+    {
+        constexpr auto table_id = 20005, index_id = 20006, partition_id = 20007, tablet_id = 20008;
+
+        // create tablet with restore mode enabled
+        brpc::Controller cntl;
+        CreateTabletsRequest req;
+        CreateTabletsResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_in_restore_mode(true); // enable restore mode
+
+        auto* tablet_meta = req.add_tablet_metas();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+
+        auto* schema = tablet_meta->mutable_schema();
+        schema->set_schema_version(1);
+
+        meta_service->create_tablets(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        // get tablet stats and verify restore mode settings
+        GetTabletStatsResponse stats_res;
+        get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, stats_res);
+        ASSERT_EQ(stats_res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(stats_res.tablet_stats_size(), 1);
+        EXPECT_EQ(stats_res.tablet_stats(0).num_rowsets(), 0);
+        EXPECT_EQ(stats_res.tablet_stats(0).cumulative_point(), -1);
+    }
+}
 } // namespace doris::cloud

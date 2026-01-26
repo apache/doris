@@ -411,6 +411,7 @@ public class CloudRestoreJob extends RestoreJob {
                         Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
                                 restoreTablet.getReplicaByBackendId(-1));
+                        requestBuilder.setInRestoreMode(true);
                     } catch (Exception e) {
                         String errMsg = String.format("create tablet meta builder failed, errMsg:%s, local table:%d, "
                                 + "restore partition=%d, restore index=%d, restore tablet=%d", e.getMessage(),
