@@ -56,7 +56,16 @@ using ColumnString = ColumnStr<UInt32>;
 
 struct InState {
     bool use_set = true;
-    std::unique_ptr<HybridSetBase> hybrid_set;
+    std::shared_ptr<HybridSetBase> get_hybrid_set() {
+        return origin_set == nullptr ? hybrid_set : origin_set;
+    }
+
+private:
+    template <bool>
+    friend class FunctionIn;
+
+    std::shared_ptr<HybridSetBase> hybrid_set;
+    std::shared_ptr<HybridSetBase> origin_set = nullptr;
 };
 
 template <bool negative>
@@ -131,6 +140,14 @@ public:
                 break;
             }
         }
+
+        if (state->use_set && state->hybrid_set) {
+            if (auto bitset = state->hybrid_set->try_convert_to_bitset(context->state())) {
+                state->origin_set = state->hybrid_set;
+                state->hybrid_set = bitset;
+            }
+        }
+
         return Status::OK();
     }
 
