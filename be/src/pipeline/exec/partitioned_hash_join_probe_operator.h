@@ -84,6 +84,9 @@ private:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
 
+    // Spill probe blocks to disk
+    Status _execute_spill_probe_blocks(RuntimeState* state, const UniqueId& query_id);
+
     std::shared_ptr<BasicSharedState> _in_mem_shared_state_sptr;
     uint32_t _partition_cursor {0};
 

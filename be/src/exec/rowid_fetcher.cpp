@@ -705,6 +705,78 @@ const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgT
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
 
+Status RowIdStorageReader::read_external_row_from_file_mapping(
+        size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
+        const std::shared_ptr<FileMapping>& file_mapping, const std::vector<SlotDescriptor>& slots,
+        const TUniqueId& query_id, const std::shared_ptr<RuntimeState>& runtime_state,
+        std::vector<vectorized::Block>& scan_blocks,
+        std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+        std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
+        const TFileScanRangeParams& rpc_scan_params,
+        const std::unordered_map<std::string, int>& colname_to_slot_id,
+        std::atomic<int>& producer_count, size_t scan_rows_count,
+        std::counting_semaphore<>& semaphore, std::condition_variable& cv, std::mutex& mtx,
+        TupleDescriptor& tuple_desc) {
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+    signal::set_signal_task_id(query_id);
+
+    std::list<int64_t> read_ids;
+    //Generate an ordered list with the help of the orderliness of the map.
+    for (const auto& [row_id, result_block_idx] : row_ids) {
+        if (read_ids.empty() || read_ids.back() != row_id) {
+            read_ids.emplace_back(row_id);
+        }
+        row_id_block_idx[result_block_idx] = std::make_pair(idx, read_ids.size() - 1);
+    }
+
+    scan_blocks[idx] = vectorized::Block(slots, read_ids.size());
+
+    auto& external_info = file_mapping->get_external_file_info();
+    auto& scan_range_desc = external_info.scan_range_desc;
+
+    // Clear to avoid reading iceberg position delete file...
+    scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
+
+    // Clear to avoid reading hive transactional delete delta file...
+    scan_range_desc.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
+
+    std::unique_ptr<RuntimeProfile> sub_runtime_profile =
+            std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
+    {
+        std::unique_ptr<vectorized::FileScanner> vfile_scanner_ptr =
+                vectorized::FileScanner::create_unique(runtime_state.get(),
+                                                       sub_runtime_profile.get(), &rpc_scan_params,
+                                                       &colname_to_slot_id, &tuple_desc);
+
+        RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_lines(scan_range_desc));
+        RETURN_IF_ERROR(vfile_scanner_ptr->read_lines_from_range(
+                scan_range_desc, read_ids, &scan_blocks[idx], external_info,
+                &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+    }
+
+    auto file_read_bytes_counter =
+            sub_runtime_profile->get_counter(vectorized::FileScanner::FileReadBytesProfile);
+
+    if (file_read_bytes_counter != nullptr) {
+        fetch_statistics[idx].file_read_bytes = PrettyPrinter::print(
+                file_read_bytes_counter->value(), file_read_bytes_counter->type());
+    }
+
+    auto file_read_times_counter =
+            sub_runtime_profile->get_counter(vectorized::FileScanner::FileReadTimeProfile);
+    if (file_read_times_counter != nullptr) {
+        fetch_statistics[idx].file_read_times = PrettyPrinter::print(
+                file_read_times_counter->value(), file_read_times_counter->type());
+    }
+
+    semaphore.release();
+    if (++producer_count == scan_rows_count) {
+        std::lock_guard<std::mutex> lock(mtx);
+        cv.notify_one();
+    }
+    return Status::OK();
+}
+
 Status RowIdStorageReader::read_batch_external_row(
         const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
         std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
@@ -848,94 +920,14 @@ Status RowIdStorageReader::read_batch_external_row(
                     semaphore.acquire();
                     RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
                             vectorized::SimplifiedScanTask(
-                                    [&, scan_info, idx]() {
-                                        auto& row_ids = scan_info.first;
-                                        auto& file_mapping = scan_info.second;
-
-                                        SCOPED_ATTACH_TASK(
-                                                ExecEnv::GetInstance()
-                                                        ->rowid_storage_reader_tracker());
-                                        signal::set_signal_task_id(query_id);
-
-                                        std::list<int64_t> read_ids;
-                                        //Generate an ordered list with the help of the orderliness of the map.
-                                        for (const auto& [row_id, result_block_idx] : row_ids) {
-                                            if (read_ids.empty() || read_ids.back() != row_id) {
-                                                read_ids.emplace_back(row_id);
-                                            }
-                                            row_id_block_idx[result_block_idx] =
-                                                    std::make_pair(idx, read_ids.size() - 1);
-                                        }
-
-                                        scan_blocks[idx] =
-                                                vectorized::Block(slots, read_ids.size());
-
-                                        auto& external_info =
-                                                file_mapping->get_external_file_info();
-                                        auto& scan_range_desc = external_info.scan_range_desc;
-
-                                        // Clear to avoid reading iceberg position delete file...
-                                        scan_range_desc.table_format_params.iceberg_params =
-                                                TIcebergFileDesc {};
-
-                                        // Clear to avoid reading hive transactional delete delta file...
-                                        scan_range_desc.table_format_params
-                                                .transactional_hive_params =
-                                                TTransactionalHiveDesc {};
-
-                                        std::unique_ptr<RuntimeProfile> sub_runtime_profile =
-                                                std::make_unique<RuntimeProfile>(
-                                                        "ExternalRowIDFetcher");
-                                        {
-                                            std::unique_ptr<vectorized::FileScanner>
-                                                    vfile_scanner_ptr =
-                                                            vectorized::FileScanner::create_unique(
-                                                                    runtime_state.get(),
-                                                                    sub_runtime_profile.get(),
-                                                                    &rpc_scan_params,
-                                                                    &colname_to_slot_id,
-                                                                    &tuple_desc);
-
-                                            RETURN_IF_ERROR(
-                                                    vfile_scanner_ptr->prepare_for_read_lines(
-                                                            scan_range_desc));
-                                            RETURN_IF_ERROR(
-                                                    vfile_scanner_ptr->read_lines_from_range(
-                                                            scan_range_desc, read_ids,
-                                                            &scan_blocks[idx], external_info,
-                                                            &fetch_statistics[idx].init_reader_ms,
-                                                            &fetch_statistics[idx].get_block_ms));
-                                        }
-
-                                        auto file_read_bytes_counter =
-                                                sub_runtime_profile->get_counter(
-                                                        vectorized::FileScanner::
-                                                                FileReadBytesProfile);
-
-                                        if (file_read_bytes_counter != nullptr) {
-                                            fetch_statistics[idx].file_read_bytes =
-                                                    PrettyPrinter::print(
-                                                            file_read_bytes_counter->value(),
-                                                            file_read_bytes_counter->type());
-                                        }
-
-                                        auto file_read_times_counter =
-                                                sub_runtime_profile->get_counter(
-                                                        vectorized::FileScanner::
-                                                                FileReadTimeProfile);
-                                        if (file_read_times_counter != nullptr) {
-                                            fetch_statistics[idx].file_read_times =
-                                                    PrettyPrinter::print(
-                                                            file_read_times_counter->value(),
-                                                            file_read_times_counter->type());
-                                        }
-
-                                        semaphore.release();
-                                        if (++producer_count == scan_rows.size()) {
-                                            std::lock_guard<std::mutex> lock(mtx);
-                                            cv.notify_one();
-                                        }
-                                        return Status::OK();
+                                    [&, idx, scan_info]() -> Status {
+                                        const auto& [row_ids, file_mapping] = scan_info;
+                                        return read_external_row_from_file_mapping(
+                                                idx, row_ids, file_mapping, slots, query_id,
+                                                runtime_state, scan_blocks, row_id_block_idx,
+                                                fetch_statistics, rpc_scan_params,
+                                                colname_to_slot_id, producer_count,
+                                                scan_rows.size(), semaphore, cv, mtx, tuple_desc);
                                     },
                                     nullptr, nullptr),
                             fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
