@@ -156,8 +156,8 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     null_map_column->get_data().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
 
     // array nested column should be nullable
     test_col_data = ColumnArray::create(
