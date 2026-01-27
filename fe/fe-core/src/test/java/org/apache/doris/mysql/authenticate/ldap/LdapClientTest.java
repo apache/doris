@@ -111,7 +111,7 @@ public class LdapClientTest {
         //testing new case with specified property ldap_use_ssl as true
         LdapConfig.ldap_use_ssl = true;
         String secureUrl = LdapConfig.getConnectionURL(
-            NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
         Assert.assertNotNull("connection URL should not be null", secureUrl);
         Assert.assertTrue("with ldap_use_ssl = true URL should start with ldaps, but received: " + secureUrl,
                           secureUrl.startsWith("ldaps://"));
