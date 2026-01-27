@@ -68,7 +68,7 @@ private:
             THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
             const auto* const_column = assert_cast<const vectorized::ColumnConst*>(
                     const_col_wrapper->column_ptr.get());
-            *constant_val = const_column[0];
+            constant_val = const_column->operator[](0);
             return PushDownType::ACCEPTABLE;
         } else {
             // only handle constant value

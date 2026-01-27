@@ -139,22 +139,29 @@ public:
             return false;
         }
 
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        auto tmp_min_value = get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr());
+        auto tmp_max_value = get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr());
+        CompareType tmp_value;
+        if constexpr (is_string_type(Type)) {
+            tmp_value = StringRef(_value.data(), _value.size());
+        } else {
+            tmp_value = _value;
+        }
 
         if constexpr (PT == PredicateType::EQ) {
-            return _operator(Compare::less_equal(tmp_min_value, _value) &&
-                                     Compare::greater_equal(tmp_max_value, _value),
+            return _operator(Compare::less_equal(tmp_min_value, tmp_value) &&
+                                     Compare::greater_equal(tmp_max_value, tmp_value),
                              true);
         } else if constexpr (PT == PredicateType::NE) {
-            return _operator(
-                    Compare::equal(tmp_min_value, _value) && Compare::equal(tmp_max_value, _value),
-                    true);
+            return _operator(Compare::equal(tmp_min_value, tmp_value) &&
+                                     Compare::equal(tmp_max_value, tmp_value),
+                             true);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(tmp_min_value, _value);
+            return _operator(tmp_min_value, tmp_value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(tmp_max_value, _value);
+            return _operator(tmp_max_value, tmp_value);
         }
     }
 
@@ -250,17 +257,24 @@ public:
             return false;
         }
 
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        auto tmp_min_value = get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr());
+        auto tmp_max_value = get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr());
+        CompareType tmp_value;
+        if constexpr (is_string_type(Type)) {
+            tmp_value = StringRef(_value.data(), _value.size());
+        } else {
+            tmp_value = _value;
+        }
 
         if constexpr (PT == PredicateType::LT) {
-            return _value > tmp_max_value;
+            return tmp_value > tmp_max_value;
         } else if constexpr (PT == PredicateType::LE) {
-            return _value >= tmp_max_value;
+            return tmp_value >= tmp_max_value;
         } else if constexpr (PT == PredicateType::GT) {
-            return _value < tmp_min_value;
+            return tmp_value < tmp_min_value;
         } else if constexpr (PT == PredicateType::GE) {
-            return _value <= tmp_min_value;
+            return tmp_value <= tmp_min_value;
         }
 
         return false;
@@ -271,18 +285,25 @@ public:
             return false;
         }
 
-        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
-        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
+        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        auto tmp_min_value = get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr());
+        auto tmp_max_value = get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr());
+        CompareType tmp_value;
+        if constexpr (is_string_type(Type)) {
+            tmp_value = StringRef(_value.data(), _value.size());
+        } else {
+            tmp_value = _value;
+        }
 
         if constexpr (PT == PredicateType::EQ) {
-            return tmp_min_value == _value && tmp_max_value == _value;
+            return tmp_min_value == tmp_value && tmp_max_value == tmp_value;
         } else if constexpr (PT == PredicateType::NE) {
-            return tmp_min_value > _value || tmp_max_value < _value;
+            return tmp_min_value > tmp_value || tmp_max_value < tmp_value;
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            return _operator(tmp_max_value, _value);
+            return _operator(tmp_max_value, tmp_value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            return _operator(tmp_min_value, _value);
+            return _operator(tmp_min_value, tmp_value);
         }
     }
 
