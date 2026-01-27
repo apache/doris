@@ -91,12 +91,15 @@ public class MetadataScanNode extends ExternalScanNode {
         } else {
             // need to split ranges to send to backends
             List<String> splits = metaScanRange.getSerializedSplits();
-            for (int i = 0; i < splits.size(); i++) {
-                String split = splits.get(i);
+            int maxConcurrency = ConnectContext.get().getSessionVariable().getMaxScannersConcurrency();
+            int targetRanges = backendPolicy.numBackends() * Math.max(1, maxConcurrency);
+            int splitsPerRange = (int) Math.ceil((double) splits.size() / targetRanges);
+            for (int from = 0; from < splits.size(); from += splitsPerRange) {
+                int to = Math.min(from + splitsPerRange, splits.size());
                 Backend backend = backendPolicy.getNextBe();
 
                 TMetaScanRange subRange = metaScanRange.deepCopy();
-                subRange.setSerializedSplits(Lists.newArrayList(split));
+                subRange.setSerializedSplits(splits.subList(from, to));
 
                 TScanRangeLocation location = new TScanRangeLocation();
                 location.setBackendId(backend.getId());
