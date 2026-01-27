@@ -177,7 +177,6 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         }
 
         def result = sql """ select * from ${tb_name} where json_extract_double(data, "\$.age")=25 """
-        logger.info(result)
         assertTrue(result.size() == 1);
     }
 
