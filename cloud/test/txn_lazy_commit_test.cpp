@@ -3336,4 +3336,88 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
     }
 }
 
+TEST(TxnLazyCommitTest, CommitTxnEventuallyWithManyPartitions) {
+    auto txn_kv = get_fdb_txn_kv();
+    int64_t db_id = 15246789;
+    int64_t table_id = 42356789;
+    int64_t index_id = 98765432;
+
+    std::atomic_bool commit_txn_eventually_finish_hit = false;
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("commit_txn_eventually::task->wait", [&](auto&& args) {
+        auto [code, msg] = *try_any_cast<std::pair<MetaServiceCode, std::string>*>(args[0]);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        commit_txn_eventually_finish_hit = true;
+    });
+
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    brpc::Controller cntl;
+    BeginTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label("test_label_with_many_partitions");
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(60000000);
+    req.mutable_txn_info()->CopyFrom(txn_info_pb);
+    BeginTxnResponse res;
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                            nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
+    int64_t txn_id = res.txn_id();
+
+    // mock rowset and tablet: 2000 partitions, 64 tablets per partition
+    int64_t tablet_id_base = 1000000;
+    int64_t partition_id_base = 5000000;
+
+    // Change below parameters to large values if you want to do a more stress test
+    const int num_partitions = 20;
+    const int tablets_per_partition = 2;
+
+    for (int p = 0; p < num_partitions; ++p) {
+        int64_t partition_id = partition_id_base + p;
+        for (int t = 0; t < tablets_per_partition; ++t) {
+            int64_t tablet_id = tablet_id_base + p * tablets_per_partition + t;
+            create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                     tablet_id);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+            CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            commit_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+    }
+
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        req.set_is_2pc(false);
+        req.set_enable_txn_lazy_commit(true);
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(commit_txn_eventually_finish_hit);
+    }
+
+    for (size_t i = 0; i < 1000; i++) {
+        // just wait for a while to make sure the commit txn eventually task is finished
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (commit_txn_eventually_finish_hit.load()) {
+            break;
+        }
+    }
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 } // namespace doris::cloud
