@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.BitUtils;
@@ -162,8 +162,8 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
      *
      * return: [(4, 3), (3)]
      */
-    default List<Set<Integer>> computeRepeatSlotIdList(List<Integer> slotIdList) {
-        List<Set<Integer>> groupingSetsIndexesInOutput = getGroupingSetsIndexesInOutput();
+    default List<Set<Integer>> computeRepeatSlotIdList(List<Integer> slotIdList, List<Slot> outputSlots) {
+        List<Set<Integer>> groupingSetsIndexesInOutput = getGroupingSetsIndexesInOutput(outputSlots);
         List<Set<Integer>> repeatSlotIdList = Lists.newArrayList();
         for (Set<Integer> groupingSetIndex : groupingSetsIndexesInOutput) {
             // keep order
@@ -182,8 +182,8 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
      * e.g. groupingSets=((b, a), (a)), output=[a, b]
      * return ((1, 0), (1))
      */
-    default List<Set<Integer>> getGroupingSetsIndexesInOutput() {
-        Map<Expression, Integer> indexMap = indexesOfOutput();
+    default List<Set<Integer>> getGroupingSetsIndexesInOutput(List<Slot> outputSlots) {
+        Map<Expression, Integer> indexMap = indexesOfOutput(outputSlots);
 
         List<Set<Integer>> groupingSetsIndex = Lists.newArrayList();
         List<List<Expression>> groupingSets = getGroupingSets();
@@ -214,15 +214,11 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
      *   `c`: 2
      * )
      */
-    default Map<Expression, Integer> indexesOfOutput() {
+    default Map<Expression, Integer> indexesOfOutput(List<Slot> outputSlots) {
         Map<Expression, Integer> indexes = Maps.newLinkedHashMap();
-        List<NamedExpression> outputs = getOutputExpressions();
-        for (int i = 0; i < outputs.size(); i++) {
-            NamedExpression output = outputs.get(i);
+        for (int i = 0; i < outputSlots.size(); i++) {
+            NamedExpression output = outputSlots.get(i);
             indexes.put(output, i);
-            if (output instanceof Alias) {
-                indexes.put(((Alias) output).child(), i);
-            }
         }
         return indexes;
     }
