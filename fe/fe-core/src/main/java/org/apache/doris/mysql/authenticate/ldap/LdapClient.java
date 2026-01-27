@@ -66,7 +66,7 @@ public class LdapClient {
         private void setLdapTemplateNoPool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
             String url = LdapConfig.getConnectionURL(
-                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+                    NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
@@ -79,7 +79,7 @@ public class LdapClient {
         private void setLdapTemplatePool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
             String url = LdapConfig.getConnectionURL(
-                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+                    NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
