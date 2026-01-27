@@ -108,8 +108,8 @@ public class LdapClient {
         }
 
         public String getURL() {
-            String url = (LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + NetUtils
-                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
+            return ((LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + NetUtils
+                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
         }
     }
 
