@@ -68,7 +68,8 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
             _load_hard_mem_limit * config::load_process_safe_mem_permit_percent / 100;
     g_load_hard_mem_limit.set_value(_load_hard_mem_limit);
     g_load_soft_mem_limit.set_value(_load_soft_mem_limit);
-    _mem_tracker = std::make_unique<MemTracker>("AllMemTableMemory");
+    _mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "AllMemTableMemory");
     REGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _log_timer.start();
