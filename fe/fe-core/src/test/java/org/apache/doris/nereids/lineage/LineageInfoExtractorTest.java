@@ -808,15 +808,24 @@ public class LineageInfoExtractorTest extends TestWithFeService {
     }
 
     private Set<LineageInfo.IndirectLineageType> getIndirectTypes(LineageInfo lineageInfo, String outputName) {
+        Set<LineageInfo.IndirectLineageType> actual = new HashSet<>();
         Map<SlotReference, SetMultimap<LineageInfo.IndirectLineageType, Expression>> indirectMap =
-                lineageInfo.getInDirectLineageMap();
+                lineageInfo.getInDirectLineageMapByDataset();
         for (Map.Entry<SlotReference, SetMultimap<LineageInfo.IndirectLineageType, Expression>> entry
                 : indirectMap.entrySet()) {
             if (entry.getKey().getName().equalsIgnoreCase(outputName)) {
-                return new HashSet<>(entry.getValue().keySet());
+                actual.addAll(entry.getValue().keySet());
             }
         }
-        return Collections.emptySet();
+        Map<SlotReference, SetMultimap<LineageInfo.IndirectLineageType, Expression>> perOutputMap =
+                lineageInfo.getOutputIndirectLineageMap();
+        for (Map.Entry<SlotReference, SetMultimap<LineageInfo.IndirectLineageType, Expression>> entry
+                : perOutputMap.entrySet()) {
+            if (entry.getKey().getName().equalsIgnoreCase(outputName)) {
+                actual.addAll(entry.getValue().keySet());
+            }
+        }
+        return actual;
     }
 
     private Set<LineageInfo.DirectLineageType> getDirectTypes(LineageInfo lineageInfo, String outputName) {

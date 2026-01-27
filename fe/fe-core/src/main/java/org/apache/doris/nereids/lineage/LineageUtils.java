@@ -111,7 +111,7 @@ public final class LineageUtils {
         lineageInfo.setContext(context);
         if (LOG.isDebugEnabled()) {
             Map<?, ?> directMap = lineageInfo.getDirectLineageMap();
-            Object indirectMap = lineageInfo.getInDirectLineageMap();
+            Object indirectMap = lineageInfo.getInDirectLineageMapByDataset();
             Object tableLineage = lineageInfo.getTableLineageSet();
             Object targetColumns = lineageInfo.getTargetColumns();
             String targetTable = lineageInfo.getTargetTable() == null

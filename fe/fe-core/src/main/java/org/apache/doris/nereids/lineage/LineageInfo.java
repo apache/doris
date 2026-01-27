@@ -188,29 +188,29 @@ public class LineageInfo {
     }
 
     /**
-     * Get merged indirect lineage info for each output slot.
+     * Get dataset-level indirect lineage info for each output slot.
      *
-     * <p>Dataset-level indirect lineage is merged into each output slot, while WINDOW/CONDITIONAL
-     * remain per-output.
+     * <p>Dataset-level indirect lineage is applied to every output slot. WINDOW/CONDITIONAL are not included here.
      */
-    public Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> getInDirectLineageMap() {
-        if (datasetIndirectLineageMap.isEmpty() && inDirectLineageMap.isEmpty()) {
-            return inDirectLineageMap;
+    public Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> getInDirectLineageMapByDataset() {
+        if (datasetIndirectLineageMap.isEmpty()) {
+            return new HashMap<>();
         }
         Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> merged = new HashMap<>();
-        Set<SlotReference> outputSlots = new HashSet<>();
-        outputSlots.addAll(directLineageMap.keySet());
-        outputSlots.addAll(inDirectLineageMap.keySet());
+        Set<SlotReference> outputSlots = new HashSet<>(directLineageMap.keySet());
         for (SlotReference outputSlot : outputSlots) {
             SetMultimap<IndirectLineageType, Expression> combined = HashMultimap.create();
             combined.putAll(datasetIndirectLineageMap);
-            SetMultimap<IndirectLineageType, Expression> perOutput = inDirectLineageMap.get(outputSlot);
-            if (perOutput != null) {
-                combined.putAll(perOutput);
-            }
             merged.put(outputSlot, combined);
         }
         return merged;
+    }
+
+    /**
+     * Get per-output indirect lineage for WINDOW/CONDITIONAL.
+     */
+    public Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> getOutputIndirectLineageMap() {
+        return inDirectLineageMap;
     }
 
     /**
@@ -219,16 +219,6 @@ public class LineageInfo {
      */
     public void addDatasetIndirectLineage(IndirectLineageType type, Expression expr) {
         datasetIndirectLineageMap.put(type, expr);
-    }
-
-    /**
-     * Add indirect lineage for all output slots.
-     * Stored as dataset-level indirect lineage to avoid duplication.
-     */
-    public void addDatasetIndirectLineage(IndirectLineageType type, Set<Expression> exprs) {
-        for (Expression expr : exprs) {
-            addDatasetIndirectLineage(type, expr);
-        }
     }
 
     @Override
