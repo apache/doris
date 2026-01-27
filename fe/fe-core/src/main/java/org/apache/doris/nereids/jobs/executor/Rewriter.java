@@ -168,6 +168,7 @@ import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoinProject;
+import org.apache.doris.nereids.rules.rewrite.VariantSchemaCast;
 import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
@@ -912,6 +913,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // so that ElementAt expressions from search can be processed
                 rewriteJobs.addAll(jobs(
                         bottomUp(new RewriteSearchToSlots())
+                ));
+
+                // Auto cast variant element access based on schema template
+                // This should run before VariantSubPathPruning
+                rewriteJobs.addAll(jobs(
+                        topic("variant schema cast",
+                                custom(RuleType.VARIANT_SCHEMA_CAST, VariantSchemaCast::new)
+                        )
                 ));
 
                 if (needSubPathPushDown) {

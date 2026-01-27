@@ -67,6 +67,40 @@ public class VariantField {
         return comment;
     }
 
+    public TPatternType getPatternType() {
+        return patternType;
+    }
+
+    /**
+     * Check if the given field name matches this field's pattern.
+     * @param fieldName the field name to check
+     * @return true if the field name matches the pattern
+     */
+    public boolean matches(String fieldName) {
+        if (patternType == TPatternType.MATCH_NAME) {
+            return pattern.equals(fieldName);
+        } else {
+            // MATCH_NAME_GLOB: convert glob pattern to regex
+            // Escape regex special characters except *, then replace * with .*
+            String regex = pattern
+                    .replace(".", "\\.")
+                    .replace("?", "\\?")
+                    .replace("[", "\\[")
+                    .replace("]", "\\]")
+                    .replace("(", "\\(")
+                    .replace(")", "\\)")
+                    .replace("{", "\\{")
+                    .replace("}", "\\}")
+                    .replace("+", "\\+")
+                    .replace("^", "\\^")
+                    .replace("$", "\\$")
+                    .replace("|", "\\|")
+                    .replace("\\", "\\\\")
+                    .replace("*", ".*");
+            return fieldName.matches(regex);
+        }
+    }
+
     public org.apache.doris.catalog.VariantField toCatalogDataType() {
         return new org.apache.doris.catalog.VariantField(
                 pattern, dataType.toCatalogDataType(), comment, patternType);
