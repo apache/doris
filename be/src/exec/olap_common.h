@@ -99,9 +99,8 @@ std::string cast_to_string(T value, int scale) {
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType =
-            std::conditional_t<primitive_type == TYPE_HLL,
-                               StringRef, typename PrimitiveTypeTraits<primitive_type>::CppType>;
+    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using SetType = std::set<CppType, doris::Less<CppType>>;
     using IteratorType = typename SetType::iterator;
 
