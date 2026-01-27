@@ -29,7 +29,7 @@ suite("unnest_map_border_test", "unnest") {
                 101 AS user_id,
                 MAP('category', 'electronics', 'rank', 'A', 'region', 'East') AS attr_map
         ) t,
-        UNNEST(attr_map) AS v(k, v)
+        UNNEST(attr_map) AS m(k, v)
         ORDER BY user_id, k, v;"""
 
     // map(null: null)

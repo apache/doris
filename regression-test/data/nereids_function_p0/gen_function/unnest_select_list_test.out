@@ -50,6 +50,9 @@ c
 
 -- !select_unnest_null_array --
 
+-- !sql_count_unnest --
+5
+
 -- !distinct_on_unnested_constant_array --
 1
 2

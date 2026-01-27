@@ -142,7 +142,7 @@ suite("unnest_select_list_test", "unnest") {
     }
 
     // agg
-    sql """SELECT COUNT(UNNEST(scores)) FROM ${tb_name1};"""
+    qt_sql_count_unnest """SELECT COUNT(UNNEST(scores)) FROM ${tb_name1};"""
 
     // cross
     test {

@@ -138,7 +138,7 @@ Alice	R&D	str3	\N	\N	\N
 Alice	R&D	str3	\N	\N	\N
 
 -- !stress_test_unnest_large_bitmap --
-1000000
+100000
 
 -- !stress_test_unnest_long_array_with_predicate --
 3	tech

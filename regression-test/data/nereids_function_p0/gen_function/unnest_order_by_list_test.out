@@ -72,9 +72,9 @@ Charlie
 2	Math	60	2
 
 -- !order_by_after_where_and_unnest --
-1	2	70
 1	0	80
 1	1	95
+1	2	70
 2	0	60
 2	1	75
 

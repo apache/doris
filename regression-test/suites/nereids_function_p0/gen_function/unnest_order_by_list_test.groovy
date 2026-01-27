@@ -99,9 +99,9 @@ suite("unnest_order_by_list_test", "unnest") {
     qt_order_by_after_where_and_unnest """
         SELECT 
             user_id, 
-            s.val, 
-            s.pos 
-        FROM ${tb_name2}, UNNEST(history_scores) WITH ORDINALITY AS s(val, pos)
+            s.pos,             
+            s.val            
+        FROM ${tb_name2}, UNNEST(history_scores) WITH ORDINALITY AS s(pos, val)
         WHERE subject = 'Math'
         ORDER BY user_id, s.pos ASC;"""
 

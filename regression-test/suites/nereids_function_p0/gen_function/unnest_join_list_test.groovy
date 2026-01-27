@@ -118,7 +118,7 @@ suite("unnest_join_list_test", "unnest") {
     qt_left_join_unnest_array """
         SELECT u.u_name, t.tag, t.pos
         FROM ${tb_name1} u 
-        LEFT JOIN UNNEST(u.u_tags) WITH ORDINALITY AS t(tag, pos) ON true
+        LEFT JOIN UNNEST(u.u_tags) WITH ORDINALITY AS t(pos, tag) ON true
         ORDER BY u.u_name, t.pos;"""
 
     // cross join

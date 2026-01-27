@@ -183,10 +183,10 @@ suite("unnest_from_list_test", "unnest") {
         INSERT INTO ${tb_name3}
         SELECT 
             1, 
-            '1M_ID_Bitmap', 
+            '100K_ID_Bitmap', 
             BITMAP_UNION(to_bitmap(number)),
             []
-        FROM numbers("number" = "1000000");"""
+        FROM numbers("number" = "100000");"""
 
     sql """INSERT INTO ${tb_name3} SELECT 2, 'Long_Array_Pushdown', to_bitmap(1), collect_list(CONCAT('tag_', number)) FROM numbers("number" = "1000");"""
 

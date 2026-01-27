@@ -34,12 +34,12 @@ Bob	{"col1":"city", "col2":"beijing"}
 Bob	{"col1":"city", "col2":"beijing"}
 
 -- !left_join_unnest_array --
-Alice	1	gym
-Alice	1	gym
-Alice	0	work
-Alice	0	work
-Bob	0	game
-Bob	0	game
+Alice	work	0
+Alice	work	0
+Alice	gym	1
+Alice	gym	1
+Bob	game	0
+Bob	game	0
 Charlie	\N	\N
 Charlie	\N	\N
 

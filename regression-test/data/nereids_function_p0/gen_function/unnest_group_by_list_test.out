@@ -47,11 +47,12 @@ Tech
 -- !rollup_with_cross_join_unnest --
 \N	\N	4
 R&D	\N	2
-R&D	0	2
-R&D	1	2
+R&D	Go	1
+R&D	Java	2
+R&D	SQL	1
 Sales	\N	2
-Sales	0	2
-Sales	1	1
+Sales	Excel	1
+Sales	SQL	2
 
 -- !grouping_sets_with_unnested_column --
 \N	\N	0	1	0	4

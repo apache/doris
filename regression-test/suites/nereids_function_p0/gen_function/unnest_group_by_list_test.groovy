@@ -120,7 +120,7 @@ suite("unnest_group_by_list_test", "unnest") {
             s.skill, 
             COUNT(DISTINCT user_id) as user_count
         FROM ${tb_name2}
-        CROSS JOIN UNNEST(skills) WITH ORDINALITY AS s(skill, pos)
+        CROSS JOIN UNNEST(skills) WITH ORDINALITY AS s(pos, skill)
         GROUP BY ROLLUP(dept_name, s.skill)
         ORDER BY dept_name, s.skill;"""
 
