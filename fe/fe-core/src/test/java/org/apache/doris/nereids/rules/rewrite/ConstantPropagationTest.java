@@ -166,15 +166,11 @@ class ConstantPropagationTest {
         assertRewrite("t.a = 1 and t.a = t.b", "a = 1 and b = 1");
         assertRewrite("t1.a = 1 and t1.a = t2.b", "a = 1 and a = b and b = 1");
 
-        // for `a is not null`, if this Not isGeneratedIsNotNull, then will not rewrite it
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true);
-        Expression expr1 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), false));
+        Expression expr1 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a)));
         Expression rewrittenExpr1 = rewriteExpression(expr1, true);
         Expression expectExpr1 = new EqualTo(a, new IntegerLiteral(1));
         Assertions.assertEquals(expectExpr1, rewrittenExpr1);
-        Expression expr2 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), true));
-        Expression rewrittenExpr2 = rewriteExpression(expr2, true);
-        Assertions.assertEquals(expr2, rewrittenExpr2);
 
         // for `a match_any xx`, don't replace it, because the match require left child is column, not literal
         SlotReference b = new SlotReference("b", StringType.INSTANCE, true);
