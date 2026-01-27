@@ -66,6 +66,7 @@
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
+#include "cloud/cloud_ms_rpc_rate_limiters.h"
 
 namespace doris::cloud {
 #include "common/compile_check_begin.h"
@@ -401,9 +402,22 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
     std::uniform_int_distribution<uint32_t> u2(500, 1000);
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
+
+    // Host-level rate limiter
+    auto* rate_limiters = ExecEnv::GetInstance()->host_level_ms_rpc_rate_limiters();
+
     while (true) {
         std::shared_ptr<MetaService_Stub> stub;
         RETURN_IF_ERROR(proxy->get(&stub));
+
+        // Rate limit before sending RPC
+        int64_t sleep_ns = 0;
+        if (rate_limiters) {
+            sleep_ns = rate_limiters->limit(op_name);
+        }
+        TEST_SYNC_POINT_CALLBACK("retry_rpc::after_rate_limit",
+                                 const_cast<std::string_view*>(&op_name), &sleep_ns);
+
         brpc::Controller cntl;
         if (op_name == "get delete bitmap" || op_name == "update delete bitmap") {
             cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
@@ -603,6 +617,13 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         }
         req.set_end_version(-1);
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
+
+        // Host-level rate limiting for get_rowset
+        auto* rate_limiters = ExecEnv::GetInstance()->host_level_ms_rpc_rate_limiters();
+        if (rate_limiters) {
+            rate_limiters->limit("get rowset");
+        }
+
         auto start = std::chrono::steady_clock::now();
         stub->get_rowset(&cntl, &req, &resp, nullptr);
         auto end = std::chrono::steady_clock::now();

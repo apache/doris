@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -413,6 +414,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         RETURN_IF_ERROR(_packed_file_manager->init());
         _packed_file_manager->start_background_manager();
+        // Initialize host-level MS RPC rate limiters for cloud mode
+        int qps = CpuInfo::num_cores() * cloud::config::ms_rpc_qps_limit_per_core_per_rpc;
+        _host_level_ms_rpc_rate_limiters = std::make_unique<cloud::HostLevelMSRpcRateLimiters>(qps);
     }
 
     _index_policy_mgr = new IndexPolicyMgr();

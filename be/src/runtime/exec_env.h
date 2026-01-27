@@ -66,6 +66,11 @@ class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
 } // namespace io
+
+namespace cloud {
+class HostLevelMSRpcRateLimiters;
+} // namespace cloud
+
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
@@ -308,6 +313,9 @@ public:
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
     io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
+    cloud::HostLevelMSRpcRateLimiters* host_level_ms_rpc_rate_limiters() {
+        return _host_level_ms_rpc_rate_limiters.get();
+    }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -566,6 +574,7 @@ private:
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
     io::PackedFileManager* _packed_file_manager = nullptr;
+    std::unique_ptr<cloud::HostLevelMSRpcRateLimiters> _host_level_ms_rpc_rate_limiters;
 };
 
 template <>

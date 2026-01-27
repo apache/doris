@@ -195,5 +195,12 @@ DECLARE_mBool(enable_cache_read_from_peer);
 
 DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
+// MS RPC rate limiting config
+// Enable host-level rate limiting for MS RPCs to prevent burst traffic
+DECLARE_mBool(enable_ms_rpc_host_level_rate_limit);
+// QPS limit per CPU core per RPC type, default 1
+// e.g., on a 32-core machine, each RPC type has a QPS limit of 32
+DECLARE_mInt32(ms_rpc_qps_limit_per_core_per_rpc);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
