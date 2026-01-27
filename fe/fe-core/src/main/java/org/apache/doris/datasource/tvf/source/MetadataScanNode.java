@@ -92,21 +92,14 @@ public class MetadataScanNode extends ExternalScanNode {
             // need to split ranges to send to backends
             List<Backend> backends = Lists.newArrayList(backendPolicy.getBackends());
             List<String> splits = metaScanRange.getSerializedSplits();
-            int numSplitsPerBE = Math.max(1, splits.size() / backends.size());
+            for (int i = 0; i < splits.size(); i++) {
+                String split = splits.get(i);
+                Backend backend = backends.get(i % backends.size());
 
-            for (int i = 0; i < backends.size(); i++) {
-                int from = i * numSplitsPerBE;
-                if (from >= splits.size()) {
-                    continue; // no splits for this backend
-                }
-                int to = Math.min((i + 1) * numSplitsPerBE, splits.size());
-
-                // set splited task to TMetaScanRange
                 TMetaScanRange subRange = metaScanRange.deepCopy();
-                subRange.setSerializedSplits(splits.subList(from, to));
+                subRange.setSerializedSplits(Lists.newArrayList(split));
 
                 TScanRangeLocation location = new TScanRangeLocation();
-                Backend backend = backends.get(i);
                 location.setBackendId(backend.getId());
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
 
