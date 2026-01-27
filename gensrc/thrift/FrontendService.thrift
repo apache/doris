@@ -1655,6 +1655,18 @@ struct TGetOlapTableMetaResult {
     4: optional list<i64> removed_partitions
 }
 
+// Request for forwarding make cloud tmp rowsets visible notification from BE to FE
+struct TForwardMakeCloudTmpRsVisibleRequest {
+    1: required i64 txn_id
+    2: required list<Types.TTabletCommitInfo> commit_infos
+    3: required map<Types.TPartitionId, Types.TVersion> partition_version_map
+    4: required i64 version_update_time_ms
+}
+
+struct TForwardMakeCloudTmpRsVisibleResult {
+    1: required Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1758,4 +1770,7 @@ service FrontendService {
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 
     TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
+
+    // Forward make cloud tmp rs visible notification from BE to FE
+    TForwardMakeCloudTmpRsVisibleResult forwardMakeCloudTmpRsVisible(1: TForwardMakeCloudTmpRsVisibleRequest request)
 }

@@ -83,6 +83,7 @@ public:
 
     Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
+    void cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
 
@@ -170,8 +171,7 @@ public:
                                    int64_t& snapshot_interval_seconds);
 
 private:
-    bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
-                                            std::ranges::range auto&& rs_metas,
+    bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, std::ranges::range auto&& rs_metas,
                                             DeleteBitmap* delete_bitmap);
 
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,

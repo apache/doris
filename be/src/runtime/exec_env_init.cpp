@@ -263,6 +263,14 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
+    static_cast<void>(
+            ThreadPoolBuilder("ForwardNotifyBERequestToFE")
+                    .set_min_threads(
+                            config::num_forward_notify_be_request_to_fe_thread_pool_min_thread)
+                    .set_max_threads(
+                            config::num_forward_notify_be_request_to_fe_thread_pool_max_thread)
+                    .build(&_forward_notify_be_request_to_fe));
+
     auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
             get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
                             config::num_s3_file_upload_thread_pool_max_thread);
@@ -819,6 +827,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
+    SAFE_SHUTDOWN(_forward_notify_be_request_to_fe);
 
     SAFE_DELETE(_load_channel_mgr);
 
@@ -872,6 +881,7 @@ void ExecEnv::destroy() {
     _non_block_close_thread_pool.reset(nullptr);
     _s3_file_system_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
+    _forward_notify_be_request_to_fe.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);

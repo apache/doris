@@ -142,8 +142,8 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
     return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }
 
-Status CloudDeltaWriter::set_txn_related_delete_bitmap() {
-    return rowset_builder()->set_txn_related_delete_bitmap();
+Status CloudDeltaWriter::set_txn_related_info() {
+    return rowset_builder()->set_txn_related_info();
 }
 
 } // namespace doris
