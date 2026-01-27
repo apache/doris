@@ -100,7 +100,7 @@ template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
     using CppType =
-            std::conditional_t<primitive_type == TYPE_HLL || is_string_type(primitive_type),
+            std::conditional_t<primitive_type == TYPE_HLL,
                                StringRef, typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using SetType = std::set<CppType, doris::Less<CppType>>;
     using IteratorType = typename SetType::iterator;

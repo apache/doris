@@ -735,12 +735,6 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
             // dispose next item
             DCHECK(iter->get_value() != nullptr);
             const auto* value = iter->get_value();
-            RETURN_IF_ERROR(_change_value_range(
-                    is_in, temp_range,
-                    vectorized::Field::create_field<T>(
-                            *reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(
-                                    value)),
-                    fn, is_in ? "in" : "not_in"));
             if constexpr (is_string_type(T)) {
                 const auto* str_value = reinterpret_cast<const StringRef*>(value);
                 RETURN_IF_ERROR(_change_value_range(is_in, temp_range,
@@ -920,12 +914,8 @@ Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
                          (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_BOOLEAN) ||
                          (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ) ||
-                         (PrimitiveType == TYPE_DATETIME)) {
+                         (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType)) {
         func(temp_range, to_olap_filter_type(fn_name), value.template get<PrimitiveType>());
-    } else if constexpr (is_string_type(PrimitiveType)) {
-        auto tmp = StringRef(value.template get<PrimitiveType>().data(),
-                             value.template get<PrimitiveType>().size());
-        func(temp_range, to_olap_filter_type(fn_name), tmp);
     } else if constexpr (PrimitiveType == TYPE_HLL) {
         auto tmp = value.template get<PrimitiveType>();
         func(temp_range, to_olap_filter_type(fn_name),
