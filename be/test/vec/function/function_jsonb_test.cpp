@@ -1003,14 +1003,10 @@ TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
     // json_extract_string from varchar - non-object root JSON returns null
     // The implementation uses get_object() which requires root to be an object
     data_set = {
-            {{STRING("null"), STRING("$")}, Null()},
-            {{STRING("true"), STRING("$")}, Null()},
-            {{STRING("false"), STRING("$")}, Null()},
-            {{STRING("100"), STRING("$")}, Null()},
-            {{STRING("6.18"), STRING("$")}, Null()},
-            {{STRING(R"("abcd")"), STRING("$")}, Null()},
-            {{STRING("[]"), STRING("$")}, Null()},
-            {{STRING("[123, 456]"), STRING("$")}, Null()},
+            {{STRING("null"), STRING("$")}, Null()},  {{STRING("true"), STRING("$")}, Null()},
+            {{STRING("false"), STRING("$")}, Null()}, {{STRING("100"), STRING("$")}, Null()},
+            {{STRING("6.18"), STRING("$")}, Null()},  {{STRING(R"("abcd")"), STRING("$")}, Null()},
+            {{STRING("[]"), STRING("$")}, Null()},    {{STRING("[123, 456]"), STRING("$")}, Null()},
     };
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
