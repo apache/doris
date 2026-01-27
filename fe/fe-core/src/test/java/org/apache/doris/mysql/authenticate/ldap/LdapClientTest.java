@@ -100,14 +100,14 @@ public class LdapClientTest {
     @Test
     public void testSecuredProtocolIsUsed() {
         //testing default case with not specified property ldap_use_ssl or it is specified as false
-        String insecureUrl = ldapClient.getURL();
+        String insecureUrl = LdapClient.getURL();
         Assert.assertNotNull("connection URL should not be null", insecureUrl);
         Assert.assertTrue("with ldap_use_ssl connection = false or not specified URL should start with ldap, but received: " + insecureUrl,
                           insecureUrl.startsWith("ldap://"));
 
         //testing new case with specified property ldap_use_ssl as true
         LdapConfig.ldap_use_ssl = true;
-        String secureUrl = ldapClient.getURL();
+        String secureUrl = LdapClient.getURL();
         Assert.assertNotNull("connection URL should not be null", secureUrl);
         Assert.assertTrue("with ldap_use_ssl = true URL connection should start with ldaps, but received: " + secureUrl,
                           secureUrl.startsWith("ldaps://"));
