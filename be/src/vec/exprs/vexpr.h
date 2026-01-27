@@ -38,7 +38,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
 #include "util/date_func.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -48,6 +47,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/cast/cast_to_string.h"
@@ -153,6 +153,10 @@ public:
     // Therefore we need a function like this to return the actual type produced by execution.
     virtual DataTypePtr execute_type(const Block* block) const { return _data_type; }
 
+    virtual Status execute_filter(VExprContext* context, const Block* block,
+                                  uint8_t* __restrict result_filter_data, size_t rows,
+                                  bool accept_null, bool* can_filter_all) const;
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
@@ -211,12 +215,6 @@ public:
     }
     virtual bool is_topn_filter() const { return false; }
 
-    virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
-        for (auto child : _children) {
-            child->do_judge_selectivity(filter_rows, input_rows);
-        }
-    }
-
     static Status create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx);
 
     static Status create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSPtrs& ctxs);
@@ -253,6 +251,7 @@ public:
     static std::string debug_string(const VExprContextSPtrs& ctxs);
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
+    bool is_like_expr() const { return _fn.name.function_name == "like"; }
 
     const TFunction& fn() const { return _fn; }
 

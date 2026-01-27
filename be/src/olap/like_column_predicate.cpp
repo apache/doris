@@ -18,9 +18,9 @@
 #include "olap/like_column_predicate.h"
 
 #include "runtime/define_primitive_type.h"
-#include "udf/udf.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/like.h"
 
 namespace doris {

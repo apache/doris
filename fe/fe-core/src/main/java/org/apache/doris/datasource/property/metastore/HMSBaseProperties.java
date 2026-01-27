@@ -159,6 +159,7 @@ public class HMSBaseProperties {
         }
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
             hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hiveMetastoreClientPrincipal, this.hiveMetastoreClientKeytab, hiveConf);
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
@@ -175,6 +176,7 @@ public class HMSBaseProperties {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
             hiveConf.set("hadoop.security.authentication", "kerberos");
+            hiveConf.set("hive.metastore.sasl.enabled", "true");
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }

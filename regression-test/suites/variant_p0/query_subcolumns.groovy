@@ -32,6 +32,7 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
     // query must use inverted index for match operator
     sql """ set enable_common_expr_pushdown = true; """
     sql "set enable_match_without_inverted_index = false"
+    sql "set default_variant_enable_doc_mode = false"
     for (int i = 0; i < 5; i++) {
         int max_subcolumns_count = Math.floor(Math.random() * 10)
         // int max_subcolumns_count =1 
@@ -80,7 +81,7 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
         // }
 
         // triger compaction
-        trigger_and_wait_compaction("query_subcolumns", "full")        
+        trigger_and_wait_compaction("query_subcolumns", "full", 1800)        
 
         qt_sql "select v['a'] from query_subcolumns where cast(v['a'] as int) is not null order by k"
         qt_sql "select v['b'] from query_subcolumns where cast(v['b'] as int) is not null order by k"

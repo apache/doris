@@ -102,7 +102,7 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
     int arrived_rf_num = -1;
     helper._consumers[1]->signal(producer.get());
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.try_append_late_arrival_runtime_filter(
-            _runtime_states[0].get(), &arrived_rf_num, conjuncts, row_desc));
+            _runtime_states[0].get(), row_desc, arrived_rf_num, conjuncts));
     ASSERT_EQ(conjuncts.size(), 1);
     ASSERT_EQ(arrived_rf_num, 2);
 }

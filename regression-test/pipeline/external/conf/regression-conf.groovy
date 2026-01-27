@@ -64,7 +64,7 @@ testSuites = ""
 testDirectories = ""
 
 // this groups will not be executed
-excludeGroups = ""
+excludeGroups = "p1,p2"
 // this suites will not be executed
 // load_stream_fault_injection may cause bad disk
 

@@ -123,7 +123,11 @@ public class EnforceMissingPropertiesHelper {
         }
 
         PhysicalProperties newOutputProperty = new PhysicalProperties(outputDistributionSpec);
-        GroupExpression enforcer = outputDistributionSpec.addEnforcer(groupExpression.getOwnerGroup());
+        GroupExpression enforcer = groupExpression.getOwnerGroup().getEnforcerSpecs().get(outputDistributionSpec);
+
+        if (enforcer == null) {
+            enforcer = outputDistributionSpec.addEnforcer(groupExpression.getOwnerGroup());
+        }
         addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
         return newOutputProperty;
     }
@@ -160,10 +164,13 @@ public class EnforceMissingPropertiesHelper {
                 oldOutputProperty, newOutputProperty);
         ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
                 oldOutputProperty, newOutputProperty));
-        enforcer.setEstOutputRowCount(enforcer.getOwnerGroup().getStatistics().getRowCount());
-        Cost enforcerCost = CostCalculator.calculateCost(connectContext, enforcer,
-                Lists.newArrayList(oldOutputProperty));
-        enforcer.setCost(enforcerCost);
+        Cost enforcerCost = enforcer.getCost();
+        if (enforcerCost == null) {
+            enforcer.setEstOutputRowCount(enforcer.getOwnerGroup().getStatistics().getRowCount());
+            enforcerCost = CostCalculator.calculateCost(connectContext, enforcer,
+                    Lists.newArrayList(oldOutputProperty));
+            enforcer.setCost(enforcerCost);
+        }
         curTotalCost = CostCalculator.addChildCost(
                 connectContext,
                 enforcer.getPlan(),

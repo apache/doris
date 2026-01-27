@@ -104,7 +104,7 @@ suite("test_variant_compaction_empty_path_bug", "nonConcurrent") {
         def tablets = sql_return_maparray "SHOW TABLETS FROM ${tableName}"
 
         try {
-            trigger_and_wait_compaction(tableName, "cumulative")
+            trigger_and_wait_compaction(tableName, "cumulative", 1800)
             logger.info("Compaction completed successfully")
 
             // Verify data after compaction

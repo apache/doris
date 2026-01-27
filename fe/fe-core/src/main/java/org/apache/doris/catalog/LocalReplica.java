@@ -34,9 +34,9 @@ public class LocalReplica extends Replica {
     @SerializedName(value = "rds", alternate = {"remoteDataSize"})
     private volatile long remoteDataSize = 0;
     @SerializedName(value = "ris", alternate = {"remoteInvertedIndexSize"})
-    private Long remoteInvertedIndexSize = 0L;
+    private long remoteInvertedIndexSize = 0L;
     @SerializedName(value = "rss", alternate = {"remoteSegmentSize"})
-    private Long remoteSegmentSize = 0L;
+    private long remoteSegmentSize = 0L;
 
     // the last load failed version
     @SerializedName(value = "lfv", alternate = {"lastFailedVersion"})
@@ -207,7 +207,7 @@ public class LocalReplica extends Replica {
     }
 
     @Override
-    public Long getRemoteInvertedIndexSize() {
+    public long getRemoteInvertedIndexSize() {
         return remoteInvertedIndexSize;
     }
 
@@ -217,7 +217,7 @@ public class LocalReplica extends Replica {
     }
 
     @Override
-    public Long getRemoteSegmentSize() {
+    public long getRemoteSegmentSize() {
         return remoteSegmentSize;
     }
 
@@ -439,6 +439,37 @@ public class LocalReplica extends Replica {
     public void updateVersionForRestore(long version) {
         this.version = version;
         this.lastSuccessVersion = version;
+    }
+
+    /*
+     * Check whether the replica's version catch up with the expected version.
+     * If ignoreAlter is true, and state is ALTER, and replica's version is
+     *  PARTITION_INIT_VERSION, just return true, ignore the version.
+     *      This is for the case that when altering table,
+     *      the newly created replica's version is PARTITION_INIT_VERSION,
+     *      but we need to treat it as a "normal" replica which version is supposed to be "catch-up".
+     *      But if state is ALTER but version larger than PARTITION_INIT_VERSION, which means this replica
+     *      is already updated by load process, so we need to consider its version.
+     */
+    @Override
+    public boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter) {
+        if (ignoreAlter && getState() == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
+            return true;
+        }
+
+        if (expectedVersion == Partition.PARTITION_INIT_VERSION) {
+            // no data is loaded into this replica, just return true
+            return true;
+        }
+
+        if (this.version < expectedVersion) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replica version does not catch up with version: {}. replica: {}",
+                        expectedVersion, this);
+            }
+            return false;
+        }
+        return true;
     }
 
     @Override

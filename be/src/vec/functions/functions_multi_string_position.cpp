@@ -197,7 +197,8 @@ public:
             if (!is_string_type(needle.get_type())) {
                 return Status::InvalidArgument("invalid type of needle {}", needle.get_type_name());
             }
-            searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);
+            searchers.emplace_back(needle.get<TYPE_STRING>().data(),
+                                   needle.get<TYPE_STRING>().size());
         }
 
         const size_t haystack_size = haystack_offsets.size();

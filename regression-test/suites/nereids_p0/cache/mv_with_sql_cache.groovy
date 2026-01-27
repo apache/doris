@@ -44,6 +44,7 @@ suite("mv_with_sql_cache") {
         sql "set enable_nereids_planner=true"
         sql "set enable_fallback_to_original_planner=false"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
 
         def assertHasCache = { String sqlStr ->
             explain {

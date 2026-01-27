@@ -413,6 +413,13 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
+    String hdfs_new_kerberos_properties = """
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "hdfs.authentication.type" = "kerberos",
+                "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
+    """
+    
     String dlf_access_key = context.config.otherConfigs.get("dlf_access_key")
     String dlf_secret_key = context.config.otherConfigs.get("dlf_secret_key")
     /**************** DLF *******************/
@@ -433,7 +440,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
                                    DEFAULT",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
      """
 
@@ -443,7 +449,6 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                 "hive.metastore.client.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hive.metastore.client.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
                 "hive.metastore.service.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
-                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.authentication.type"="kerberos",
                 "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
@@ -546,6 +551,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     db_location = "hdfs://${externalEnvIp}:8520/hive/hms/" + System.currentTimeMillis()
 
     testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hive_hms_hdfs_kerberos_test", db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_new_kerberos_properties, "hive_hms_hdfs_new_kerberos_test", db_location)
 
     /**************** DLF *******************/
     String dlf_warehouse = "oss://selectdb-qa-datalake-test/hive-dlf-oss-warehouse"

@@ -229,27 +229,17 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
         return Status::OK();
     }
     DCHECK(_applied_rf_num < _total_rf_num);
-
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_local_state->_helper.try_append_late_arrival_runtime_filter(
-            _state, &arrived_rf_num, _local_state->_conjuncts,
-            _local_state->_parent->row_descriptor()));
+    RETURN_IF_ERROR(_local_state->update_late_arrival_runtime_filter(_state, arrived_rf_num));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
         return Status::OK();
     }
 
-    // There are newly arrived runtime filters,
-    // renew the _conjuncts
-    if (!_conjuncts.empty()) {
-        _discard_conjuncts();
-    }
-    // Notice that the number of runtime filters may be larger than _applied_rf_num.
-    // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_local_state->_helper.clone_conjunct_ctxs(_state, _conjuncts,
-                                                              _local_state->_conjuncts));
-    _applied_rf_num = arrived_rf_num;
+    // avoid conjunct destroy in used by storage layer
+    _conjuncts.clear();
+    RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
     return Status::OK();
 }
 

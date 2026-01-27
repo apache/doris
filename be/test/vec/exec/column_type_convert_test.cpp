@@ -1461,13 +1461,13 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
                 for (const auto& [y, m, d, h, min, s, micro] : datetimes) {
                     DateV2Value<DateTimeV2ValueType> v;
                     v.unchecked_set_time(y, m, d, h, min, s, micro);
-                    col->get_data().push_back(*reinterpret_cast<vectorized::UInt64*>(&v));
+                    col->get_data().push_back(v);
                 }
                 return col;
             };
 
     auto parse_datetimev2_str = [](const std::string& datetime_str) {
-        UInt64 x = 0;
+        DateV2Value<DateTimeV2ValueType> x;
         StringRef buf((char*)datetime_str.data(), datetime_str.size());
         bool ok = read_datetime_v2_text_impl(x, buf, 6);
         CHECK(ok) << "parse_datetimev2_str failed for: " << datetime_str;

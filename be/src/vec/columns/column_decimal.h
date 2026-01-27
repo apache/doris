@@ -86,9 +86,8 @@ private:
 
 public:
     // value_type is decimal32/64/128/256 type
-    using value_type =
-            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
-    using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
+    using CppNativeType = value_type::NativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 
 private:
@@ -141,9 +140,7 @@ public:
 
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(value_type()); }
-    void insert(const Field& x) override {
-        data.push_back(x.template get<typename PrimitiveTypeTraits<T>::ColumnItemType>());
-    }
+    void insert(const Field& x) override { data.push_back(x.template get<T>()); }
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_many_defaults(size_t length) override {
@@ -198,7 +195,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
 

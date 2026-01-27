@@ -174,7 +174,11 @@ struct JsonbCast {
         case JsonbType::T_String: {
             const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
             StringRef str_ref {blob->getBlob(), blob->getBlobLen()};
-            return CastToInt::from_string(str_ref, to, params);
+            return std::visit(
+                    [&](auto is_strict_mode) {
+                        return CastToInt::from_string<is_strict_mode>(str_ref, to, params);
+                    },
+                    vectorized::make_bool_variant(params.is_strict));
         }
         default: {
             return false;

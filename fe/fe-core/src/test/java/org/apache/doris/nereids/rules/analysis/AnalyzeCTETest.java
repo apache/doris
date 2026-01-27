@@ -280,12 +280,13 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalRecursiveCte(
+                        this.logicalRecursiveUnion(
+                                logicalRecursiveUnionAnchor(
                                 logicalProject(
                                         logicalOneRowRelation(
                                         )
-                                ).when(project -> project.getProjects().get(0).child(0) instanceof Nullable),
-                                logicalRecursiveCteRecursiveChild(
+                                ).when(project -> project.getProjects().get(0).child(0) instanceof Nullable)),
+                                logicalRecursiveUnionProducer(
                                         logicalProject(
                                                 logicalProject(
                                                         logicalCTEConsumer()
@@ -313,12 +314,14 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalRecursiveCte(
-                                logicalProject(
-                                        logicalOneRowRelation(
+                        this.logicalRecursiveUnion(
+                                logicalRecursiveUnionAnchor(
+                                        logicalProject(
+                                                logicalOneRowRelation(
+                                                )
                                         )
                                 ),
-                                logicalRecursiveCteRecursiveChild(
+                                logicalRecursiveUnionProducer(
                                         logicalProject(
                                                 logicalProject(
                                                         logicalJoin()
@@ -348,10 +351,11 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                 ExplainCommand.ExplainLevel.ANALYZED_PLAN);
         MemoTestUtils.initMemoAndValidState(planner.getCascadesContext());
         PlanChecker.from(planner.getCascadesContext()).matches(
-                logicalRecursiveCte(
-                        logicalProject(
-                                logicalUnion()),
-                        logicalRecursiveCteRecursiveChild()).when(cte -> cte.getCteName().equals("xx")));
+                this.logicalRecursiveUnion(
+                        logicalRecursiveUnionAnchor(
+                            logicalProject(
+                                    logicalUnion())),
+                        logicalRecursiveUnionProducer()).when(cte -> cte.getCteName().equals("xx")));
     }
 
 

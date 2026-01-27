@@ -38,6 +38,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return 0; }
+
     Status close() override {
         _closed = true;
         return Status::OK();

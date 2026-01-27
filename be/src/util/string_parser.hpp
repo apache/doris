@@ -97,6 +97,29 @@ inline const char* skip_ascii_whitespaces(const char* s, T& len) {
     return s;
 }
 
+template <typename T>
+inline const char* skip_leading_whitespace(const char* __restrict s, T& len) {
+    while (len > 0 && is_whitespace_ascii(*s)) {
+        ++s;
+        --len;
+    }
+
+    return s;
+}
+
+// skip trailing ascii whitespaces,
+// return the pointer to the first char,
+// and update the len to the new length, which does not include
+// trailing whitespaces
+template <typename T>
+inline const char* skip_trailing_whitespaces(const char* s, T& len) {
+    while (len > 0 && is_whitespace_ascii(s[len - 1])) {
+        --len;
+    }
+
+    return s;
+}
+
 template <bool (*Pred)(char)>
 bool range_suite(const char* s, const char* end) {
     return std::ranges::all_of(s, end, Pred);
@@ -308,7 +331,11 @@ public:
     // Assumes s represents a decimal number.
     template <typename T, bool enable_strict_mode = false>
     static inline T string_to_int(const char* __restrict s, size_t len, ParseResult* result) {
-        s = skip_ascii_whitespaces(s, len);
+        T ans = string_to_int_internal<T, enable_strict_mode>(s, len, result);
+        if (LIKELY(*result == PARSE_SUCCESS)) {
+            return ans;
+        }
+        s = skip_leading_whitespace(s, len);
         return string_to_int_internal<T, enable_strict_mode>(s, len, result);
     }
 
@@ -502,8 +529,13 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
                     return 0;
                 }
             } else {
-                if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
-                                             !is_float_suffix(s + i, len - i))))) {
+                // Save original position where non-digit was found
+                int remaining_len = len - i;
+                const char* remaining_s = s + i;
+                // Skip trailing whitespaces from the remaining portion
+                remaining_s = skip_trailing_whitespaces(remaining_s, remaining_len);
+                if ((UNLIKELY(i == first || (remaining_len != 0 &&
+                                             !is_float_suffix(remaining_s, remaining_len))))) {
                     // Reject the string because either the first char was not a digit,
                     // or the remaining chars are not all whitespace
                     *result = PARSE_FAILURE;
@@ -652,8 +684,13 @@ T StringParser::string_to_int_no_overflow(const char* __restrict s, int len, Par
                     return 0;
                 }
             } else {
-                if ((UNLIKELY(!is_all_whitespace(s + i, len - i) &&
-                              !is_float_suffix(s + i, len - i)))) {
+                // Save original position where non-digit was found
+                int remaining_len = len - i;
+                const char* remaining_s = s + i;
+                // Skip trailing whitespaces from the remaining portion
+                remaining_s = skip_trailing_whitespaces(remaining_s, remaining_len);
+                if ((UNLIKELY(remaining_len != 0 &&
+                              !is_float_suffix(remaining_s, remaining_len)))) {
                     *result = PARSE_FAILURE;
                     return 0;
                 }

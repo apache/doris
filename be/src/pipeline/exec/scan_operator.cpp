@@ -73,6 +73,24 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
+Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
+                                                              int& arrived_rf_num) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    std::unique_lock lock(_conjuncts_lock);
+    return _helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
+                                                          arrived_rf_num, _conjuncts);
+}
+
+Status ScanLocalStateBase::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    std::unique_lock lock(_conjuncts_lock);
+    scanner_conjuncts.resize(_conjuncts.size());
+    for (size_t i = 0; i != _conjuncts.size(); ++i) {
+        RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
+    }
+    return Status::OK();
+}
+
 int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
@@ -165,17 +183,13 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         _condition_cache_digest = 0;
     }
 
-    _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
-    for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
-    }
     RETURN_IF_ERROR(_process_conjuncts(state));
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
-    if (_scanner_ctx) {
+    if (auto ctx = _scanner_ctx.load()) {
         DCHECK(!_eos && _num_scanners->value() > 0);
-        RETURN_IF_ERROR(_scanner_ctx->init());
+        RETURN_IF_ERROR(ctx->init());
     }
     _opened = true;
     return status;
@@ -277,7 +291,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     continue;
                 }
             } else { // All conjuncts are pushed down as predicate column
-                _stale_expr_ctxs.emplace_back(conjunct);
+                _stale_expr_ctxs.emplace_back(
+                        conjunct); // avoid function context and constant str being freed
                 it = _conjuncts.erase(it);
                 continue;
             }
@@ -347,49 +362,63 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
         std::visit(
                 [&](auto& value_range) {
                     auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
-                    switch (expr->node_type()) {
-                    case TExprNodeType::IN_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_in_predicate(context, expr, slot,
-                                                        _slot_id_to_predicates[slot->id()],
-                                                        value_range, &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::BINARY_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_binary_predicate(context, expr, slot,
+                    {
+                        Defer attach_defer = [&]() {
+                            if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
+                                auto* rf_expr =
+                                        assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
+                                _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
+                                        rf_expr->filter_id(),
+                                        rf_expr->predicate_filtered_rows_counter(),
+                                        rf_expr->predicate_input_rows_counter(),
+                                        rf_expr->predicate_always_true_rows_counter());
+                            }
+                        };
+                        switch (expr->node_type()) {
+                        case TExprNodeType::IN_PRED:
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_in_predicate(context, expr, slot,
                                                             _slot_id_to_predicates[slot->id()],
                                                             value_range, &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::FUNCTION_CALL:
-                        if (expr->is_topn_filter()) {
-                            RETURN_IF_PUSH_DOWN(_normalize_topn_filter(
-                                                        context, expr, slot,
+                                    status);
+                            break;
+                        case TExprNodeType::BINARY_PRED:
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_binary_predicate(context, expr, slot,
+                                                                _slot_id_to_predicates[slot->id()],
+                                                                value_range, &pdt),
+                                    status);
+                            break;
+                        case TExprNodeType::FUNCTION_CALL:
+                            if (expr->is_topn_filter()) {
+                                RETURN_IF_PUSH_DOWN(
+                                        _normalize_topn_filter(context, expr, slot,
+                                                               _slot_id_to_predicates[slot->id()],
+                                                               &pdt),
+                                        status);
+                            } else {
+                                RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
+                                                            context, expr, slot,
+                                                            _slot_id_to_predicates[slot->id()],
+                                                            value_range, &pdt),
+                                                    status);
+                            }
+                            break;
+                        case TExprNodeType::BITMAP_PRED:
+                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
+                                                        context, root, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
                                                 status);
-                        } else {
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_is_null_predicate(context, expr, slot,
-                                                                 _slot_id_to_predicates[slot->id()],
-                                                                 value_range, &pdt),
-                                    status);
-                        }
-                        break;
-                    case TExprNodeType::BITMAP_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_bitmap_filter(context, root, slot,
-                                                         _slot_id_to_predicates[slot->id()], &pdt),
-                                status);
-                        break;
-                    case TExprNodeType::BLOOM_PRED:
-                        RETURN_IF_PUSH_DOWN(
-                                _normalize_bloom_filter(context, root, slot,
+                            break;
+                        case TExprNodeType::BLOOM_PRED:
+                            RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
+                                                        context, root, slot,
                                                         _slot_id_to_predicates[slot->id()], &pdt),
-                                status);
-                        break;
-                    default:
-                        break;
+                                                status);
+                            break;
+                        default:
+                            break;
+                        }
                     }
                     // `node_type` of function filter is FUNCTION_CALL or COMPOUND_PRED
                     if (state()->enable_function_pushdown()) {
@@ -429,6 +458,9 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BLOOM_PRED == root->node_type());
@@ -437,16 +469,11 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
     DCHECK(root->is_rf_wrapper());
     *pdt = _should_push_down_bloom_filter();
     if (*pdt != PushDownType::UNACCEPTABLE) {
-        auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
         pred = create_bloom_filter_predicate(
                 _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bloom_filter_func());
-        pred->attach_profile_counter(rf_expr->filter_id(),
-                                     rf_expr->predicate_filtered_rows_counter(),
-                                     rf_expr->predicate_input_rows_counter(),
-                                     rf_expr->predicate_always_true_rows_counter());
     }
     return Status::OK();
 }
@@ -460,6 +487,9 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(root->is_topn_filter());
@@ -484,6 +514,9 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
@@ -492,16 +525,11 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
     if (*pdt != PushDownType::UNACCEPTABLE) {
         DCHECK(expr->get_num_children() == 1);
         DCHECK(root->is_rf_wrapper());
-        auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(root.get());
         pred = create_bitmap_filter_predicate(
                 _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
                 slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
                                                                    : slot->type(),
                 expr->get_bitmap_filter_func());
-        pred->attach_profile_counter(rf_expr->filter_id(),
-                                     rf_expr->predicate_filtered_rows_counter(),
-                                     rf_expr->predicate_input_rows_counter(),
-                                     rf_expr->predicate_always_true_rows_counter());
     }
     return Status::OK();
 }
@@ -519,7 +547,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
         opposite = true;
     }
 
-    if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
+    if (fn_expr->is_like_expr()) {
         doris::FunctionContext* fn_ctx = nullptr;
         StringRef val;
         PushDownType temp_pdt;
@@ -555,6 +583,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VEx
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
+    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
+        return false;
+    }
     *range = &(sid_to_range->second);
     return true;
 }
@@ -565,9 +596,9 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     fmt::format_to(debug_string_buffer, "{}, _eos = {} , _opened = {}",
                    PipelineXLocalState<>::debug_string(indentation_level), _eos.load(),
                    _opened.load());
-    if (_scanner_ctx) {
+    if (auto ctx = _scanner_ctx.load()) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
+        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", ctx->debug_string());
     } else {
         fmt::format_to(debug_string_buffer, "");
         fmt::format_to(debug_string_buffer, ", Scanner Context: NULL");
@@ -637,6 +668,9 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -735,6 +769,9 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -912,6 +949,9 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(!root->is_rf_wrapper()) << root->debug_string();
@@ -969,14 +1009,14 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
-                                                             p.output_row_descriptor(), scanners,
-                                                             p.limit(), _scan_dependency
+    _scanner_ctx.store(vectorized::ScannerContext::create_shared(
+            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            _scan_dependency
 #ifdef BE_TEST
-                                                             ,
-                                                             max_scanners_concurrency(state())
+            ,
+            max_scanners_concurrency(state())
 #endif
-    );
+                    ));
     return Status::OK();
 }
 
@@ -1198,6 +1238,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
+            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
+                continue;
+            }
             auto col_name = s->col_name();
             cid = get_column_id(col_name);
         }
@@ -1223,9 +1266,11 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
 
     SCOPED_TIMER(exec_time_counter());
-    if (_scanner_ctx) {
-        _scanner_ctx->stop_scanners(state);
-        _scanner_ctx.reset();
+    if (auto ctx = _scanner_ctx.load()) {
+        ctx->stop_scanners(state);
+        // _scanner_ctx may be accessed in debug_string concurrently
+        // so use atomic shared ptr to avoid use after free
+        _scanner_ctx.store(nullptr);
     }
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
@@ -1241,8 +1286,8 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     SCOPED_TIMER(local_state.exec_time_counter());
 
     if (state->is_cancelled()) {
-        if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->stop_scanners(state);
+        if (auto ctx = local_state._scanner_ctx.load()) {
+            ctx->stop_scanners(state);
         }
         return state->cancel_reason();
     }
@@ -1252,13 +1297,15 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
-    DCHECK(local_state._scanner_ctx != nullptr);
-    RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
+    auto ctx = local_state._scanner_ctx.load();
+
+    DCHECK(ctx != nullptr);
+    RETURN_IF_ERROR(ctx->get_block_from_queue(state, block, eos, 0));
 
     local_state.reached_limit(block, eos);
     if (*eos) {
         // reach limit, stop the scanners.
-        local_state._scanner_ctx->stop_scanners(state);
+        ctx->stop_scanners(state);
         local_state._scanner_profile->add_info_string("EOS", "True");
     }
 
@@ -1268,16 +1315,16 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
 template <typename LocalStateType>
 size_t ScanOperatorX<LocalStateType>::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    if (!local_state._opened || local_state._closed || !local_state._scanner_ctx) {
+    auto ctx = local_state._scanner_ctx.load();
+    if (!local_state._opened || local_state._closed || !ctx) {
         return config::doris_scanner_row_bytes;
     }
 
     if (local_state.low_memory_mode()) {
-        return local_state._scanner_ctx->low_memory_mode_scan_bytes_per_scanner() *
-               local_state._scanner_ctx->low_memory_mode_scanners();
+        return ctx->low_memory_mode_scan_bytes_per_scanner() * ctx->low_memory_mode_scanners();
     } else {
         const auto peak_usage = local_state._memory_used_counter->value();
-        const auto block_usage = local_state._scanner_ctx->block_memory_usage();
+        const auto block_usage = ctx->block_memory_usage();
         if (peak_usage > 0) {
             // It is only a safty check, to avoid some counter not right.
             if (peak_usage > block_usage) {

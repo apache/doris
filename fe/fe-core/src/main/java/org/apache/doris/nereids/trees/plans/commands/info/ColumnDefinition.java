@@ -192,6 +192,18 @@ public class ColumnDefinition {
         this.generatedColumnsThatReferToThis = generatedColumnsThatReferToThis;
     }
 
+    public String getComment() {
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
+        String comment = this.comment == null ? "" : this.comment;
+        if (!escapeQuota) {
+            return comment;
+        }
+        return SqlUtils.escapeQuota(comment);
+    }
+
     /**
      * toSql
      */

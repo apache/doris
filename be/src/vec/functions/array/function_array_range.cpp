@@ -87,13 +87,13 @@ public:
 
 template <PrimitiveType SourceDataPType, typename TimeUnitOrVoid = void>
 struct RangeImplUtil {
-    using SourceDataType = typename PrimitiveTypeTraits<SourceDataPType>::ColumnItemType;
+    using SourceDataType = typename PrimitiveTypeTraits<SourceDataPType>::CppType;
     using DataType = typename PrimitiveTypeTraits<SourceDataPType>::DataType;
 
     static DataTypePtr get_data_type() { return std::make_shared<DataType>(); }
 
     static constexpr const char* get_function_name() {
-        if constexpr (std::is_same_v<SourceDataType, DateTimeV2> &&
+        if constexpr (std::is_same_v<SourceDataType, DateV2Value<DateTimeV2ValueType>> &&
                       !std::is_same_v<TimeUnitOrVoid, void>) {
             if constexpr (std::is_same_v<TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::YEAR>>) {
