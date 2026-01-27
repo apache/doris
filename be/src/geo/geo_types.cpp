@@ -1940,6 +1940,9 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
             min_distance = std::min(min_distance, dist);
         }
 
+        if (min_distance <= circle_radius + TOLERANCE) {
+            return 0.0;
+        }
         return std::max(0.0, min_distance - circle_radius);
     }
     case GEO_SHAPE_POLYGON: {
@@ -1963,6 +1966,9 @@ double GeoCircle::Distance(const GeoShape* rhs) const {
             }
         }
 
+        if (min_distance <= circle_radius + TOLERANCE) {
+            return 0.0;
+        }
         return std::max(0.0, min_distance - circle_radius);
     }
     case GEO_SHAPE_CIRCLE: {

@@ -922,6 +922,9 @@ ST_LINESTRING
 -- !sql --
 555974.5058874196
 
+-- !sql --
+0.0
+
 -- LineString-MultiPolygon
 -- !sql --
 220225.0495313765
