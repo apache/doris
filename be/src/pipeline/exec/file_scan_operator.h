@@ -73,7 +73,7 @@ private:
     }
 
     PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::PARTIAL_ACCEPTABLE;
+        return PushDownType::UNACCEPTABLE;
     }
     PushDownType _should_push_down_is_null_predicate(
             vectorized::VectorizedFnCall* fn_call) const override {
