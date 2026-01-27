@@ -61,7 +61,7 @@ public:
 private:
     friend class vectorized::FileScanner;
     PushDownType _should_push_down_bloom_filter() const override {
-        return PushDownType::PARTIAL_ACCEPTABLE;
+        return PushDownType::UNACCEPTABLE;
     }
     PushDownType _should_push_down_topn_filter() const override {
         return PushDownType::PARTIAL_ACCEPTABLE;
@@ -73,7 +73,7 @@ private:
     }
 
     PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::PARTIAL_ACCEPTABLE;
+        return PushDownType::UNACCEPTABLE;
     }
     PushDownType _should_push_down_is_null_predicate(
             vectorized::VectorizedFnCall* fn_call) const override {
