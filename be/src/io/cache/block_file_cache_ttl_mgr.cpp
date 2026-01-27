@@ -180,6 +180,7 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                 }
 
                 // Update TTL info map
+                bool need_convert_from_ttl = false;
                 {
                     std::lock_guard<std::mutex> lock(_ttl_info_mutex);
                     if (ttl > 0) {
@@ -204,6 +205,19 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                     } else {
                         // Remove from TTL map if TTL is 0
                         _ttl_info_map.erase(tablet_id);
+                        need_convert_from_ttl = true;
+                    }
+                }
+
+                if (need_convert_from_ttl) {
+                    FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
+                    for (auto& block : blocks) {
+                        if (block->cache_type() == FileCacheType::TTL) {
+                            auto st = block->change_cache_type(FileCacheType::NORMAL);
+                            if (!st.ok()) {
+                                LOG(WARNING) << "Failed to convert block back to NORMAL cache_type";
+                            }
+                        }
                     }
                 }
             }
