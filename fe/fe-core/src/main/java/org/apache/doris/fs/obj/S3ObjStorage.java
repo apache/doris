@@ -421,10 +421,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public RemoteObjects listObjects(String absolutePath, String continuationToken) throws DdlException {
+        String bucket = "";
+        String prefix = "";
         try {
             S3URI uri = S3URI.create(absolutePath, isUsePathStyle, forceParsingByStandardUri);
-            String bucket = uri.getBucket();
-            String prefix = uri.getKey();
+            bucket = uri.getBucket();
+            prefix = uri.getKey();
             ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
                     .bucket(bucket)
                     .prefix(normalizePrefix(prefix));
@@ -437,11 +439,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 String relativePath = getRelativePath(prefix, c.key());
                 remoteObjects.add(new RemoteObject(c.key(), relativePath, c.eTag(), c.size()));
             }
-            return new RemoteObjects(remoteObjects, response.isTruncated(), response.nextContinuationToken());
+        } catch (NoSuchKeyException e0) {
+            LOG.info("NoSuchKey error when listing objects, treat as empty response. bucket={}, prefix={}",
+                    bucket, prefix);
+            return new RemoteObjects(new ArrayList<>(), false, "");
         } catch (Exception e) {
             LOG.warn(String.format("Failed to list objects for S3: %s", absolutePath), e);
             throw new DdlException("Failed to list objects for S3, Error message: " + Util.getRootCauseMessage(e), e);
         }
+        return null;
     }
 
     public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
