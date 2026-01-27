@@ -213,6 +213,9 @@ Status RuntimePredicate::update(const Field& value) {
     }
     for (auto p : _contexts) {
         auto ctx = p.second;
+        if (ctx.predicate == nullptr) {
+            continue;
+        }
         auto str_ref = _get_string_ref(_orderby_extrem, _type);
         std::shared_ptr<ColumnPredicate> pred =
                 _pred_constructor(ctx.predicate->column_id(), ctx.col_name, ctx.col_data_type,
