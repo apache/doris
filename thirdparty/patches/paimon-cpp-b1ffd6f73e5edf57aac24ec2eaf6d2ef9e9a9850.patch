@@ -73,7 +73,7 @@ index e4b2710..2d705ba 100644
 +    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftls-model=global-dynamic")
 +    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ftls-model=global-dynamic")
 +endif()
-+
++ 
  string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
  
  set(UNKNOWN_COMPILER_MESSAGE
@@ -90,7 +90,7 @@ index 3f07104..dfe2ba3 100644
 +        message(FATAL_ERROR
 +                "PAIMON_USE_EXTERNAL_RAPIDJSON=ON but RAPIDJSON_INCLUDE_DIR is not set")
 +    endif()
-+
++ 
 +    file(MAKE_DIRECTORY "${RAPIDJSON_INCLUDE_DIR}")
 +    add_library(RapidJSON INTERFACE IMPORTED)
 +    target_include_directories(RapidJSON SYSTEM INTERFACE "${RAPIDJSON_INCLUDE_DIR}")
@@ -148,7 +148,7 @@ index 997cb6b..c7b1cf4 100644
 -   ParquetVersion::type parquet_version_;
 +  ParquetDataPageVersion parquet_data_page_version_;
 +  ParquetVersion::type parquet_version_;
-+
++ 
 +diff --git a/cpp/cmake_modules/ThirdpartyToolchain.cmake b/cpp/cmake_modules/ThirdpartyToolchain.cmake
 +--- a/cpp/cmake_modules/ThirdpartyToolchain.cmake
 ++++ b/cpp/cmake_modules/ThirdpartyToolchain.cmake
@@ -202,3 +202,65 @@ index 6b2b6c9..8a5f6d7 100644
 +    other.size_ = 0;
      return *this;
  }
+
+diff --git a/cmake_modules/orc.diff b/cmake_modules/orc.diff
+--- a/cmake_modules/orc.diff
++++ b/cmake_modules/orc.diff
+@@ -339,5 +339,57 @@ set(ORC_INSTALL_INTERFACE_TARGETS)
+ +set(BUILD_POSITION_INDEPENDENT_LIB ON)
+ +
+  set(ORC_FORMAT_VERSION "1.0.0")
+  set(LZ4_VERSION "1.10.0")
+  set(SNAPPY_VERSION "1.2.1")
++ 
++diff --git a/c++/src/CMakeLists.txt b/c++/src/CMakeLists.txt
++--- a/c++/src/CMakeLists.txt
+++++ b/c++/src/CMakeLists.txt
++@@ -141,12 +141,18 @@
++-add_custom_command(OUTPUT orc_proto.pb.h orc_proto.pb.cc
++-   COMMAND ${PROTOBUF_EXECUTABLE}
++-        -I ../../orc-format_ep-prefix/src/orc-format_ep/src/main/proto/orc/proto
++-        --cpp_out="${CMAKE_CURRENT_BINARY_DIR}"
++-        ../../orc-format_ep-prefix/src/orc-format_ep/src/main/proto/orc/proto/orc_proto.proto
++-)
+++add_custom_command(OUTPUT paimon_orc_proto.pb.h paimon_orc_proto.pb.cc
+++   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+++        ../../orc-format_ep-prefix/src/orc-format_ep/src/main/proto/orc/proto/orc_proto.proto
+++        "${CMAKE_CURRENT_BINARY_DIR}/paimon_orc_proto.proto"
+++   COMMAND sed -i
+++        "s/package orc\\.proto/package paimon_orc.proto/"
+++        "${CMAKE_CURRENT_BINARY_DIR}/paimon_orc_proto.proto"
+++   COMMAND ${PROTOBUF_EXECUTABLE}
+++        -I "${CMAKE_CURRENT_BINARY_DIR}"
+++        --cpp_out="${CMAKE_CURRENT_BINARY_DIR}"
+++        "${CMAKE_CURRENT_BINARY_DIR}/paimon_orc_proto.proto"
+++)
++ 
++ set(SOURCE_FILES
++   "${CMAKE_CURRENT_BINARY_DIR}/Adaptor.hh"
++-  orc_proto.pb.h
+++  paimon_orc_proto.pb.h
++   io/InputStream.cc
++ 
++diff --git a/c++/src/wrap/orc-proto-wrapper.cc b/c++/src/wrap/orc-proto-wrapper.cc
++--- a/c++/src/wrap/orc-proto-wrapper.cc
+++++ b/c++/src/wrap/orc-proto-wrapper.cc
++@@ -47,3 +47,3 @@ DIAGNOSTIC_IGNORE(4800)  // forcing value to bool 'true' or 'false'
++ #endif
++ 
++-#include "orc_proto.pb.cc"
+++#include "paimon_orc_proto.pb.cc"
++ 
++diff --git a/c++/src/wrap/orc-proto-wrapper.hh b/c++/src/wrap/orc-proto-wrapper.hh
++--- a/c++/src/wrap/orc-proto-wrapper.hh
+++++ b/c++/src/wrap/orc-proto-wrapper.hh
++@@ -45,3 +45,8 @@ DIAGNOSTIC_IGNORE(4800)  // forcing value to bool 'true' or 'false'
++ #endif
++ 
++-#include "orc_proto.pb.h"
+++#include "paimon_orc_proto.pb.h"
+++
+++// Namespace alias for compatibility with existing ORC code
+++namespace orc {
+++namespace proto = paimon_orc::proto;
+++}

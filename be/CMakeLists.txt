@@ -148,7 +148,6 @@ message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
-set(PAIMON_USE_EXTERNAL_ORC OFF CACHE BOOL "Use Doris ORC for Paimon C++")
 
 # Allow env to override when reconfiguring (avoid picking /usr/local).
 if (DEFINED ENV{ENABLE_PAIMON_CPP})
@@ -156,9 +155,6 @@ if (DEFINED ENV{ENABLE_PAIMON_CPP})
 endif()
 if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
-endif()
-if (DEFINED ENV{PAIMON_USE_EXTERNAL_ORC})
-    set(PAIMON_USE_EXTERNAL_ORC "$ENV{PAIMON_USE_EXTERNAL_ORC}" CACHE BOOL "" FORCE)
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -609,10 +605,9 @@ if (ENABLE_PAIMON_CPP)
     endif()
     add_library(paimon_parquet STATIC IMPORTED)
     set_target_properties(paimon_parquet PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libparquet.a")
-    if(NOT PAIMON_USE_EXTERNAL_ORC)
-        add_library(paimon_orc STATIC IMPORTED)
-        set_target_properties(paimon_orc PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/liborc.a")
-    endif()
+    # Always use paimon-cpp bundled ORC to avoid conflicts with Doris ORC.
+    add_library(paimon_orc STATIC IMPORTED)
+    set_target_properties(paimon_orc PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/liborc.a")
 
     set(PAIMON_CPP_FACTORY_TARGETS
         paimon_static
@@ -621,14 +616,13 @@ if (ENABLE_PAIMON_CPP)
         paimon_global_index_static
         paimon_local_file_system_static
     )
-    if(PAIMON_USE_EXTERNAL_ORC)
-        list(APPEND PAIMON_CPP_FACTORY_TARGETS paimon_orc_file_format_static)
-    endif()
+    list(APPEND PAIMON_CPP_FACTORY_TARGETS paimon_orc_file_format_static)
     set(PAIMON_CPP_DEP_TARGETS
         paimon_fmt
         paimon_tbb
         paimon_roaring
         paimon_xxhash
+        paimon_orc
         paimon_parquet
         paimon_arrow_dataset
         paimon_arrow_acero
