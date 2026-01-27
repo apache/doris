@@ -378,6 +378,9 @@ suite("test_gis_function") {
     
     qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (0 0, 10 0)\"), ST_Circle(5, 5, 1));"
     qt_sql "SELECT ST_Distance(ST_Circle(5, 5, 1), ST_LineFromText(\"LINESTRING (0 0, 10 0)\"));"
+
+    // circle-line tangent cases (distance should be 0)
+    qt_sql "SELECT ST_Distance(ST_Circle(0, 0, 1), ST_LineFromText(\"LINESTRING (-1 0.00000899320363724538, 1 0.00000899320363724538)\"));"
     
     qt_sql "SELECT ST_Distance(ST_LineFromText(\"LINESTRING (12 2, 12 8)\"), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
     
