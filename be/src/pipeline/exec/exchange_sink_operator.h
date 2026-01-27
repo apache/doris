@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -26,8 +27,7 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "operator.h"
-#include "pipeline/shuffle/writer.h"
-#include "vec/sink/scale_writer_partitioning_exchanger.hpp"
+#include "pipeline/shuffle/exchange_writer.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -66,8 +66,9 @@ public:
         if (_queue_dependency) {
             dep_vec.push_back(_queue_dependency.get());
         }
-        std::for_each(_local_channels_dependency.begin(), _local_channels_dependency.end(),
-                      [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
+        std::ranges::for_each(_local_channels_dependency, [&](std::shared_ptr<Dependency> dep) {
+            dep_vec.push_back(dep.get());
+        });
         return dep_vec;
     }
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -167,7 +168,7 @@ private:
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    std::unique_ptr<Writer> _writer;
+    std::unique_ptr<ExchangeWriterBase> _writer;
     size_t _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
@@ -233,7 +234,7 @@ private:
     MOCK_FUNCTION void _init_sink_buffer();
 
     template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
+    Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     // Use ExchangeSinkOperatorX to create a sink buffer.
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
