@@ -3456,7 +3456,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "S3 list操作返回的最大文件数量，-1表示无限制。适用于 S3、OSS、OBS、COS 等对象存储平台。",
             "Max number of files to list from S3/OSS/OBS/COS. -1 means no limitation."})
-    public static int max_s3_list_objects_count = 1000;
+    public static int max_s3_list_objects_count = 100000;
 
     @ConfField(mutable = true, description = {
             "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
