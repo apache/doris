@@ -99,7 +99,7 @@ private:
     }
     PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            StringRef* constant_val, const std::set<std::string> fn_name) const override;
+            vectorized::Field& constant_val, const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr() override;
 

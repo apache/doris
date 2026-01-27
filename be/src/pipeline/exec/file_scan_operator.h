@@ -87,7 +87,7 @@ private:
     }
     PushDownType _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            StringRef* constant_val, const std::set<std::string> fn_name) const override;
+            vectorized::Field& constant_val, const std::set<std::string> fn_name) const override;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components

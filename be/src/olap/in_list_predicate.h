@@ -66,8 +66,7 @@ template <PrimitiveType Type, PredicateType PT, int N>
 class InListPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
-    using T = std::conditional_t<is_string_type(Type), StringRef,
-                                 typename PrimitiveTypeTraits<Type>::CppType>;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     using HybridSetType = std::conditional_t<
             N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE,
             std::conditional_t<
