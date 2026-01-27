@@ -94,19 +94,9 @@ CREATE TABLE `date_dim` (
   `d_current_year` char(1) NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`d_date_sk`, `d_date_id`)
-DISTRIBUTED BY HASH(`d_date_id`) BUCKETS 3
+DISTRIBUTED BY RANDOM BUCKETS 3
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1",
-"min_load_replica_num" = "-1",
-"is_being_synced" = "false",
-"storage_medium" = "hdd",
-"storage_format" = "V2",
-"inverted_index_storage_format" = "V3",
-"light_schema_change" = "true",
-"disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
-"group_commit_interval_ms" = "10000",
-"group_commit_data_bytes" = "134217728"
+"replication_allocation" = "tag.location.default: 1"
 );
 
 CREATE TABLE `web_sales` (
@@ -146,19 +136,9 @@ CREATE TABLE `web_sales` (
   `ws_net_profit` decimal(7,2) NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`ws_sold_date_sk`, `ws_sold_time_sk`, `ws_ship_date_sk`, `ws_item_sk`)
-DISTRIBUTED BY HASH(`ws_item_sk`) BUCKETS 3
+DISTRIBUTED BY RANDOM BUCKETS 4
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1",
-"min_load_replica_num" = "-1",
-"is_being_synced" = "false",
-"storage_medium" = "hdd",
-"storage_format" = "V2",
-"inverted_index_storage_format" = "V3",
-"light_schema_change" = "true",
-"disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
-"group_commit_interval_ms" = "10000",
-"group_commit_data_bytes" = "134217728"
+"replication_allocation" = "tag.location.default: 1"
 ); 
 
 drop table if exists item;
@@ -187,7 +167,7 @@ CREATE TABLE `item` (
   `i_product_name` char(50) NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`i_item_sk`, `i_item_id`)
-DISTRIBUTED BY HASH(`i_item_sk`) BUCKETS 3
+DISTRIBUTED BY RANDOM BUCKETS 5
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
 );
