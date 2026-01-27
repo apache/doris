@@ -100,6 +100,7 @@ class InferJoinNotNullTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new InferJoinNotNull())
+                .applyTopDown(new EliminateNotNull())
                 .matches(
                         innerLogicalJoin(
                                 logicalOlapScan(),

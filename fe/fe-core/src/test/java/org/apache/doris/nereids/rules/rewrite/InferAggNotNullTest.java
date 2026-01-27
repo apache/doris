@@ -18,9 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -38,18 +36,17 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
 
     @Test
     void testInfer() {
-        Slot slot = scan1.getOutput().get(1);
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .aggGroupUsingIndex(ImmutableList.of(),
-                        ImmutableList.of(new Alias(new Count(true, slot), "dnt")))
+                        ImmutableList.of(new Alias(new Count(true, scan1.getOutput().get(1)), "dnt")))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new InferAggNotNull())
                 .matches(
                         logicalAggregate(
-                                logicalFilter().when(filter -> filter.getConjuncts()
-                                        .contains(new Not(new IsNull(slot))))
+                                logicalFilter().when(filter -> filter.getConjuncts().stream()
+                                        .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
                         )
                 );
     }

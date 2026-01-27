@@ -80,6 +80,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByUnique;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
+import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByKey;
@@ -339,7 +340,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(
                                             new EliminateDedupJoinCondition()
                                     ),
+                                    // eliminate useless not null or inferred not null
                                     // TODO: wait InferPredicates to infer more not null.
+                                    bottomUp(new EliminateNotNull()),
                                     topDown(new ConvertInnerOrCrossJoin())
                             ),
                             topic("Set operation optimization",
@@ -574,7 +577,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 )
                         ),
 
+                        // eliminate useless not null or inferred not null
                         // TODO: wait InferPredicates to infer more not null.
+                        bottomUp(new EliminateNotNull()),
                         topDown(new ConvertInnerOrCrossJoin())
                 ),
                 topic("Set operation optimization",

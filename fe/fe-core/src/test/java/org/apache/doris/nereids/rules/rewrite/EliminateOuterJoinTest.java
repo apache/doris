@@ -57,6 +57,7 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new InferFilterNotNull())
                 .applyTopDown(new EliminateOuterJoin())
+                .applyTopDown(new EliminateNotNull())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
@@ -75,6 +76,7 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new InferFilterNotNull())
                 .applyTopDown(new EliminateOuterJoin())
+                .applyTopDown(new EliminateNotNull())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
@@ -96,6 +98,7 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new InferFilterNotNull())
                 .applyTopDown(new EliminateOuterJoin())
+                .applyTopDown(new EliminateNotNull())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
