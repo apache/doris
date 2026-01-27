@@ -7966,6 +7966,8 @@ TEST_F(BlockFileCacheTest, test_normal_queue_2qlru_cold_time) {
 
     config::enable_file_cache_normal_queue_2qlru = false;
     config::file_cache_2qlru_cold_blocks_promotion_ms = 1000;
+}
+
 TEST_F(BlockFileCacheTest, finalize_empty_block) {
     std::string my_cache_path = caches_dir / "empty_block_test" / "";
     if (fs::exists(my_cache_path)) {
