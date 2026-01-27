@@ -245,17 +245,19 @@ public:
     virtual bool find(const void* data, size_t) const = 0;
 
     virtual void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                            doris::vectorized::ColumnUInt8::Container& results) = 0;
+                            doris::vectorized::ColumnUInt8::Container& results,
+                            const uint8_t* __restrict filter = nullptr) = 0;
     virtual void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                                     doris::vectorized::ColumnUInt8::Container& results) = 0;
+                                     doris::vectorized::ColumnUInt8::Container& results,
+                                     const uint8_t* __restrict filter = nullptr) = 0;
     virtual void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
                                      const doris::vectorized::NullMap& null_map,
-                                     doris::vectorized::ColumnUInt8::Container& results) = 0;
-
-    virtual void find_batch_nullable_negative(
-            const doris::vectorized::IColumn& column, size_t rows,
-            const doris::vectorized::NullMap& null_map,
-            doris::vectorized::ColumnUInt8::Container& results) = 0;
+                                     doris::vectorized::ColumnUInt8::Container& results,
+                                     const uint8_t* __restrict filter = nullptr) = 0;
+    virtual void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
+                                              const doris::vectorized::NullMap& null_map,
+                                              doris::vectorized::ColumnUInt8::Container& results,
+                                              const uint8_t* __restrict filter = nullptr) = 0;
 
     virtual void to_pb(PInFilter* filter) = 0;
     virtual uint64_t get_digest(uint64_t seed) = 0;
@@ -338,31 +340,36 @@ public:
     bool find(const void* data, size_t /*unused*/) const override { return find(data); }
 
     void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                    doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<false, false>(column, rows, nullptr, results);
+                    doris::vectorized::ColumnUInt8::Container& results,
+                    const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<false, false>(column, rows, nullptr, results, filter);
     }
 
     void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                             doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<false, true>(column, rows, nullptr, results);
+                             doris::vectorized::ColumnUInt8::Container& results,
+                             const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
     void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
                              const doris::vectorized::NullMap& null_map,
-                             doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<true, false>(column, rows, &null_map, results);
+                             doris::vectorized::ColumnUInt8::Container& results,
+                             const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
     void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
                                       const doris::vectorized::NullMap& null_map,
-                                      doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<true, true>(column, rows, &null_map, results);
+                                      doris::vectorized::ColumnUInt8::Container& results,
+                                      const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
     void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
                      const doris::vectorized::NullMap* null_map,
-                     doris::vectorized::ColumnUInt8::Container& results) {
+                     doris::vectorized::ColumnUInt8::Container& results,
+                     const uint8_t* __restrict filter) {
         auto& col = assert_cast<const ColumnType&>(column);
         const auto* __restrict data = (ElementType*)col.get_data().data();
         const uint8_t* __restrict null_map_data;
@@ -375,7 +382,8 @@ public:
         }
 
         auto* __restrict result_data = results.data();
-        for (size_t i = 0; i < rows; ++i) {
+
+        auto update_value = [&](size_t i) {
             if constexpr (!is_nullable && !is_negative) {
                 result_data[i] = _set.find(data[i]);
             } else if constexpr (!is_nullable && is_negative) {
@@ -384,6 +392,17 @@ public:
                 result_data[i] = _set.find(data[i]) & (!null_map_data[i]);
             } else { // (is_nullable && is_negative)
                 result_data[i] = !(_set.find(data[i]) & (!null_map_data[i]));
+            }
+        };
+        if (filter != nullptr) {
+            for (size_t i = 0; i < rows; i++) {
+                if (filter[i]) {
+                    update_value(i);
+                }
+            }
+        } else {
+            for (size_t i = 0; i < rows; i++) {
+                update_value(i);
             }
         }
     }
@@ -525,31 +544,36 @@ public:
     }
 
     void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                    doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<false, false>(column, rows, nullptr, results);
+                    doris::vectorized::ColumnUInt8::Container& results,
+                    const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<false, false>(column, rows, nullptr, results, filter);
     }
 
     void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                             doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<false, true>(column, rows, nullptr, results);
+                             doris::vectorized::ColumnUInt8::Container& results,
+                             const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
     void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
                              const doris::vectorized::NullMap& null_map,
-                             doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<true, false>(column, rows, &null_map, results);
+                             doris::vectorized::ColumnUInt8::Container& results,
+                             const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
     void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
                                       const doris::vectorized::NullMap& null_map,
-                                      doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<true, true>(column, rows, &null_map, results);
+                                      doris::vectorized::ColumnUInt8::Container& results,
+                                      const uint8_t* __restrict filter = nullptr) override {
+        _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
     void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
                      const doris::vectorized::NullMap* null_map,
-                     doris::vectorized::ColumnUInt8::Container& results) {
+                     doris::vectorized::ColumnUInt8::Container& results,
+                     const uint8_t* __restrict filter) {
         const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
@@ -561,7 +585,8 @@ public:
         }
 
         auto* __restrict result_data = results.data();
-        for (size_t i = 0; i < rows; ++i) {
+
+        auto update_value = [&](size_t i) {
             const auto& string_data = col.get_data_at(i).to_string();
             if constexpr (!is_nullable && !is_negative) {
                 result_data[i] = _set.find(string_data);
@@ -571,6 +596,19 @@ public:
                 result_data[i] = _set.find(string_data) & (!null_map_data[i]);
             } else { // (is_nullable && is_negative)
                 result_data[i] = !(_set.find(string_data) & (!null_map_data[i]));
+            }
+        };
+
+        if (filter != nullptr) {
+            for (size_t i = 0; i < rows; ++i) {
+                if (filter[i]) {
+                    update_value(i);
+                }
+            }
+            return;
+        } else {
+            for (size_t i = 0; i < rows; ++i) {
+                update_value(i);
             }
         }
     }
@@ -714,31 +752,36 @@ public:
     }
 
     void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                    doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<false, false>(column, rows, nullptr, results);
+                    doris::vectorized::ColumnUInt8::Container& results,
+                    const uint8_t* __restrict filter) override {
+        _find_batch<false, false>(column, rows, nullptr, results, filter);
     }
 
     void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                             doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<false, true>(column, rows, nullptr, results);
+                             doris::vectorized::ColumnUInt8::Container& results,
+                             const uint8_t* __restrict filter) override {
+        _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
     void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
                              const doris::vectorized::NullMap& null_map,
-                             doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<true, false>(column, rows, &null_map, results);
+                             doris::vectorized::ColumnUInt8::Container& results,
+                             const uint8_t* __restrict filter) override {
+        _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
     void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
                                       const doris::vectorized::NullMap& null_map,
-                                      doris::vectorized::ColumnUInt8::Container& results) override {
-        _find_batch<true, true>(column, rows, &null_map, results);
+                                      doris::vectorized::ColumnUInt8::Container& results,
+                                      const uint8_t* __restrict filter) override {
+        _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
     void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
                      const doris::vectorized::NullMap* null_map,
-                     doris::vectorized::ColumnUInt8::Container& results) {
+                     doris::vectorized::ColumnUInt8::Container& results,
+                     const uint8_t* __restrict filter) {
         const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
         const auto& offset = col.get_offsets();
         const uint8_t* __restrict data = col.get_chars().data();
@@ -752,8 +795,8 @@ public:
         }
 
         auto* __restrict result_data = results.data();
-        for (size_t i = 0; i < rows; ++i) {
-            uint32_t len = offset[i] - offset[i - 1];
+
+        auto update_value = [&](size_t i, uint32_t len) {
             if constexpr (!is_nullable && !is_negative) {
                 result_data[i] = _set.find(StringRef(data, len));
             } else if constexpr (!is_nullable && is_negative) {
@@ -763,7 +806,23 @@ public:
             } else { // (is_nullable && is_negative)
                 result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(data, len)));
             }
-            data += len;
+        };
+
+        if (filter != nullptr) {
+            for (size_t i = 0; i < rows; ++i) {
+                uint32_t len = offset[i] - offset[i - 1];
+                if (filter[i]) {
+                    update_value(i, len);
+                }
+                data += len;
+            }
+            return;
+        } else {
+            for (size_t i = 0; i < rows; ++i) {
+                uint32_t len = offset[i] - offset[i - 1];
+                update_value(i, len);
+                data += len;
+            }
         }
     }
 

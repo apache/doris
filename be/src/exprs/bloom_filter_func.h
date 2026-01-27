@@ -134,7 +134,8 @@ public:
 
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
 
-    virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results) = 0;
+    virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results,
+                                const uint8_t* __restrict filter = nullptr) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
                                                 uint16_t* offsets, int number,
@@ -176,8 +177,9 @@ public:
         OpV2::insert_batch(*_bloom_filter, column, start);
     }
 
-    void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results) override {
-        OpV2::find_batch(*_bloom_filter, column, results);
+    void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results,
+                        const uint8_t* __restrict filter = nullptr) override {
+        OpV2::find_batch(*_bloom_filter, column, results, filter);
     }
 
     template <bool is_nullable>
