@@ -114,7 +114,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
 
     @Override
     public String toString() {
-        return Utils.toSqlStringSkipNull("LogicalUnion",
+        return Utils.toSqlStringSkipNull("LogicalUnion[" + id.asInt() + "]",
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
@@ -423,5 +423,13 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             }
         }
         return changed ? castedRow.build() : row;
+    }
+
+    public LogicalSetOperation withChildrenAndOutputs(List<Plan> children, List<NamedExpression> newOuptuts,
+            List<List<SlotReference>> childrenOutputs) {
+        Preconditions.checkArgument(children.size() == childrenOutputs.size(),
+                "children size %s is not equals with children outputs size %s",
+                children.size(), childrenOutputs.size());
+        return new LogicalUnion(qualifier, newOuptuts, childrenOutputs, constantExprsList, hasPushedFilter, children);
     }
 }
