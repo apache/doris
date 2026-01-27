@@ -22,7 +22,6 @@ import org.apache.doris.common.LdapConfig;
 
 import mockit.Expectations;
 import mockit.Tested;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;

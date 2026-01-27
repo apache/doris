@@ -107,7 +107,7 @@ public class LdapClient {
             return this.ldapPassword == null || !this.ldapPassword.equals(ldapPassword);
         }
 
-        public String getURL() {
+        private String getURL() {
             return ((LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + NetUtils
                     .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
         }
@@ -229,6 +229,11 @@ public class LdapClient {
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
             throw new RuntimeException(msg);
         }
+    }
+
+    @VisibleForTesting
+    public String getURL() {
+        return clientInfo.getURL();
     }
 
     private String getUserFilter(String userFilter, String userName) {
