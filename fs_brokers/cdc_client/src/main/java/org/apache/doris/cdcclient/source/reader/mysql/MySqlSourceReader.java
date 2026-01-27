@@ -217,9 +217,6 @@ public class MySqlSourceReader implements SourceReader {
         SourceRecords sourceRecords = dataIt.next();
         SplitRecords splitRecords =
                 new SplitRecords(this.currentSplit.splitId(), sourceRecords.iterator());
-        if (!sourceRecords.getSourceRecordList().isEmpty()) {
-            LOG.info("{} Records received", sourceRecords.getSourceRecordList().size());
-        }
 
         return new FilteredRecordIterator(splitRecords, (MySqlSplitState) splitState);
     }
