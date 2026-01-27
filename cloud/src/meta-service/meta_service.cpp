@@ -423,6 +423,8 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         return;
     }
 
+    RPC_RATE_LIMIT(get_version);
+
     if (is_version_read_enabled(instance_id)) {
         if (is_table_version) {
             std::tie(code, msg) = batch_get_table_versions(request, response, instance_id, stats);

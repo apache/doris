@@ -44,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.LongStream;
 
 /**
  * This class represents the olap tablet related metadata.
@@ -302,14 +301,7 @@ public abstract class Tablet {
         return sb.toString();
     }
 
-    public Replica getReplicaById(long replicaId) {
-        for (Replica replica : getReplicas()) {
-            if (replica.getId() == replicaId) {
-                return replica;
-            }
-        }
-        return null;
-    }
+    public abstract Replica getReplicaById(long replicaId);
 
     public abstract Replica getReplicaByBackendId(long backendId);
 
@@ -333,41 +325,17 @@ public abstract class Tablet {
     @Override
     public abstract boolean equals(Object obj);
 
-    // ATTN: Replica::getDataSize may zero in cloud and non-cloud
-    // due to dataSize not write to image
-    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
-        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .filter(r -> !filterSizeZero || r.getDataSize() > 0)
-                .mapToLong(Replica::getDataSize);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
-    }
+    public abstract long getDataSize(boolean singleReplica, boolean filterSizeZero);
 
     public long getRemoteDataSize() {
         return 0;
     }
 
-    public long getRowCount(boolean singleReplica) {
-        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .mapToLong(Replica::getRowCount);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
-    }
+    public abstract long getRowCount(boolean singleReplica);
 
     // Get the least row count among all valid replicas.
     // The replica with the least row count is the most accurate one. Because it performs most compaction.
-    public long getMinReplicaRowCount(long version) {
-        long minRowCount = Long.MAX_VALUE;
-        long maxReplicaVersion = 0;
-        for (Replica r : getReplicas()) {
-            if (r.isAlive()
-                    && r.checkVersionCatchUp(version, false)
-                    && (r.getVersion() > maxReplicaVersion
-                        || r.getVersion() == maxReplicaVersion && r.getRowCount() < minRowCount)) {
-                minRowCount = r.getRowCount();
-                maxReplicaVersion = r.getVersion();
-            }
-        }
-        return minRowCount == Long.MAX_VALUE ? 0 : minRowCount;
-    }
+    public abstract long getMinReplicaRowCount(long version);
 
     /**
      * A replica is healthy only if

@@ -160,6 +160,7 @@ struct CompactionSampleInfo {
     int64_t bytes = 0;
     int64_t rows = 0;
     int64_t group_data_size = 0;
+    int64_t null_count = 0; // Number of NULL cells in this column group
 };
 
 struct BlockWithSameBit {
