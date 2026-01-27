@@ -110,18 +110,10 @@ public final class LineageUtils {
         context.setExternalCatalogProperties(collectExternalCatalogProperties(lineageInfo));
         lineageInfo.setContext(context);
         if (LOG.isDebugEnabled()) {
-            int directSize = lineageInfo.getDirectLineageMap() == null
-                    ? 0
-                    : lineageInfo.getDirectLineageMap().size();
-            int indirectSize = lineageInfo.getInDirectLineageMap() == null
-                    ? 0
-                    : lineageInfo.getInDirectLineageMap().size();
-            int tableLineageSize = lineageInfo.getTableLineageSet() == null
-                    ? 0
-                    : lineageInfo.getTableLineageSet().size();
-            int targetColumns = lineageInfo.getTargetColumns() == null
-                    ? 0
-                    : lineageInfo.getTargetColumns().size();
+            Map<?, ?> directMap = lineageInfo.getDirectLineageMap();
+            Object indirectMap = lineageInfo.getInDirectLineageMap();
+            Object tableLineage = lineageInfo.getTableLineageSet();
+            Object targetColumns = lineageInfo.getTargetColumns();
             String targetTable = lineageInfo.getTargetTable() == null
                     ? "null"
                     : lineageInfo.getTargetTable().getName();
@@ -131,8 +123,8 @@ public final class LineageUtils {
             long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
             LOG.debug("Lineage info built: plan={}, targetTable={}, targetColumns={}, directMap={},"
                             + " indirectMap={}, tableLineage={}, externalCatalogs={}, elapsedMs={}",
-                    plan.getClass().getSimpleName(), targetTable, targetColumns, directSize, indirectSize,
-                    tableLineageSize, externalCatalogs, elapsedMs);
+                    plan.getClass().getSimpleName(), targetTable, targetColumns, directMap, indirectMap,
+                    tableLineage, externalCatalogs, elapsedMs);
         }
         return lineageInfo;
     }

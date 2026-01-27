@@ -35,46 +35,45 @@ import java.util.Set;
 /**
  * This class describes the common in-memory lineage data format used in Doris.
  * Based on this data structure, complete lineage information and corresponding event details can be parsed.
- * */
+ *
+ * <p>Example SQL for the field comments below:
+ * <pre>
+ * INSERT INTO tgt_join_window_case
+ * SELECT o.o_orderkey AS orderkey,
+ *        ROW_NUMBER() OVER (PARTITION BY c.c_nationkey ORDER BY o.o_orderdate DESC) AS rn,
+ *        CASE WHEN l.l_discount > 0.05 THEN 'HIGH' ELSE 'LOW' END AS price_flag
+ * FROM orders o
+ * JOIN customer c ON o.o_custkey = c.c_custkey
+ * LEFT JOIN lineitem l ON o.o_orderkey = l.l_orderkey
+ * WHERE o.o_orderdate >= DATE '1994-01-01'
+ *   AND c.c_nationkey IS NOT NULL;
+ * </pre>
+ */
 public class LineageInfo {
-
-    /*
-     * Example SQL used below:
-     * INSERT INTO tgt_region_revenue
-     * SELECT n.n_name AS nation_name,
-     *        SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
-     * FROM customer c
-     * JOIN orders o ON c.c_custkey = o.o_custkey
-     * JOIN lineitem l ON o.o_orderkey = l.l_orderkey
-     * JOIN nation n ON c.c_nationkey = n.n_nationkey
-     * JOIN region r ON n.n_regionkey = r.r_regionkey
-     * WHERE r.r_name = 'ASIA'
-     * GROUP BY n.n_name;
-     */
-
-    // the key is the output slot, the value is the shuttled expression which output slot depend directly
-    // this is dependent on the ExpressionLineageReplacer
-    // Example: nation_name -> {IDENTITY: n.n_name}, revenue -> {AGGREGATION: SUM(l.l_extendedprice * (1-l.l_discount))}
+    // Output-slot direct dependencies based on ExpressionLineageReplacer.
+    // Example: orderkey -> {IDENTITY: o.o_orderkey};
+    //          rn -> {TRANSFORMATION: row_number() over (partition by c.c_nationkey order by o.o_orderdate)};
+    //          price_flag -> {TRANSFORMATION: CASE WHEN l.l_discount > 0.05 THEN 'HIGH' ELSE 'LOW' END}.
     private Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap;
-    // inDirectLineageMap stores expressions that indirectly affect output slots. These expressions,
-    // which indirectly impact output slots, are categorized as IndirectLineageType.
-    // Example: nation_name -> {GROUP_BY: n.n_name} (intersects direct slots), revenue may have no per-output indirects.
+    // Per-output indirect lineage for WINDOW/CONDITIONAL only.
+    // Example: rn -> {WINDOW: c.c_nationkey, o.o_orderdate};
+    //          price_flag -> {CONDITIONAL: l.l_discount > 0.05}.
     private Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> inDirectLineageMap;
-    // datasetIndirectLineageMap stores expressions that affect the whole dataset when some outputs do not directly
-    // depend on the referenced slots (e.g. filter or join on non-selected columns).
-    // Example: FILTER {r.r_name = 'ASIA'}, JOIN {o.o_orderkey = l.l_orderkey}.
+    // Dataset-level indirect lineage for JOIN/FILTER/GROUP_BY/SORT.
+    // Example: JOIN {o.o_custkey = c.c_custkey, o.o_orderkey = l.l_orderkey},
+    //          FILTER {o.o_orderdate >= DATE '1994-01-01', c.c_nationkey IS NOT NULL}.
     private Multimap<IndirectLineageType, Expression> datasetIndirectLineageMap;
-    // tableLineageSet stores tables that the plan depends on
-    // Example: {customer, orders, lineitem, nation, region}.
+    // Tables referenced by the query.
+    // Example: {orders, customer, lineitem}.
     private Set<TableIf> tableLineageSet;
-    // target table for this lineage event
-    // Example: tgt_region_revenue.
+    // Target table for this lineage event.
+    // Example: tgt_join_window_case.
     private TableIf targetTable;
-    // target columns for this lineage event
-    // Example: [nation_name, revenue].
+    // Target columns for this lineage event.
+    // Example: [orderkey, rn, price_flag].
     private List<Slot> targetColumns;
-    // query metadata
-    // Example: {sourceCommand=InsertIntoTableCommand, queryId=..., database=lineage_tpch}.
+    // Query metadata such as user, database, and query text.
+    // Example: {sourceCommand=InsertIntoTableCommand, database=<current_db>, user=<session_user>}.
     private LineageContext context;
 
     /**
@@ -123,38 +122,6 @@ public class LineageInfo {
     }
 
     /**
-     * Get merged indirect lineage info for each output slot.
-     *
-     * <p>Examples:
-     * <ul>
-     *   <li>If dataset-level FILTER has {l_shipdate >= '1995-01-01'} and
-     *       output slot price has GROUP_BY {l_orderkey}, the merged result for price
-     *       contains both FILTER and GROUP_BY expressions.</li>
-     *   <li>If dataset-level SORT has {l_shipdate} and output slot orderkey has no
-     *       per-output indirect lineage, the merged result for orderkey still contains SORT.</li>
-     * </ul>
-     */
-    public Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> getInDirectLineageMap() {
-        if (datasetIndirectLineageMap.isEmpty()) {
-            return inDirectLineageMap;
-        }
-        Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> merged = new HashMap<>();
-        Set<SlotReference> outputSlots = new HashSet<>();
-        outputSlots.addAll(directLineageMap.keySet());
-        outputSlots.addAll(inDirectLineageMap.keySet());
-        for (SlotReference outputSlot : outputSlots) {
-            SetMultimap<IndirectLineageType, Expression> combined = HashMultimap.create();
-            combined.putAll(datasetIndirectLineageMap);
-            SetMultimap<IndirectLineageType, Expression> perOutput = inDirectLineageMap.get(outputSlot);
-            if (perOutput != null) {
-                combined.putAll(perOutput);
-            }
-            merged.put(outputSlot, combined);
-        }
-        return merged;
-    }
-
-    /**
      * Get dataset-level indirect lineage expressions.
      *
      * @return dataset-level indirect lineage map
@@ -165,10 +132,6 @@ public class LineageInfo {
 
     public Set<TableIf> getTableLineageSet() {
         return tableLineageSet;
-    }
-
-    public void setTableLineageSet(Set<TableIf> tableLineageSet) {
-        this.tableLineageSet = tableLineageSet;
     }
 
     public void addTableLineage(TableIf table) {
@@ -213,10 +176,41 @@ public class LineageInfo {
     }
 
     /**
-     * Add indirect lineage for an output slot
+     * Add per-output indirect lineage. WINDOW/CONDITIONAL are stored per-output;
+     * other types are stored at dataset-level.
      */
     public void addIndirectLineage(SlotReference outputSlot, IndirectLineageType type, Expression expr) {
-        inDirectLineageMap.computeIfAbsent(outputSlot, k -> HashMultimap.create()).put(type, expr);
+        if (type == IndirectLineageType.WINDOW || type == IndirectLineageType.CONDITIONAL) {
+            inDirectLineageMap.computeIfAbsent(outputSlot, k -> HashMultimap.create()).put(type, expr);
+        } else {
+            datasetIndirectLineageMap.put(type, expr);
+        }
+    }
+
+    /**
+     * Get merged indirect lineage info for each output slot.
+     *
+     * <p>Dataset-level indirect lineage is merged into each output slot, while WINDOW/CONDITIONAL
+     * remain per-output.
+     */
+    public Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> getInDirectLineageMap() {
+        if (datasetIndirectLineageMap.isEmpty() && inDirectLineageMap.isEmpty()) {
+            return inDirectLineageMap;
+        }
+        Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> merged = new HashMap<>();
+        Set<SlotReference> outputSlots = new HashSet<>();
+        outputSlots.addAll(directLineageMap.keySet());
+        outputSlots.addAll(inDirectLineageMap.keySet());
+        for (SlotReference outputSlot : outputSlots) {
+            SetMultimap<IndirectLineageType, Expression> combined = HashMultimap.create();
+            combined.putAll(datasetIndirectLineageMap);
+            SetMultimap<IndirectLineageType, Expression> perOutput = inDirectLineageMap.get(outputSlot);
+            if (perOutput != null) {
+                combined.putAll(perOutput);
+            }
+            merged.put(outputSlot, combined);
+        }
+        return merged;
     }
 
     /**
@@ -244,7 +238,6 @@ public class LineageInfo {
         sb.append("  context=").append(context).append(",\n");
         sb.append("  tableLineageSet=").append(tableLineageSet).append(",\n");
         sb.append("  directLineageMap=").append(directLineageMap).append(",\n");
-        sb.append("  inDirectLineageMap=").append(inDirectLineageMap).append(",\n");
         sb.append("  targetTable=").append(targetTable != null ? targetTable.getName() : "null").append("\n");
         sb.append("}");
         return sb.toString();

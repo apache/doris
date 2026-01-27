@@ -49,7 +49,6 @@ import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.Ex
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -496,27 +495,8 @@ public class LineageInfoExtractor {
          */
         private void addIndirectLineage(IndirectLineageType type,
                                         Set<Expression> expressions, LineageInfo lineageInfo) {
-            Map<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineageMap
-                    = lineageInfo.getDirectLineageMap();
             for (Expression expr : expressions) {
-                Set<Slot> exprSlots = expr.collectToSet(Slot.class::isInstance);
-                boolean hasPerOutputMatch = false;
-                for (Map.Entry<SlotReference, SetMultimap<DirectLineageType, Expression>> directLineage
-                        : directLineageMap.entrySet()) {
-                    SlotReference outputSlot = directLineage.getKey();
-                    SetMultimap<DirectLineageType, Expression> value = directLineage.getValue();
-                    Set<Slot> directSlots = value.values().stream()
-                            .flatMap(valueExpr -> valueExpr.collectToList(Slot.class::isInstance).stream())
-                            .map(Slot.class::cast)
-                            .collect(Collectors.toSet());
-                    if (!Sets.intersection(exprSlots, directSlots).isEmpty()) {
-                        lineageInfo.addIndirectLineage(outputSlot, type, expr);
-                        hasPerOutputMatch = true;
-                    }
-                }
-                if (!hasPerOutputMatch) {
-                    lineageInfo.addDatasetIndirectLineage(type, expr);
-                }
+                lineageInfo.addDatasetIndirectLineage(type, expr);
             }
         }
 
