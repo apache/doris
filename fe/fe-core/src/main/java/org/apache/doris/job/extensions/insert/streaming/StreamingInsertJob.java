@@ -785,6 +785,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             sb.append("FROM ").append(dataSourceType.name());
             sb.append("(");
             for (Map.Entry<String, String> entry : sourceProperties.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase("password")) {
+                    continue;
+                }
                 sb.append("'").append(entry.getKey())
                         .append("'='").append(entry.getValue()).append("',");
             }

@@ -206,9 +206,6 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         SourceRecords sourceRecords = dataIt.next();
         SplitRecords splitRecords =
                 new SplitRecords(this.currentSplit.splitId(), sourceRecords.iterator());
-        if (!sourceRecords.getSourceRecordList().isEmpty()) {
-            LOG.info("{} Records received.", sourceRecords.getSourceRecordList().size());
-        }
 
         // Return filtered iterator
         return new FilteredRecordIterator(splitRecords, (SourceSplitState) splitState);
