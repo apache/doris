@@ -19,6 +19,7 @@
 
 #include <boost/container_hash/hash.hpp>
 
+#include "cloud/cloud_compaction_util.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -73,6 +74,17 @@ Status CloudBaseCompaction::prepare_compact() {
     if (need_sync_tablet) {
         st = cloud_tablet()->sync_rowsets();
         RETURN_IF_ERROR(st);
+    }
+
+    // [compaction_rw_separation] Check if this cluster should do compaction
+    if (config::enable_compaction_rw_separation) {
+        if (!should_do_compaction_for_cluster(cloud_tablet().get())) {
+            st = Status::Error<ErrorCode::NOT_MASTER>(
+                    "tablet {} should be compacted by cluster {}, not {}",
+                    _tablet->tablet_id(), cloud_tablet()->last_active_cluster_id(),
+                    cloud_tablet()->my_cluster_id());
+            return st;
+        }
     }
 
     st = pick_rowsets_to_compact();

@@ -148,6 +148,12 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
+// Compaction read-write separation: only the "last active" cluster (the one that most recently
+// performed load or compaction) is allowed to compact a tablet
+DEFINE_mBool(enable_compaction_rw_separation, "false");
+// Timeout in ms for takeover when last active cluster becomes unavailable (default 30 min)
+DEFINE_mInt64(compaction_cluster_takeover_timeout_ms, "1800000");
+
 DEFINE_mBool(enable_cache_read_from_peer, "true");
 
 // Cache the expiration time of the peer address.
