@@ -207,7 +207,10 @@ public abstract class Tablet {
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
-        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
+        return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> {
+            TabletSlidingWindowAccessStats.recordTablet(getId());
+            return rep.getBackendId();
+        });
     }
 
     // When a BE reports a missing version, lastFailedVersion is set. When a write fails on a replica,
@@ -222,6 +225,7 @@ public abstract class Tablet {
         List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
+        TabletSlidingWindowAccessStats.recordTablet(getId());
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {
