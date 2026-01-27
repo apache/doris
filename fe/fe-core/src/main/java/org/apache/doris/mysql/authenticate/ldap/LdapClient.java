@@ -65,7 +65,8 @@ public class LdapClient {
 
         private void setLdapTemplateNoPool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = LdapClient.getURL();
+            String url = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
@@ -77,7 +78,8 @@ public class LdapClient {
 
         private void setLdapTemplatePool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = LdapClient.getURL();
+            String url = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
@@ -225,11 +227,6 @@ public class LdapClient {
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
             throw new RuntimeException(msg);
         }
-    }
-
-    static String getURL() {
-        return ((LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + NetUtils
-                .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
     }
 
     private String getUserFilter(String userFilter, String userName) {
