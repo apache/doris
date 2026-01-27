@@ -706,7 +706,8 @@ private:
                     [&code](const auto& pair) { code = pair.second; })) {
             return code;
         }
-        code = _is_range() ? column.find_code_by_bound(StringRef(_value.data(), _value.size()), _is_greater(), _is_eq())
+        code = _is_range() ? column.find_code_by_bound(StringRef(_value.data(), _value.size()),
+                                                       _is_greater(), _is_eq())
                            : column.find_code(StringRef(_value.data(), _value.size()));
         // Sometimes the dict is not initialized when run comparison predicate here, for example,
         // the full page is null, then the reader will skip read, so that the dictionary is not
