@@ -213,7 +213,7 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8_t>& cmp_res,
                           uint8_t* __restrict filter) const override;
-    void get_permutation(bool reverse, size_t limit, int null_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int null_direction_hint, HybridSorter& sorter,
                          Permutation& res) const override;
     void reserve(size_t n) override;
     void resize(size_t n) override;
@@ -307,6 +307,32 @@ public:
         if (!nullable_rhs.is_null_at(row)) {
             _nested_column->replace_column_data(*nullable_rhs._nested_column, row, self_row);
         }
+    }
+
+    // Batch replace continuous range of data (for sparse compaction optimization)
+    // NOTE: This function is designed for "all non-NULL" scenario where the caller
+    // has already verified that all source values are non-NULL using SIMD count.
+    // For mixed NULL/non-NULL cases, use replace_column_data in a loop.
+    void replace_column_data_range(const IColumn& rhs, size_t src_start, size_t count,
+                                   size_t self_start) override {
+        DCHECK(size() >= self_start + count);
+        const auto& nullable_rhs =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(rhs);
+        DCHECK(nullable_rhs.size() >= src_start + count);
+
+        // Copy null_map using memcpy for efficiency
+        memcpy(get_null_map_data().data() + self_start,
+               nullable_rhs.get_null_map_data().data() + src_start, count);
+
+        // Batch copy nested column data using optimized replace_column_data_range
+        // This leverages memcpy in ColumnVector/ColumnDecimal for maximum performance
+        _nested_column->replace_column_data_range(*nullable_rhs._nested_column, src_start, count,
+                                                  self_start);
+    }
+
+    // Delegate to nested column - only fixed-width types support efficient replacement
+    bool support_replace_column_data_range() const override {
+        return _nested_column->support_replace_column_data_range();
     }
 
     void replace_float_special_values() override { _nested_column->replace_float_special_values(); }

@@ -46,9 +46,6 @@ class DataDir;
 class Tablet;
 class FileWriterCreator;
 class SegmentCollector;
-namespace vectorized::schema_util {
-class LocalSchemaChangeRecorder;
-}
 
 struct RowsetWriterContext {
     RowsetWriterContext() : schema_lock(new std::mutex) {
@@ -151,6 +148,8 @@ struct RowsetWriterContext {
 
     std::optional<EncryptionAlgorithmPB> encrypt_algorithm;
 
+    std::string job_id;
+
     bool is_local_rowset() const { return !storage_resource; }
 
     std::string segment_path(int seg_id) const {
@@ -222,6 +221,7 @@ struct RowsetWriterContext {
             append_info.tablet_id = tablet_id;
             append_info.rowset_id = rowset_id.to_string();
             append_info.txn_id = txn_id;
+            append_info.expiration_time = file_cache_ttl_sec;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }
 

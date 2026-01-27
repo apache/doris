@@ -46,7 +46,8 @@ class IColumn;
 class NullPredicate final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(NullPredicate);
-    NullPredicate(uint32_t column_id, bool is_null, PrimitiveType type, bool opposite = false);
+    NullPredicate(uint32_t column_id, std::string col_name, bool is_null, PrimitiveType type,
+                  bool opposite = false);
     NullPredicate(const NullPredicate& other) = delete;
     NullPredicate(const NullPredicate& other, uint32_t column_id)
             : ColumnPredicate(other, column_id), _is_null(other._is_null) {}
@@ -96,6 +97,7 @@ public:
                       RowRanges* row_ranges) const override {
         vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
         if (!(statistic->get_stat_func)(&stat, column_id())) {
+            row_ranges->add(statistic->row_group_range);
             return true;
         }
         for (int page_id = 0; page_id < stat->num_of_pages; page_id++) {

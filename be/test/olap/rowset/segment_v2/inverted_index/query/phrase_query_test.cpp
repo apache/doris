@@ -150,7 +150,9 @@ public:
         // Finish and close
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
-        status = index_file_writer->close();
+        status = index_file_writer->begin_close();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
     }
 

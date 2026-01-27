@@ -19,7 +19,6 @@
 
 #include <memory>
 
-#include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
@@ -43,8 +42,7 @@ struct SubstreamIterator {
     size_t rows_read = 0;
     SubstreamIterator() = default;
     SubstreamIterator(vectorized::MutableColumnPtr&& col, std::unique_ptr<ColumnIterator>&& it,
-                      std::shared_ptr<const vectorized::IDataType> t)
-            : column(std::move(col)), iterator(std::move(it)), type(t) {}
+                      std::shared_ptr<const vectorized::IDataType> t);
 };
 
 // path -> SubstreamIterator

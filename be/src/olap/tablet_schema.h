@@ -42,7 +42,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "udf/udf.h"
 #include "util/debug_points.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
@@ -70,6 +69,19 @@ using TabletColumnPtr = std::shared_ptr<TabletColumn>;
 
 class TabletColumn : public MetadataAdder<TabletColumn> {
 public:
+    struct VariantParams {
+        int32_t max_subcolumns_count = 0;
+        bool enable_typed_paths_to_sparse = false;
+        int32_t max_sparse_column_statistics_size =
+                BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
+        // default to 0, no shard
+        int32_t sparse_hash_shard_count = 0;
+
+        bool enable_doc_mode = false;
+        int64_t doc_materialization_min_rows = 0;
+        int32_t doc_hash_shard_count = 64;
+    };
+
     TabletColumn();
     TabletColumn(const ColumnPB& column);
     TabletColumn(const TColumn& column);
@@ -213,36 +225,59 @@ public:
 
     void set_frac(int frac) { _frac = frac; }
 
+    const VariantParams& variant_params() const { return _variant; }
+    VariantParams* mutable_variant_params() { return &_variant; }
+
+    int32_t variant_max_subcolumns_count() const { return _variant.max_subcolumns_count; }
+
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
-        _variant_max_subcolumns_count = variant_max_subcolumns_count;
+        _variant.max_subcolumns_count = variant_max_subcolumns_count;
     }
-
-    void set_variant_enable_typed_paths_to_sparse(bool enable) {
-        _variant_enable_typed_paths_to_sparse = enable;
-    }
-
-    void set_variant_max_sparse_column_statistics_size(
-            int32_t variant_max_sparse_column_statistics_size) {
-        _variant_max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
-    }
-
-    void set_variant_sparse_hash_shard_count(int32_t variant_sparse_hash_shard_count) {
-        _variant_sparse_hash_shard_count = variant_sparse_hash_shard_count;
-    }
-
-    int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
 
     bool variant_enable_typed_paths_to_sparse() const {
-        return _variant_enable_typed_paths_to_sparse;
+        return _variant.enable_typed_paths_to_sparse;
     }
 
     int32_t variant_max_sparse_column_statistics_size() const {
-        return _variant_max_sparse_column_statistics_size;
+        return _variant.max_sparse_column_statistics_size;
     }
 
-    int32_t variant_sparse_hash_shard_count() const { return _variant_sparse_hash_shard_count; }
+    int32_t variant_sparse_hash_shard_count() const { return _variant.sparse_hash_shard_count; }
+
+    bool variant_enable_doc_mode() const { return _variant.enable_doc_mode; }
+
+    int64_t variant_doc_materialization_min_rows() const {
+        return _variant.doc_materialization_min_rows;
+    }
+
+    int32_t variant_doc_hash_shard_count() const { return _variant.doc_hash_shard_count; }
+
+    void set_variant_doc_materialization_min_rows(int64_t variant_doc_materialization_min_rows) {
+        _variant.doc_materialization_min_rows = variant_doc_materialization_min_rows;
+    }
+
+    void set_variant_doc_hash_shard_count(int32_t variant_doc_hash_shard_count) {
+        _variant.doc_hash_shard_count = variant_doc_hash_shard_count;
+    }
+
+    void set_variant_max_sparse_column_statistics_size(
+            int32_t variant_max_sparse_column_statistics_size) {
+        _variant.max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
+    }
+
+    void set_variant_sparse_hash_shard_count(int32_t variant_sparse_hash_shard_count) {
+        _variant.sparse_hash_shard_count = variant_sparse_hash_shard_count;
+    }
+
+    void set_variant_enable_doc_mode(bool variant_enable_doc_mode) {
+        _variant.enable_doc_mode = variant_enable_doc_mode;
+    }
+
+    void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
+        _variant.enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
+    }
 
     bool is_decimal() const { return _is_decimal; }
 
@@ -285,15 +320,9 @@ private:
     // The extracted sub-columns from "variant" contain the following information:
     int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
     vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
-
-    int32_t _variant_max_subcolumns_count = 0;
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
-    bool _variant_enable_typed_paths_to_sparse = false;
-    // set variant_max_sparse_column_statistics_size
-    int32_t _variant_max_sparse_column_statistics_size =
-            BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
-    // default to 0, no shard
-    int32_t _variant_sparse_hash_shard_count = 0;
+
+    VariantParams _variant;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -678,6 +707,16 @@ public:
         }
         return 0;
     }
+    const std::unordered_map<uint32_t, std::vector<uint32_t>>& seq_col_idx_to_value_cols_idx()
+            const {
+        return _seq_col_idx_to_value_cols_idx;
+    }
+
+    bool has_seq_map() const { return !_seq_col_idx_to_value_cols_idx.empty(); }
+
+    const std::unordered_map<uint32_t, uint32_t>& value_col_idx_to_seq_col_idx() const {
+        return _value_col_idx_to_seq_col_idx;
+    }
 
     void add_pruned_columns_data_type(int32_t col_unique_id, vectorized::DataTypePtr data_type) {
         _pruned_columns_data_type[col_unique_id] = std::move(data_type);
@@ -798,6 +837,14 @@ private:
     bool _integer_type_default_use_plain_encoding {false};
     BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
             BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
+    // Sequence column unique id mapping to value columns unique id
+    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_col_uid_to_value_cols_uid;
+    // Value column unique id mapping to sequence column unique id(also map sequence column it self)
+    std::unordered_map<uint32_t, uint32_t> _value_col_uid_to_seq_col_uid;
+    // Sequence column index mapping to value column index
+    std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_col_idx_to_value_cols_idx;
+    // Value column index mapping to sequence column index(also map sequence column it self)
+    std::unordered_map<uint32_t, uint32_t> _value_col_idx_to_seq_col_idx;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

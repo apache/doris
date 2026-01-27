@@ -70,7 +70,7 @@ class VExprContext;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-class ParquetReader : public GenericReader, public ExprPushDownHelper {
+class ParquetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
 public:
@@ -118,8 +118,10 @@ public:
     Status init_reader(
             const std::vector<std::string>& all_column_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs& conjuncts,
+            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                    slot_id_to_predicates,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
@@ -193,6 +195,14 @@ private:
         RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
+        RuntimeProfile::Counter* page_read_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_compressed_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_decompressed_write_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_hit_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_missing_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_compressed_hit_counter = nullptr;
+        RuntimeProfile::Counter* page_cache_decompressed_hit_counter = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
         RuntimeProfile::Counter* read_page_header_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
@@ -253,8 +263,8 @@ private:
 
     Status _set_read_one_line_impl() override { return Status::OK(); }
 
-    bool _exists_in_file(const VSlotRef* slot) const override;
-    bool _type_matches(const VSlotRef*) const override;
+    bool _exists_in_file(const std::string& expr_name) const;
+    bool _type_matches(const int cid) const;
 
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
@@ -340,8 +350,6 @@ private:
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
-    // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
-    VExprSPtrs _top_runtime_vexprs;
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;
 };

@@ -68,7 +68,6 @@ protected:
                                   vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
-    vectorized::Arena _agg_arena_pool;
     std::vector<char> _deserialize_buffer;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
@@ -114,6 +113,8 @@ public:
     Status merge_with_serialized_key_helper(RuntimeState* state, vectorized::Block* block);
 
     size_t get_estimated_memory_size_for_merging(RuntimeState* state, size_t rows) const;
+
+    Status reset_hash_table(RuntimeState* state);
 
 private:
     friend class AggLocalState;

@@ -117,7 +117,7 @@
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/avro//avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
@@ -1206,8 +1206,8 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                st = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                      merged_schema);
+                st = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
+                                                                       merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                     st = Status::InternalError("Failed to get least common schema: {}",
@@ -1242,15 +1242,15 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto tablet = res.value();
                     auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = vectorized::schema_util::VariantCompactionUtil::
+                    auto schema = vectorized::variant_util::VariantCompactionUtil::
                             calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
                     tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    st = vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr,
-                                                                          merged_schema);
+                    st = vectorized::variant_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                                           merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                         st = Status::InternalError("Failed to get least common schema: {}",
@@ -1280,7 +1280,7 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
     if (!stream_load_ctx) {
         st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    stream_load_ctx->promise.set_value(st);
+    stream_load_ctx->load_status_promise.set_value(st);
     st.to_protobuf(response->mutable_status());
 }
 
@@ -1615,6 +1615,57 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
             LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
                          << " .and query_id_is: " << t_request.query_id;
         }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::transmit_rec_cte_block(google::protobuf::RpcController* controller,
+                                              const PTransmitRecCTEBlockParams* request,
+                                              PTransmitRecCTEBlockResult* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->fragment_mgr()->transmit_rec_cte_block(
+                UniqueId(request->query_id()).to_thrift(),
+                UniqueId(request->fragment_instance_id()).to_thrift(), request->node_id(),
+                request->blocks(), request->eos());
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::rerun_fragment(google::protobuf::RpcController* controller,
+                                      const PRerunFragmentParams* request,
+                                      PRerunFragmentResult* response,
+                                      google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto st =
+                _exec_env->fragment_mgr()->rerun_fragment(UniqueId(request->query_id()).to_thrift(),
+                                                          request->fragment_id(), request->stage());
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
+void PInternalService::reset_global_rf(google::protobuf::RpcController* controller,
+                                       const PResetGlobalRfParams* request,
+                                       PResetGlobalRfResult* response,
+                                       google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->fragment_mgr()->reset_global_rf(
+                UniqueId(request->query_id()).to_thrift(), request->filter_ids());
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {

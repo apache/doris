@@ -40,18 +40,19 @@ Usage: $0 <options>
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
   "
     exit 1
 }
-DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul,ranger,polaris"
+DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
 COMPONENTS=$2
 HELP=0
 STOP=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
+export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -157,9 +158,7 @@ RUN_ES=0
 RUN_ICEBERG=0
 RUN_ICEBERG_REST=0
 RUN_HUDI=0
-RUN_TRINO=0
 RUN_KAFKA=0
-RUN_SPARK=0
 RUN_MARIADB=0
 RUN_DB2=0
 RUN_OCENABASE=0
@@ -197,10 +196,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ICEBERG_REST=1
     elif [[ "${element}"x == "hudi"x ]]; then
         RUN_HUDI=1
-    elif [[ "${element}"x == "trino"x ]]; then
-        RUN_TRINO=1
-    elif [[ "${element}"x == "spark"x ]]; then
-        RUN_SPARK=1
+        RESERVED_PORTS="${RESERVED_PORTS},19083,19100,19101,18080"
     elif [[ "${element}"x == "mariadb"x ]]; then
         RUN_MARIADB=1
     elif [[ "${element}"x == "db2"x ]]; then
@@ -346,8 +342,6 @@ start_clickhouse() {
 start_kafka() {
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
     cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
@@ -378,18 +372,6 @@ start_hive2() {
     # hive2
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     #default value
-    IP_HOST="127.0.0.1"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-
-    if [ "_${IP_HOST}" == "_" ]; then
-        echo "please set IP_HOST according to your actual situation"
-        exit -1
-    fi
-    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-
-    # generate hive-2x.yaml
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-2x.yaml
@@ -404,18 +386,6 @@ start_hive2() {
 start_hive3() {
     # hive3
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
-    #default value
-    IP_HOST="127.0.0.1"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-    if [ "_${IP_HOST}" == "_" ]; then
-        echo "please set IP_HOST according to your actual situation"
-        exit -1
-    fi
-    # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    
-    # generate hive-3x.yaml
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
@@ -424,13 +394,6 @@ start_hive3() {
     sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -p ${CONTAINER_UID}hive3 -f "${ROOT}"/docker-compose/hive/hive-3x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env up --build --remove-orphans -d --wait
-    fi
-}
-
-start_spark() {
-    sudo docker compose -f "${ROOT}"/docker-compose/spark/spark.yaml down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/spark/spark.yaml up --build --remove-orphans -d
     fi
 }
 
@@ -457,104 +420,34 @@ start_iceberg() {
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
+        if [[ ! -f "${ICEBERG_DIR}/data/input/jars/iceberg-aws-bundle-1.10.0.jar" ]]; then 
+            echo "iceberg 1.10.0 jars does not exist"
+            cd "${ICEBERG_DIR}" \
+            && rm -f iceberg_1_10_0*.jars.tar.gz\
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_1_10_0.jars.tar.gz \
+            && sudo tar xzvf iceberg_1_10_0.jars.tar.gz -C "data/input/jars" \
+            && sudo rm -rf iceberg_1_10_0.jars.tar.gz
+            cd -
+        else 
+            echo "iceberg 1.10.0 jars exist, continue !"
+        fi        
+
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
     fi
 }
 
 start_hudi() {
-    # hudi
-    cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
-    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env down
+    HUDI_DIR=${ROOT}/docker-compose/hudi
+    export CONTAINER_UID=${CONTAINER_UID}
+    envsubst <"${HUDI_DIR}"/hudi.env.tpl >"${HUDI_DIR}"/hudi.env
+    set -a
+    . "${HUDI_DIR}"/hudi.env
+    set +a
+    envsubst <"${HUDI_DIR}"/hudi.yaml.tpl >"${HUDI_DIR}"/hudi.yaml
+    sudo chmod +x "${HUDI_DIR}"/scripts/init.sh
+    sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/historyserver
-        sudo mkdir "${ROOT}"/docker-compose/hudi/historyserver
-        sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
-        sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
-        if [[ ! -d "${ROOT}/docker-compose/hudi/scripts/hudi_docker_compose_attached_file" ]]; then
-            echo "Attached files does not exist, please download the https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/load/hudi/hudi_docker_compose_attached_file.zip file to the docker-compose/hudi/scripts/ directory and unzip it."
-            exit 1
-        fi
-        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
-        echo "sleep 15, wait server start"
-        sleep 15
-        docker exec -it adhoc-1 /bin/bash /var/scripts/setup_demo_container_adhoc_1.sh
-        docker exec -it adhoc-2 /bin/bash /var/scripts/setup_demo_container_adhoc_2.sh
-    fi
-}
-
-start_trino() {
-    # trino
-    trino_docker="${ROOT}"/docker-compose/trino
-    TRINO_CONTAINER_ID="${CONTAINER_UID}trino"
-    NAMENODE_CONTAINER_ID="${CONTAINER_UID}namenode"
-    HIVE_METASTORE_CONTAINER_ID=${CONTAINER_UID}hive-metastore
-    for file in trino_hive.yaml trino_hive.env gen_env.sh hive.properties; do
-        cp "${trino_docker}/$file.tpl" "${trino_docker}/$file"
-        if [[ $file != "hive.properties" ]]; then
-            sed -i "s/doris--/${CONTAINER_UID}/g" "${trino_docker}/$file"
-        fi
-    done
-
-    bash "${trino_docker}"/gen_env.sh
-    sudo docker compose -f "${trino_docker}"/trino_hive.yaml --env-file "${trino_docker}"/trino_hive.env down
-    if [[ "${STOP}" -ne 1 ]]; then
-        sudo sed -i "/${NAMENODE_CONTAINER_ID}/d" /etc/hosts
-        sudo docker compose -f "${trino_docker}"/trino_hive.yaml --env-file "${trino_docker}"/trino_hive.env up --build --remove-orphans -d
-        sudo echo "127.0.0.1 ${NAMENODE_CONTAINER_ID}" >>/etc/hosts
-        sleep 20s
-        hive_metastore_ip=$(docker inspect --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${HIVE_METASTORE_CONTAINER_ID})
-
-        if [ -z "$hive_metastore_ip" ]; then
-            echo "Failed to get Hive Metastore IP address" >&2
-            exit 1
-        else
-            echo "Hive Metastore IP address is: $hive_metastore_ip"
-        fi
-
-        sed -i "s/metastore_ip/${hive_metastore_ip}/g" "${trino_docker}"/hive.properties
-        docker cp "${trino_docker}"/hive.properties "${CONTAINER_UID}trino":/etc/trino/catalog/
-
-        # trino load hive catalog need restart server
-        max_retries=3
-
-        function control_container() {
-            max_retries=3
-            operation=$1
-            expected_status=$2
-            retries=0
-
-            while [ $retries -lt $max_retries ]; do
-                status=$(docker inspect --format '{{.State.Running}}' ${TRINO_CONTAINER_ID})
-                if [ "${status}" == "${expected_status}" ]; then
-                    echo "Container ${TRINO_CONTAINER_ID} has ${operation}ed successfully."
-                    break
-                else
-                    echo "Waiting for container ${TRINO_CONTAINER_ID} to ${operation}..."
-                    sleep 5s
-                    ((retries++))
-                fi
-                sleep 3s
-            done
-
-            if [ $retries -eq $max_retries ]; then
-                echo "${operation} operation failed to complete after $max_retries attempts."
-                exit 1
-            fi
-        }
-        # Stop the container
-        docker stop ${TRINO_CONTAINER_ID}
-        sleep 5s
-        control_container "stop" "false"
-
-        # Start the container
-        docker start ${TRINO_CONTAINER_ID}
-        control_container "start" "true"
-
-        # waite trino init
-        sleep 20s
-        # execute create table sql
-        docker exec -it ${TRINO_CONTAINER_ID} /bin/bash -c 'trino -f /scripts/create_trino_table.sql'
+        sudo docker compose -f "${HUDI_DIR}"/hudi.yaml --env-file "${HUDI_DIR}"/hudi.env up -d --wait
     fi
 }
 
@@ -605,9 +498,6 @@ start_lakesoul() {
 
 start_kerberos() {
     echo "RUN_KERBEROS"
-    eth_name=$(ifconfig -a | grep -E "^eth[0-9]" | sort -k1.4n | awk -F ':' '{print $1}' | head -n 1)
-    IP_HOST=$(ifconfig "${eth_name}" | grep inet | grep -v 127.0.0.1 | grep -v inet6 | awk '{print $2}' | tr -d "addr:" | head -n 1)
-    export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
@@ -630,7 +520,7 @@ start_kerberos() {
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
         sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up --remove-orphans --wait -d
-        sudo rm -f /keytabs
+        sudo rm -df /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
@@ -770,11 +660,6 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     pids["hive3"]=$!
 fi
 
-if [[ "${RUN_SPARK}" -eq 1 ]]; then
-    start_spark > start_spark.log 2>&1 &
-    pids["spark"]=$!
-fi
-
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     start_iceberg > start_iceberg.log 2>&1 &
     pids["iceberg"]=$!
@@ -788,11 +673,6 @@ fi
 if [[ "${RUN_HUDI}" -eq 1 ]]; then
     start_hudi > start_hudi.log 2>&1 &
     pids["hudi"]=$!
-fi
-
-if [[ "${RUN_TRINO}" -eq 1 ]]; then
-    start_trino > start_trino.log 2>&1 &
-    pids["trino"]=$!
 fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then

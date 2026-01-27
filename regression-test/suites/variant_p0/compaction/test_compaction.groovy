@@ -57,6 +57,8 @@ suite("test_compaction_variant") {
             """
         }
 
+        sql """ set default_variant_enable_doc_mode = false; """
+
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
         for (int i = 0; i < key_types.size(); i++) {
@@ -89,7 +91,7 @@ suite("test_compaction_variant") {
             def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
             // trigger compactions for all tablets in ${tableName}
-            trigger_and_wait_compaction(tableName, "cumulative")
+            trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
             int rowCount = 0
             for (def tablet in tablets) {

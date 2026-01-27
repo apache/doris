@@ -92,7 +92,7 @@ struct AggregateFunctionTraits<AggregateOperation::AVERAGE> {
                 Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : TYPE_DOUBLE;
         using AggregateDataType = AggregateFunctionAvgData<ResultType>;
         using Function = AggregateFunctionAvg<Element, ResultType, AggregateDataType>;
-        static_assert(std::is_same_v<typename PrimitiveTypeTraits<ResultType>::ColumnItemType,
+        static_assert(std::is_same_v<typename PrimitiveTypeTraits<ResultType>::CppType,
                                      typename Function::ResultType>,
                       "ResultType doesn't match.");
     };

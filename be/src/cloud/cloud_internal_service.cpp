@@ -47,6 +47,8 @@ bvar::LatencyRecorder g_file_cache_get_by_peer_server_latency(
         "file_cache_get_by_peer_server_latency");
 bvar::LatencyRecorder g_file_cache_get_by_peer_read_cache_file_latency(
         "file_cache_get_by_peer_read_cache_file_latency");
+bvar::LatencyRecorder g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency(
+        "cloud_internal_service_get_file_cache_meta_by_tablet_id_latency");
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
@@ -95,13 +97,26 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         LOG_WARNING("try to access tablet file cache meta, but file cache not enabled");
         return;
     }
-    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size();
+    auto begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count();
+    std::ostringstream tablet_ids_stream;
+    int count = 0;
+    for (const auto& tablet_id : request->tablet_ids()) {
+        tablet_ids_stream << tablet_id << ", ";
+        count++;
+        if (count >= 10) {
+            break;
+        }
+    }
+    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size()
+              << ", first 10 tablet_ids=[ " << tablet_ids_stream.str() << " ]";
     for (const auto& tablet_id : request->tablet_ids()) {
         auto res = _engine.tablet_mgr().get_tablet(tablet_id);
         if (!res.has_value()) {
             LOG(ERROR) << "failed to get tablet: " << tablet_id
                        << " err msg: " << res.error().msg();
-            return;
+            continue;
         }
         CloudTabletSPtr tablet = std::move(res.value());
         auto st = tablet->sync_rowsets();
@@ -166,7 +181,13 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             }
         }
     }
-    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+    auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch())
+                          .count();
+    g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency << (end_ts - begin_ts);
+    LOG(INFO) << "get file cache meta by tablet ids = [ " << tablet_ids_stream.str() << " ] took "
+              << end_ts - begin_ts << " us";
+    VLOG_DEBUG << "get file cache meta by tablet id request=" << request->DebugString()
                << ", response=" << response->DebugString();
 }
 
@@ -434,82 +455,94 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         }
 
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
-            auto segment_size = rs_meta.segment_file_size(segment_id);
-            auto download_done = [=, version = rs_meta.version()](Status st) {
-                DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
-                    auto sleep_time = dp->param<int>("sleep", 3);
-                    LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
-                             rowset_id.to_string(), version.to_string(), sleep_time);
-                    std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
-                });
-                DBUG_EXECUTE_IF(
-                        "CloudInternalServiceImpl::warm_up_rowset.download_segment.inject_error", {
-                            st = Status::InternalError("injected error");
-                            LOG_INFO("[verbose] inject error, tablet={}, rowset={}, st={}",
-                                     tablet_id, rowset_id.to_string(), st.to_string());
-                        });
-                if (st.ok()) {
-                    g_file_cache_event_driven_warm_up_finished_segment_num << 1;
-                    g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
-                    int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                                             std::chrono::system_clock::now().time_since_epoch())
-                                             .count();
-                    g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
-                    g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
-                    g_file_cache_warm_up_rowset_handle_to_finish_latency << (now_ts - handle_ts);
-                    if (request_ts > 0 &&
-                        now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
-                        g_file_cache_warm_up_rowset_slow_count << 1;
-                        LOG(INFO) << "warm up rowset took " << now_ts - request_ts
-                                  << " us, tablet_id: " << tablet_id
-                                  << ", rowset_id: " << rowset_id.to_string()
-                                  << ", segment_id: " << segment_id;
+            if (!config::file_cache_enable_only_warm_up_idx) {
+                auto segment_size = rs_meta.segment_file_size(segment_id);
+                auto download_done = [=, version = rs_meta.version()](Status st) {
+                    DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
+                        auto sleep_time = dp->param<int>("sleep", 3);
+                        LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
+                                 rowset_id.to_string(), version.to_string(), sleep_time);
+                        std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+                    });
+                    DBUG_EXECUTE_IF(
+                            "CloudInternalServiceImpl::warm_up_rowset.download_segment.inject_"
+                            "error",
+                            {
+                                st = Status::InternalError("injected error");
+                                LOG_INFO("[verbose] inject error, tablet={}, rowset={}, st={}",
+                                         tablet_id, rowset_id.to_string(), st.to_string());
+                            });
+                    if (st.ok()) {
+                        g_file_cache_event_driven_warm_up_finished_segment_num << 1;
+                        g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
+                        int64_t now_ts =
+                                std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+                        g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
+                        g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
+                        g_file_cache_warm_up_rowset_handle_to_finish_latency
+                                << (now_ts - handle_ts);
+                        if (request_ts > 0 &&
+                            now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+                            g_file_cache_warm_up_rowset_slow_count << 1;
+                            LOG(INFO) << "warm up rowset took " << now_ts - request_ts
+                                      << " us, tablet_id: " << tablet_id
+                                      << ", rowset_id: " << rowset_id.to_string()
+                                      << ", segment_id: " << segment_id;
+                        }
+                        if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+                            g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
+                            LOG(INFO) << "warm up rowset (handle to finish) took "
+                                      << now_ts - handle_ts << " us, tablet_id: " << tablet_id
+                                      << ", rowset_id: " << rowset_id.to_string()
+                                      << ", segment_id: " << segment_id;
+                        }
+                    } else {
+                        g_file_cache_event_driven_warm_up_failed_segment_num << 1;
+                        g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
+                        LOG(WARNING)
+                                << "download segment failed, tablet_id: " << tablet_id
+                                << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
                     }
-                    if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
-                        g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
-                        LOG(INFO) << "warm up rowset (handle to finish) took " << now_ts - handle_ts
-                                  << " us, tablet_id: " << tablet_id
-                                  << ", rowset_id: " << rowset_id.to_string()
-                                  << ", segment_id: " << segment_id;
+                    if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
+                                                               rowset_id, st, 1, 0)
+                                .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
+                        VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
+                                   << rowset_id.to_string() << ") completed";
                     }
-                } else {
-                    g_file_cache_event_driven_warm_up_failed_segment_num << 1;
-                    g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
-                    LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
-                                 << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
-                }
-                if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                           rowset_id, st, 1, 0)
-                            .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
-                    VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
-                               << rowset_id.to_string() << ") completed";
-                }
+                    if (wait) {
+                        wait->signal();
+                    }
+                };
+
+                // Use rs_meta.fs() instead of storage_resource.value()->fs to support packed files.
+                // PackedFileSystem wrapper in rs_meta.fs() handles the index_map lookup and
+                // reads from the correct packed file.
+                io::DownloadFileMeta download_meta {
+                        .path = storage_resource.value()->remote_segment_path(rs_meta, segment_id),
+                        .file_size = segment_size,
+                        .offset = 0,
+                        .download_size = segment_size,
+                        .file_system = rs_meta.fs(),
+                        .ctx = {.is_index_data = false,
+                                .expiration_time = expiration_time,
+                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                .is_warmup = true},
+                        .download_done = std::move(download_done),
+                };
+
+                g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
+                g_file_cache_event_driven_warm_up_submitted_segment_size << segment_size;
                 if (wait) {
-                    wait->signal();
+                    wait->add_count();
                 }
-            };
 
-            io::DownloadFileMeta download_meta {
-                    .path = storage_resource.value()->remote_segment_path(rs_meta, segment_id),
-                    .file_size = segment_size,
-                    .offset = 0,
-                    .download_size = segment_size,
-                    .file_system = storage_resource.value()->fs,
-                    .ctx = {.is_index_data = false,
-                            .expiration_time = expiration_time,
-                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                            .is_warmup = true},
-                    .download_done = std::move(download_done),
-            };
-            g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
-            g_file_cache_event_driven_warm_up_submitted_segment_size << segment_size;
-            if (wait) {
-                wait->add_count();
+                _engine.file_cache_block_downloader().submit_download_task(download_meta);
             }
-            _engine.file_cache_block_downloader().submit_download_task(download_meta);
 
+            // Use rs_meta.fs() to support packed files for inverted index download.
             auto download_inverted_index = [&, tablet](std::string index_path, uint64_t idx_size) {
-                auto storage_resource = rs_meta.remote_storage_resource();
                 auto download_done = [=, version = rs_meta.version()](Status st) {
                     DBUG_EXECUTE_IF(
                             "CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
@@ -565,7 +598,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                 io::DownloadFileMeta download_meta {
                         .path = io::Path(index_path),
                         .file_size = static_cast<int64_t>(idx_size),
-                        .file_system = storage_resource.value()->fs,
+                        .file_system = rs_meta.fs(),
                         .ctx = {.is_index_data = false, // DORIS-20877
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,

@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "udf/udf.h"
 #include "util/coding.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
@@ -1977,12 +1976,19 @@ public:
             ++src;
             uint8_t count = *src;
             ++src;
-            CHECK(count <= SET_TYPE_THRESHOLD) << "bitmap value with incorrect set count";
+            if (count > SET_TYPE_THRESHOLD) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "bitmap value with incorrect set count, count: {}", count);
+            }
             _set.reserve(count);
             for (uint8_t i = 0; i != count; ++i, src += sizeof(uint64_t)) {
                 _set.insert(decode_fixed64_le(reinterpret_cast<const uint8_t*>(src)));
             }
-            CHECK_EQ(count, _set.size()) << "bitmap value with incorrect set count";
+            if (_set.size() != count) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "bitmap value with incorrect set count, count: {}, set size: {}",
+                                count, _set.size());
+            }
 
             if (!config::enable_set_in_bitmap_value) {
                 _prepare_bitmap_for_write();

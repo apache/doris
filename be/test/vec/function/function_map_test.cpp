@@ -22,6 +22,7 @@
 
 #include "function_test_util.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_map.h"
 

@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -299,7 +299,7 @@ Dorisは、Connectorを介してSpark/FlinkがDorisに保存されているデ�
 
 * Apache Doris公式ウェブサイト - [サイト](https://doris.apache.org)
 * 開発者メーリングリスト - <dev@doris.apache.org>。メールを<dev-subscribe@doris.apache.org>に送信し、返信に従ってメーリングリストを購読してください。
-* Slackチャンネル - [Slackに参加](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slackチャンネル - [Slackに参加](https://doris.apache.org/slack)
 * Twitter - [@doris_apacheをフォロー](https://twitter.com/doris_apache)
 
 

@@ -122,7 +122,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/custom_allocator.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -920,8 +919,10 @@ void Tablet::delete_expired_stale_rowset() {
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
     }
-    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset",
-                    { _engine.start_delete_unused_rowset(); });
+    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset", {
+        _engine.start_delete_unused_rowset();
+        [[maybe_unused]] auto st = _engine.start_trash_sweep(nullptr);
+    });
 }
 
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
@@ -2273,7 +2274,15 @@ Status Tablet::_follow_cooldowned_data() {
         LOG(INFO) << "cannot read cooldown meta: " << st;
         return Status::InternalError<false>("cannot read cooldown meta");
     }
-    DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
+
+    if (cooldown_meta_pb.rs_metas_size() <= 0) {
+        LOG(WARNING)
+                << "Cooldown meta file exists but rs_metas is empty for tablet " << tablet_id()
+                << ". Cooldown meta id: " << cooldown_meta_pb.cooldown_meta_id()
+                << ". This may indicate a cooldown meta synchronization issue or an invalid file.";
+        return Status::InternalError<false>("Cooldown meta rs_metas is empty");
+    }
+
     if (_tablet_meta->cooldown_meta_id() == cooldown_meta_pb.cooldown_meta_id()) {
         // cooldowned rowsets are same, no need to follow
         return Status::OK();

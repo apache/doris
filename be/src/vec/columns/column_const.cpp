@@ -101,7 +101,7 @@ MutableColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) con
 }
 
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
-                                  Permutation& res) const {
+                                  HybridSorter& /*sorter*/, Permutation& res) const {
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
         res[i] = i;
@@ -136,6 +136,14 @@ std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept
 void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
                                           const std::initializer_list<size_t>& parameters,
                                           Block& block, const ColumnNumbers& arg_indexes) {
+    default_preprocess_parameter_columns(
+            columns, col_const, std::span<const size_t>(parameters.begin(), parameters.end()),
+            block, arg_indexes);
+}
+
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::span<const size_t>& parameters, Block& block,
+                                          const ColumnNumbers& arg_indexes) {
     if (std::all_of(parameters.begin(), parameters.end(),
                     [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const

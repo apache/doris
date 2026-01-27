@@ -83,6 +83,29 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
+PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
+        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+        StringRef* constant_val, const std::set<std::string> fn_name) const {
+    if (!fn_name.contains(fn_call->fn().name.function_name)) {
+        return PushDownType::UNACCEPTABLE;
+    }
+    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
+    const auto& children = fn_call->children();
+    DCHECK(children.size() == 2);
+    DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
+    if (children[1]->is_constant()) {
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
+        const auto* const_column =
+                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+        *constant_val = const_column->get_data_at(0);
+        return PushDownType::ACCEPTABLE;
+    } else {
+        // only handle constant value
+        return PushDownType::UNACCEPTABLE;
+    }
+}
+
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // Rows read from storage.
@@ -196,6 +219,7 @@ Status OlapScanLocalState::_init_profile() {
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
 
+    _statistics_collect_timer = ADD_TIMER(_scanner_profile, "StatisticsCollectTime");
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
     _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
@@ -333,6 +357,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "VariantSubtreeHierarchicalIterCount", TUnit::UNIT);
     _variant_subtree_sparse_iter_count =
             ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
+    _variant_doc_value_column_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantDocValueColumnIterCount", TUnit::UNIT);
 
     _condition_cache_hit_segment_counter =
             ADD_COUNTER(_segment_profile, "ConditionCacheSegmentHit", TUnit::UNIT);
@@ -426,19 +452,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
-
-    if (!_conjuncts.empty() && _state->enable_profile()) {
-        std::string message;
-        for (auto& conjunct : _conjuncts) {
-            if (conjunct->root()) {
-                if (!message.empty()) {
-                    message += ", ";
-                }
-                message += conjunct->root()->debug_string();
-            }
-        }
-        custom_profile()->add_info_string("RemainedDownPredicates", message);
-    }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
     for (auto uid : p._olap_scan_node.output_column_unique_ids) {
@@ -810,23 +823,6 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
     }
 }
 
-static std::string predicates_to_string(
-        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates) {
-    fmt::memory_buffer debug_string_buffer;
-    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
-        if (predicates.empty()) {
-            continue;
-        }
-        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
-        for (const auto& predicate : predicates) {
-            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
-        }
-        fmt::format_to(debug_string_buffer, "] ");
-    }
-    return fmt::to_string(debug_string_buffer);
-}
-
 static std::string tablets_id_to_string(
         const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
     if (scan_ranges.empty()) {
@@ -898,21 +894,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                auto key = iter->first;
-                                _slot_id_to_value_range.erase(key);
-
-                                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
-                                for (const auto& it : _slot_id_to_predicates[key]) {
-                                    if (it->type() == PredicateType::NOT_IN_LIST ||
-                                        it->type() == PredicateType::NE) {
-                                        new_predicates.push_back(it);
-                                    }
-                                }
-                                if (new_predicates.empty()) {
-                                    _slot_id_to_predicates.erase(key);
-                                } else {
-                                    _slot_id_to_predicates[key] = new_predicates;
-                                }
+                                _slot_id_to_value_range.erase(iter->first);
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -936,8 +918,6 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
     }
 
     if (state()->enable_profile()) {
-        custom_profile()->add_info_string("PushDownPredicates",
-                                          predicates_to_string(_slot_id_to_predicates));
         custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
         custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }

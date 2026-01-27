@@ -135,10 +135,10 @@ void ColumnMap::get(size_t n, Field& res) const {
 
 void ColumnMap::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_MAP);
-    const auto& map = doris::vectorized::get<const Map&>(x);
+    const auto& map = x.get<TYPE_MAP>();
     CHECK_EQ(map.size(), 2);
-    const auto& k_f = doris::vectorized::get<const Array&>(map[0]);
-    const auto& v_f = doris::vectorized::get<const Array&>(map[1]);
+    const auto& k_f = map[0].get<TYPE_ARRAY>();
+    const auto& v_f = map[1].get<TYPE_ARRAY>();
 
     size_t element_size = k_f.size();
 
@@ -741,7 +741,7 @@ struct ColumnMap::less {
 };
 
 void ColumnMap::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                IColumn::Permutation& res) const {
+                                HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -749,9 +749,9 @@ void ColumnMap::get_permutation(bool reverse, size_t limit, int nan_direction_hi
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), ColumnMap::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnMap::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), ColumnMap::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnMap::less<true>(*this, nan_direction_hint));
     }
 }
 

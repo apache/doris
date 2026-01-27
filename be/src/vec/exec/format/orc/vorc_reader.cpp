@@ -53,6 +53,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "olap/id_manager.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/utils.h"
 #include "orc/Exceptions.hh"
 #include "orc/Int128.hh"
@@ -1364,7 +1365,6 @@ Status OrcReader::_fill_partition_columns(
 Status OrcReader::_fill_missing_columns(
         Block* block, uint64_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    std::set<size_t> positions_to_erase;
     for (const auto& kv : missing_columns) {
         if (!_col_name_to_block_idx->contains(kv.first)) {
             return Status::InternalError("Failed to find missing column: {}, block: {}", kv.first,
@@ -1379,16 +1379,13 @@ Status OrcReader::_fill_missing_columns(
         } else {
             // fill with default value
             const auto& ctx = kv.second;
-            auto origin_column_num = block->columns();
-            int result_column_id = -1;
             // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            if (!is_origin_column) {
+            ColumnPtr result_column_ptr;
+            RETURN_IF_ERROR(ctx->execute(block, result_column_ptr));
+            if (result_column_ptr->use_count() == 1) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto result_column_ptr = block->get_by_position(result_column_id).column;
                 auto mutable_column = result_column_ptr->assume_mutable();
                 mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
@@ -1399,11 +1396,9 @@ Status OrcReader::_fill_missing_columns(
                 block->replace_by_position(
                         (*_col_name_to_block_idx)[kv.first],
                         is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                positions_to_erase.insert(result_column_id);
             }
         }
     }
-    block->erase(positions_to_erase);
     return Status::OK();
 }
 
@@ -1498,6 +1493,11 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
         return DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_CHAR, true, 0, 0, cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::TIMESTAMP_INSTANT:
+        if (_scan_params.__isset.enable_mapping_timestamp_tz &&
+            _scan_params.enable_mapping_timestamp_tz) {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TIMESTAMPTZ,
+                                                                true, 0, 6);
+        }
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
                                                             6);
     case orc::TypeKind::LIST: {
@@ -1858,6 +1858,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         //                : std::make_unique<StringVectorBatch>(capacity, memoryPool);
         return _decode_string_column<is_filter>(col_name, data_column, orc_column_type->getKind(),
                                                 cvb, num_values);
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return _decode_timestamp_tz_column<is_filter>(col_name, data_column, cvb, num_values);
     case PrimitiveType::TYPE_ARRAY: {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
             return Status::InternalError(
@@ -2059,7 +2061,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     default:
         break;
     }
-    return Status::InternalError("Unsupported type for column '{}'", col_name);
+    return Status::InternalError("Unsupported type {} for column '{}'", data_type->get_name(),
+                                 col_name);
 }
 
 template <bool is_filter>

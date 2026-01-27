@@ -19,6 +19,8 @@
 
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
+#include <bthread/unstable.h>
+#include <butil/time.h>
 #include <bvar/bvar.h>
 #include <bvar/reducer.h>
 
@@ -128,6 +130,9 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
                                                bool is_index, std::function<void(Status)> done_cb) {
+    VLOG_DEBUG << "submit warm up task for file: " << path << ", file_size: " << file_size
+               << ", expiration_time: " << expiration_time
+               << ", is_index: " << (is_index ? "true" : "false");
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
         if (!st.ok()) [[unlikely]] {
@@ -244,20 +249,25 @@ void CloudWarmUpManager::handle_jobs() {
                 }
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
                     // 1st. download segment files
-                    submit_download_tasks(
-                            storage_resource.value()->remote_segment_path(*rs, seg_id),
-                            rs->segment_file_size(cast_set<int>(seg_id)),
-                            storage_resource.value()->fs, expiration_time, wait, false,
-                            [tablet, rs, seg_id](Status st) {
-                                VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
-                                           << seg_id << " completed";
-                                if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB,
-                                                                           rs->rowset_id(), st, 1,
-                                                                           0)
-                                            .trigger_source == WarmUpTriggerSource::JOB) {
-                                    VLOG_DEBUG << "warmup rowset " << rs->version() << " completed";
-                                }
-                            });
+                    // Use rs->fs() instead of storage_resource.value()->fs to support packed
+                    // files. PackedFileSystem wrapper in RowsetMeta::fs() handles the index_map
+                    // lookup and reads from the correct packed file.
+                    if (!config::file_cache_enable_only_warm_up_idx) {
+                        submit_download_tasks(
+                                storage_resource.value()->remote_segment_path(*rs, seg_id),
+                                rs->segment_file_size(cast_set<int>(seg_id)), rs->fs(),
+                                expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
+                                    VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
+                                               << seg_id << " completed";
+                                    if (tablet->complete_rowset_segment_warmup(
+                                                      WarmUpTriggerSource::JOB, rs->rowset_id(), st,
+                                                      1, 0)
+                                                .trigger_source == WarmUpTriggerSource::JOB) {
+                                        VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                   << " completed";
+                                    }
+                                });
+                    }
 
                     // 2nd. download inverted index files
                     int64_t file_size = -1;
@@ -291,8 +301,8 @@ void CloudWarmUpManager::handle_jobs() {
                             tablet->update_rowset_warmup_state_inverted_idx_num(
                                     WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
                             submit_download_tasks(
-                                    idx_path, file_size, storage_resource.value()->fs,
-                                    expiration_time, wait, true, [=](Status st) {
+                                    idx_path, file_size, rs->fs(), expiration_time, wait, true,
+                                    [=](Status st) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";
@@ -314,8 +324,8 @@ void CloudWarmUpManager::handle_jobs() {
                             tablet->update_rowset_warmup_state_inverted_idx_num(
                                     WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
                             submit_download_tasks(
-                                    idx_path, file_size, storage_resource.value()->fs,
-                                    expiration_time, wait, true, [=](Status st) {
+                                    idx_path, file_size, rs->fs(), expiration_time, wait, true,
+                                    [=](Status st) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";
@@ -795,8 +805,37 @@ void CloudWarmUpManager::record_balanced_tablet(int64_t tablet_id, const std::st
     meta.brpc_port = brpc_port;
     shard.tablets.emplace(tablet_id, std::move(meta));
     g_balance_tablet_be_mapping_size << 1;
+    schedule_remove_balanced_tablet(tablet_id);
     VLOG_DEBUG << "Recorded balanced warm up cache tablet: tablet_id=" << tablet_id
                << ", host=" << host << ":" << brpc_port;
+}
+
+void CloudWarmUpManager::schedule_remove_balanced_tablet(int64_t tablet_id) {
+    // Use std::make_unique to avoid raw pointer allocation
+    auto tablet_id_ptr = std::make_unique<int64_t>(tablet_id);
+    unsigned long expired_ms = g_tablet_report_inactive_duration_ms;
+    if (doris::config::cache_read_from_peer_expired_seconds > 0 &&
+        doris::config::cache_read_from_peer_expired_seconds <=
+                g_tablet_report_inactive_duration_ms / 1000) {
+        expired_ms = doris::config::cache_read_from_peer_expired_seconds * 1000;
+    }
+    bthread_timer_t timer_id;
+    // ATTN: The timer callback will reclaim ownership of the tablet_id_ptr, so we need to release it after the timer is added.
+    if (const int rc = bthread_timer_add(&timer_id, butil::milliseconds_from_now(expired_ms),
+                                         clean_up_expired_mappings, tablet_id_ptr.get());
+        rc == 0) {
+        tablet_id_ptr.release();
+    } else {
+        LOG(WARNING) << "Fail to add timer for clean up expired mappings for tablet_id="
+                     << tablet_id << " rc=" << rc;
+    }
+}
+
+void CloudWarmUpManager::clean_up_expired_mappings(void* arg) {
+    std::unique_ptr<int64_t> tid(static_cast<int64_t*>(arg));
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.remove_balanced_tablet(*tid);
+    VLOG_DEBUG << "Removed expired balanced warm up cache tablet: tablet_id=" << *tid;
 }
 
 std::optional<std::pair<std::string, int32_t>> CloudWarmUpManager::get_balanced_tablet_info(

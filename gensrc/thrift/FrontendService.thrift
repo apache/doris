@@ -1331,6 +1331,7 @@ struct TReplacePartitionRequest {
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
+    7: optional Types.TUniqueId query_id
 }
 
 struct TReplacePartitionResult {
@@ -1550,6 +1551,7 @@ struct TRoutineLoadJob {
     18: optional string user_name
     19: optional i32 current_abort_task_num
     20: optional bool is_abnormal_pause
+    21: optional string compute_group
 }
 
 struct TFetchRoutineLoadJobResult {

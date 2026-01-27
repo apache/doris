@@ -28,6 +28,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -53,13 +54,14 @@ import java.util.concurrent.ExecutorService;
 public class IcebergMetadataCache {
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataCache.class);
     private final ExecutorService executor;
-    private final IcebergExternalCatalog catalog;
+    private final ExternalCatalog catalog;
     private LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
     private LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
     private LoadingCache<IcebergMetadataCacheKey, IcebergSnapshotCacheValue> snapshotCache;
     private LoadingCache<IcebergMetadataCacheKey, View> viewCache;
+    private IcebergManifestCache manifestCache;
 
-    public IcebergMetadataCache(IcebergExternalCatalog catalog, ExecutorService executor) {
+    public IcebergMetadataCache(ExternalCatalog catalog, ExecutorService executor) {
         this.executor = executor;
         this.catalog = catalog;
         init();
@@ -101,6 +103,15 @@ public class IcebergMetadataCache {
                 null);
         this.snapshotCache = snapshotCacheFactory.buildCache(this::loadSnapshot, executor);
         this.viewCache = tableCacheFactory.buildCache(this::loadView, executor);
+
+        long manifestCacheCapacityMb = NumberUtils.toLong(
+                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY_MB),
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY_MB);
+        manifestCacheCapacityMb = Math.max(manifestCacheCapacityMb, 0L);
+        long manifestCacheTtlSec = NumberUtils.toLong(
+                catalog.getProperties().get(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND),
+                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND);
+        this.manifestCache = new IcebergManifestCache(manifestCacheCapacityMb, manifestCacheTtlSec);
     }
 
     public Table getIcebergTable(ExternalTable dorisTable) {
@@ -115,6 +126,10 @@ public class IcebergMetadataCache {
     public IcebergSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(dorisTable.getOrBuildNameMapping());
         return snapshotCache.get(key);
+    }
+
+    public IcebergManifestCache getManifestCache() {
+        return manifestCache;
     }
 
     @NotNull
@@ -200,6 +215,7 @@ public class IcebergMetadataCache {
         viewCache.asMap().entrySet().stream()
                 .filter(entry -> entry.getKey().nameMapping.getCtlId() == catalogId)
                 .forEach(entry -> viewCache.invalidate(entry.getKey()));
+        manifestCache.invalidateAll();
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {

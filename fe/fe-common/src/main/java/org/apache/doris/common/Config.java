@@ -1382,12 +1382,6 @@ public class Config extends ConfigBase {
     public static boolean check_java_version = true;
 
     /**
-     * it can't auto-resume routine load job as long as one of the backends is down
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_tolerable_backend_down_num = 0;
-
-    /**
      * a period for auto resume routine load
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1822,7 +1816,7 @@ public class Config extends ConfigBase {
             "内部表的默认压缩类型。支持的值有：LZ4, LZ4F, LZ4HC, ZLIB, ZSTD, SNAPPY, NONE。",
             "Default compression type for internal tables. Supported values: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD,"
             + " SNAPPY, NONE."})
-    public static String default_compression_type = "LZ4F";
+    public static String default_compression_type = "ZSTD";
 
     /*
      * The job scheduling interval of the schema change handler.
@@ -2246,7 +2240,7 @@ public class Config extends ConfigBase {
      * The default connection timeout for hive metastore.
      * hive.metastore.client.socket.timeout
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false)
     public static long hive_metastore_client_timeout_second = 10;
 
     /**
@@ -3413,9 +3407,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static double cloud_balance_tablet_percent_per_run = 0.05;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static int cloud_min_balance_tablet_num_per_run = 2;
-
     @ConfField(mutable = true, masterOnly = true, description = {"指定存算分离模式下所有 Compute group 的扩缩容预热方式。"
             + "without_warmup: 直接修改 tablet 分片映射，首次读从 S3 拉取，均衡最快但性能波动最大；"
             + "async_warmup: 异步预热，尽力而为拉取 cache，均衡较快但可能 cache miss；"
@@ -3436,6 +3427,20 @@ public class Config extends ConfigBase {
             + "to set balance type at compute group level, compute group level configuration has higher priority"},
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
+            + "同一个host内预热批次的最大tablet个数，默认10", "The max number of tablets per host "
+            + "when batching warm-up requests during cloud tablet rebalancing, default 10"})
+    public static int cloud_warm_up_batch_size = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡时，"
+            + "预热批次最长等待时间，单位毫秒，默认50ms", "Maximum wait time in milliseconds before a "
+            + "pending warm-up batch is flushed, default 50ms"})
+    public static int cloud_warm_up_batch_flush_interval_ms = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"云上tablet均衡预热rpc异步线程池大小，默认4",
+        "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
+    public static int cloud_warm_up_rpc_async_pool_size = 4;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -3679,7 +3684,7 @@ public class Config extends ConfigBase {
                     + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
     public static String block_sql_ast_names = "";
 
-    public static long meta_service_rpc_reconnect_interval_ms = 5000;
+    public static long meta_service_rpc_reconnect_interval_ms = 100;
 
     public static long meta_service_rpc_retry_cnt = 10;
 
@@ -3765,6 +3770,19 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static String aws_credentials_provider_version = "v2";
+
+    @ConfField(mutable = true, description = {
+        "用户的单个查询能使用的 FILE_CACHE 比例的软上限（取值范围 1 到 100），100表示能够使用全量 FILE_CACHE",
+        "The soft upper limit of FILE_CACHE percent that a single query of a user can use, (range: 1 to 100).",
+        "100 indicate that the full FILE_CACHE capacity can be used. "
+    })
+    public static int file_cache_query_limit_max_percent = 100;
+    @ConfField(description = {
+            "AWS SDK 用于调度异步重试、超时任务以及其他后台操作的线程池大小，全局共享",
+            "The thread pool size used by the AWS SDK to schedule asynchronous retries, timeout tasks, "
+                    + "and other background operations, shared globally"
+    })
+    public static int aws_sdk_async_scheduler_thread_pool_size = 20;
 
     @ConfField(description = {
             "agent tasks 健康检查的时间间隔，默认五分钟，小于等于 0 时不做健康检查",

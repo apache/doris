@@ -148,12 +148,14 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     uint32_t new_segid = mapping->at(segid);
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
-    auto flush_func = [this, new_segid, eos, buf, header, file_type]() mutable {
-        signal::set_signal_task_id(_load_id);
+    auto self = shared_from_this();
+    auto flush_func = [self, new_segid, eos, buf, header, file_type]() mutable {
+        signal::set_signal_task_id(self->_load_id);
         g_load_stream_flush_running_threads << -1;
-        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
+        auto st =
+                self->_load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (!st.ok() && !config::is_cloud_mode()) {
-            auto res = ExecEnv::get_tablet(_id);
+            auto res = ExecEnv::get_tablet(self->_id);
             TabletSharedPtr tablet =
                     res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
             if (tablet) {
@@ -164,7 +166,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             DBUG_EXECUTE_IF("TabletStream.append_data.unknown_file_type",
                             { file_type = static_cast<FileType>(-1); });
             if (file_type == FileType::SEGMENT_FILE || file_type == FileType::INVERTED_INDEX_FILE) {
-                st = _load_stream_writer->close_writer(new_segid, file_type);
+                st = self->_load_stream_writer->close_writer(new_segid, file_type);
             } else {
                 st = Status::InternalError(
                         "appent data failed, file type error, file type = {}, "
@@ -175,8 +177,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         DBUG_EXECUTE_IF("TabletStream.append_data.append_failed",
                         { st = Status::InternalError("fault injection"); });
         if (!st.ok()) {
-            _status.update(st);
-            LOG(WARNING) << "write data failed " << st << ", " << *this;
+            self->_status.update(st);
+            LOG(WARNING) << "write data failed " << st << ", " << *self;
         }
     };
     auto load_stream_flush_token_max_tasks = config::load_stream_flush_token_max_tasks;
@@ -248,14 +250,15 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto add_segment_func = [this, new_segid, stat]() {
-        signal::set_signal_task_id(_load_id);
-        auto st = _load_stream_writer->add_segment(new_segid, stat);
+    auto self = shared_from_this();
+    auto add_segment_func = [self, new_segid, stat]() {
+        signal::set_signal_task_id(self->_load_id);
+        auto st = self->_load_stream_writer->add_segment(new_segid, stat);
         DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
                         { st = Status::InternalError("fault injection"); });
         if (!st.ok()) {
-            _status.update(st);
-            LOG(INFO) << "add segment failed " << *this;
+            self->_status.update(st);
+            LOG(INFO) << "add segment failed " << *self;
         }
     };
     Status st = Status::OK();
@@ -275,8 +278,9 @@ Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
     std::unique_lock<bthread::Mutex> lock(mu);
     bthread::ConditionVariable cv;
     auto st = Status::OK();
-    auto func = [this, &mu, &cv, &st, &fn] {
-        signal::set_signal_task_id(_load_id);
+    auto self = shared_from_this();
+    auto func = [self, &mu, &cv, &st, &fn] {
+        signal::set_signal_task_id(self->_load_id);
         st = fn();
         std::lock_guard<bthread::Mutex> lock(mu);
         cv.notify_one();
@@ -712,13 +716,22 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     }
 
     switch (hdr.opcode()) {
-    case PStreamHeader::ADD_SEGMENT: // ADD_SEGMENT will be dispatched inside TabletStream
-    case PStreamHeader::APPEND_DATA: {
+    case PStreamHeader::ADD_SEGMENT: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
             _report_failure(id, st, hdr);
         } else {
+            // Report tablet load info only on ADD_SEGMENT to reduce frequency.
+            // ADD_SEGMENT is sent once per segment, while APPEND_DATA is sent
+            // for every data batch. This reduces unnecessary writes and avoids
+            // potential stream write failures when the sender is closing.
             _report_tablet_load_info(id, hdr.index_id());
+        }
+    } break;
+    case PStreamHeader::APPEND_DATA: {
+        auto st = _append_data(hdr, data);
+        if (!st.ok()) {
+            _report_failure(id, st, hdr);
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {

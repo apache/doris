@@ -27,7 +27,6 @@
 #include <memory> // for unique_ptr
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h" // Status
@@ -37,21 +36,14 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/page_cache.h"
-#include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
-#include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/json/path_in_data.h"
-
 namespace doris {
 namespace vectorized {
 class IDataType;
@@ -70,10 +62,26 @@ class Segment;
 class InvertedIndexIterator;
 class IndexFileReader;
 class IndexIterator;
+class ColumnReader;
+class ColumnIterator;
 class ColumnReaderCache;
 class ColumnMetaAccessor;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
+
+struct SparseColumnCache;
+using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
+
+// key is column path, value is the sparse column cache
+// now column path is only SPARSE_COLUMN_PATH, in the future, we can add more sparse column paths
+using PathToSparseColumnCache = std::unordered_map<std::string, SparseColumnCacheSPtr>;
+using PathToSparseColumnCacheUPtr = std::unique_ptr<PathToSparseColumnCache>;
+
+struct BinaryColumnCache;
+using BinaryColumnCacheSPtr = std::shared_ptr<BinaryColumnCache>;
+using PathToBinaryColumnCache = std::unordered_map<std::string, BinaryColumnCacheSPtr>;
+using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
+
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
@@ -95,7 +103,7 @@ public:
         return file_cache_key(_rowset_id.to_string(), _segment_id);
     }
 
-    ~Segment();
+    ~Segment() override;
 
     int64_t get_metadata_size() const override;
     void update_metadata_size();
@@ -115,7 +123,7 @@ public:
     // if variant_sparse_column_cache is nullptr, means the sparse column cache is not used
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
-                               const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                               const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
 
     Status new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,

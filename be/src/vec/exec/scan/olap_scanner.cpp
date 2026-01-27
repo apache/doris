@@ -54,7 +54,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -288,10 +288,20 @@ Status OlapScanner::prepare() {
     }
 
     if (_tablet_reader_params.score_runtime) {
+        SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+
+        io::IOContext io_ctx {
+                .reader_type = ReaderType::READER_QUERY,
+                .expiration_time = tablet->ttl_seconds(),
+                .query_id = &_state->query_id(),
+                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
+                .is_inverted_index = true,
+        };
+
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down));
+                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
     }
 
     _has_prepared = true;
@@ -424,7 +434,7 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.return_columns.push_back(index);
         }
         // expand the sequence column
-        if (tablet_schema->has_sequence_col()) {
+        if (tablet_schema->has_sequence_col() || tablet_schema->has_seq_map()) {
             bool has_replace_col = false;
             for (auto col : _return_columns) {
                 if (tablet_schema->column(col).aggregation() ==
@@ -434,9 +444,31 @@ Status OlapScanner::_init_tablet_reader_params(
                 }
             }
             if (auto sequence_col_idx = tablet_schema->sequence_col_idx();
-                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                             sequence_col_idx) == _return_columns.end()) {
+                has_replace_col && tablet_schema->has_sequence_col() &&
+                std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) ==
+                        _return_columns.end()) {
                 _tablet_reader_params.return_columns.push_back(sequence_col_idx);
+            }
+            if (has_replace_col) {
+                const auto& val_to_seq = tablet_schema->value_col_idx_to_seq_col_idx();
+                std::set<uint32_t> return_seq_columns;
+
+                for (auto col : _tablet_reader_params.return_columns) {
+                    // we need to add the necessary sequence column in _return_columns, and
+                    // Avoid adding the same seq column twice
+                    const auto val_iter = val_to_seq.find(col);
+                    if (val_iter != val_to_seq.end()) {
+                        auto seq = val_iter->second;
+                        if (std::find(_tablet_reader_params.return_columns.begin(),
+                                      _tablet_reader_params.return_columns.end(),
+                                      seq) == _tablet_reader_params.return_columns.end()) {
+                            return_seq_columns.insert(seq);
+                        }
+                    }
+                }
+                _tablet_reader_params.return_columns.insert(
+                        std::end(_tablet_reader_params.return_columns),
+                        std::begin(return_seq_columns), std::end(return_seq_columns));
             }
         }
     }
@@ -521,7 +553,7 @@ Status OlapScanner::_init_variant_columns() {
             }
         }
     }
-    schema_util::inherit_column_attributes(tablet_schema);
+    variant_util::inherit_column_attributes(tablet_schema);
     return Status::OK();
 }
 
@@ -796,6 +828,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.variant_subtree_hierarchical_iter_count);
     COUNTER_UPDATE(local_state->_variant_subtree_sparse_iter_count,
                    stats.variant_subtree_sparse_iter_count);
+    COUNTER_UPDATE(local_state->_variant_doc_value_column_iter_count,
+                   stats.variant_doc_value_column_iter_count);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),

@@ -26,7 +26,6 @@
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
-#include <climits>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -41,8 +40,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
@@ -218,7 +216,8 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 RowCache::RowCache(int64_t capacity, int num_shards)
         : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
                          LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
-                         num_shards) {}
+                         num_shards, /*element count capacity */ 0,
+                         /*enable prune*/ true, /*is lru-k*/ true) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {

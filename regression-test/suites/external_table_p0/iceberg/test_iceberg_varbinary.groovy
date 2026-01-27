@@ -149,4 +149,16 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
     qt_select19 """
         select * from test_ice_uuid_parquet_write_with_mapping order by id;
     """
+
+    qt_select21 """
+        select multi_distinct_count(col2),multi_distinct_count(col1) from test_ice_uuid_orc;
+    """
+
+    qt_select22 """
+        select multi_distinct_count(col2),multi_distinct_count(col1) from test_ice_uuid_parquet;
+    """
+
+    qt_select23 """
+        select * from binary_partitioned_table where from_hex(partition_bin)="0FF102FDFEFF";
+    """
 }

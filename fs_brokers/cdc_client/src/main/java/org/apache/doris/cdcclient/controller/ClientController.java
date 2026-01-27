@@ -27,6 +27,8 @@ import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
+
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -43,6 +45,18 @@ public class ClientController {
     private static final Logger LOG = LoggerFactory.getLogger(ClientController.class);
 
     @Autowired private PipelineCoordinator pipelineCoordinator;
+
+    /** init source reader */
+    @RequestMapping(path = "/api/initReader", method = RequestMethod.POST)
+    public Object initSourceReader(@RequestBody JobBaseConfig jobConfig) {
+        try {
+            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            return RestResponse.success("Source reader initialized successfully");
+        } catch (Exception ex) {
+            LOG.error("Failed to create reader, jobId={}", jobConfig.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
+    }
 
     /** Fetch source splits for snapshot */
     @RequestMapping(path = "/api/fetchSplits", method = RequestMethod.POST)
@@ -61,8 +75,7 @@ public class ClientController {
     @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
     public Object fetchRecords(@RequestBody FetchRecordRequest recordReq) {
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(recordReq);
-            return RestResponse.success(reader.read(recordReq));
+            return RestResponse.success(pipelineCoordinator.fetchRecords(recordReq));
         } catch (Exception ex) {
             LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
             return RestResponse.internalError(ex.getMessage());
@@ -84,6 +97,7 @@ public class ClientController {
     /** Fetch lastest end meta */
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
     public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
         SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
         return RestResponse.success(reader.getEndOffset(jobConfig));
     }
@@ -96,11 +110,20 @@ public class ClientController {
     }
 
     /** Close job */
-    @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)
-    public Object close(@PathVariable long jobId) {
+    @RequestMapping(path = "/api/close", method = RequestMethod.POST)
+    public Object close(@RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Closing job {}", jobConfig.getJobId());
         Env env = Env.getCurrentEnv();
-        env.close(jobId);
-        pipelineCoordinator.closeJob(jobId);
+        SourceReader reader = env.getReader(jobConfig);
+        reader.close(jobConfig);
+        env.close(jobConfig.getJobId());
+        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
         return RestResponse.success(true);
+    }
+
+    /** get task fail reason */
+    @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
+    public Object getFailReason(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
     }
 }

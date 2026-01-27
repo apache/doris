@@ -20,6 +20,7 @@ package org.apache.doris.system;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -83,7 +84,8 @@ public class SystemInfoService {
 
     public static final ImmutableSet<String> NEED_REPLAN_ERRORS = ImmutableSet.of(
             NO_SCAN_NODE_BACKEND_AVAILABLE_MSG,
-            ERROR_E230
+            ERROR_E230,
+            ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE.toString()
     );
 
     protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
@@ -1109,6 +1111,7 @@ public class SystemInfoService {
             return false;
         }
         for (String keyword : NEED_REPLAN_ERRORS) {
+            LOG.debug("key {}, errorMsg {}", keyword, errorMsg);
             if (errorMsg.contains(keyword)) {
                 return true;
             }

@@ -30,6 +30,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
+#include "olap/options.h"
 namespace doris {
 class TUniqueId;
 
@@ -48,6 +49,8 @@ public:
 
     Status create_file_cache(const std::string& cache_base_path,
                              FileCacheSettings file_cache_settings);
+
+    Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
 
     size_t try_release();
 
@@ -74,7 +77,7 @@ public:
     BlockFileCache* get_by_path(const UInt128Wrapper& hash);
     BlockFileCache* get_by_path(const std::string& cache_base_path);
     std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
-            const TUniqueId& query_id);
+            const TUniqueId& query_id, int file_cache_query_limit_percent);
 
     /**
      * Clears data of all file cache instances

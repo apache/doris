@@ -26,6 +26,7 @@
 
 #include "common/cast_set.h"
 #include "vec/common/sip_hash.h"
+#include "vec/common/variant_util.h"
 
 namespace doris::vectorized {
 
@@ -185,6 +186,11 @@ void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_
 size_t PathInData::Hash::operator()(const PathInData& value) const {
     auto hash = get_parts_hash(value.parts, value.is_typed);
     return hash.low() ^ hash.high();
+}
+
+bool PathInData::need_record_stats() const {
+    return !empty() && !is_typed && !has_nested &&
+           path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos;
 }
 
 PathInData PathInData::copy_pop_front() const {

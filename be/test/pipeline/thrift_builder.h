@@ -24,7 +24,6 @@
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/sink/writer/vhive_utils.h"
 
 namespace doris {
@@ -93,6 +92,11 @@ public:
     }
     TQueryOptionsBuilder& set_runtime_bloom_filter_max_size(int64_t runtime_bloom_filter_max_size) {
         _query_options.__set_runtime_bloom_filter_max_size(runtime_bloom_filter_max_size);
+        return *this;
+    }
+
+    TQueryOptionsBuilder& set_enable_spill(int64_t enable_spill) {
+        _query_options.__set_enable_spill(enable_spill);
         return *this;
     }
 
