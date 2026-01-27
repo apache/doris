@@ -49,13 +49,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.mysql.DummyMysqlChannel;
-import org.apache.doris.mysql.MysqlCapability;
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlHandshakePacket;
+import org.apache.doris.protocol.mysql.capability.MysqlCapability;
+import org.apache.doris.protocol.mysql.channel.DummyMysqlChannel;
+import org.apache.doris.protocol.mysql.channel.MysqlChannel;
+import org.apache.doris.protocol.mysql.channel.ProxyMysqlChannel;
+import org.apache.doris.protocol.mysql.command.MysqlCommand;
+import org.apache.doris.protocol.mysql.packet.handshake.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
-import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -146,7 +146,7 @@ public class ConnectContext {
     private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
     private boolean returnResultFromLocal = true;
     // mysql net
-    protected volatile MysqlChannel mysqlChannel;
+    protected volatile org.apache.doris.protocol.mysql.channel.MysqlChannel mysqlChannel;
     // state
     protected volatile QueryState state;
     protected volatile long returnRows;
@@ -403,12 +403,12 @@ public class ConnectContext {
         connectType = ConnectType.MYSQL;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection, this);
+            mysqlChannel = new org.apache.doris.protocol.mysql.channel.MysqlChannel(connection, this);
         } else if (isProxy) {
-            mysqlChannel = new ProxyMysqlChannel();
+            mysqlChannel = new org.apache.doris.protocol.mysql.channel.ProxyMysqlChannel();
             this.isProxy = isProxy;
         } else {
-            mysqlChannel = new DummyMysqlChannel();
+            mysqlChannel = new org.apache.doris.protocol.mysql.channel.DummyMysqlChannel();
         }
         init();
     }
@@ -757,7 +757,7 @@ public class ConnectContext {
         throw new RuntimeException("getFlightSqlChannel not in flight sql connection");
     }
 
-    public MysqlChannel getMysqlChannel() {
+    public org.apache.doris.protocol.mysql.channel.MysqlChannel getMysqlChannel() {
         return mysqlChannel;
     }
 

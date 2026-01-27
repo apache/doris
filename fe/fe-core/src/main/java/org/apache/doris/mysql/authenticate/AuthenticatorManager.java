@@ -18,11 +18,12 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.common.util.ClassLoaderUtils;
-import org.apache.doris.mysql.MysqlAuthPacket;
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlHandshakePacket;
-import org.apache.doris.mysql.MysqlProto;
-import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.protocol.mysql.MysqlProto;
+import org.apache.doris.protocol.mysql.capability.MysqlCapability;
+import org.apache.doris.protocol.mysql.channel.MysqlChannel;
+import org.apache.doris.protocol.mysql.codec.MysqlSerializer;
+import org.apache.doris.protocol.mysql.packet.auth.MysqlAuthPacket;
+import org.apache.doris.protocol.mysql.packet.handshake.MysqlHandshakePacket;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;

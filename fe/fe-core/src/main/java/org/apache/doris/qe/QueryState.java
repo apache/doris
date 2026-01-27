@@ -18,9 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.mysql.MysqlEofPacket;
-import org.apache.doris.mysql.MysqlErrPacket;
-import org.apache.doris.mysql.MysqlOkPacket;
+import org.apache.doris.protocol.mysql.packet.response.MysqlEofPacket;
+import org.apache.doris.protocol.mysql.packet.response.MysqlErrPacket;
+import org.apache.doris.protocol.mysql.packet.response.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlPacket;
 
 // query state used to record state of query, maybe query status is better
