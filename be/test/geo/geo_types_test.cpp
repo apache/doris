@@ -1432,6 +1432,23 @@ TEST_F(GeoTypesTest, test_length) {
         EXPECT_LT(perimeter, 500000.0); // Less than 500km
     }
 
+    // Test GeoPolygon with a hole - perimeter should include inner loop
+    {
+        const char* outer_wkt = "POLYGON ((0 0, 2 0, 2 2, 0 2, 0 0))";
+        const char* hole_wkt =
+                "POLYGON ((0 0, 2 0, 2 2, 0 2, 0 0), (0.5 0.5, 1.5 0.5, 1.5 1.5, 0.5 1.5, "
+                "0.5 0.5))";
+        auto outer_polygon = GeoShape::from_wkt(outer_wkt, strlen(outer_wkt), status);
+        auto hole_polygon = GeoShape::from_wkt(hole_wkt, strlen(hole_wkt), status);
+        EXPECT_NE(nullptr, outer_polygon.get());
+        EXPECT_NE(nullptr, hole_polygon.get());
+
+        double outer_perimeter = outer_polygon->Length();
+        double hole_perimeter = hole_polygon->Length();
+        EXPECT_GT(hole_perimeter, outer_perimeter);
+        EXPECT_LT(hole_perimeter, outer_perimeter * 2.0);
+    }
+
     // Test GeoMultiPolygon - should have non-zero length
     {
         const char* wkt = "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 1, 0 0)))";
@@ -1578,6 +1595,13 @@ TEST_F(GeoTypesTest, test_distance_linestring) {
         EXPECT_DOUBLE_EQ(0.0, dist); // Lines intersect
     }
     {
+        const char* wkt = "LINESTRING (-1 0.5, 2 0.5)";
+        auto line2 = GeoShape::from_wkt(wkt, strlen(wkt), status);
+        EXPECT_NE(nullptr, line2.get());
+        double dist = line1->Distance(line2.get());
+        EXPECT_DOUBLE_EQ(0.0, dist); // Lines cross the vertical segment at x=1
+    }
+    {
         const char* wkt = "LINESTRING (5 5, 6 5)";
         auto line2 = GeoShape::from_wkt(wkt, strlen(wkt), status);
         EXPECT_NE(nullptr, line2.get());
@@ -1665,6 +1689,13 @@ TEST_F(GeoTypesTest, test_distance_polygon) {
         EXPECT_NE(nullptr, polygon2.get());
         double dist = polygon1->Distance(polygon2.get());
         EXPECT_DOUBLE_EQ(0.0, dist); // Polygons overlap
+    }
+    {
+        const char* wkt = "POLYGON ((2 0, 4 0, 4 2, 2 2, 2 0))";
+        auto polygon2 = GeoShape::from_wkt(wkt, strlen(wkt), status);
+        EXPECT_NE(nullptr, polygon2.get());
+        double dist = polygon1->Distance(polygon2.get());
+        EXPECT_DOUBLE_EQ(0.0, dist); // Polygons touch at the boundary
     }
     {
         const char* wkt = "POLYGON ((5 5, 6 5, 6 6, 5 6, 5 5))";

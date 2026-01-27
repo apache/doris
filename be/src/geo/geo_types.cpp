@@ -24,8 +24,8 @@
 #include <s2/s2builderutil_s2polyline_vector_layer.h>
 #include <s2/s2cap.h>
 #include <s2/s2earth.h>
-#include <s2/s2edge_distances.h>
 #include <s2/s2edge_crosser.h>
+#include <s2/s2edge_distances.h>
 #include <s2/s2latlng.h>
 #include <s2/s2loop.h>
 #include <s2/s2point.h>

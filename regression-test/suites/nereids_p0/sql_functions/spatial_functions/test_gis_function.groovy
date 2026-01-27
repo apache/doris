@@ -455,6 +455,35 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"))));"
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_Polygon(\"POLYGON ((114.104486 22.547119,114.093758 22.547753,114.096504 22.532057,114.104229 22.539826,114.106203 22.542680,114.104486 22.547119))\"))));"
 
+    // table-driven tests for ST_Length/ST_GeometryType/ST_Distance
+    sql "drop table if exists test_gis_table_cases"
+    sql """
+    CREATE TABLE test_gis_table_cases (
+        `id` int NOT NULL,
+        `wkt_a` varchar(512) NULL,
+        `wkt_b` varchar(512) NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 4
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """
+    insert into test_gis_table_cases values
+        (1, 'POINT(0 0)', 'POINT(0 0)'),
+        (2, 'LINESTRING(0 0, 0 1)', 'POINT(0 0)'),
+        (3, 'LINESTRING(0 0, 1 0)', 'LINESTRING(0 0, 1 0)'),
+        (4, 'POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))', 'LINESTRING(0.2 0.2, 0.8 0.8)'),
+        (5, 'POLYGON((0 0, 4 0, 4 4, 0 4, 0 0), (1 1, 1 3, 3 3, 3 1, 1 1))', 'POINT(10 10)'),
+        (6, 'MULTIPOLYGON(((0 0, 0 1, 1 1, 1 0, 0 0)), ((2 2, 2 3, 3 3, 3 2, 2 2)))', 'POINT(2.5 2.5)'),
+        (7, null, null);
+    """
+    qt_sql "select id, ST_GeometryType(ST_GeomFromText(wkt_a)) from test_gis_table_cases order by id;"
+    qt_sql "select id, ST_Length(ST_GeomFromText(wkt_a)) from test_gis_table_cases order by id;"
+    qt_sql "select id, ST_Distance(ST_GeomFromText(wkt_a), ST_GeomFromText(wkt_b)) from test_gis_table_cases order by id;"
+
     // test const
     sql "drop table if exists test_gis_const"
     sql """
