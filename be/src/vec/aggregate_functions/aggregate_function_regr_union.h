@@ -200,8 +200,8 @@ struct AggregateFunctionRegrData {
      * Syy = sum((Y-Sy/N)^2)
      * Sxy = sum((X-Sx/N)*(Y-Sy/N))
      */
-    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value_y,
-             typename PrimitiveTypeTraits<T>::ColumnItemType value_x) {
+    void add(typename PrimitiveTypeTraits<T>::CppType value_y,
+             typename PrimitiveTypeTraits<T>::CppType value_x) {
         const auto x = static_cast<Float64>(value_x);
         const auto y = static_cast<Float64>(value_y);
 

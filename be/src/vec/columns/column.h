@@ -679,6 +679,9 @@ public:
     //  const(array(const(...))) is not allowed
     bool const_nested_check() const;
 
+    // column boolean check, only allow 0 and 1
+    bool column_boolean_check() const;
+
     Status column_self_check() const;
 
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data

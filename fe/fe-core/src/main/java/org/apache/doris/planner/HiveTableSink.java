@@ -48,6 +48,7 @@ import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
 import com.google.common.base.Strings;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 
@@ -168,7 +169,14 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
     private String createTempPath(String location) {
         String user = ConnectContext.get().getCurrentUserIdentity().getUser();
-        return LocationPath.getTempWritePath(location, "/tmp/.doris_staging/" + user);
+        String defaultStagingBaseDir = ".doris_staging";
+        String stagingBaseDir = targetTable.getCatalog().getCatalogProperty()
+                .getOrDefault(HMSExternalCatalog.HIVE_STAGING_DIR, defaultStagingBaseDir);
+        if (Strings.isNullOrEmpty(stagingBaseDir)) {
+            stagingBaseDir = defaultStagingBaseDir;
+        }
+        String stagingDir = new Path(stagingBaseDir, user).toString();
+        return LocationPath.getTempWritePath(location, stagingDir);
     }
 
     private void setCompressType(THiveTableSink tSink, TFileFormatType formatType) {

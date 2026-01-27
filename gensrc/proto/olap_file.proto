@@ -137,6 +137,9 @@ message RowsetMetaPB {
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
 
+    // rows count for each segment
+    repeated int64 num_segment_rows = 56;
+
     // For cloud
     // for data recycling
     optional int64 txn_expiration = 1000;
@@ -237,6 +240,9 @@ message RowsetMetaCloudPB {
     optional string source_rowset_id = 54;
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
+
+    // rows count for each segment
+    repeated int64 num_segment_rows = 56;
 
     // cloud
     // the field is a vector, rename it
@@ -379,6 +385,11 @@ message ColumnPB {
     optional int32 variant_max_sparse_column_statistics_size = 29 [default = 10000];
     // number of buckets used to store sparse map
     optional int32 variant_sparse_hash_shard_count = 30;
+    optional bool variant_enable_doc_mode = 31;
+    // Minimum rows to materialize doc columns for variant doc mode.
+    optional int64 variant_doc_materialization_min_rows = 32;
+    // Number of buckets used to store doc map in variant doc mode.
+    optional int32 variant_doc_hash_shard_count = 33 [default = 64];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

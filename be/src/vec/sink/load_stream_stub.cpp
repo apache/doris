@@ -342,6 +342,11 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
         // we don't need to close wait on non-open streams
         return Status::OK();
     }
+    // If stream is cancelled (e.g., due to connection failure), treat it as closed
+    // to avoid waiting indefinitely for a stream that will never respond.
+    if (_is_cancelled.load()) {
+        return check_cancel();
+    }
     if (state->get_query_ctx()->is_cancelled()) {
         return state->get_query_ctx()->exec_status();
     }
@@ -562,6 +567,7 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
                              int64_t idle_timeout_ms, bool enable_profile) {
     bool get_schema = true;
     auto status = Status::OK();
+    bool first_stream = true;
     for (auto& stream : _streams) {
         Status st;
         if (get_schema) {
@@ -571,6 +577,14 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
             st = stream->open(client_cache, node_info, txn_id, schema, {}, total_streams,
                               idle_timeout_ms, enable_profile);
         }
+        // Simulate one stream open failure within LoadStreamStubs.
+        // This causes the successfully opened streams to be cancelled,
+        // reproducing the bug where cancelled streams cause close_wait timeout.
+        DBUG_EXECUTE_IF("LoadStreamStubs.open.fail_one_stream", {
+            if (st.ok() && !first_stream) {
+                st = Status::InternalError("Injected stream open failure");
+            }
+        });
         if (st.ok()) {
             get_schema = false;
         } else {
@@ -578,6 +592,7 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
             status = st;
             // no break here to try get schema from the rest streams
         }
+        first_stream = false;
     }
     // only mark open when all streams open success
     _open_success.store(status.ok());

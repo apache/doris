@@ -53,10 +53,6 @@ public:
 
     static Status get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                   RowsetMetaSharedPtr rowset_meta);
-
-    static Status get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                       const RowsetId& rowset_id, std::string* json_rowset_meta);
-
     // TODO(Drogon): refactor save && _save_with_binlog to one, adapt to ut temperately
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                        const RowsetMetaPB& rowset_meta_pb, bool enable_binlog);
@@ -86,8 +82,6 @@ public:
             std::function<bool(std::string_view, std::string_view, bool)> const& func);
 
     static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
-
-    static Status load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
 
     static Status save_partial_update_info(OlapMeta* meta, int64_t tablet_id, int64_t partition_id,
                                            int64_t txn_id,

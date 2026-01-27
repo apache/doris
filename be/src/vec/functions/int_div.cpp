@@ -109,7 +109,7 @@ private:
 
 template <PrimitiveType Type>
 struct DivideIntegralImpl {
-    using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    using Arg = typename PrimitiveTypeTraits<Type>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
     static constexpr PrimitiveType ResultType = Type;
 
@@ -134,16 +134,16 @@ struct DivideIntegralImpl {
                 }
             } else {
                 for (size_t i = 0; i < size; i++) {
-                    c[i] = typename PrimitiveTypeTraits<ResultType>::ColumnItemType(a[i] / b);
+                    c[i] = typename PrimitiveTypeTraits<ResultType>::CppType(a[i] / b);
                 }
             }
         }
     }
 
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(Arg a, Arg b,
-                                                                                 UInt8& is_null) {
+    static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(Arg a, Arg b,
+                                                                          UInt8& is_null) {
         is_null = b == 0;
-        return typename PrimitiveTypeTraits<ResultType>::ColumnItemType(a / (b + is_null));
+        return typename PrimitiveTypeTraits<ResultType>::CppType(a / (b + is_null));
     }
 
     static ColumnPtr constant_constant(Arg a, Arg b) {

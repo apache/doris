@@ -264,6 +264,9 @@ public class OutFileClause {
             case DATETIMEV2:
                 orcType = "timestamp";
                 break;
+            case TIMESTAMPTZ:
+                orcType = "timestamp with local time zone";
+                break;
             case CHAR:
                 orcType = "char(" + dorisType.getLength() + ")";
                 break;
@@ -386,6 +389,10 @@ public class OutFileClause {
                     break;
                 case DATETIMEV2:
                     checkOrcType(schema.second, "timestamp", true, resultType.getPrimitiveType().toString());
+                    break;
+                case TIMESTAMPTZ:
+                    checkOrcType(schema.second, "timestamp with local time zone", true,
+                            resultType.getPrimitiveType().toString());
                     break;
                 case CHAR:
                     checkOrcType(schema.second, "char", false, resultType.getPrimitiveType().toString());

@@ -30,11 +30,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -46,10 +46,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 
 /**
  * relation visitor
@@ -141,8 +141,8 @@ public interface RelationVisitor<R, C> {
         return visitLogicalCatalogRelation(testScan, context);
     }
 
-    default R visitLogicalRecursiveCteScan(LogicalRecursiveCteScan recursiveCteScan, C context) {
-        return visitLogicalCatalogRelation(recursiveCteScan, context);
+    default R visitLogicalWorkTableReference(LogicalWorkTableReference logicalWorkTableReference, C context) {
+        return visitLogicalRelation(logicalWorkTableReference, context);
     }
 
     // *******************************
@@ -182,8 +182,8 @@ public interface RelationVisitor<R, C> {
         return visitPhysicalCatalogRelation(deferMaterializeOlapScan, context);
     }
 
-    default R visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan, C context) {
-        return visitPhysicalCatalogRelation(recursiveCteScan, context);
+    default R visitPhysicalWorkTableReference(PhysicalWorkTableReference workTableReference, C context) {
+        return visitPhysicalRelation(workTableReference, context);
     }
 
     default R visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, C context) {

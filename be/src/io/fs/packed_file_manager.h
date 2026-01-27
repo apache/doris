@@ -58,6 +58,7 @@ struct PackedAppendContext {
     int64_t tablet_id = 0;
     std::string rowset_id;
     int64_t txn_id = 0;
+    uint64_t expiration_time = 0; // TTL expiration time in seconds since epoch, 0 means no TTL
 };
 
 // Global object that manages packing small files into larger files for S3 optimization

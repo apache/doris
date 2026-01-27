@@ -61,20 +61,19 @@ struct ColumnChunkReaderStatistics {
     int64_t skip_page_header_num = 0;
     int64_t parse_page_header_num = 0;
     int64_t read_page_header_time = 0;
+    int64_t page_read_counter = 0;
+    int64_t page_cache_write_counter = 0;
+    int64_t page_cache_compressed_write_counter = 0;
+    int64_t page_cache_decompressed_write_counter = 0;
+    int64_t page_cache_hit_counter = 0;
+    int64_t page_cache_missing_counter = 0;
+    int64_t page_cache_compressed_hit_counter = 0;
+    int64_t page_cache_decompressed_hit_counter = 0;
 };
 
 /**
  * Read and decode parquet column data into doris block column.
- * <p>Usage:</p>    struct ColumnChunkReaderStatistics {
-        int64_t decompress_time = 0;
-        int64_t decompress_cnt = 0;
-        int64_t decode_header_time = 0;
-        int64_t decode_value_time = 0;
-        int64_t decode_dict_time = 0;
-        int64_t decode_level_time = 0;
-        int64_t skip_page_header_num = 0;
-        int64_t parse_page_header_num = 0;
-    };
+ * <p>Usage:</p>
  * // Create chunk reader
  * ColumnChunkReader chunk_reader(BufferedStreamReader* reader,
  *                                tparquet::ColumnChunk* column_chunk,
@@ -97,7 +96,8 @@ class ColumnChunkReader {
 public:
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
-                      size_t total_row, io::IOContext* io_ctx);
+                      size_t total_row, io::IOContext* io_ctx,
+                      const ParquetPageReadContext& page_read_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -155,6 +155,21 @@ public:
                 _page_reader->page_statistics().parse_page_header_num;
         _chunk_statistics.read_page_header_time =
                 _page_reader->page_statistics().read_page_header_time;
+        _chunk_statistics.page_read_counter += _page_reader->page_statistics().page_read_counter;
+        _chunk_statistics.page_cache_write_counter +=
+                _page_reader->page_statistics().page_cache_write_counter;
+        _chunk_statistics.page_cache_compressed_write_counter +=
+                _page_reader->page_statistics().page_cache_compressed_write_counter;
+        _chunk_statistics.page_cache_decompressed_write_counter +=
+                _page_reader->page_statistics().page_cache_decompressed_write_counter;
+        _chunk_statistics.page_cache_hit_counter +=
+                _page_reader->page_statistics().page_cache_hit_counter;
+        _chunk_statistics.page_cache_missing_counter +=
+                _page_reader->page_statistics().page_cache_missing_counter;
+        _chunk_statistics.page_cache_compressed_hit_counter +=
+                _page_reader->page_statistics().page_cache_compressed_hit_counter;
+        _chunk_statistics.page_cache_decompressed_hit_counter +=
+                _page_reader->page_statistics().page_cache_decompressed_hit_counter;
         return _chunk_statistics;
     }
 
@@ -193,6 +208,11 @@ public:
                                  size_t* result_rows, bool* cross_page);
     Status load_cross_page_nested_row(std::vector<level_t>& rep_levels, bool* cross_page);
 
+    Slice get_page_data() const { return _page_data; }
+    const Slice& v2_rep_levels() const { return _v2_rep_levels; }
+    const Slice& v2_def_levels() const { return _v2_def_levels; }
+    ColumnChunkReaderStatistics& statistics() { return chunk_statistics(); }
+
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
@@ -202,9 +222,23 @@ private:
 
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
+    void _insert_page_into_cache(const std::vector<uint8_t>& level_bytes, const Slice& payload);
 
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
     Status _skip_nested_rows_in_page(size_t num_rows);
+
+    level_t _rep_level_get_next() {
+        if constexpr (IN_COLLECTION) {
+            return _rep_level_decoder.get_next();
+        }
+        return 0;
+    }
+
+    void _rep_level_rewind_one() {
+        if constexpr (IN_COLLECTION) {
+            _rep_level_decoder.rewind_one();
+        }
+    }
 
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema = nullptr;
@@ -220,6 +254,8 @@ private:
 
     std::unique_ptr<PageReader<IN_COLLECTION, OFFSET_INDEX>> _page_reader;
     BlockCompressionCodec* _block_compress_codec = nullptr;
+
+    ParquetPageReadContext _page_read_ctx;
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;

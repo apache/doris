@@ -60,7 +60,7 @@ TEST_F(SchemaClusterSnapshotsScannerTest, test_get_next_block_internal) {
     ASSERT_EQ(2, data_block->rows());
 
     auto col = data_block->safe_get_by_position(0);
-    auto v = (*col.column)[1].get<vectorized::String>();
+    auto v = (*col.column)[1].get<TYPE_STRING>();
     EXPECT_EQ(v, "232ds");
 }
 

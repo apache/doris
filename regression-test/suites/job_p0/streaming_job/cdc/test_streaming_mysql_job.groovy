@@ -58,6 +58,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
             sql """DROP TABLE IF EXISTS ${mysqlDb}.${table1}"""
             sql """DROP TABLE IF EXISTS ${mysqlDb}.${table2}"""
+            sql """DROP TABLE IF EXISTS ${mysqlDb}.${table3}"""
             sql """CREATE TABLE ${mysqlDb}.${table1} (
                   `name` varchar(200) NOT NULL,
                   `age` int DEFAULT NULL,
@@ -109,7 +110,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         // check table schema correct
         def showTbl1 = sql """show create table ${currentDb}.${table1}"""
         def createTalInfo = showTbl1[0][1];
-        assert createTalInfo.contains("`name` varchar(200)");
+        assert createTalInfo.contains("`name` varchar(600)");
         assert createTalInfo.contains("`age` int");
         assert createTalInfo.contains("UNIQUE KEY(`name`)");
         assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
@@ -145,7 +146,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             sql """DELETE FROM ${mysqlDb}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -162,7 +163,7 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
             sql """INSERT INTO ${mysqlDb}.${table1} (name,age) VALUES ('Apache',40);"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """

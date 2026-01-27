@@ -55,6 +55,8 @@ public:
 
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
 
+    int64_t mtime() const override { return _remote_file_reader->mtime(); }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;

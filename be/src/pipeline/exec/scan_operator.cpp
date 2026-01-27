@@ -73,6 +73,24 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
+Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
+                                                              int& arrived_rf_num) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    std::unique_lock lock(_conjuncts_lock);
+    return _helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
+                                                          arrived_rf_num, _conjuncts);
+}
+
+Status ScanLocalStateBase::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts) {
+    // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
+    std::unique_lock lock(_conjuncts_lock);
+    scanner_conjuncts.resize(_conjuncts.size());
+    for (size_t i = 0; i != _conjuncts.size(); ++i) {
+        RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
+    }
+    return Status::OK();
+}
+
 int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
@@ -165,10 +183,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         _condition_cache_digest = 0;
     }
 
-    _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
-    for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
-    }
     RETURN_IF_ERROR(_process_conjuncts(state));
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
@@ -277,7 +291,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     continue;
                 }
             } else { // All conjuncts are pushed down as predicate column
-                _stale_expr_ctxs.emplace_back(conjunct);
+                _stale_expr_ctxs.emplace_back(
+                        conjunct); // avoid function context and constant str being freed
                 it = _conjuncts.erase(it);
                 continue;
             }
@@ -443,6 +458,9 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BLOOM_PRED == root->node_type());
@@ -469,6 +487,9 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(root->is_topn_filter());
@@ -493,6 +514,9 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
@@ -523,7 +547,7 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
         opposite = true;
     }
 
-    if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
+    if (fn_expr->is_like_expr()) {
         doris::FunctionContext* fn_ctx = nullptr;
         StringRef val;
         PushDownType temp_pdt;
@@ -557,6 +581,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VEx
     }
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == sid_to_range) {
+        return false;
+    }
+    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -641,6 +668,9 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -739,6 +769,9 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -916,6 +949,9 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(!root->is_rf_wrapper()) << root->debug_string();
@@ -973,14 +1009,14 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx = vectorized::ScannerContext::create_shared(state(), this, p._output_tuple_desc,
-                                                             p.output_row_descriptor(), scanners,
-                                                             p.limit(), _scan_dependency
+    _scanner_ctx.store(vectorized::ScannerContext::create_shared(
+            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            _scan_dependency
 #ifdef BE_TEST
-                                                             ,
-                                                             max_scanners_concurrency(state())
+            ,
+            max_scanners_concurrency(state())
 #endif
-    );
+                    ));
     return Status::OK();
 }
 
@@ -1202,6 +1238,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
+            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
+                continue;
+            }
             auto col_name = s->col_name();
             cid = get_column_id(col_name);
         }

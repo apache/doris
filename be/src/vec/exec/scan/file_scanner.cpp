@@ -331,9 +331,9 @@ Status FileScanner::_process_conjuncts() {
 
         std::vector<int> slot_ids;
         _get_slot_ids(cur_expr.get(), &slot_ids);
-        if (slot_ids.size() == 0) {
+        if (slot_ids.empty()) {
             _not_single_slot_filter_conjuncts.emplace_back(conjunct);
-            return Status::OK();
+            continue;
         }
         bool single_slot = true;
         for (int i = 1; i < slot_ids.size(); i++) {
@@ -357,13 +357,9 @@ Status FileScanner::_process_late_arrival_conjuncts(bool* changed,
     *changed = false;
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
         *changed = true;
-        _push_down_conjuncts.clear();
-        _push_down_conjuncts.resize(_conjuncts.size());
-        for (size_t i = 0; i != _conjuncts.size(); ++i) {
-            RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
-        }
+        _push_down_conjuncts = _conjuncts;
+        _conjuncts.clear();
         RETURN_IF_ERROR(_process_conjuncts());
-        _discard_conjuncts();
         new_push_down_conjuncts = _push_down_conjuncts;
     }
     if (_applied_rf_num == _total_rf_num) {
@@ -1043,16 +1039,6 @@ Status FileScanner::_get_next_reader() {
             // see IcebergTableReader::init_row_filters for example.
             parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
 
-            std::function<Status(bool*, VExprContextSPtrs&)> update_late_rf =
-                    [&](bool* changed, VExprContextSPtrs& new_push_down_conjuncts) -> Status {
-                if (!_is_load) {
-                    RETURN_IF_ERROR(try_append_late_arrival_runtime_filter());
-                    RETURN_IF_ERROR(
-                            _process_late_arrival_conjuncts(changed, new_push_down_conjuncts));
-                }
-                return Status::OK();
-            };
-            parquet_reader->set_update_late_rf_func(std::move(update_late_rf));
             RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader), file_meta_cache_ptr));
 
             need_to_get_parsed_schema = true;

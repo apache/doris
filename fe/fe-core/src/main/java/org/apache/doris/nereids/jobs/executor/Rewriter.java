@@ -60,6 +60,7 @@ import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
+import org.apache.doris.nereids.rules.rewrite.DecomposeRepeatWithPreAggregation;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector;
@@ -146,6 +147,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushDownUnnestInProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownVectorTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownVirtualColumnsIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
@@ -535,6 +537,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new SimplifyWindowExpression()
                         )
                 ),
+                topic("Push down Unnest",
+                        topDown(
+                                new PushDownUnnestInProject()
+                        )),
                 topic("Rewrite join",
                         // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                         topDown(
@@ -902,7 +908,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
-
+                rewriteJobs.add(topic("repeat rewrite",
+                        custom(RuleType.DECOMPOSE_REPEAT, () -> DecomposeRepeatWithPreAggregation.INSTANCE)));
                 rewriteJobs.addAll(jobs(topic("split multi distinct",
                         custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR, () -> DistinctAggStrategySelector.INSTANCE))));
 

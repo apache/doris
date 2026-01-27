@@ -126,7 +126,7 @@ public:
                 .with_arg((jboolean)is_single_place)
                 .with_arg(cast_set<jint>(row_num_start))
                 .with_arg(cast_set<jint>(row_num_end))
-                .with_arg(places_address)
+                .with_arg(cast_set<jlong>(places_address))
                 .with_arg(cast_set<jint>(place_offset))
                 .with_arg(input_map)
                 .call();
@@ -171,7 +171,7 @@ public:
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf reset function");
         return executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_reset_id)
-                .with_arg(place)
+                .with_arg(cast_set<jlong>(place))
                 .call();
     }
 
@@ -201,7 +201,7 @@ public:
         long output_address;
 
         RETURN_IF_ERROR(executor_obj.call_long_method(env, executor_get_value_id)
-                                .with_arg(place)
+                                .with_arg(cast_set<jlong>(place))
                                 .with_arg(output_map)
                                 .call(&output_address));
 

@@ -465,6 +465,11 @@ public class MetaServiceProxy {
         return w.executeRequest((client) -> client.abortTxnWithCoordinator(request));
     }
 
+    public Cloud.GetPrepareTxnByCoordinatorResponse
+            getPrepareTxnByCoordinator(Cloud.GetPrepareTxnByCoordinatorRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.getPrepareTxnByCoordinator(request));
+    }
+
     public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
         return w.executeRequest((client) -> client.createInstance(request));
     }

@@ -83,7 +83,7 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
             subQueryAliasesOfCte.addAll(logicalCTE.getAliasQueries());
             subQueryAliasesOfCte.addAll(aliasQueries);
             aliasQueries = new ArrayList<>();
-            return new LogicalCTE<>(newLogicalCTE.isRecursiveCte(), subQueryAliasesOfCte,
+            return new LogicalCTE<>(newLogicalCTE.isRecursive(), subQueryAliasesOfCte,
                     (LogicalPlan) newLogicalCTE.child());
         }
         return cte;
@@ -98,7 +98,7 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
                 subQueryAliases.addAll(logicalCTE.getAliasQueries());
                 subQueryAliases.addAll(aliasQueries);
                 return topPlan.withChildren(
-                        new LogicalCTE<>(logicalCTE.isRecursiveCte(), subQueryAliases,
+                        new LogicalCTE<>(logicalCTE.isRecursive(), subQueryAliases,
                                 (LogicalPlan) topPlan.child(0)));
             }
             return topPlan.withChildren(

@@ -180,5 +180,7 @@ github:
     - yuanyuan8983
     - yz-jayhua
     - ixzc
+    - deardeng
+    - wyxxxcat
 notifications:
   pullrequests_status:  commits@doris.apache.org

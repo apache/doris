@@ -57,7 +57,7 @@ Status convert(const vectorized::DataTypePtr& data_type, const std::string& str,
     if constexpr (PType == TYPE_TINYINT || PType == TYPE_SMALLINT || PType == TYPE_INT ||
                   PType == TYPE_BIGINT || PType == TYPE_LARGEINT) {
         vectorized::CastParameters parameters;
-        if (!vectorized::CastToInt::from_string({str.data(), str.size()}, res, parameters)) {
+        if (!vectorized::CastToInt::from_string<false>({str.data(), str.size()}, res, parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);

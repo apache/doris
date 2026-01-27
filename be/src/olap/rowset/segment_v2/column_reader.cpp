@@ -72,7 +72,6 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_agg_state.h"
@@ -345,7 +344,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         vectorized::Field field;
         dst->get(i, field);
         DCHECK(!field.is_null());
-        const auto v = field.get<int32_t>();
+        const auto v = field.get<TYPE_INT>();
         DCHECK_GE(v, min_v);
         DCHECK_LE(v, max_v);
     }
