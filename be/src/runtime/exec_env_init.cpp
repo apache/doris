@@ -415,7 +415,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         RETURN_IF_ERROR(_packed_file_manager->init());
         _packed_file_manager->start_background_manager();
         // Initialize host-level MS RPC rate limiters for cloud mode
-        int qps = CpuInfo::num_cores() * cloud::config::ms_rpc_qps_limit_per_core_per_rpc;
+        int qps = CpuInfo::num_cores() * config::ms_rpc_qps_limit_per_core_per_rpc;
         _host_level_ms_rpc_rate_limiters = std::make_unique<cloud::HostLevelMSRpcRateLimiters>(qps);
     }
 
