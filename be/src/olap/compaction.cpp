@@ -25,7 +25,6 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
-#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -197,6 +196,15 @@ Status Compaction::merge_input_rowsets() {
         (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
          _tablet->enable_unique_key_merge_on_write())) {
         _stats.rowid_conversion = _rowid_conversion.get();
+        // Choose storage implementation based on memory requirement
+        int64_t memory_limit = config::rowid_conversion_max_bytes;
+        int64_t total_input_rows = std::accumulate(
+                _input_rowsets.begin(), _input_rowsets.end(), 0,
+                [](int64_t sum, const RowsetSharedPtr& rs) { return sum + rs->num_rows(); });
+        bool use_spill = ctx.columns_to_do_index_compaction.empty() && memory_limit > 0 &&
+                         RowIdConversion::calculate_memory_usage(total_input_rows) > memory_limit;
+        RETURN_IF_ERROR(_stats.rowid_conversion->init(use_spill, memory_limit, _tablet->tablet_id(),
+                                                      _tablet->tablet_path()));
     }
 
     int64_t way_num = merge_way_num();
