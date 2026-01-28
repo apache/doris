@@ -37,8 +37,12 @@ suite("test_mysql_connection") { suite ->
     String tempString = jdbcUrlConfig.substring(jdbcUrlConfig.indexOf("jdbc:mysql://") + 13);
     String mysqlHost = tempString.substring(0, tempString.indexOf(":"));
     String mysqlPort = tempString.substring(tempString.indexOf(":") + 1, tempString.indexOf("/"));
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
 
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        String cmdTlsv1 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.otherConfigs.get("trustCACert") \
+                        "--ssl-cert=" + context.config.otherConfigs.get("trustCert") \
+                        "--ssl-key=" + context.config.otherConfigs.get("trustCAKey") + "-uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
+        executeMySQLCommand(cmdTlsv1);
     } else {
         String cmdDefault = "mysql -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
         String cmdDisabledSsl = "mysql --ssl-mode=DISABLE -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
