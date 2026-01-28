@@ -94,6 +94,27 @@ const size_t BUFFER_SIZE = 1024 * 1024;
 // Just 10^9.
 static constexpr auto NS = 1000000000UL;
 
+static std::string normalize_benchmark_prefix(std::string_view raw_prefix) {
+    std::string normalized {doris::trim(raw_prefix)};
+    while (!normalized.empty() && normalized.front() == '/') {
+        normalized.erase(normalized.begin());
+    }
+    while (!normalized.empty() && normalized.back() == '/') {
+        normalized.pop_back();
+    }
+    return normalized;
+}
+
+static std::string get_prefix() {
+    std::string prefix = HIDDEN_PREFIX;
+    std::string subdir = normalize_benchmark_prefix(doris::config::test_s3_prefix);
+    if (!subdir.empty()) {
+        prefix += subdir;
+        prefix += "/";
+    }
+    return prefix;
+}
+
 DEFINE_int32(port, 8888, "Http Port of this server");
 
 static std::string build_info() {
@@ -478,7 +499,7 @@ std::string get_usage(const std::string& progname) {
           "read_iops": <limit>,                // IOPS limit for reading per segment files
           "num_threads": <count>,              // Number of threads in the thread pool, default 200
           "num_files": <count>,                // Number of segments to write/read
-          "file_prefix": "<prefix>",           // Prefix for segment files, Notice: this tools hide prefix(test_file_cache_microbench/) before file_prefix
+          "file_prefix": "<prefix>",           // Prefix for segment files, key prefix is test_file_cache_microbench/<test_s3_prefix>/
           "write_batch_size": <size>,          // Size of data to write in each write operation
           "cache_type": <type>,                // Write or Read data enter file cache queue type, support NORMAL | TTL | INDEX | DISPOSABLE, default NORMAL
           "expiration": <timestamp>,           // File cache ttl expire time, value is a unix timestamp
@@ -711,7 +732,7 @@ public:
                 "repeat: {}, expiration: {}, cache_type: {}, read_offset: [{}, {}), "
                 "read_length: [{}, {})",
                 size_bytes_perfile, write_iops, read_iops, num_threads, num_files,
-                HIDDEN_PREFIX + file_prefix, write_file_cache, write_batch_size, repeat, expiration,
+                get_prefix() + file_prefix, write_file_cache, write_batch_size, repeat, expiration,
                 cache_type, read_offset_left, read_offset_right, read_length_left,
                 read_length_right);
     }
@@ -997,7 +1018,7 @@ private:
         // If it's a read-only job, find the previously written files
         if (config.read_iops > 0 && config.write_iops == 0) {
             std::string old_job_id =
-                    s3_file_records.find_job_id_by_prefix(HIDDEN_PREFIX + config.file_prefix);
+                    s3_file_records.find_job_id_by_prefix(get_prefix() + config.file_prefix);
             if (old_job_id.empty()) {
                 throw std::runtime_error(
                         "Can't find previously job uploaded files. Please make sure read "
@@ -1010,7 +1031,7 @@ private:
 
         // Generate file keys
         for (int i = 0; i < config.num_files; ++i) {
-            keys.push_back(HIDDEN_PREFIX + config.file_prefix + "/" + rewrite_job_id + "_" +
+            keys.push_back(get_prefix() + config.file_prefix + "/" + rewrite_job_id + "_" +
                            std::to_string(i));
         }
 
@@ -1137,7 +1158,7 @@ private:
         auto start_time = std::chrono::steady_clock::now();
 
         int64_t exist_job_perfile_size = s3_file_records.get_exist_job_perfile_size_by_prefix(
-                HIDDEN_PREFIX + config.file_prefix);
+                get_prefix() + config.file_prefix);
         std::vector<std::future<void>> read_futures;
         doris::io::IOContext io_ctx;
         doris::io::FileCacheStatistics total_stats;
@@ -1160,7 +1181,7 @@ private:
         std::vector<std::string> read_files;
         if (exist_job_perfile_size != -1) {
             // read exist files
-            s3_file_records.get_exist_job_files_by_prefix(HIDDEN_PREFIX + config.file_prefix,
+            s3_file_records.get_exist_job_files_by_prefix(get_prefix() + config.file_prefix,
                                                           read_files, config.num_files);
         }
 
