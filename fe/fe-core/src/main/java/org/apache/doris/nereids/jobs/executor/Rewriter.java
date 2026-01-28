@@ -39,6 +39,7 @@ import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForUniqueFunction;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.AggInnerJoinToSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -617,6 +618,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             ),
                             bottomUp(RuleSet.PUSH_DOWN_FILTERS)
                     ),
+                    topic("transform inner join to semi join",
+                            bottomUp(new AggInnerJoinToSemiJoin())),
                     topic("infer predicate",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalFilter.class, LogicalJoin.class, LogicalSetOperation.class
