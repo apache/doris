@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -94,7 +95,25 @@ public class ExprIdRewriter extends ExpressionRewrite {
                             }
                         }
                     }
+
+                    @Override
+                    public Expression visitAlias(Alias alias, Map<ExprId, ExprId> replaceMap) {
+                        ExprId newId = replaceMap.get(alias.getExprId());
+                        if (newId == null) {
+                            return alias;
+                        }
+                        ExprId lastId = newId;
+                        while (true) {
+                            newId = replaceMap.get(lastId);
+                            if (newId == null) {
+                                return alias.withExprId(lastId);
+                            } else {
+                                lastId = newId;
+                            }
+                        }
+                    }
                 };
+
         private final Map<ExprId, ExprId> replaceMap;
 
         public ReplaceRule(Map<ExprId, ExprId> replaceMap) {
@@ -107,6 +126,10 @@ public class ExprIdRewriter extends ExpressionRewrite {
                     matchesType(SlotReference.class).thenApply(ctx -> {
                         Slot slot = ctx.expr;
                         return slot.accept(SLOT_REPLACER, replaceMap);
+                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE),
+                    matchesType(Alias.class).thenApply(ctx -> {
+                        Alias alias = ctx.expr;
+                        return alias.accept(SLOT_REPLACER, replaceMap);
                     }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
             );
         }
