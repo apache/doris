@@ -139,7 +139,7 @@ public:
             return false;
         }
 
-        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        using CompareType = std::conditional_t<is_string_type(Type), StringRef, T>;
         auto tmp_min_value = get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr());
         auto tmp_max_value = get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr());
         CompareType tmp_value;
@@ -257,7 +257,7 @@ public:
             return false;
         }
 
-        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        using CompareType = std::conditional_t<is_string_type(Type), StringRef, T>;
         auto tmp_min_value = get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr());
         auto tmp_max_value = get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr());
         CompareType tmp_value;
@@ -285,7 +285,7 @@ public:
             return false;
         }
 
-        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
+        using CompareType = std::conditional_t<is_string_type(Type), StringRef, T>;
         auto tmp_min_value = get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr());
         auto tmp_max_value = get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr());
         CompareType tmp_value;
