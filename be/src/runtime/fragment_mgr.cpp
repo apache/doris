@@ -1452,6 +1452,7 @@ Status FragmentMgr::rerun_fragment(const TUniqueId& query_id, int fragment,
                                 print_id(query_id), fragment);
     }
 
+    SCOPED_ATTACH_TASK(fragment_ctx->get_query_ctx());
     if (stage == PRerunFragmentParams::wait) {
         return fragment_ctx->wait_close(false);
     } else if (stage == PRerunFragmentParams::release) {
@@ -1465,7 +1466,6 @@ Status FragmentMgr::rerun_fragment(const TUniqueId& query_id, int fragment,
     } else {
         return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
     }
-    return Status::OK();
 }
 
 Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,

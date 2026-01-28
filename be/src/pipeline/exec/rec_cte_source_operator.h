@@ -193,13 +193,12 @@ private:
                     get_execution_rpc_timeout_ms(state->get_query_ctx()->execution_timeout()));
             stub->rerun_fragment(&controller, &request, &result, brpc::DoNothing());
             brpc::Join(controller.call_id());
-            if (controller.Failed()) {
-                st = Status::InternalError(controller.ErrorText());
-            }
-
-            auto rpc_st = Status::create(result.status());
-            if (!rpc_st.ok()) {
-                st = rpc_st;
+            if (st.ok()) {
+                if (controller.Failed()) {
+                    st = Status::InternalError(controller.ErrorText());
+                } else if (auto rpc_st = Status::create(result.status()); !rpc_st.ok()) {
+                    st = rpc_st;
+                }
             }
         }
         return st;
