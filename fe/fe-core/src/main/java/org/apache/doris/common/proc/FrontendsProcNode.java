@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
@@ -47,13 +48,13 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
-            .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
+            .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive").add("IP")
             .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
             .add("Version").add("CurrentConnected").add("LiveSince")
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("DirType").add("Dir").add("Filesystem")
+            .add("Name").add("Host").add("IP").add("DirType").add("Dir").add("Filesystem")
             .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
             .build();
 
@@ -155,9 +156,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add("true");
+                info.add(HostUtils.resolveHostToIp(fe.getHost()));
                 info.add(Long.toString(env.getEditLog().getMaxJournalId()));
             } else {
                 info.add(String.valueOf(fe.isAlive()));
+                info.add(HostUtils.resolveHostToIp(fe.getHost()));
                 info.add(Long.toString(fe.getReplayedJournalId()));
             }
             info.add(TimeUtils.longToTimeString(fe.getLastStartupTime()));
@@ -189,6 +192,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                     List<String> info = new ArrayList<String>();
                     info.add(fe.getNodeName());
                     info.add(fe.getHost());
+                    info.add(HostUtils.resolveHostToIp(fe.getHost()));
                     info.add(disk.getDirType());
                     info.add(disk.getDir());
                     info.add(disk.getSpaceInfo().fileSystem);

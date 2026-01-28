@@ -20,7 +20,7 @@ suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from `frontends`(); """
     logger.info("${table}")
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 19)
+    assertTrue(table[0].size() == 20)
 
     // filter columns
     table = sql """ select Name from `frontends`();"""
@@ -43,7 +43,7 @@ suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     def res = sql """ select count(*) from frontends() where alive = 'true'; """
     assertTrue(res[0][0] > 0)
 
-    sql """ select Name, Host, EditLogPort
+    sql """ select Name, Host, IP, EditLogPort
             HttpPort, QueryPort, RpcPort, ArrowFlightSqlPort, `Role`, IsMaster, ClusterId
             `Join`, Alive, ReplayedJournalId, LastHeartbeat
             IsHelper, ErrMsg, Version, CurrentConnected from frontends();

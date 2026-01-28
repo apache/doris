@@ -29,6 +29,7 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBrokerOp;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -52,7 +53,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class BrokerMgr {
     public static final ImmutableList<String> BROKER_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("Port").add("Alive")
+            .add("Name").add("Host").add("IP").add("Port").add("Alive")
             .add("LastStartTime").add("LastUpdateTime").add("ErrMsg")
             .build();
 
@@ -387,6 +388,7 @@ public class BrokerMgr {
                         List<String> row = Lists.newArrayList();
                         row.add(brokerName);
                         row.add(broker.host);
+                        row.add(HostUtils.resolveHostToIp(broker.host));
                         row.add(String.valueOf(broker.port));
                         row.add(String.valueOf(broker.isAlive));
                         row.add(TimeUtils.longToTimeString(broker.lastStartTime));

@@ -24,6 +24,7 @@ import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUnit;
@@ -47,10 +48,10 @@ public class BackendsProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
             .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("ArrowFlightSqlPort")
-            .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("TrashUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
-            .add("HeartbeatFailureCounter").add("NodeRole").add("CpuCores").add("Memory").add("LiveSince")
+            .add("LastStartTime").add("LastHeartbeat").add("Alive").add("IP").add("SystemDecommissioned")
+            .add("TabletNum").add("DataUsedCapacity").add("TrashUsedCapacity").add("AvailCapacity").add("TotalCapacity")
+            .add("UsedPct").add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version")
+            .add("Status").add("HeartbeatFailureCounter").add("NodeRole").add("CpuCores").add("Memory").add("LiveSince")
             .add("RunningTasks").build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -116,6 +117,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));
+            backendInfo.add(HostUtils.resolveHostToIp(backend.getHost()));
             backendInfo.add(String.valueOf(backend.isDecommissioned()));
             backendInfo.add(tabletNum.toString());
 
@@ -229,5 +231,4 @@ public class BackendsProcDir implements ProcDirInterface {
 
         return new BackendProcNode(backend);
     }
-
 }

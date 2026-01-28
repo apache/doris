@@ -19,7 +19,7 @@
 suite("test_backends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0)
-    assertEquals(25, table[0].size())
+    assertEquals(26, table[0].size())
 
     // filter columns
     table = sql """ select BackendId, Host, Alive, TotalCapacity, Version, NodeRole from backends();"""
@@ -51,7 +51,7 @@ suite("test_backends_tvf","p0,external,tvf,external_docker") {
     res = sql """ select count(*) from backends() where alive = true; """
     assertTrue(res[0][0] > 0)
 
-    sql """ select BackendId, Host, HeartbeatPort,
+    sql """ select BackendId, Host, IP, HeartbeatPort,
             BePort, HttpPort, BrpcPort, LastStartTime, LastHeartbeat, Alive
             SystemDecommissioned, tabletnum
             DataUsedCapacity, AvailCapacity, TotalCapacity, UsedPct
