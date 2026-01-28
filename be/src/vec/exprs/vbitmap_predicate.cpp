@@ -75,13 +75,14 @@ doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
     return Status::OK();
 }
 
-Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
+Status VBitmapPredicate::execute_column(VExprContext* context, const Block* block,
+                                        Selector* selector, size_t count,
                                         ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
     DCHECK_EQ(_children.size(), 1);
 
     ColumnPtr argument_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, count, argument_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, argument_column));
     argument_column = argument_column->convert_to_full_column_if_const();
 
     size_t sz = argument_column->size();

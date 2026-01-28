@@ -86,7 +86,8 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 }
 
 Status VRuntimeFilterWrapper::execute_column(VExprContext* context, const Block* block,
-                                             size_t count, ColumnPtr& result_column) const {
+                                             Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
     return Status::InternalError("Not implement VRuntimeFilterWrapper::execute_column");
 }
 
@@ -114,8 +115,8 @@ Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block*
 
     ColumnPtr filter_column;
     ColumnPtr arg_column = nullptr;
-    RETURN_IF_ERROR(
-            _impl->execute_runtime_filter(context, block, rows, filter_column, &arg_column));
+    RETURN_IF_ERROR(_impl->execute_runtime_filter(context, block, nullptr, rows, filter_column,
+                                                  &arg_column));
 
     // bloom filter will handle null aware inside itself
     if (_null_aware && TExprNodeType::BLOOM_PRED != node_type()) {

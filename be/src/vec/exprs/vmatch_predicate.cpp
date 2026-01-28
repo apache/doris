@@ -148,10 +148,11 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VMatchPredicate::execute_column(VExprContext* context, const Block* block, size_t count,
+Status VMatchPredicate::execute_column(VExprContext* context, const Block* block,
+                                       Selector* selector, size_t count,
                                        ColumnPtr& result_column) const {
     DCHECK(_open_finished || block == nullptr);
-    if (fast_execute(context, result_column)) {
+    if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VMatchPredicate.execute", {
@@ -177,7 +178,7 @@ Status VMatchPredicate::execute_column(VExprContext* context, const Block* block
     Block temp_block;
     for (int i = 0; i < _children.size(); ++i) {
         ColumnPtr arg_column;
-        RETURN_IF_ERROR(_children[i]->execute_column(context, block, count, arg_column));
+        RETURN_IF_ERROR(_children[i]->execute_column(context, block, selector, count, arg_column));
         auto arg_type = _children[i]->execute_type(block);
         temp_block.insert({arg_column, arg_type, _children[i]->expr_name()});
         arguments[i] = i;
