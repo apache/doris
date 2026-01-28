@@ -31,7 +31,12 @@ CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRe
                                        RuntimeProfile* profile)
         : BaseRowsetBuilder(req, profile), _engine(engine) {}
 
-CloudRowsetBuilder::~CloudRowsetBuilder() = default;
+CloudRowsetBuilder::~CloudRowsetBuilder() {
+    // Clear file cache immediately when load fails
+    if (_is_init && _rowset != nullptr && _rowset->rowset_meta()->rowset_state() == PREPARED) {
+        _rowset->clear_cache();
+    }
+}
 
 Status CloudRowsetBuilder::init() {
     _tablet = DORIS_TRY(_engine.get_tablet(_req.tablet_id));
