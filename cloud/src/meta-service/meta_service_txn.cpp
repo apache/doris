@@ -1186,7 +1186,7 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
                                        const std::string& cluster_id,
                                        std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
                                        std::string& msg) {
-    if (!config::enable_compaction_rw_separation || cluster_id.empty()) {
+    if (cluster_id.empty()) {
         return;
     }
 
@@ -1848,7 +1848,7 @@ void MetaServiceImpl::commit_txn_immediately(
 
         // Get cluster_id for updating last active cluster
         std::string requester_cluster_id;
-        if (config::enable_compaction_rw_separation && request->has_cloud_unique_id()) {
+        if (request->has_cloud_unique_id()) {
             std::vector<NodeInfo> nodes;
             std::string node_err = resource_mgr_->get_node(request->cloud_unique_id(), &nodes);
             if (node_err.empty() && !nodes.empty()) {
@@ -2918,7 +2918,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
         // Get cluster_id for updating last active cluster
         std::string requester_cluster_id_ev;
-        if (config::enable_compaction_rw_separation && request->has_cloud_unique_id()) {
+        if (request->has_cloud_unique_id()) {
             std::vector<NodeInfo> nodes;
             std::string node_err = resource_mgr_->get_node(request->cloud_unique_id(), &nodes);
             if (node_err.empty() && !nodes.empty()) {

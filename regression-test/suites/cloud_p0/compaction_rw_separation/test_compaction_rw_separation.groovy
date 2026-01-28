@@ -37,9 +37,6 @@ suite('test_compaction_rw_separation', 'docker') {
         'cluster_status_cache_refresh_interval_sec=5',   // 5 seconds for faster testing
         'file_cache_enter_disk_resource_limit_mode_percent=99',
     ]
-    options.msConfigs += [
-        'enable_compaction_rw_separation=true',
-    ]
     options.cloudMode = true
 
     def getTabletStatus = { ip, port, tablet_id ->

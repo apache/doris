@@ -35,9 +35,6 @@ suite('test_compaction_rw_separation_disabled', 'docker') {
         'enable_compaction_rw_separation=false',  // Feature disabled
         'file_cache_enter_disk_resource_limit_mode_percent=99',
     ]
-    options.msConfigs += [
-        'enable_compaction_rw_separation=false',  // Feature disabled
-    ]
     options.cloudMode = true
 
     def getTabletStatus = { ip, port, tablet_id ->
