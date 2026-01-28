@@ -94,7 +94,7 @@ public class PushDownFilterThroughProjectTest {
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                ImmutableList.of(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
@@ -134,7 +134,7 @@ public class PushDownFilterThroughProjectTest {
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
                 Optional.empty(), new ArrayList<>(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                ImmutableList.of(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
