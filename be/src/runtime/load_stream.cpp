@@ -147,14 +147,12 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     uint32_t new_segid = mapping->at(segid);
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
-    auto self = shared_from_this();
-    auto flush_func = [self, new_segid, eos, buf, header, file_type]() mutable {
-        signal::set_signal_task_id(self->_load_id);
+    auto flush_func = [this, new_segid, eos, buf, header, file_type]() mutable {
+        signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
-        auto st =
-                self->_load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
+        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (!st.ok() && !config::is_cloud_mode()) {
-            auto res = ExecEnv::get_tablet(self->_id);
+            auto res = ExecEnv::get_tablet(_id);
             TabletSharedPtr tablet =
                     res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
             if (tablet) {
@@ -165,7 +163,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             DBUG_EXECUTE_IF("TabletStream.append_data.unknown_file_type",
                             { file_type = static_cast<FileType>(-1); });
             if (file_type == FileType::SEGMENT_FILE || file_type == FileType::INVERTED_INDEX_FILE) {
-                st = self->_load_stream_writer->close_writer(new_segid, file_type);
+                st = _load_stream_writer->close_writer(new_segid, file_type);
             } else {
                 st = Status::InternalError(
                         "appent data failed, file type error, file type = {}, "
@@ -176,8 +174,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         DBUG_EXECUTE_IF("TabletStream.append_data.append_failed",
                         { st = Status::InternalError("fault injection"); });
         if (!st.ok()) {
-            self->_status.update(st);
-            LOG(WARNING) << "write data failed " << st << ", " << *self;
+            _status.update(st);
+            LOG(WARNING) << "write data failed " << st << ", " << *this;
         }
     };
     auto load_stream_flush_token_max_tasks = config::load_stream_flush_token_max_tasks;
@@ -249,15 +247,14 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto self = shared_from_this();
-    auto add_segment_func = [self, new_segid, stat]() {
-        signal::set_signal_task_id(self->_load_id);
-        auto st = self->_load_stream_writer->add_segment(new_segid, stat);
+    auto add_segment_func = [this, new_segid, stat]() {
+        signal::set_signal_task_id(_load_id);
+        auto st = _load_stream_writer->add_segment(new_segid, stat);
         DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
                         { st = Status::InternalError("fault injection"); });
         if (!st.ok()) {
-            self->_status.update(st);
-            LOG(INFO) << "add segment failed " << *self;
+            _status.update(st);
+            LOG(INFO) << "add segment failed " << *this;
         }
     };
     Status st = Status::OK();
@@ -277,9 +274,8 @@ Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
     std::unique_lock<bthread::Mutex> lock(mu);
     bthread::ConditionVariable cv;
     auto st = Status::OK();
-    auto self = shared_from_this();
-    auto func = [self, &mu, &cv, &st, &fn] {
-        signal::set_signal_task_id(self->_load_id);
+    auto func = [this, &mu, &cv, &st, &fn] {
+        signal::set_signal_task_id(_load_id);
         st = fn();
         std::lock_guard<bthread::Mutex> lock(mu);
         cv.notify_one();
@@ -293,21 +289,40 @@ Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
     return st;
 }
 
-void TabletStream::pre_close() {
+void TabletStream::wait_for_flush_tasks() {
+    {
+        std::lock_guard lock_guard(_lock);
+        if (_flush_tasks_done) {
+            return;
+        }
+        _flush_tasks_done = true;
+    }
+
     if (!_status.ok()) {
-        // cancel all pending tasks, wait all running tasks to finish
         _flush_token->shutdown();
         return;
     }
 
-    SCOPED_TIMER(_close_wait_timer);
-    _status.update(_run_in_heavy_work_pool([this]() {
+    // Note: Do not use SCOPED_TIMER here because this function may be called
+    // from IndexStream::~IndexStream() during LoadStream destruction, at which
+    // point the RuntimeProfile (and _close_wait_timer) may already be destroyed.
+    // Use heavy_work_pool to avoid blocking bthread
+    auto st = _run_in_heavy_work_pool([this]() {
         _flush_token->wait();
         return Status::OK();
-    }));
-    // it is necessary to check status after wait_func,
-    // for create_rowset could fail during add_segment when loading to MOW table,
-    // in this case, should skip close to avoid submit_calc_delete_bitmap_task which could cause coredump.
+    });
+    if (!st.ok()) {
+        // If heavy_work_pool is unavailable, fall back to shutdown
+        // which will cancel pending tasks and wait for running tasks
+        _flush_token->shutdown();
+        _status.update(st);
+    }
+}
+
+void TabletStream::pre_close() {
+    SCOPED_TIMER(_close_wait_timer);
+    wait_for_flush_tasks();
+
     if (!_status.ok()) {
         return;
     }
@@ -344,6 +359,16 @@ IndexStream::IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
     _profile = profile->create_child(fmt::format("IndexStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+}
+
+IndexStream::~IndexStream() {
+    // Ensure all TabletStreams have their flush tokens properly handled before destruction.
+    // In normal flow, close() should have called pre_close() on all tablet streams.
+    // But if IndexStream is destroyed without close() being called (e.g., on_idle_timeout),
+    // we need to wait for flush tasks here to ensure flush tokens are properly shut down.
+    for (auto& [_, tablet_stream] : _tablet_streams_map) {
+        tablet_stream->wait_for_flush_tasks();
+    }
 }
 
 Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
