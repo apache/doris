@@ -559,9 +559,10 @@ public class Profile {
 
     /**
      * Build the execution summary section for YAML output.
+     * Uses BlockStyleMap to ensure multi-line block style output.
      */
     private Map<String, Object> buildExecutionSummarySection() {
-        Map<String, Object> executionSummary = new LinkedHashMap<>();
+        Map<String, Object> executionSummary = new BlockStyleMap();
 
         RuntimeProfile execSummaryProfile = summaryProfile.getExecutionSummary();
         Map<String, String> infoStrings = execSummaryProfile.getInfoStrings();
