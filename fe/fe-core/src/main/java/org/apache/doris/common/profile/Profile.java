@@ -452,18 +452,8 @@ public class Profile {
             }
         }
 
-        // Configure YAML dumper for pretty output
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
-        options.setPrettyFlow(true);
-        options.setIndent(2);
-        options.setIndicatorIndent(0);
-        options.setDefaultScalarStyle(DumperOptions.ScalarStyle.PLAIN);
-        options.setWidth(120);
-        options.setAllowUnicode(true);
-        options.setExplicitStart(true);
-
-        Yaml yaml = new Yaml(options);
+        // Use configured YAML dumper with flow style support
+        Yaml yaml = createYamlDumper();
         return yaml.dump(yamlRoot);
     }
 
@@ -528,18 +518,8 @@ public class Profile {
             }
         }
 
-        // Configure YAML dumper for pretty output
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
-        options.setPrettyFlow(true);
-        options.setIndent(2);
-        options.setIndicatorIndent(0);
-        options.setDefaultScalarStyle(DumperOptions.ScalarStyle.PLAIN);
-        options.setWidth(120);
-        options.setAllowUnicode(true);
-        options.setExplicitStart(true);
-
-        Yaml yaml = new Yaml(options);
+        // Use configured YAML dumper with flow style support
+        Yaml yaml = createYamlDumper();
         return yaml.dump(yamlRoot);
     }
 
@@ -603,6 +583,41 @@ public class Profile {
         if (value != null && !value.isEmpty() && !"N/A".equals(value)) {
             map.put(targetKey, value);
         }
+    }
+
+    /**
+     * Create a configured Yaml dumper with custom representer for compact output.
+     * FlowStyleMap (from AggCounter) will be output in single-line flow style.
+     */
+    private Yaml createYamlDumper() {
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
+        options.setPrettyFlow(true);
+        options.setIndent(2);
+        options.setIndicatorIndent(0);
+        options.setDefaultScalarStyle(DumperOptions.ScalarStyle.PLAIN);
+        options.setWidth(120);
+        options.setAllowUnicode(true);
+        options.setExplicitStart(true);
+
+        // Create custom representer to handle FlowStyleMap
+        org.yaml.snakeyaml.representer.Representer representer =
+                new org.yaml.snakeyaml.representer.Representer(options) {
+            @Override
+            protected org.yaml.snakeyaml.nodes.Node representMapping(
+                    org.yaml.snakeyaml.nodes.Tag tag,
+                    Map<?, ?> mapping,
+                    org.yaml.snakeyaml.DumperOptions.FlowStyle flowStyle) {
+                // Force flow style (single line) for FlowStyleMap
+                if (mapping instanceof AggCounter.FlowStyleMap) {
+                    return super.representMapping(tag, mapping,
+                            org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
+                }
+                return super.representMapping(tag, mapping, flowStyle);
+            }
+        };
+
+        return new Yaml(representer, options);
     }
 
     // If the query is already finished, and user wants to get the profile, we should check

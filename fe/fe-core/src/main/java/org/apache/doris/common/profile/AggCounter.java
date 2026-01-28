@@ -109,7 +109,8 @@ public class AggCounter extends Counter {
      */
     @Override
     public Map<String, Object> toMap() {
-        Map<String, Object> map = new LinkedHashMap<>();
+        // Use FlowStyleMap to ensure compact single-line output in YAML
+        Map<String, Object> map = new FlowStyleMap();
         map.put("unit", sum.getType() != null ? sum.getType().name() : "UNKNOWN");
 
         if (isTimeType()) {
@@ -130,5 +131,13 @@ public class AggCounter extends Counter {
         map.put("count", number);
         map.put("display", print());
         return map;
+    }
+
+    /**
+     * A special Map implementation to mark data that should be output in flow style (single line).
+     * This is used for AggCounter data to make YAML output more compact.
+     */
+    public static class FlowStyleMap extends LinkedHashMap<String, Object> {
+        private static final long serialVersionUID = 1L;
     }
 }
