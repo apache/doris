@@ -46,6 +46,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_AZURE_SUPPORT = "fs.azure.support";
     public static final String FS_OSS_SUPPORT = "fs.oss.support";
     public static final String FS_OBS_SUPPORT = "fs.obs.support";
+    public static final String FS_OFS_SUPPORT = "fs.ofs.support";
     public static final String FS_COS_SUPPORT = "fs.cos.support";
     public static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
     public static final String FS_LOCAL_SUPPORT = "fs.local.support";
@@ -63,6 +64,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         S3,
         OSS,
         OBS,
+        OFS,
         COS,
         GCS,
         OSS_HDFS,
@@ -196,6 +198,8 @@ public abstract class StorageProperties extends ConnectionProperties {
                             || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
                     props -> (isFsSupport(props, FS_OBS_SUPPORT)
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
+                    props -> (isFsSupport(props, FS_OFS_SUPPORT)
+                            || OFSProperties.guessIsMe(props)) ? new OFSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
                             || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
                     props -> (isFsSupport(props, FS_GCS_SUPPORT)
