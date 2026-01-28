@@ -36,6 +36,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -165,20 +166,11 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         UnboundRelation relation = optRelation.get();
         PhysicalFilter<?> filter = optFilter.get();
 
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), scan.getDatabase().getCatalog().getName(),
-                        scan.getDatabase().getFullName(),
-                        scan.getTable().getName(), PrivPredicate.LOAD)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    scan.getDatabase().getFullName() + ": " + Util.getTempTableDisplayName(scan.getTable().getName()));
-            throw new AnalysisException(message);
-        }
-
         // predicate check
         OlapTable olapTable = scan.getTable();
         Set<String> columns = olapTable.getFullSchema().stream().map(Column::getName).collect(Collectors.toSet());
         try {
+            // treat sql as simple `delete from t where keyC = ...` and check
             Plan plan = planner.getPhysicalPlan();
             checkSubQuery(plan);
             for (Expression conjunct : filter.getConjuncts()) {
@@ -188,6 +180,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         } catch (Exception e) {
             try {
+                // `DeleteFromUsingCommand` will check auth
                 new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
                         logicalQuery, Optional.empty()).run(ctx, executor);
                 return;
@@ -196,11 +189,24 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         }
 
-        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
-                && !olapTable.getEnableMowLightDelete()) {
+        OlapTable targetTable = olapTable;
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && targetTable.getEnableUniqueKeyMergeOnWrite()
+                && !targetTable.getEnableMowLightDelete()) {
+            // `DeleteFromUsingCommand` will check auth
             new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
                     logicalQuery, Optional.empty()).run(ctx, executor);
             return;
+        }
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
+                        targetTable.getDatabase().getFullName(),
+                        targetTable.getName(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    targetTable.getDatabase().getFullName() + "." + Util.getTempTableDisplayName(
+                            targetTable.getName()));
         }
 
         // call delete handler to process
