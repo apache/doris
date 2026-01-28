@@ -179,6 +179,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
@@ -234,6 +235,14 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public String getName() {
         return INTERNAL_CATALOG_NAME;
+    }
+
+    private static String getCurrentUserOrNull() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || context.getCurrentUserIdentity() == null) {
+            return null;
+        }
+        return context.getCurrentUserIdentity().getQualifiedUser();
     }
 
     @Override
@@ -410,7 +419,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // check and analyze database properties before create database
         db.checkStorageVault(properties);
         db.setDbProperties(new DatabaseProperty(properties));
-
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(db::setCreatedBy);
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -2337,7 +2346,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 .withExtraParams(createTableInfo)
                 .build();
         olapTable.setComment(createTableInfo.getComment());
-
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(olapTable::setCreatedBy);
         // set base index id
         long baseIndexId = idGeneratorBuffer.getNextId();
         olapTable.setBaseIndexId(baseIndexId);
@@ -3194,6 +3203,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = Env.getCurrentEnv().getNextId();
         MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, createTableInfo.getProperties());
         mysqlTable.setComment(createTableInfo.getComment());
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(mysqlTable::setCreatedBy);
         Pair<Boolean, Boolean> result = db.createTableWithLock(mysqlTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
@@ -3205,6 +3215,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = Env.getCurrentEnv().getNextId();
         OdbcTable odbcTable = new OdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
         odbcTable.setComment(createTableInfo.getComment());
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(odbcTable::setCreatedBy);
         Pair<Boolean, Boolean> result = db.createTableWithLock(odbcTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
@@ -3241,6 +3252,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = Env.getCurrentEnv().getNextId();
         esTable.setId(tableId);
         esTable.setComment(createTableInfo.getComment());
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(esTable::setCreatedBy);
         esTable.syncTableMetaData();
         Pair<Boolean, Boolean> result = db.createTableWithLock(esTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
@@ -3255,6 +3267,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, createTableInfo.getProperties());
         brokerTable.setComment(createTableInfo.getComment());
         brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(brokerTable::setCreatedBy);
         Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
 
@@ -3268,6 +3281,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         JdbcTable jdbcTable = new JdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
         jdbcTable.setComment(createTableInfo.getComment());
+        Optional.ofNullable(getCurrentUserOrNull()).ifPresent(jdbcTable::setCreatedBy);
         // check table if exists
         Pair<Boolean, Boolean> result = db.createTableWithLock(jdbcTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
