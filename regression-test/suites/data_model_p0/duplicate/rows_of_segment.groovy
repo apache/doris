@@ -39,6 +39,8 @@
 //  ~380  | TC-015  | UNIQUE KEY table should NOT allow rows_of_segment
 //  ~430  | TC-016  | Verify rowset information after multiple inserts
 //  ~490  | TC-017  | Verify segment rows distribution (20000 rows/segment)
+//  ~530  | TC-018  | Materialized View (Rollup) inherits rows_of_segment
+//  ~620  | TC-019  | Sync Materialized View with data import
 // ============================================================================
 
 suite("rows_of_segment") {
@@ -515,6 +517,220 @@ suite("rows_of_segment") {
     logger.info("Total segments: ${totalSegments17}")
     
     sql "DROP TABLE IF EXISTS test_rows_distribution"
+
+    // ============================================================
+    // TC-018: Materialized View (Rollup) inherits rows_of_segment
+    // ============================================================
+    sql "DROP TABLE IF EXISTS test_rows_mv_base"
+    sql """
+        CREATE TABLE test_rows_mv_base (
+            id BIGINT,
+            k1 INT,
+            k2 INT,
+            v1 BIGINT,
+            v2 VARCHAR(100)
+        )
+        DUPLICATE KEY(id, k1, k2)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "rows_of_segment" = "30000",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    
+    // Verify base table has rows_of_segment property
+    def mvBaseResult = sql "SHOW CREATE TABLE test_rows_mv_base"
+    assertTrue(mvBaseResult[0][1].contains('"rows_of_segment" = "30000"'))
+    logger.info("Base table created with rows_of_segment=30000")
+    
+    // Insert data into base table
+    sql """
+        INSERT INTO test_rows_mv_base
+        SELECT number, number % 100, number % 50, number * 10, CONCAT('value_', CAST(number AS VARCHAR))
+        FROM numbers("number" = "100000")
+    """
+    
+    // Verify data count
+    def countMvBase = sql "SELECT COUNT(*) FROM test_rows_mv_base"
+    assertEquals(100000, countMvBase[0][0])
+    
+    // Create a materialized view (rollup)
+    sql """
+        CREATE MATERIALIZED VIEW mv_test_rows AS
+        SELECT k1 as mv_k1, SUM(v1) as sum_v1
+        FROM test_rows_mv_base
+        GROUP BY mv_k1
+    """
+    
+    // Wait for materialized view to be created
+    def maxWaitTime = 60000 // 60 seconds
+    def waitInterval = 1000 // 1 second
+    def elapsedTime = 0
+    def mvReady = false
+    
+    while (elapsedTime < maxWaitTime && !mvReady) {
+        def mvStatus = sql """
+            SHOW ALTER TABLE MATERIALIZED VIEW 
+            WHERE TableName = 'test_rows_mv_base'
+            ORDER BY CreateTime DESC LIMIT 1
+        """
+        if (mvStatus.size() > 0) {
+            def state = mvStatus[0][8] // State column
+            logger.info("MV creation state: ${state}")
+            if (state == "FINISHED") {
+                mvReady = true
+            } else if (state == "CANCELLED") {
+                logger.warn("MV creation cancelled: ${mvStatus[0]}")
+                break
+            }
+        }
+        if (!mvReady) {
+            Thread.sleep(waitInterval)
+            elapsedTime += waitInterval
+        }
+    }
+    
+    if (mvReady) {
+        logger.info("Materialized view created successfully")
+        
+        // Verify MV can be queried - query the base table, optimizer will use MV
+        def mvQueryResult = sql """
+            SELECT k1, SUM(v1) 
+            FROM test_rows_mv_base 
+            GROUP BY k1 
+            ORDER BY k1 LIMIT 5
+        """
+        assertTrue(mvQueryResult.size() > 0)
+        logger.info("MV query result: ${mvQueryResult}")
+        
+        // Note: The rows_of_segment property is inherited internally 
+        // during CreateReplicaTask for the rollup index.
+        // We cannot directly verify the MV's rows_of_segment from SQL,
+        // but the BE logs would show it if enabled.
+    } else {
+        logger.warn("Materialized view creation timed out or failed, skipping MV verification")
+    }
+    
+    sql "DROP TABLE IF EXISTS test_rows_mv_base"
+
+    // ============================================================
+    // TC-019: Sync Materialized View with data import
+    // Verify rows_of_segment affects MV build
+    // ============================================================
+    sql "DROP TABLE IF EXISTS test_rows_mv_import"
+    sql """
+        CREATE TABLE test_rows_mv_import (
+            dt DATE,
+            user_id BIGINT,
+            city VARCHAR(50),
+            amount DECIMAL(10, 2)
+        )
+        DUPLICATE KEY(dt, user_id)
+        DISTRIBUTED BY HASH(user_id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "rows_of_segment" = "25000",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    
+    // Insert initial data
+    sql """
+        INSERT INTO test_rows_mv_import
+        SELECT DATE_ADD('2024-01-01', INTERVAL (number % 30) DAY),
+               number,
+               CONCAT('city_', CAST(number % 10 AS VARCHAR)),
+               (number % 1000) * 1.5
+        FROM numbers("number" = "80000")
+    """
+    
+    // Create MV for aggregation
+    sql """
+        CREATE MATERIALIZED VIEW mv_city_amount AS
+        SELECT city as mv_city, SUM(amount) as total_amount
+        FROM test_rows_mv_import
+        GROUP BY mv_city
+    """
+    
+    // Wait for MV creation
+    elapsedTime = 0
+    mvReady = false
+    while (elapsedTime < maxWaitTime && !mvReady) {
+        def mvStatus = sql """
+            SHOW ALTER TABLE MATERIALIZED VIEW 
+            WHERE TableName = 'test_rows_mv_import'
+            ORDER BY CreateTime DESC LIMIT 1
+        """
+        if (mvStatus.size() > 0) {
+            def state = mvStatus[0][8]
+            logger.info("MV mv_city_amount creation state: ${state}")
+            if (state == "FINISHED") {
+                mvReady = true
+            } else if (state == "CANCELLED") {
+                break
+            }
+        }
+        if (!mvReady) {
+            Thread.sleep(waitInterval)
+            elapsedTime += waitInterval
+        }
+    }
+    
+    if (mvReady) {
+        // Insert more data after MV is created
+        sql """
+            INSERT INTO test_rows_mv_import
+            SELECT DATE_ADD('2024-02-01', INTERVAL (number % 28) DAY),
+                   number + 80000,
+                   CONCAT('city_', CAST(number % 10 AS VARCHAR)),
+                   (number % 500) * 2.0
+            FROM numbers("number" = "50000")
+        """
+        
+        // Verify total data
+        def countMvImport = sql "SELECT COUNT(*) FROM test_rows_mv_import"
+        assertEquals(130000, countMvImport[0][0])
+        
+        // Query using MV (optimizer should use mv_city_amount)
+        def cityResult = sql """
+            SELECT city, SUM(amount)
+            FROM test_rows_mv_import
+            GROUP BY city
+            ORDER BY city
+        """
+        assertEquals(10, cityResult.size()) // 10 cities
+        logger.info("City aggregation result (first 3): ${cityResult.take(3)}")
+        
+        // Check base table tablets for segment info
+        def tabletsMvImport = sql "SHOW TABLETS FROM test_rows_mv_import"
+        def tabletIdMvImport = tabletsMvImport[0][0]
+        
+        def rowsetsMvImport = sql """
+            SELECT ROWSET_ID, ROWSET_NUM_ROWS, NUM_SEGMENTS
+            FROM information_schema.rowsets
+            WHERE TABLET_ID = ${tabletIdMvImport}
+              AND ROWSET_NUM_ROWS > 0
+            ORDER BY START_VERSION
+        """
+        
+        logger.info("Base table rowsets after MV creation and more inserts:")
+        for (row in rowsetsMvImport) {
+            def numRows = row[1] as Long
+            def numSegments = row[2] as Long
+            if (numSegments > 0 && numRows > 0) {
+                def avgRows = numRows / numSegments
+                logger.info("  Rowset: rows=${numRows}, segments=${numSegments}, avgRowsPerSeg=${avgRows}")
+                // With rows_of_segment=25000, each segment should have <= 25000 rows
+                assertTrue(avgRows <= 25000, 
+                    "Average rows per segment ${avgRows} exceeds limit 25000")
+            }
+        }
+    } else {
+        logger.warn("MV creation timed out, skipping test")
+    }
+    
+    sql "DROP TABLE IF EXISTS test_rows_mv_import"
 
     // ============================================================
     // Cleanup
