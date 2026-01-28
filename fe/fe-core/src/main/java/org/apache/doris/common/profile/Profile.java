@@ -525,9 +525,10 @@ public class Profile {
 
     /**
      * Build the summary section for YAML output.
+     * Uses BlockStyleMap to ensure multi-line block style output.
      */
     private Map<String, Object> buildSummarySection() {
-        Map<String, Object> summary = new LinkedHashMap<>();
+        Map<String, Object> summary = new BlockStyleMap();
 
         RuntimeProfile summaryRuntimeProfile = summaryProfile.getSummary();
         Map<String, String> infoStrings = summaryRuntimeProfile.getInfoStrings();
@@ -546,6 +547,14 @@ public class Profile {
         addIfPresent(summary, "sql_statement", infoStrings, SummaryProfile.SQL_STATEMENT);
 
         return summary;
+    }
+
+    /**
+     * A special Map implementation to mark data that should be output in block style (multi-line).
+     * This is used for summary sections to make them more readable.
+     */
+    public static class BlockStyleMap extends LinkedHashMap<String, Object> {
+        private static final long serialVersionUID = 1L;
     }
 
     /**
@@ -600,29 +609,47 @@ public class Profile {
         options.setAllowUnicode(true);
         options.setExplicitStart(true);
 
-        // Create custom representer to handle FlowStyleMap (compact single-line output)
+        // Create custom representer to handle FlowStyleMap (single-line) and BlockStyleMap (multi-line)
         org.yaml.snakeyaml.representer.Representer representer =
                 new org.yaml.snakeyaml.representer.Representer(options) {
             {
-                // Register custom representer for FlowStyleMap in the initializer block
+                // Register custom representer for FlowStyleMap (single-line output)
                 this.representers.put(AggCounter.FlowStyleMap.class,
                         new org.yaml.snakeyaml.representer.Represent() {
                     @Override
                     public org.yaml.snakeyaml.nodes.Node representData(Object data) {
                         @SuppressWarnings("unchecked")
                         Map<Object, Object> map = (Map<Object, Object>) data;
-                        // Call the protected representMapping method via the outer class instance
                         return representFlowStyleMapping(map);
+                    }
+                });
+
+                // Register custom representer for BlockStyleMap (multi-line output)
+                this.representers.put(BlockStyleMap.class,
+                        new org.yaml.snakeyaml.representer.Represent() {
+                    @Override
+                    public org.yaml.snakeyaml.nodes.Node representData(Object data) {
+                        @SuppressWarnings("unchecked")
+                        Map<Object, Object> map = (Map<Object, Object>) data;
+                        return representBlockStyleMapping(map);
                     }
                 });
             }
 
-            // Helper method to call protected representMapping with FLOW style
+            // Helper method to call protected representMapping with FLOW style (single-line)
             protected org.yaml.snakeyaml.nodes.Node representFlowStyleMapping(Map<Object, Object> map) {
                 return representMapping(
                         org.yaml.snakeyaml.nodes.Tag.MAP,
                         map,
                         org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
+            }
+
+            // Helper method to call protected representMapping with BLOCK style (multi-line)
+            protected org.yaml.snakeyaml.nodes.Node representBlockStyleMapping(Map<Object, Object> map) {
+                return representMapping(
+                        org.yaml.snakeyaml.nodes.Tag.MAP,
+                        map,
+                        org.yaml.snakeyaml.DumperOptions.FlowStyle.BLOCK);
             }
         };
 
