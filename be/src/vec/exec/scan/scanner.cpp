@@ -264,11 +264,11 @@ void Scanner::_collect_profile_before_close() {
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
 }
 
-void Scanner::update_scan_cpu_timer() {
-    int64_t cpu_time = _cpu_watch.elapsed_time();
-    _scan_cpu_timer += cpu_time;
+void Scanner::update_scan_cpu_timer(int64_t cpu_time_delta) {
+    DCHECK_GE(cpu_time_delta, 0);
+    _scan_cpu_timer += cpu_time_delta;
     if (_state && _state->get_query_ctx()) {
-        _state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(cpu_time);
+        _state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(cpu_time_delta);
     }
 }
 
