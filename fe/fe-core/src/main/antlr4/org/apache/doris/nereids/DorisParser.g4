@@ -240,7 +240,7 @@ supportedCreateStatement
             AS expression                                                           #createAliasFunction
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
             (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
-            passwordOption commentSpec?                                             #createUser
+            passwordOption requireClause? commentSpec?                              #createUser
     | CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
               properties=propertyClause?                                            #createDatabase
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend            #createRepository
@@ -318,7 +318,7 @@ supportedAlterStatement
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
-        passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
+        passwordOption requireClause? commentSpec?                                          #alterUser
     ;
 
 supportedDropStatement
@@ -906,6 +906,17 @@ passwordOption
         (PASSWORD_LOCK_TIME (lockUnbounded=UNBOUNDED
             | lockValue=INTEGER_VALUE lockTimeUint=(DAY | HOUR | SECOND)))?
         (ACCOUNT_LOCK | ACCOUNT_UNLOCK)?
+    ;
+
+requireClause
+    : REQUIRE (NONE | tlsOption (AND? tlsOption)*)
+    ;
+
+tlsOption
+    : SAN STRING_LITERAL
+    | ISSUER STRING_LITERAL
+    | CIPHER STRING_LITERAL
+    | SUBJECT STRING_LITERAL
     ;
 
 functionArguments
@@ -1954,10 +1965,15 @@ nonReserved
     | CACHE
     | CACHED
     | CALL
+    | CANCEL
+    | CASE
+    | CAST
     | CATALOG
     | CATALOGS
     | CHAIN
+    | CIPHER
     | CHAR
+
     | CHARSET
     | CHECK
     | CLUSTER
@@ -2076,6 +2092,7 @@ nonReserved
     | IS_NULL_PRED
     | ISNULL
     | ISOLATION
+    | ISSUER
     | JOB
     | JOBS
     | JSON
@@ -2127,6 +2144,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NONE
     | NON_NULLABLE
     | NORMALIZER
     | NULLS
@@ -2191,6 +2209,7 @@ nonReserved
     | RESUME
     | RETAIN
     | RETENTION
+    | REQUIRE
     | RETURNS
     | REWRITTEN
     | RIGHT_BRACE
@@ -2202,6 +2221,7 @@ nonReserved
     | ROUTINE
     | S3
     | SAMPLE
+    | SAN
     | SCHEDULE
     | SCHEDULER
     | SCHEMA
@@ -2230,6 +2250,7 @@ nonReserved
     | STREAMING
     | STRING
     | STRUCT
+    | SUBJECT
     | SUBSTR
     | SUBSTRING
     | SUM

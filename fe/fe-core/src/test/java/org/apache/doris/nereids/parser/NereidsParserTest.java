@@ -780,6 +780,20 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testCreateUserWithRequire() {
+        NereidsParser parser = new NereidsParser();
+        parser.parseSingle("create user u1 require none");
+        parser.parseSingle("create user u2 identified by 'pwd' require san 'DNS:a.example'");
+    }
+
+    @Test
+    public void testAlterUserWithRequire() {
+        NereidsParser parser = new NereidsParser();
+        parser.parseSingle("alter user u1 require san 'URI:spiffe://example.org/service'");
+        parser.parseSingle("alter user if exists u2 identified by 'pwd' require none");
+    }
+
+    @Test
     public void testCreateRepository() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "create repository a with S3 on location 's3://s3-repo' "
