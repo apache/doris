@@ -604,16 +604,14 @@ public class Profile {
         org.yaml.snakeyaml.representer.Representer representer =
                 new org.yaml.snakeyaml.representer.Representer(options) {
             @Override
-            protected org.yaml.snakeyaml.nodes.MappingNode representMapping(
-                    org.yaml.snakeyaml.nodes.Tag tag,
-                    Map<?, ?> mapping,
-                    org.yaml.snakeyaml.DumperOptions.FlowStyle flowStyle) {
+            protected org.yaml.snakeyaml.nodes.Node representData(Object data) {
                 // Force flow style (single line) for FlowStyleMap
-                if (mapping instanceof AggCounter.FlowStyleMap) {
-                    return super.representMapping(tag, mapping,
+                if (data instanceof AggCounter.FlowStyleMap) {
+                    org.yaml.snakeyaml.nodes.Tag tag = new org.yaml.snakeyaml.nodes.Tag(Map.class);
+                    return representMapping(tag, (Map<?, ?>) data,
                             org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
                 }
-                return super.representMapping(tag, mapping, flowStyle);
+                return super.representData(data);
             }
         };
 
