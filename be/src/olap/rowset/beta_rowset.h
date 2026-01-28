@@ -91,7 +91,7 @@ public:
     Status show_nested_index_file(rapidjson::Value* rowset_value,
                                   rapidjson::Document::AllocatorType& allocator);
 
-    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows,
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows, bool enable_segment_cache,
                                 OlapReaderStatistics* read_stats);
 
 protected:

@@ -147,6 +147,18 @@ public:
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
+    void set_num_segment_rows(const std::vector<uint32_t>& num_segment_rows) {
+        _rowset_meta_pb.mutable_num_segment_rows()->Assign(num_segment_rows.cbegin(),
+                                                           num_segment_rows.cend());
+    }
+
+    void get_num_segment_rows(std::vector<uint32_t>* num_segment_rows) const {
+        num_segment_rows->assign(_rowset_meta_pb.num_segment_rows().cbegin(),
+                                 _rowset_meta_pb.num_segment_rows().cend());
+    }
+
+    auto& get_num_segment_rows() const { return _rowset_meta_pb.num_segment_rows(); }
+
     int64_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
 
     void set_total_disk_size(int64_t total_disk_size) {
@@ -438,6 +450,10 @@ public:
         index_pb.set_size(size);
         index_pb.set_packed_file_size(packed_file_size);
     }
+
+    int32_t schema_version() const { return _rowset_meta_pb.schema_version(); }
+
+    std::string debug_string() const { return _rowset_meta_pb.ShortDebugString(); }
 
 private:
     bool _deserialize_from_pb(std::string_view value);
