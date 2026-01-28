@@ -115,7 +115,10 @@ public:
     bool ready() const { return _ready; }
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
-    void start_watcher() { _watcher.start(); }
+    void start_watcher(const std::unique_lock<std::mutex>&) { _watcher.start(); }
+
+    // Stop the watcher. make sure to call it in lock of _task_lock.
+    void stop_watcher(const std::unique_lock<std::mutex>&) { _watcher.stop(); }
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
