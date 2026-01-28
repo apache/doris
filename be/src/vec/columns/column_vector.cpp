@@ -353,15 +353,6 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::insert(const Field& x) {
-    if (x.is_null()) {
-        data.push_back(default_value());
-    } else {
-        data.push_back(x.get<T>());
-    }
-}
-
-template <PrimitiveType T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     //  size_t(start)  start > src_vec.data.size() || length > src_vec.data.size() should not be negative which cause overflow
