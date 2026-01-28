@@ -551,7 +551,7 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
     }
 
     std::vector<std::vector<uint32_t>> partition_indexes(_partition_count);
-    const auto* channel_ids = local_state._partitioner->get_channel_ids().get<uint32_t>();
+    const auto& channel_ids = local_state._partitioner->get_channel_ids();
     for (uint32_t i = 0; i != rows; ++i) {
         partition_indexes[channel_ids[i]].emplace_back(i);
     }

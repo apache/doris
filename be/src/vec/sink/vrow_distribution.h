@@ -22,6 +22,7 @@
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <glog/logging.h>
 
 #include <cstdint>
 #include <functional>
@@ -107,6 +108,21 @@ public:
         _create_partition_callback = ctx.create_partition_callback;
     }
 
+    void output_profile_info(RuntimeProfile* profile) {
+        if (!_add_partition_request_times.empty()) {
+            std::stringstream ss;
+            ss << "[";
+            for (size_t i = 0; i < _add_partition_request_times.size(); ++i) {
+                if (i > 0) {
+                    ss << ", ";
+                }
+                ss << PrettyPrinter::print(_add_partition_request_times[i], TUnit::TIME_NS);
+            }
+            ss << "]";
+            profile->add_info_string("AddPartitionRequestTimeList", ss.str());
+        }
+    }
+
     Status open(RowDescriptor* output_row_desc) {
         if (_vpartition->is_auto_partition()) {
             auto [part_ctxs, part_funcs] = _get_partition_function();
@@ -129,55 +145,55 @@ public:
     // mv where clause
     // v1 needs index->node->row_ids - tabletids
     // v2 needs index,tablet->rowids
-    Status generate_rows_distribution(vectorized::Block& input_block,
-                                      std::shared_ptr<vectorized::Block>& block,
-                                      int64_t& filtered_rows,
+    Status generate_rows_distribution(Block& input_block, std::shared_ptr<Block>& block,
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val);
+    // have 2 ways remind to deal batching block:
+    // 1. in row_distribution, _batching_rows reaches the threshold, this class set _deal_batched = true.
+    // 2. in caller, after last block and before close, set _deal_batched = true.
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
-    size_t batching_rows() const { return _batching_rows; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
     void clear_batching_stats();
+    const std::vector<bool>& get_skipped() const { return _skip; } // skipped in last round
 
     // for auto partition
-    std::unique_ptr<MutableBlock> _batching_block;
+    std::unique_ptr<MutableBlock> _batching_block; // same structure with input_block
     bool _deal_batched = false; // If true, send batched block before any block's append.
 
 private:
-    std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
+    std::pair<VExprContextSPtrs, VExprSPtrs> _get_partition_function();
 
-    Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
-                                Block* block, const std::vector<int64_t>& filter,
+    Status _save_missing_values(const Block& input_block,
+                                std::vector<std::vector<std::string>>& col_strs, int col_size,
+                                Block* block, const std::vector<uint32_t>& filter,
                                 const std::vector<const NullMap*>& col_null_maps);
 
-    void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
-                         std::vector<int64_t>& tablet_ids);
+    void _get_tablet_ids(Block* block, int32_t index_idx, std::vector<int64_t>& tablet_ids);
 
-    void _filter_block_by_skip(vectorized::Block* block, RowPartTabletIds& row_part_tablet_id);
+    void _filter_block_by_skip(Block* block, RowPartTabletIds& row_part_tablet_id);
 
-    Status _filter_block_by_skip_and_where_clause(vectorized::Block* block,
-                                                  const vectorized::VExprContextSPtr& where_clause,
+    Status _filter_block_by_skip_and_where_clause(Block* block,
+                                                  const VExprContextSPtr& where_clause,
                                                   RowPartTabletIds& row_part_tablet_id);
 
-    Status _filter_block(vectorized::Block* block,
-                         std::vector<RowPartTabletIds>& row_part_tablet_ids);
+    Status _filter_block(Block* block, std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_auto_partition(
-            vectorized::Block* block, const std::vector<uint16_t>& partition_col_idx,
+            const Block& input_block, Block* block, const std::vector<uint16_t>& partition_col_idx,
             bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
             int64_t& rows_stat_val);
     // the whole process to deal missing rows. will call _save_missing_values
-    Status _deal_missing_map(vectorized::Block* block,
+    Status _deal_missing_map(const Block& input_block, Block* block,
                              const std::vector<uint16_t>& partition_cols_idx,
                              int64_t& rows_stat_val);
 
     Status _generate_rows_distribution_for_non_auto_partition(
-            vectorized::Block* block, bool has_filtered_rows,
+            Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_auto_overwrite(
-            vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
+            const Block& input_block, Block* block, const std::vector<uint16_t>& partition_cols_idx,
             bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
             int64_t& rows_stat_val);
     Status _replace_overwriting_partition();
@@ -217,6 +233,9 @@ private:
     int64_t _txn_id = -1;
     ObjectPool* _pool = nullptr;
     OlapTableLocationParam* _location = nullptr;
+
+    // Record each auto-partition request time for detailed profiling
+    std::vector<int64_t> _add_partition_request_times;
     // int64_t _number_output_rows = 0;
     const VExprContextSPtrs* _vec_output_expr_ctxs = nullptr;
     // generally it's writer's on_partitions_created
@@ -230,7 +249,7 @@ private:
     std::vector<bool> _skip;
     std::vector<uint32_t> _tablet_indexes;
     std::vector<int64_t> _tablet_ids;
-    std::vector<int64_t> _missing_map; // indice of missing values in partition_col
+    std::vector<uint32_t> _missing_map; // indice of missing values in partition_col
     // for auto detect overwrite partition
     std::set<int64_t> _new_partition_ids; // if contains, not to replace it again.
 };
