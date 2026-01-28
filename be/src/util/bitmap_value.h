@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "udf/udf.h"
 #include "util/coding.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"

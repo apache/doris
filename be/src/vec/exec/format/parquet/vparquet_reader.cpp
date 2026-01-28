@@ -194,6 +194,22 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecompressTime", parquet_profile, 1);
         _parquet_profile.decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(
                 _profile, "DecompressCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_read_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageReadCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheWriteCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_compressed_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheCompressedWriteCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_decompressed_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheDecompressedWriteCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheHitCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_missing_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheMissingCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_compressed_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheCompressedHitCount", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.page_cache_decompressed_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "PageCacheDecompressedHitCount", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.decode_header_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageHeaderDecodeTime", parquet_profile, 1);
         _parquet_profile.read_page_header_time =
@@ -261,10 +277,14 @@ Status ParquetReader::_open_file() {
         bool enable_mapping_varbinary = _scan_params.__isset.enable_mapping_varbinary
                                                 ? _scan_params.enable_mapping_varbinary
                                                 : false;
+        bool enable_mapping_timestamp_tz = _scan_params.__isset.enable_mapping_timestamp_tz
+                                                   ? _scan_params.enable_mapping_timestamp_tz
+                                                   : false;
         if (_meta_cache == nullptr) {
             // wrap _file_metadata with unique ptr, so that it can be released finally.
             RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
-                                                &meta_size, _io_ctx, enable_mapping_varbinary));
+                                                &meta_size, _io_ctx, enable_mapping_varbinary,
+                                                enable_mapping_timestamp_tz));
             _file_metadata = _file_metadata_ptr.get();
             // parse magic number & parse meta data
             _reader_statistics.file_footer_read_calls += 1;
@@ -273,7 +293,8 @@ Status ParquetReader::_open_file() {
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
                 RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
-                                                    &meta_size, _io_ctx, enable_mapping_varbinary));
+                                                    &meta_size, _io_ctx, enable_mapping_varbinary,
+                                                    enable_mapping_timestamp_tz));
                 // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
                 _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
                                     &_meta_cache_handle);
@@ -409,14 +430,12 @@ bool ParquetReader::_type_matches(const int cid) const {
            !is_complex_type(table_col_type->get_primitive_type());
 }
 
-Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjuncts) {
-    RowGroupReader::LazyReadContext new_lazy_read_ctx;
-    new_lazy_read_ctx.conjuncts = new_conjuncts;
-    new_lazy_read_ctx.fill_partition_columns = std::move(_lazy_read_ctx.fill_partition_columns);
-    new_lazy_read_ctx.fill_missing_columns = std::move(_lazy_read_ctx.fill_missing_columns);
-    _lazy_read_ctx = std::move(new_lazy_read_ctx);
-
-    _push_down_predicates.clear();
+Status ParquetReader::set_fill_columns(
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+    _lazy_read_ctx.fill_partition_columns = partition_columns;
+    _lazy_read_ctx.fill_missing_columns = missing_columns;
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
@@ -438,7 +457,6 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
             visit_slot(child.get());
         }
     };
-
     for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
         auto expr = conjunct->root();
 
@@ -448,33 +466,7 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
 
             auto filter_impl = runtime_filter->get_impl();
             visit_slot(filter_impl.get());
-
-            // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
-            if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
-                (runtime_filter->op() == TExprOpcode::GE ||
-                 runtime_filter->op() == TExprOpcode::LE)) {
-                expr = filter_impl;
-            } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
-                       runtime_filter->op() == TExprOpcode::FILTER_IN) {
-                VDirectInPredicate* direct_in_predicate =
-                        assert_cast<VDirectInPredicate*>(filter_impl.get());
-
-                int max_in_size =
-                        _state->query_options().__isset.max_pushdown_conditions_per_column
-                                ? _state->query_options().max_pushdown_conditions_per_column
-                                : 1024;
-                if (direct_in_predicate->get_set_func()->size() == 0 ||
-                    direct_in_predicate->get_set_func()->size() > max_in_size) {
-                    continue;
-                }
-
-                VExprSPtr new_in_slot = nullptr;
-                if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
-                    expr = new_in_slot;
-                }
-            }
-        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(expr.get());
-                   topn_pred == nullptr) {
+        } else {
             visit_slot(expr.get());
         }
     }
@@ -561,17 +553,6 @@ Status ParquetReader::_update_lazy_read_ctx(const VExprContextSPtrs& new_conjunc
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
     }
-
-    return Status::OK();
-}
-
-Status ParquetReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    _lazy_read_ctx.fill_partition_columns = partition_columns;
-    _lazy_read_ctx.fill_missing_columns = missing_columns;
-    RETURN_IF_ERROR(_update_lazy_read_ctx(_lazy_read_ctx.conjuncts));
 
     if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
         return Status::EndOfFile("No row group to read");
@@ -710,13 +691,6 @@ Status ParquetReader::_next_row_group_reader() {
 
         if (_filter_groups && _is_misaligned_range_group(row_group)) {
             continue;
-        }
-
-        bool has_late_rf_cond = false;
-        VExprContextSPtrs new_push_down_conjuncts;
-        RETURN_IF_ERROR(_call_late_rf_func(&has_late_rf_cond, new_push_down_conjuncts));
-        if (has_late_rf_cond) {
-            RETURN_IF_ERROR(_update_lazy_read_ctx(new_push_down_conjuncts));
         }
 
         candidate_row_ranges.clear();
@@ -1060,6 +1034,7 @@ Status ParquetReader::_process_page_index_filter(
         *ans = &sig_stat;
         return true;
     };
+    cached_page_index.row_group_range = {0, row_group.num_rows};
     cached_page_index.get_stat_func = get_stat_func;
 
     candidate_row_ranges->add({0, row_group.num_rows});
@@ -1319,6 +1294,21 @@ void ParquetReader::_collect_profile() {
                    _column_statistics.page_index_read_calls);
     COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
     COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
+    COUNTER_UPDATE(_parquet_profile.page_read_counter, _column_statistics.page_read_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_write_counter,
+                   _column_statistics.page_cache_write_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_compressed_write_counter,
+                   _column_statistics.page_cache_compressed_write_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_decompressed_write_counter,
+                   _column_statistics.page_cache_decompressed_write_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_hit_counter,
+                   _column_statistics.page_cache_hit_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_missing_counter,
+                   _column_statistics.page_cache_missing_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_compressed_hit_counter,
+                   _column_statistics.page_cache_compressed_hit_counter);
+    COUNTER_UPDATE(_parquet_profile.page_cache_decompressed_hit_counter,
+                   _column_statistics.page_cache_decompressed_hit_counter);
     COUNTER_UPDATE(_parquet_profile.decode_header_time, _column_statistics.decode_header_time);
     COUNTER_UPDATE(_parquet_profile.read_page_header_time,
                    _column_statistics.read_page_header_time);

@@ -18,8 +18,8 @@
 
 #include <memory>
 
-#include "udf/udf.h"
 #include "vec/common/string_ref.h" // IWYU pragma: keep
+#include "vec/exprs/function_context.h"
 
 namespace doris {
 

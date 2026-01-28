@@ -1180,7 +1180,7 @@ static std::string get_all_types_native_file_path() {
 
 // Generator test: Generate native file with all types (DISABLED by default).
 // Run this test manually to regenerate the test data file:
-//   ./run-be-ut.sh --run --filter=*DISABLED_generate_all_types_native_file*
+//   ./run-be-ut.sh --run --filter=*generate_all_types_native_file*
 // Then copy the generated file to: be/test/data/vec/native/all_types_single_row.native
 TEST_F(NativeReaderWriterTest, generate_all_types_native_file) {
     // Output to current directory, user needs to copy it to test data dir

@@ -447,6 +447,9 @@ private:
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                    bool force);
 
+    void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
+                            CompactionType compaction_type, int64_t permits, bool force);
+
     Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
                                                   CompactionType compaction_type);
 
@@ -456,6 +459,8 @@ private:
     void _remove_unused_remote_files_callback();
     void do_remove_unused_remote_files();
     void _cold_data_compaction_producer_callback();
+    void _handle_cold_data_compaction(TabletSharedPtr tablet);
+    void _follow_cooldown_meta(TabletSharedPtr tablet);
 
     Status _handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
                                   SegCompactionCandidatesSharedPtr segments,

@@ -34,7 +34,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
+#include "util/binary_cast.hpp"
 #include "util/time_lut.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -59,6 +59,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -837,18 +838,15 @@ struct UnixTimeStampStrImpl {
             }
 
             std::pair<int64_t, int64_t> timestamp {};
-            if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                // should not happen
-            } else {
-                auto [sec, ms] = trim_timestamp(timestamp, NewVersion);
-                // trailing ms
-                auto ms_str = std::to_string(ms).substr(0, 6);
-                if (ms_str.empty()) {
-                    ms_str = "0";
-                }
-
-                col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), 6).value;
+            ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
+            auto [sec, ms] = trim_timestamp(timestamp, NewVersion);
+            // trailing ms
+            auto ms_str = std::to_string(ms).substr(0, 6);
+            if (ms_str.empty()) {
+                ms_str = "0";
             }
+
+            col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), 6).value;
         }
 
         if (null_map_left || null_map_right) {
@@ -973,9 +971,7 @@ public:
                     reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
             const cctz::time_zone& time_zone = context->state()->timezone_obj();
             int64_t timestamp {0};
-            auto ret = dt.unix_timestamp(&timestamp, time_zone);
-            // ret must be true
-            DCHECK(ret);
+            dt.unix_timestamp(&timestamp, time_zone);
             auto microsecond = dt.microsecond();
             timestamp = timestamp * Impl::ratio + microsecond / ratio_to_micro;
             res_data[i] = timestamp;

@@ -55,6 +55,8 @@ public:
 
     TimestampTzValue(const DateV2Value<DateTimeV2ValueType>& dt) : _utc_dt(dt) {}
 
+    DateV2Value<DateTimeV2ValueType> utc_dt() const { return _utc_dt; }
+
     // Returns an integer value for storage in a column
     underlying_value to_date_int_val() const { return _utc_dt.to_date_int_val(); }
 
@@ -129,6 +131,16 @@ public:
     template <TimeUnit unit>
     bool datetime_trunc() {
         return _utc_dt.datetime_trunc<unit>();
+    }
+
+    void from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
+        _utc_dt.from_unixtime(timestamp, ctz);
+    }
+
+    void set_microsecond(uint64_t microsecond) { _utc_dt.set_microsecond(microsecond); }
+
+    void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
+        _utc_dt.unix_timestamp(timestamp, ctz);
     }
 
     // Convert UTC time to local time based on the given timezone
