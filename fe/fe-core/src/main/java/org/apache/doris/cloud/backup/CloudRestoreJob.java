@@ -187,6 +187,16 @@ public class CloudRestoreJob extends RestoreJob {
     }
 
     @Override
+    public String getClusterName() {
+        return Strings.nullToEmpty(cloudClusterName);
+    }
+
+    @Override
+    public String getStorageVaultName() {
+        return Strings.nullToEmpty(storageVaultName);
+    }
+
+    @Override
     public void doCreateReplicas() {
         try {
             handleMetaObject(MetaSeriviceOperation.PREPARE);
