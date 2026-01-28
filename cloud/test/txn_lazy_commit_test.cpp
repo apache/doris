@@ -61,6 +61,24 @@ void repair_tablet_index(
 static std::shared_ptr<TxnKv> txn_kv;
 static doris::cloud::RecyclerThreadPoolGroup thread_group;
 
+static std::shared_ptr<TxnKv> get_fdb_txn_kv() {
+    if (txn_kv) {
+        return txn_kv;
+    }
+
+    int ret = 0;
+    doris::cloud::config::fdb_cluster_file_path = "fdb.cluster";
+    auto fdb_txn_kv = std::dynamic_pointer_cast<doris::cloud::TxnKv>(
+            std::make_shared<doris::cloud::FdbTxnKv>());
+    if (fdb_txn_kv != nullptr) {
+        ret = fdb_txn_kv->init();
+        [&] { ASSERT_EQ(ret, 0); }();
+    }
+    [&] { ASSERT_NE(fdb_txn_kv.get(), nullptr); }();
+    txn_kv = fdb_txn_kv;
+    return fdb_txn_kv;
+}
+
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";
     if (!doris::cloud::config::init(conf_file.c_str(), true)) {
@@ -79,6 +97,9 @@ int main(int argc, char** argv) {
         return -1;
     }
     ::testing::InitGoogleTest(&argc, argv);
+
+    // Initialize FDB
+    get_fdb_txn_kv();
 
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
@@ -237,23 +258,6 @@ static std::shared_ptr<TxnKv> get_mem_txn_kv() {
     }
     [&] { ASSERT_NE(txn_kv.get(), nullptr); }();
     return txn_kv;
-}
-
-static std::shared_ptr<TxnKv> get_fdb_txn_kv() {
-    if (txn_kv) {
-        return txn_kv;
-    }
-
-    int ret = 0;
-    cloud::config::fdb_cluster_file_path = "fdb.cluster";
-    auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
-    if (fdb_txn_kv != nullptr) {
-        ret = fdb_txn_kv->init();
-        [&] { ASSERT_EQ(ret, 0); }();
-    }
-    [&] { ASSERT_NE(fdb_txn_kv.get(), nullptr); }();
-    txn_kv = fdb_txn_kv;
-    return fdb_txn_kv;
 }
 
 static void check_tablet_idx_db_id(std::unique_ptr<Transaction>& txn, int64_t db_id,
