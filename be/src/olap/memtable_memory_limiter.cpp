@@ -287,6 +287,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _queue_mem_usage = 0;
     _active_mem_usage = 0;
     _active_writers.clear();
+    int64_t total_write_tracker_usage = 0;
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
             // The memtable is currently used by writer to insert blocks.
@@ -301,6 +302,9 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
 
             auto write_usage = writer->mem_consumption(MemType::WRITE_FINISHED);
             _queue_mem_usage += write_usage;
+
+            // Collect write_tracker consumption for comparison
+            total_write_tracker_usage += writer->write_tracker_consumption();
             ++it;
         } else {
             *it = std::move(_writers.back());
@@ -313,6 +317,14 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     g_memtable_flush_memory.set_value(_flush_mem_usage);
     g_memtable_load_memory.set_value(_mem_usage);
     VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
+    // Debug log to compare memtable tracker vs write_tracker
+    LOG(INFO) << "[MemTracker Debug] memtable_mem: "
+              << PrettyPrinter::print_bytes(_mem_usage)
+              << ", write_tracker_mem: "
+              << PrettyPrinter::print_bytes(total_write_tracker_usage)
+              << ", diff: "
+              << PrettyPrinter::print_bytes(total_write_tracker_usage - _mem_usage)
+              << ", writers: " << _writers.size();
     _mem_tracker->set_consumption(_mem_usage);
     if (!_hard_limit_reached()) {
         _hard_limit_end_cond.notify_all();

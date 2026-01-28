@@ -109,6 +109,16 @@ public:
         return 0;
     }
 
+    // Get write_tracker consumption for debugging memory tracking
+    int64_t write_tracker_consumption() const {
+        if (_resource_ctx && _resource_ctx->memory_context() &&
+            _resource_ctx->memory_context()->mem_tracker() &&
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker()) {
+            return _resource_ctx->memory_context()->mem_tracker()->write_tracker()->consumption();
+        }
+        return 0;
+    }
+
 private:
     Status _flush_memtable();
     // push a full memtable to flush executor
