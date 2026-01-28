@@ -146,6 +146,17 @@ message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
 option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
 message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
+option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
+set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+
+# Allow env to override when reconfiguring (avoid picking /usr/local).
+if (DEFINED ENV{ENABLE_PAIMON_CPP})
+    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+endif()
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -544,6 +555,89 @@ set(COMMON_THIRDPARTY
     ${COMMON_THIRDPARTY}
 )
 
+if (ENABLE_PAIMON_CPP)
+    if (NOT PAIMON_HOME)
+        set(_paimon_default_home "${THIRDPARTY_DIR}/paimon-cpp")
+        if (EXISTS "${_paimon_default_home}/lib/cmake/Paimon/PaimonConfig.cmake")
+            set(PAIMON_HOME "${_paimon_default_home}" CACHE PATH "" FORCE)
+        endif()
+        unset(_paimon_default_home)
+    endif()
+    if (NOT PAIMON_HOME)
+        message(FATAL_ERROR "ENABLE_PAIMON_CPP=ON but PAIMON_HOME is not set")
+    endif()
+    set(Paimon_DIR "${PAIMON_HOME}/lib/cmake/Paimon" CACHE PATH "" FORCE)
+    find_package(Paimon CONFIG REQUIRED NO_DEFAULT_PATH)
+    include_directories("${PAIMON_HOME}/include")
+    # Link glog after paimon static libs to satisfy RawLog__ in static link.
+    list(REMOVE_ITEM COMMON_THIRDPARTY glog)
+
+    # Paimon static library dependencies
+    set(paimon_fmt_lib "${PAIMON_HOME}/lib64/paimon_deps/libfmtd.a")
+    if (NOT EXISTS "${paimon_fmt_lib}")
+        set(paimon_fmt_lib "${PAIMON_HOME}/lib64/paimon_deps/libfmt.a")
+    endif()
+    add_library(paimon_fmt STATIC IMPORTED)
+    set_target_properties(paimon_fmt PROPERTIES IMPORTED_LOCATION "${paimon_fmt_lib}")
+    set(paimon_tbb_lib "${PAIMON_HOME}/lib64/paimon_deps/libtbb_debug.a")
+    if (NOT EXISTS "${paimon_tbb_lib}")
+        set(paimon_tbb_lib "${PAIMON_HOME}/lib64/paimon_deps/libtbb.a")
+    endif()
+    add_library(paimon_tbb STATIC IMPORTED)
+    set_target_properties(paimon_tbb PROPERTIES IMPORTED_LOCATION "${paimon_tbb_lib}")
+    add_library(paimon_roaring STATIC IMPORTED)
+    set_target_properties(paimon_roaring PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libroaring_bitmap.a")
+    add_library(paimon_xxhash STATIC IMPORTED)
+    set_target_properties(paimon_xxhash PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libxxhash.a")
+    add_library(paimon_arrow_dataset STATIC IMPORTED)
+    set_target_properties(paimon_arrow_dataset PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow_dataset.a")
+    add_library(paimon_arrow_acero STATIC IMPORTED)
+    set_target_properties(paimon_arrow_acero PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow_acero.a")
+    add_library(paimon_arrow STATIC IMPORTED)
+    set_target_properties(paimon_arrow PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libarrow.a")
+    set(paimon_arrow_bundled_deps_lib "${PAIMON_HOME}/lib64/paimon_deps/libarrow_bundled_dependencies.a")
+    if (EXISTS "${paimon_arrow_bundled_deps_lib}")
+        add_library(paimon_arrow_bundled_dependencies STATIC IMPORTED)
+        set_target_properties(paimon_arrow_bundled_dependencies PROPERTIES IMPORTED_LOCATION "${paimon_arrow_bundled_deps_lib}")
+    endif()
+    add_library(paimon_parquet STATIC IMPORTED)
+    set_target_properties(paimon_parquet PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/libparquet.a")
+    # Always use paimon-cpp bundled ORC to avoid conflicts with Doris ORC.
+    add_library(paimon_orc STATIC IMPORTED)
+    set_target_properties(paimon_orc PROPERTIES IMPORTED_LOCATION "${PAIMON_HOME}/lib64/paimon_deps/liborc.a")
+
+    set(PAIMON_CPP_FACTORY_TARGETS
+        paimon_static
+        paimon_parquet_file_format_static
+        paimon_file_index_static
+        paimon_global_index_static
+        paimon_local_file_system_static
+    )
+    list(APPEND PAIMON_CPP_FACTORY_TARGETS paimon_orc_file_format_static)
+    set(PAIMON_CPP_DEP_TARGETS
+        paimon_fmt
+        paimon_tbb
+        paimon_roaring
+        paimon_xxhash
+        paimon_orc
+        paimon_parquet
+        paimon_arrow_dataset
+        paimon_arrow_acero
+        paimon_arrow
+    )
+    if (TARGET paimon_arrow_bundled_dependencies)
+        list(APPEND PAIMON_CPP_DEP_TARGETS paimon_arrow_bundled_dependencies)
+    endif()
+    list(APPEND PAIMON_CPP_DEP_TARGETS glog)
+    # Force-link factory libraries so static init registers file formats.
+    list(APPEND COMMON_THIRDPARTY
+        -Wl,--whole-archive
+        ${PAIMON_CPP_FACTORY_TARGETS}
+        -Wl,--no-whole-archive
+        ${PAIMON_CPP_DEP_TARGETS})
+    message(STATUS "Paimon C++ enabled: ${PAIMON_HOME}")
+endif()
+
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
@@ -571,6 +665,13 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        absl::cord
+        absl::cord_internal
+        absl::cordz_functions
+        absl::cordz_info
+        absl::cordz_update_scope
+        absl::cordz_update_tracker
+        absl::crc_cord_state
         absl::flags
         absl::random_random
         absl::spinlock_wait
@@ -838,12 +939,6 @@ endif()
 option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_subdirectory(${SRC_DIR}/io/tools)
-    install(FILES
-        ${BASE_DIR}/../bin/start_file_cache_microbench.sh
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
-        GROUP_READ GROUP_WRITE GROUP_EXECUTE
-        WORLD_READ WORLD_EXECUTE
-        DESTINATION ${OUTPUT_DIR}/bin)
 endif()
 
 option(BUILD_INDEX_TOOL "Build index tool" OFF)
