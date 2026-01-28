@@ -121,6 +121,19 @@ public class LineageInfo {
         this.directLineageMap = directLineageMap;
     }
 
+    public void setDatasetIndirectLineageMap(Multimap<IndirectLineageType, Expression> datasetIndirectLineageMap) {
+        this.datasetIndirectLineageMap = datasetIndirectLineageMap;
+    }
+
+    public void setTableLineageSet(Set<TableIf> tableLineageSet) {
+        this.tableLineageSet = tableLineageSet;
+    }
+
+    public void setInDirectLineageMap(
+            Map<SlotReference, SetMultimap<IndirectLineageType, Expression>> inDirectLineageMap) {
+        this.inDirectLineageMap = inDirectLineageMap;
+    }
+
     /**
      * Get dataset-level indirect lineage expressions.
      *
