@@ -267,6 +267,17 @@ suite("test_string_function") {
     qt_levenshtein """SELECT LEVENSHTEIN('你好', '你们');"""
     qt_levenshtein """SELECT LEVENSHTEIN('数据库', '数据');"""
 
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('', '');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abc', 'abc');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abc', 'abd');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('你好', '你们');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE(NULL, 'abc');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abc', NULL);"""
+    test{
+        sql """SELECT HAMMING_DISTANCE('abc', 'ab');"""
+        exception "hamming_distance requires strings of the same length"
+    }
+
     // non-ASCII test for soundex
     qt_soundex """SELECT SOUNDEX('ApacheDoris非 ASCII 测试');"""
     test{

@@ -46,6 +46,38 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
+    offsets.clear();
+    offsets.reserve(ref.size);
+    const char* data = ref.data;
+    size_t size = ref.size;
+    size_t i = 0;
+    while (i < size) {
+        offsets.push_back(i);
+        uint8_t char_len = UTF8_BYTE_LENGTH[static_cast<uint8_t>(data[i])];
+        if (char_len == 0) {
+            char_len = 1;
+        }
+        if (i + char_len > size) {
+            char_len = static_cast<uint8_t>(size - i);
+        }
+        i += char_len;
+    }
+}
+
+inline bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,
+                            const StringRef& right, size_t right_off, size_t right_next) {
+    size_t left_len = left_next - left_off;
+    size_t right_len = right_next - right_off;
+    if (left_len != right_len) {
+        return false;
+    }
+    return std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
+}
+} // namespace
+
 struct NameStringASCII {
     static constexpr auto name = "ascii";
 };
@@ -415,6 +447,10 @@ struct NameLocate {
     static constexpr auto name = "locate";
 };
 
+struct NameHammingDistance {
+    static constexpr auto name = "hamming_distance";
+};
+
 // LeftDataType and RightDataType are DataTypeString
 template <typename LeftDataType, typename RightDataType>
 struct StringLocateImpl {
@@ -498,6 +534,89 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
+    }
+};
+
+// LeftDataType and RightDataType are DataTypeString
+template <typename LeftDataType, typename RightDataType>
+struct HammingDistanceImpl {
+    using ResultDataType = DataTypeInt64;
+    using ResultPaddedPODArray = PaddedPODArray<Int64>;
+
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets,
+                                ResultPaddedPODArray& res) {
+        DCHECK_EQ(loffsets.size(), roffsets.size());
+        auto size = loffsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            const StringRef lref(l_raw_str, l_str_size);
+            const StringRef rref(r_raw_str, r_str_size);
+            RETURN_IF_ERROR(hamming_distance(lref, rref, res[i], i));
+        }
+        return Status::OK();
+    }
+
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
+        auto size = loffsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+            const StringRef lref(l_raw_str, l_str_size);
+            RETURN_IF_ERROR(hamming_distance(lref, rdata, res[i], i));
+        }
+        return Status::OK();
+    }
+
+    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets,
+                                ResultPaddedPODArray& res) {
+        auto size = roffsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            const StringRef rref(r_raw_str, r_str_size);
+            RETURN_IF_ERROR(hamming_distance(ldata, rref, res[i], i));
+        }
+        return Status::OK();
+    }
+
+private:
+    static Status hamming_distance(const StringRef& left, const StringRef& right, Int64& result,
+                                   size_t row) {
+        std::vector<size_t> left_offsets;
+        std::vector<size_t> right_offsets;
+        utf8_char_offsets(left, left_offsets);
+        utf8_char_offsets(right, right_offsets);
+
+        if (left_offsets.size() != right_offsets.size()) {
+            return Status::InvalidArgument(
+                    "hamming_distance requires strings of the same length at row {}", row);
+        }
+
+        Int64 distance = 0;
+        const size_t len = left_offsets.size();
+        for (size_t i = 0; i < len; ++i) {
+            size_t left_off = left_offsets[i];
+            size_t left_next = (i + 1 < len) ? left_offsets[i + 1] : left.size;
+            size_t right_off = right_offsets[i];
+            size_t right_next = (i + 1 < len) ? right_offsets[i + 1] : right.size;
+            if (!utf8_char_equal(left, left_off, left_next, right, right_off, right_next)) {
+                ++distance;
+            }
+        }
+        result = distance;
         return Status::OK();
     }
 };
@@ -1326,6 +1445,9 @@ using FunctionStringLocate =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
+using FunctionHammingDistance =
+        FunctionBinaryToType<DataTypeString, DataTypeString, HammingDistanceImpl,
+                             NameHammingDistance>;
 
 using FunctionQuote = FunctionStringToString<NameQuoteImpl, NameQuote>;
 
@@ -1360,6 +1482,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringInstr>();
     factory.register_function<FunctionStringFindInSet>();
     factory.register_function<FunctionStringLocate>();
+    factory.register_function<FunctionHammingDistance>();
     factory.register_function<FunctionStringLocatePos>();
     factory.register_function<FunctionQuote>();
     factory.register_function<FunctionAutoPartitionName>();

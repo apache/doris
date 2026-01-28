@@ -759,6 +759,12 @@ suite("string_functions_all") {
     qt_levenshtein_332 "SELECT levenshtein('abc', 'abc'), levenshtein('abc', ''), levenshtein('', 'abc'), levenshtein(NULL, 'abc'), levenshtein('abc', NULL);"
     testFoldConst("SELECT levenshtein('abc', 'abc'), levenshtein('abc', ''), levenshtein('', 'abc'), levenshtein(NULL, 'abc'), levenshtein('abc', NULL);")
 
+    // HAMMING_DISTANCE tests
+    qt_hamming_distance_3331 "SELECT hamming_distance('', ''), hamming_distance('abc', 'abc'), hamming_distance('abc', 'abd'), hamming_distance('你好', '你们');"
+    testFoldConst("SELECT hamming_distance('', ''), hamming_distance('abc', 'abc'), hamming_distance('abc', 'abd'), hamming_distance('你好', '你们');")
+    qt_hamming_distance_3332 "SELECT hamming_distance('abc', 'abc'), hamming_distance(NULL, 'abc'), hamming_distance('abc', NULL);"
+    testFoldConst("SELECT hamming_distance('abc', 'abc'), hamming_distance(NULL, 'abc'), hamming_distance('abc', NULL);")
+
     // SPACE tests
     qt_space_333 "SELECT space(5);"
     testFoldConst("SELECT space(5);")

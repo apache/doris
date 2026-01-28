@@ -971,6 +971,12 @@ R163	R163
 -- !levenshtein_332 --
 0	3	3	\N	\N
 
+-- !hamming_distance_3331 --
+0	0	1	1
+
+-- !hamming_distance_3332 --
+0	\N	\N
+
 -- !space_333 --
      
 
