@@ -607,19 +607,9 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
 
     CumulativeCompaction cu_compaction(*engine_ref, tablet);
     cu_compaction._input_rowsets = std::move(input_rowsets);
-    EXPECT_EQ(cu_compaction.handle_ordered_data_compaction(), true);
-
-    auto& out_rowset = cu_compaction._output_rowset;
-
-    // Verify the index_disk_size of the output rowset
-    int64_t expected_total_size = 0;
-    for (const auto& rowset : cu_compaction._input_rowsets) {
-        expected_total_size += rowset->rowset_meta()->total_disk_size();
-    }
-    std::cout << "expected_total_size: " << expected_total_size << std::endl;
-    std::cout << "actual_total_disk_size: " << out_rowset->rowset_meta()->total_disk_size()
-              << std::endl;
-    EXPECT_EQ(out_rowset->rowset_meta()->total_disk_size(), expected_total_size);
+    // Ordered data compaction should NOT be effective for tablets with inverted index.
+    EXPECT_FALSE(cu_compaction.handle_ordered_data_compaction());
+    EXPECT_EQ(nullptr, cu_compaction._output_rowset);
 }
 } // namespace vectorized
 } // namespace doris

@@ -433,6 +433,31 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         return false;
     }
 
+    // Ordered data compaction links segment/index files directly. For tablets with inverted/ann
+    // index, the extra index files make link-file compaction unsafe (some rowsets may have
+    // different index artifacts), so skip it conservatively.
+    if (const auto tablet_schema = _tablet->tablet_schema(); tablet_schema != nullptr) {
+        if (!tablet_schema->inverted_indexes().empty() || tablet_schema->has_ann_index()) {
+            return false;
+        }
+    }
+
+    // Skip ordered data compaction if any rowset has inverted/ann index.
+    for (auto& rowset : _input_rowsets) {
+        const auto& meta = rowset->rowset_meta();
+        const auto& schema = meta->tablet_schema();
+        if (!schema) {
+            // RowsetMeta should always carry a valid schema in production, but unit tests and
+            // some auxiliary paths may build rowsets with an empty schema. Ordered data compaction
+            // must be conservative here to avoid undefined behavior.
+            return false;
+        }
+        if (!schema->inverted_indexes().empty() || schema->has_inverted_index() ||
+            schema->has_ann_index()) {
+            return false;
+        }
+    }
+
     // If some rowsets has idx files and some rowsets has not, we can not do link file compaction.
     // Since the output rowset will be broken.
 
