@@ -60,14 +60,16 @@ public class ShowRestoreCommand extends ShowCommand {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
             .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation").add("ReserveReplica")
-            .add("ReserveDynamicPartitionEnable").add("RestoreObjs").add("CreateTime").add("MetaPreparedTime")
+            .add("ReserveDynamicPartitionEnable").add("ComputeGroup").add("StorageVault")
+            .add("RestoreObjs").add("CreateTime").add("MetaPreparedTime")
             .add("SnapshotFinishedTime").add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
             .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
             .build();
     public static final ImmutableList<String> BRIEF_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
             .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation").add("ReserveReplica")
-            .add("ReserveDynamicPartitionEnable").add("CreateTime").add("MetaPreparedTime")
+            .add("ReserveDynamicPartitionEnable").add("ComputeGroup").add("StorageVault")
+            .add("CreateTime").add("MetaPreparedTime")
             .add("SnapshotFinishedTime").add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
             .add("Status").add("Timeout")
             .build();
