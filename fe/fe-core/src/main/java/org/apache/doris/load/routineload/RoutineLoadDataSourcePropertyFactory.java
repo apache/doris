@@ -18,6 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 
 import java.util.Map;
 
@@ -25,8 +26,8 @@ import java.util.Map;
  * RoutineLoadDataSourcePropertyFactory is used to create data source properties
  * for routine load job.
  * <p>
- * Currently, we only support kafka data source.
- * If we want to support more data source, we can add more data source properties here.
+ * Currently, we support kafka and kinesis data sources.
+ * If we want to support more data sources, we can add more data source properties here.
  * And we can add more data source type in LoadDataSourceType.
  * Then we can use this factory to create data source properties.
  * </p>
@@ -37,6 +38,8 @@ public class RoutineLoadDataSourcePropertyFactory {
                                                                 boolean multiLoad) {
         if (type.equalsIgnoreCase(LoadDataSourceType.KAFKA.name())) {
             return new KafkaDataSourceProperties(parameters, multiLoad);
+        } else if (type.equalsIgnoreCase(LoadDataSourceType.KINESIS.name())) {
+            return new KinesisDataSourceProperties(parameters, multiLoad);
         }
         throw new IllegalArgumentException("Unknown routine load data source type: " + type);
     }
@@ -44,6 +47,8 @@ public class RoutineLoadDataSourcePropertyFactory {
     public static AbstractDataSourceProperties createDataSource(String type, Map<String, String> parameters) {
         if (type.equalsIgnoreCase(LoadDataSourceType.KAFKA.name())) {
             return new KafkaDataSourceProperties(parameters);
+        } else if (type.equalsIgnoreCase(LoadDataSourceType.KINESIS.name())) {
+            return new KinesisDataSourceProperties(parameters);
         }
         throw new IllegalArgumentException("Unknown routine load data source type: " + type);
     }
