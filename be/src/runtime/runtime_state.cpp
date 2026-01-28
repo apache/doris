@@ -497,7 +497,6 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profil
 void RuntimeState::reset_to_rerun() {
     if (local_runtime_filter_mgr()) {
         auto filter_ids = local_runtime_filter_mgr()->get_filter_ids();
-        filter_ids.merge(global_runtime_filter_mgr()->get_filter_ids());
         local_runtime_filter_mgr()->remove_filters(filter_ids);
         global_runtime_filter_mgr()->remove_filters(filter_ids);
     }
