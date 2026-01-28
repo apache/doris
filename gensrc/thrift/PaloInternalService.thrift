@@ -425,12 +425,14 @@ struct TQueryOptions {
   184: optional i32 cte_max_recursion_depth;
 
 
+  185: optional bool enable_parquet_file_page_cache = true;
   // Use paimon-cpp to read Paimon splits on BE
-  185: optional bool enable_paimon_cpp_reader = false;
+  186: optional bool enable_paimon_cpp_reader = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
+  1001: optional i32 file_cache_query_limit_percent = -1
 }
 
 

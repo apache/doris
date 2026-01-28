@@ -42,6 +42,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CopyJobPB;
@@ -849,7 +850,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
                 if (tableId == -1) {
-                    tableId = ((CloudReplica) index.getTablets().get(0).getReplicas().get(0)).getTableId();
+                    tableId = ((CloudTablet) index.getTablets().get(0)).getCloudReplica().getTableId();
                 }
             }
             partitionIds.add(partition.getId());
@@ -1135,7 +1136,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     Tablet tablet = materializedIndex.getTablet(tabletIds.get(i));
                     Replica replica;
                     if (info.getReplicaIds().isEmpty()) {
-                        replica = tablet.getReplicas().get(0);
+                        replica = ((CloudTablet) tablet).getCloudReplica();
                     } else {
                         replica = tablet.getReplicaById(info.getReplicaIds().get(i));
                     }

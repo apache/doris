@@ -29,10 +29,13 @@
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_schema.h"
+#include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -257,6 +260,13 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
         break;
     }
+
+    // Use sparse optimization flag from ReaderParams (calculated in merger.cpp based on avg_row_bytes threshold)
+    _enable_sparse_optimization = read_params.enable_sparse_optimization;
+
+    // Save sample_info pointer for null count tracking
+    _sample_info = sample_info;
+
     return Status::OK();
 }
 
@@ -537,9 +547,56 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         _eof = *eof;
         return Status::OK();
     }
-    int target_block_row = 0;
+
+    // Value column processing - use batch optimization
     auto target_columns = block->mutate_columns();
-    size_t column_count = block->columns();
+    const size_t column_count = block->columns();
+
+    // Try to use batch optimization for value column compaction
+    // Only use batch optimization when sparse optimization is enabled
+    {
+        auto* mask_iter = dynamic_cast<VerticalMaskMergeIterator*>(_vcollect_iter.get());
+        if (mask_iter != nullptr && _enable_sparse_optimization) {
+            // Step 1: Batch fetch row information
+            std::vector<RowBatch> batches;
+            size_t actual_rows = 0;
+            RETURN_IF_ERROR(mask_iter->unique_key_next_batch(&batches, _reader_context.batch_size,
+                                                             &actual_rows));
+            if (actual_rows == 0) {
+                *eof = true;
+                _eof = true;
+                return Status::OK();
+            }
+
+            // Step 2: Prepare columns - pre-fill NULL for fixed-width, reserve for others
+            std::vector<ColumnNullable*> nullable_dst_cols;
+            std::vector<bool> supports_replace;
+            _prepare_sparse_columns(target_columns, actual_rows, nullable_dst_cols,
+                                    supports_replace);
+
+            // Step 3: Process each batch
+            size_t dst_offset =
+                    target_columns.empty() ? 0 : target_columns[0]->size() - actual_rows;
+            for (const auto& batch : batches) {
+                Block* src_block = batch.block.get();
+                DCHECK(src_block != nullptr);
+                DCHECK(src_block->columns() == column_count);
+
+                for (size_t col_idx = 0; col_idx < column_count; ++col_idx) {
+                    const auto& src_col = src_block->get_by_position(col_idx).column;
+                    _process_sparse_column(nullable_dst_cols[col_idx], supports_replace[col_idx],
+                                           target_columns[col_idx], src_col, batch, dst_offset);
+                }
+                dst_offset += batch.count;
+            }
+
+            block->set_columns(std::move(target_columns));
+            return Status::OK();
+        }
+    }
+
+    // Fallback: original row-by-row processing
+    int target_block_row = 0;
     do {
         Status res = _vcollect_iter->unique_key_next_row(&_next_row);
         if (UNLIKELY(!res.ok())) {
@@ -563,6 +620,110 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     } while (target_block_row < _reader_context.batch_size);
     block->set_columns(std::move(target_columns));
     return Status::OK();
+}
+
+// Prepare columns for sparse optimization: pre-fill NULL for fixed-width types, reserve for others
+void VerticalBlockReader::_prepare_sparse_columns(MutableColumns& columns, size_t actual_rows,
+                                                  std::vector<ColumnNullable*>& nullable_dst_cols,
+                                                  std::vector<bool>& supports_replace) {
+    size_t column_count = columns.size();
+    nullable_dst_cols.resize(column_count, nullptr);
+    supports_replace.resize(column_count, false);
+
+    for (size_t col_idx = 0; col_idx < column_count; ++col_idx) {
+        auto& col = columns[col_idx];
+        if (col->is_nullable()) {
+            auto* nullable_col =
+                    assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(col.get());
+            nullable_dst_cols[col_idx] = nullable_col;
+            supports_replace[col_idx] = nullable_col->support_replace_column_data_range();
+
+            if (supports_replace[col_idx]) {
+                // Fixed-width types: pre-fill with NULL for sparse optimization
+                size_t new_size = nullable_col->size() + actual_rows;
+                nullable_col->get_null_map_column().get_data().resize_fill(new_size, 1);
+                nullable_col->get_nested_column().resize(new_size);
+            } else {
+                // Variable-length types: just reserve space
+                col->reserve(col->size() + actual_rows);
+            }
+        } else {
+            // Non-Nullable column, reserve space
+            col->reserve(col->size() + actual_rows);
+        }
+    }
+}
+
+// Copy non-NULL runs from source to destination using run-length encoding
+void VerticalBlockReader::_copy_non_null_runs(ColumnNullable* nullable_dst,
+                                              const ColumnNullable* nullable_src,
+                                              const uint8_t* null_map, const RowBatch& batch,
+                                              size_t dst_offset) {
+    size_t i = 0;
+    while (i < batch.count) {
+        // Skip NULL values (null_map == 1)
+        while (i < batch.count && null_map[batch.start_row + i] != 0) {
+            i++;
+        }
+        if (i >= batch.count) break;
+
+        // Found start of non-NULL run
+        size_t run_start = i;
+        while (i < batch.count && null_map[batch.start_row + i] == 0) {
+            i++;
+        }
+        size_t run_length = i - run_start;
+
+        // Batch copy this non-NULL run
+        nullable_dst->replace_column_data_range(*nullable_src, batch.start_row + run_start,
+                                                run_length, dst_offset + run_start);
+    }
+}
+
+// Process a single column for one batch in sparse optimization
+void VerticalBlockReader::_process_sparse_column(ColumnNullable* nullable_dst,
+                                                 bool supports_replace,
+                                                 MutableColumnPtr& target_col,
+                                                 const ColumnPtr& src_col, const RowBatch& batch,
+                                                 size_t dst_offset) {
+    if (nullable_dst != nullptr && supports_replace) {
+        // Sparse optimization path for fixed-width types
+        const auto* nullable_src = static_cast<const ColumnNullable*>(src_col.get());
+        const auto& null_map = nullable_src->get_null_map_data();
+
+        size_t non_null_count = simd::count_zero_num(
+                reinterpret_cast<const int8_t*>(null_map.data() + batch.start_row),
+                static_cast<size_t>(batch.count));
+
+        if (_sample_info != nullptr) {
+            _sample_info->null_count += (batch.count - non_null_count);
+        }
+
+        if (non_null_count == 0) {
+            // All NULL, skip (already pre-filled)
+        } else if (non_null_count == batch.count) {
+            // All non-NULL, use batch copy
+            nullable_dst->replace_column_data_range(*nullable_src, batch.start_row, batch.count,
+                                                    dst_offset);
+        } else {
+            // Mixed case: copy non-NULL runs
+            _copy_non_null_runs(nullable_dst, nullable_src, null_map.data(), batch, dst_offset);
+        }
+    } else if (nullable_dst != nullptr) {
+        // Variable-length nullable types
+        if (_sample_info != nullptr) {
+            const auto* nullable_src = static_cast<const ColumnNullable*>(src_col.get());
+            const auto& null_map = nullable_src->get_null_map_data();
+            size_t non_null_count = simd::count_zero_num(
+                    reinterpret_cast<const int8_t*>(null_map.data() + batch.start_row),
+                    static_cast<size_t>(batch.count));
+            _sample_info->null_count += (batch.count - non_null_count);
+        }
+        target_col->insert_range_from(*src_col, batch.start_row, batch.count);
+    } else {
+        // Non-Nullable column
+        target_col->insert_range_from(*src_col, batch.start_row, batch.count);
+    }
 }
 
 #include "common/compile_check_end.h"

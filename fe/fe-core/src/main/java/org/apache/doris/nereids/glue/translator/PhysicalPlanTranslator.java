@@ -1473,8 +1473,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .flatMap(List::stream)
                 .map(SlotDescriptor::getId)
                 .collect(Collectors.toList());
+        ArrayList<Expr> conjuncts = generate.getConjuncts().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toCollection(ArrayList::new));
         TableFunctionNode tableFunctionNode = new TableFunctionNode(context.nextPlanNodeId(),
-                currentFragment.getPlanRoot(), tupleDescriptor.getId(), functionCalls, outputSlotIds);
+                currentFragment.getPlanRoot(), tupleDescriptor.getId(), functionCalls, outputSlotIds, conjuncts);
         tableFunctionNode.setNereidsId(generate.getId());
         context.getNereidsIdToPlanNodeIdMap().put(generate.getId(), tableFunctionNode.getId());
         addPlanRoot(currentFragment, tableFunctionNode, generate);
@@ -2171,6 +2174,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (inputPlanNode instanceof TableFunctionNode) {
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
+            // slots used by expandConjuncts must be added to TableFunctionNode's output slot ids
+            List<Expr> expandConjuncts = tableFunctionNode.getExpandConjuncts();
+            for (Expr expr : expandConjuncts) {
+                Expr.extractSlots(expr, requiredSlotIdSet);
+            }
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
 
@@ -2520,36 +2528,37 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputPlanFragment = repeat.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(repeat.child(0));
 
-        ImmutableSet<Expression> flattenGroupingSetExprs = ImmutableSet.copyOf(
-                ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
+        List<Expression> flattenGroupingExpressions = repeat.getGroupByExpressions();
+        Set<Slot> preRepeatExpressions = Sets.newLinkedHashSet();
+        // keep group by expression coming first
+        for (Expression groupByExpr : flattenGroupingExpressions) {
+            // NormalizeRepeat had converted group by expression to slot
+            preRepeatExpressions.add((Slot) groupByExpr);
+        }
 
-        List<Slot> aggregateFunctionUsedSlots = repeat.getOutputExpressions()
-                .stream()
-                .filter(output -> !flattenGroupingSetExprs.contains(output))
-                .filter(output -> !output.containsType(GroupingScalarFunction.class))
-                .distinct()
-                .map(NamedExpression::toSlot)
+        // add aggregate function used expressions
+        for (NamedExpression outputExpr : repeat.getOutputExpressions()) {
+            if (!outputExpr.containsType(GroupingScalarFunction.class)) {
+                preRepeatExpressions.add(outputExpr.toSlot());
+            }
+        }
+
+        List<Expr> preRepeatExprs = preRepeatExpressions.stream()
+                .map(expr -> ExpressionTranslator.translate(expr, context))
                 .collect(ImmutableList.toImmutableList());
 
-        // keep flattenGroupingSetExprs comes first
-        List<Expr> preRepeatExprs = Stream.concat(flattenGroupingSetExprs.stream(), aggregateFunctionUsedSlots.stream())
-                .map(expr -> ExpressionTranslator.translate(expr, context)).collect(ImmutableList.toImmutableList());
+        // outputSlots's order must match preRepeatExprs, then grouping id, then grouping function slots
+        ImmutableList.Builder<Slot> outputSlotsBuilder
+                = ImmutableList.builderWithExpectedSize(repeat.getOutputExpressions().size() + 1);
+        outputSlotsBuilder.addAll(preRepeatExpressions);
+        outputSlotsBuilder.add(repeat.getGroupingId().toSlot());
+        for (NamedExpression outputExpr : repeat.getOutputExpressions()) {
+            if (outputExpr.containsType(GroupingScalarFunction.class)) {
+                outputSlotsBuilder.add(outputExpr.toSlot());
+            }
+        }
 
-        // outputSlots's order need same with preRepeatExprs
-        List<Slot> outputSlots = Stream.concat(Stream
-                .concat(repeat.getOutputExpressions().stream()
-                        .filter(output -> flattenGroupingSetExprs.contains(output)),
-                        repeat.getOutputExpressions().stream()
-                                .filter(output -> !flattenGroupingSetExprs.contains(output))
-                                .filter(output -> !output.containsType(GroupingScalarFunction.class))
-                                .distinct()
-                       ),
-                        Stream.concat(Stream.of(repeat.getGroupingId().toSlot()),
-                                repeat.getOutputExpressions().stream()
-                                        .filter(output -> output.containsType(GroupingScalarFunction.class)))
-                        )
-                .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
-
+        List<Slot> outputSlots = outputSlotsBuilder.build();
         // NOTE: we should first translate preRepeatExprs, then generate output tuple,
         //       or else the preRepeatExprs can not find the bottom slotRef and throw
         //       exception: invalid slot id

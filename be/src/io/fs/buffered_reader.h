@@ -160,6 +160,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return _inner_reader->mtime(); }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -328,6 +330,8 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
+
+    int64_t mtime() const override { return _reader->mtime(); }
 
     // for test only
     size_t buffer_remaining() const { return _remaining; }
@@ -532,6 +536,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return _reader->mtime(); }
+
     void set_random_access_ranges(const std::vector<PrefetchRange>* random_access_ranges) {
         _random_access_ranges = random_access_ranges;
         for (auto& _pre_buffer : _pre_buffers) {
@@ -592,6 +598,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return _reader->mtime(); }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -626,6 +634,8 @@ public:
     virtual ~BufferedStreamReader() = default;
     // return the file path
     virtual std::string path() = 0;
+
+    virtual int64_t mtime() const = 0;
 };
 
 class BufferedFileStreamReader : public BufferedStreamReader, public ProfileCollector {
@@ -638,6 +648,8 @@ public:
                       const IOContext* io_ctx) override;
     Status read_bytes(Slice& slice, uint64_t offset, const IOContext* io_ctx) override;
     std::string path() override { return _file->path(); }
+
+    int64_t mtime() const override { return _file->mtime(); }
 
 protected:
     void _collect_profile_before_close() override {

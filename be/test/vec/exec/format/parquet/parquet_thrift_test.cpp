@@ -197,8 +197,9 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
+    ParquetPageReadContext page_read_ctx;
     ColumnChunkReader<false, false> chunk_reader(&stream_reader, column_chunk, field_schema,
-                                                 nullptr, total_rows, nullptr);
+                                                 nullptr, total_rows, nullptr, page_read_ctx);
     // initialize chunk reader
     static_cast<void>(chunk_reader.init());
     // seek to next page header

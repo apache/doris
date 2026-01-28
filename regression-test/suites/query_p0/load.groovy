@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("load_test_query_db") {
+suite("load") {
     // init query case data
-    def dbName = "test_query_db"
-    sql "DROP DATABASE IF EXISTS ${dbName}"
-    sql "CREATE DATABASE ${dbName}"
-    sql "USE $dbName"
+    sql "DROP DATABASE IF EXISTS test_query_db"
+    sql "CREATE DATABASE test_query_db"
+    sql "USE test_query_db"
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (
             `k0` boolean null comment "",
@@ -80,12 +79,12 @@ suite("load_test_query_db") {
         """
     streamLoad {
         table "baseall"
-        db dbName
+        db "test_query_db"
         set 'column_separator', ','
         file "baseall.txt"
     }
-    sql "insert into ${dbName}.test select * from ${dbName}.baseall where k1 <= 3"
-    sql "insert into ${dbName}.bigtable select * from ${dbName}.baseall"
+    sql "insert into test_query_db.test select * from test_query_db.baseall where k1 <= 3"
+    sql "insert into test_query_db.bigtable select * from test_query_db.baseall"
 
     // table for compaction
     sql """
@@ -109,9 +108,9 @@ suite("load_test_query_db") {
 
     sql """insert into compaction_tbl values(123,"1999-10-10",'aaa',123,123,"1970-01-01 00:00:00","1970-01-01 00:00:00","1970-01-01 00:00:00",123,123,123,hll_hash(""),bitmap_from_string(""));"""
 
-    def baseall_count = sql "select count(*) from ${dbName}.baseall"
+    def baseall_count = sql "select count(*) from test_query_db.baseall"
     assertEquals(16, baseall_count[0][0])
-    def test_count = sql "select count(*) from ${dbName}.test"
+    def test_count = sql "select count(*) from test_query_db.test"
     assertEquals(3, test_count[0][0])  
 }
 

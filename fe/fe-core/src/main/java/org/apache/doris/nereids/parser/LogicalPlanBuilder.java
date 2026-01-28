@@ -521,6 +521,7 @@ import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -562,6 +563,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
@@ -1114,6 +1116,9 @@ import java.util.stream.Collectors;
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private static String JOB_NAME = "jobName";
     private static String TASK_ID = "taskId";
+
+    private static String DEFAULT_NESTED_COLUMN_NAME = "unnest";
+    private static String DEFAULT_ORDINALITY_COLUMN_NAME = "ordinality";
 
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
@@ -2727,6 +2732,56 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    @Override
+    public LogicalPlan visitUnnestFunction(DorisParser.UnnestFunctionContext ctx) {
+        return withUnnest(ctx.unnest());
+    }
+
+    private LogicalPlan withUnnest(DorisParser.UnnestContext ctx) {
+        List<Expression> arguments = ctx.expression().stream()
+                .<Expression>map(this::typedVisit)
+                .collect(ImmutableList.toImmutableList());
+        boolean needOrdinality = ctx.ORDINALITY() != null;
+        int size = arguments.size();
+
+        String generateName = ctx.tableName != null ? ctx.tableName.getText() : DEFAULT_NESTED_COLUMN_NAME;
+        // do same thing as later view explode map type, we need to add a project to convert map to struct
+        int argumentsSize = size + (needOrdinality ? 1 : 0);
+        List<String> nestedColumnNames = new ArrayList<>(argumentsSize);
+        int columnNamesSize = ctx.columnNames.size();
+        if (!ctx.columnNames.isEmpty()) {
+            for (int i = 0; i < columnNamesSize; ++i) {
+                nestedColumnNames.add(ctx.columnNames.get(i).getText());
+            }
+            for (int i = 0; i < size - columnNamesSize; ++i) {
+                nestedColumnNames.add(DEFAULT_NESTED_COLUMN_NAME);
+            }
+            if (needOrdinality && columnNamesSize < argumentsSize) {
+                nestedColumnNames.add(DEFAULT_ORDINALITY_COLUMN_NAME);
+            }
+        } else {
+            if (size == 1) {
+                nestedColumnNames.add(generateName);
+            } else {
+                for (int i = 0; i < size; ++i) {
+                    nestedColumnNames.add(DEFAULT_NESTED_COLUMN_NAME);
+                }
+            }
+            if (needOrdinality) {
+                nestedColumnNames.add(DEFAULT_ORDINALITY_COLUMN_NAME);
+            }
+        }
+        String columnName = nestedColumnNames.get(0);
+        Unnest unnest = new Unnest(arguments, needOrdinality, false);
+        // only unnest use LogicalOneRowRelation as LogicalGenerate's child,
+        // so we can check LogicalGenerate's child to know if it's unnest function
+        return new LogicalGenerate<>(ImmutableList.of(unnest),
+                ImmutableList.of(new UnboundSlot(generateName, columnName)),
+                ImmutableList.of(nestedColumnNames),
+                new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                ImmutableList.of(new Alias(Literal.of(0)))));
+    }
+
     /**
      * Create a star (i.e. all) expression; this selects all elements (in the specified object).
      * Both un-targeted (global) and targeted aliases are supported.
@@ -3166,6 +3221,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitTryCast(DorisParser.TryCastContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> processTryCast(getExpression(ctx.expression()), ctx.castDataType()));
+    }
+
+    @Override
+    public Expression visitDefaultValue(DorisParser.DefaultValueContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<String> nameParts = ctx.qualifiedName().identifier()
+                    .stream()
+                    .map(RuleContext::getText)
+                    .collect(ImmutableList.toImmutableList());
+            return new Default(new UnboundSlot(nameParts));
+        });
     }
 
     @Override
@@ -4368,13 +4434,53 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             if (ids == null) {
-                last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
-                        condition.map(ExpressionUtils::extractConjunction)
-                                .orElse(ExpressionUtils.EMPTY_CONDITION),
-                        distributeHint,
-                        Optional.empty(),
-                        last,
-                        plan(join.relationPrimary()), null);
+                LogicalPlan right = plan(join.relationPrimary());
+                if (right instanceof LogicalGenerate
+                        && ((LogicalGenerate<?>) right).getGenerators().get(0) instanceof Unnest) {
+                    /*
+                        SELECT
+                            id,
+                            scores,
+                            unnest
+                        FROM
+                            student_unnest_t
+                            LEFT JOIN unnest(scores) AS unnest ON TRUE
+
+                     above sql will be converted to:
+                        UnboundResultSink[6]
+                        +--LogicalProject[5] ( distinct=false, projects=['id, 'scores, 'unnest] )
+                           +--LogicalGenerate ( generators=[unnest('scores)], generatorOutput=['unnest.unnest],...
+                              +--LogicalCheckPolicy
+                                 +--UnboundRelation ( id=RelationId#0, nameParts=student_unnest_t )
+                     */
+                    LogicalGenerate oldRight = (LogicalGenerate<?>) right;
+                    Unnest oldGenerator = (Unnest) oldRight.getGenerators().get(0);
+                    if (joinType.isLeftJoin() || joinType.isInnerJoin() || joinType.isCrossJoin()) {
+                        Unnest newGenerator = joinType.isLeftJoin() ? oldGenerator.withOuter(true) : oldGenerator;
+                        last = new LogicalGenerate<>(ImmutableList.of(newGenerator), oldRight.getGeneratorOutput(),
+                                oldRight.getExpandColumnAlias(), condition.map(ExpressionUtils::extractConjunction)
+                                .orElse(ExpressionUtils.EMPTY_CONDITION), last);
+                    } else if (oldGenerator.child(0) instanceof Literal) {
+                        last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
+                                condition.map(ExpressionUtils::extractConjunction)
+                                        .orElse(ExpressionUtils.EMPTY_CONDITION),
+                                distributeHint,
+                                Optional.empty(),
+                                last,
+                                right, null);
+                    } else {
+                        throw new ParseException("The combining JOIN type must be INNER, LEFT or CROSS for UNNEST",
+                                join);
+                    }
+                } else {
+                    last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
+                            condition.map(ExpressionUtils::extractConjunction)
+                                    .orElse(ExpressionUtils.EMPTY_CONDITION),
+                            distributeHint,
+                            Optional.empty(),
+                            last,
+                            right, null);
+                }
             } else {
                 last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids, distributeHint);
 
@@ -4580,7 +4686,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("SELECT * must have a FROM clause");
                     }
                 }
-                if (input instanceof LogicalOneRowRelation) {
+                List<UnboundFunction> functions =
+                        ExpressionUtils.collectAll(projects, UnboundFunction.class::isInstance);
+                // always add a LogicalProject if we meet UNNEST
+                boolean meetUnnest = false;
+                for (UnboundFunction func : functions) {
+                    if (func.getName().equalsIgnoreCase("UNNEST")) {
+                        meetUnnest = true;
+                        break;
+                    }
+                }
+                if (input instanceof LogicalOneRowRelation && !meetUnnest) {
                     return new UnboundOneRowRelation(((LogicalOneRowRelation) input).getRelationId(), projects);
                 }
                 return new LogicalProject<>(projects, isDistinct, input);
@@ -4596,15 +4712,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (RelationContext relation : relations) {
             // build left deep join tree
             LogicalPlan right = withJoinRelations(visitRelation(relation), relation);
-            left = (left == null) ? right :
-                    new LogicalJoin<>(
-                            JoinType.CROSS_JOIN,
-                            ExpressionUtils.EMPTY_CONDITION,
-                            ExpressionUtils.EMPTY_CONDITION,
-                            new DistributeHint(DistributeType.NONE),
-                            Optional.empty(),
-                            left,
-                            right, null);
+            /*
+                SELECT
+                    items_dict_unnest_t.id,
+                    items_dict_unnest_t.name,
+                    t.tag,
+                    t.ord
+                FROM
+                    items_dict_unnest_t,
+                    unnest(items_dict_unnest_t.tags) AS t(tag, ord)
+
+                there is unnest in from clause, we should not generate plan like items_dict_unnest_t join unnest...
+                instead, we should put items_dict_unnest_t as LogicalGenerate's child like bellow:
+
+                UnboundResultSink[6]
+                +--LogicalProject[5] ( distinct=false, projects=['items_dict_unnest_t.id, 'items_dict_unnest_t.name,.. )
+                   +--LogicalGenerate ( generators=[unnest('items_dict_unnest_t.tags)], generatorOutput=['t.tag],... )
+                      +--LogicalCheckPolicy
+                         +--UnboundRelation ( id=RelationId#0, nameParts=items_dict_unnest_t )
+             */
+            boolean shouldBeParent = right instanceof LogicalGenerate
+                    && right.child(0) instanceof LogicalOneRowRelation;
+            left = (left == null) ? right
+                    : shouldBeParent ? ((LogicalGenerate) right).withChildren(ImmutableList.of(left))
+                            : new LogicalJoin<>(
+                                    JoinType.CROSS_JOIN,
+                                    ExpressionUtils.EMPTY_CONDITION,
+                                    ExpressionUtils.EMPTY_CONDITION,
+                                    new DistributeHint(DistributeType.NONE),
+                                    Optional.empty(),
+                                    left,
+                                    right, null);
             // TODO: pivot and lateral view
         }
         return left;
