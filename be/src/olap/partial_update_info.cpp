@@ -72,34 +72,35 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
             }
         }
     }
-
-    for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
-        if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
-            auto tablet_column = tablet_schema.column(i);
-            if (!partial_update_input_columns.contains(tablet_column.name())) {
-                missing_cids.emplace_back(i);
-                if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
-                    tablet_schema.auto_increment_column() != tablet_column.name()) {
-                    can_insert_new_rows_in_partial_update = false;
+    if (is_partial_update()) {
+        for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
+            if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
+                auto tablet_column = tablet_schema.column(i);
+                if (!partial_update_input_columns.contains(tablet_column.name())) {
+                    missing_cids.emplace_back(i);
+                    if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
+                        tablet_schema.auto_increment_column() != tablet_column.name()) {
+                        can_insert_new_rows_in_partial_update = false;
+                    }
+                } else {
+                    update_cids.emplace_back(i);
+                }
+                if (auto_increment_column == tablet_column.name()) {
+                    is_schema_contains_auto_inc_column = true;
                 }
             } else {
-                update_cids.emplace_back(i);
-            }
-            if (auto_increment_column == tablet_column.name()) {
-                is_schema_contains_auto_inc_column = true;
-            }
-        } else {
-            // in flexible partial update, missing cids is all non sort keys' cid
-            if (i >= tablet_schema.num_key_columns()) {
-                missing_cids.emplace_back(i);
+                // in flexible partial update, missing cids is all non sort keys' cid
+                if (i >= tablet_schema.num_key_columns()) {
+                    missing_cids.emplace_back(i);
+                }
             }
         }
+        _generate_default_values_for_missing_cids(tablet_schema);
     }
     is_strict_mode = is_strict_mode_;
     is_input_columns_contains_auto_inc_column =
             is_fixed_partial_update() &&
             partial_update_input_columns.contains(auto_increment_column);
-    _generate_default_values_for_missing_cids(tablet_schema);
     return Status::OK();
 }
 
