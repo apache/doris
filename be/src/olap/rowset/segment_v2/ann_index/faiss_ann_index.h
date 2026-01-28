@@ -31,6 +31,7 @@
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
+#include "util/threadpool.h"
 #include "vec/core/types.h"
 
 namespace doris::segment_v2 {
@@ -278,6 +279,7 @@ private:
     std::unique_ptr<faiss::Index> _index = nullptr; ///< Underlying FAISS index instance
     std::unique_ptr<faiss::Index> _quantizer = nullptr;
     FaissBuildParameter _params; ///< Build parameters for the index
+    ThreadPool* _ann_threadpool = nullptr;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -605,7 +605,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         })
                 if (!status.ok()) {
                     return Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
-                            "failed to write block.");
+                            "failed to write block: {}", status.msg());
                 }
                 block->clear_column_data();
             }
