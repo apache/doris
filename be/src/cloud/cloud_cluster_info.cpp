@@ -34,10 +34,6 @@ CloudClusterInfo::~CloudClusterInfo() {
 }
 
 void CloudClusterInfo::start_bg_worker() {
-    if (!config::enable_compaction_rw_separation) {
-        return;
-    }
-
     bool expected = true;
     if (!_bg_worker_stopped.compare_exchange_strong(expected, false)) {
         // Already running
@@ -45,7 +41,8 @@ void CloudClusterInfo::start_bg_worker() {
     }
 
     _bg_worker = std::thread(&CloudClusterInfo::_bg_worker_func, this);
-    LOG(INFO) << "CloudClusterInfo background worker started";
+    LOG(INFO) << "CloudClusterInfo background worker started, "
+              << "refresh_interval=" << config::cluster_status_cache_refresh_interval_sec << "s";
 }
 
 void CloudClusterInfo::stop_bg_worker() {
@@ -74,9 +71,9 @@ void CloudClusterInfo::_bg_worker_func() {
         _refresh_cluster_status();
 
         std::unique_lock lock(_bg_worker_mutex);
-        _bg_worker_cv.wait_for(lock,
-                               std::chrono::seconds(config::cluster_status_cache_refresh_interval_sec),
-                               [this] { return _bg_worker_stopped.load(); });
+        _bg_worker_cv.wait_for(
+                lock, std::chrono::seconds(config::cluster_status_cache_refresh_interval_sec),
+                [this] { return _bg_worker_stopped.load(); });
     }
 }
 
@@ -107,7 +104,7 @@ void CloudClusterInfo::_refresh_cluster_status() {
         }
     }
 
-    LOG(INFO) << "Refreshed cluster status cache, " << cluster_status.size() << " clusters";
+    VLOG_DEBUG << "Refreshed cluster status cache, " << cluster_status.size() << " clusters";
 }
 
 bool CloudClusterInfo::should_skip_compaction(CloudTablet* tablet) const {
@@ -117,14 +114,19 @@ bool CloudClusterInfo::should_skip_compaction(CloudTablet* tablet) const {
 
     std::string last_active_cluster = tablet->last_active_cluster_id();
     std::string my_cluster = my_cluster_id();
+    int64_t tablet_id = tablet->tablet_id();
 
     // Case 1: No active cluster record, any cluster can compact
     if (last_active_cluster.empty()) {
+        VLOG_DEBUG << "tablet " << tablet_id << " has no last_active_cluster record, "
+                   << "my_cluster=" << my_cluster << ", allow compaction";
         return false;
     }
 
     // Case 2: This is the active cluster, allow compaction
     if (last_active_cluster == my_cluster) {
+        VLOG_DEBUG << "tablet " << tablet_id << " last_active_cluster=" << last_active_cluster
+                   << " equals my_cluster=" << my_cluster << ", allow compaction";
         return false;
     }
 
@@ -132,39 +134,45 @@ bool CloudClusterInfo::should_skip_compaction(CloudTablet* tablet) const {
     ClusterStatusCache cache;
     if (!get_cluster_status(last_active_cluster, &cache)) {
         // Cluster not found in cache, might be deleted, allow takeover
-        LOG(INFO) << "skip compaction check: cluster " << last_active_cluster
-                  << " not found in cache, allow takeover for tablet " << tablet->tablet_id();
+        LOG(INFO) << "compaction_rw_separation: tablet " << tablet_id
+                  << " last_active_cluster=" << last_active_cluster
+                  << " not found in cache (maybe deleted), my_cluster=" << my_cluster
+                  << ", allow takeover";
         return false;
     }
 
     auto status = static_cast<cloud::ClusterStatus>(cache.status);
     int64_t status_mtime = cache.mtime_ms;
     int64_t now = UnixMillis();
+    int64_t elapsed = now - status_mtime;
+    int64_t timeout = config::compaction_cluster_takeover_timeout_ms;
 
     // Case 4: Original cluster is NORMAL (still active), cannot takeover
     if (status == cloud::ClusterStatus::NORMAL) {
-        LOG_EVERY_N(INFO, 100) << "skip compaction for tablet " << tablet->tablet_id()
-                               << ": write cluster (" << last_active_cluster
-                               << ") is still active, this cluster (" << my_cluster << ")";
+        LOG_EVERY_N(INFO, 100) << "compaction_rw_separation: skip tablet " << tablet_id
+                               << ", last_active_cluster=" << last_active_cluster
+                               << " is NORMAL (active), my_cluster=" << my_cluster;
         return true;
     }
 
     // Case 5: Original cluster is unavailable (SUSPENDED/MANUAL_SHUTDOWN/deleted)
-    int64_t elapsed = now - status_mtime;
-    int64_t timeout = config::compaction_cluster_takeover_timeout_ms;
-
     if (elapsed > timeout) {
         // Takeover successful
-        LOG(INFO) << "takeover compaction for tablet " << tablet->tablet_id()
-                  << ": write cluster (" << last_active_cluster << ") unavailable (status="
-                  << status << "), elapsed=" << elapsed << "ms > timeout=" << timeout << "ms";
+        LOG(INFO) << "compaction_rw_separation: takeover tablet " << tablet_id
+                  << ", last_active_cluster=" << last_active_cluster
+                  << " status=" << cloud::ClusterStatus_Name(status)
+                  << " status_mtime=" << status_mtime << " elapsed=" << elapsed
+                  << "ms > timeout=" << timeout << "ms"
+                  << ", my_cluster=" << my_cluster;
         return false;
     } else {
         // Timeout not reached yet, waiting
-        LOG_EVERY_N(INFO, 100) << "skip compaction for tablet " << tablet->tablet_id()
-                               << ": write cluster (" << last_active_cluster
-                               << ") unavailable but timeout not reached, elapsed=" << elapsed
-                               << "ms, timeout=" << timeout << "ms";
+        LOG_EVERY_N(INFO, 100) << "compaction_rw_separation: skip tablet " << tablet_id
+                               << ", last_active_cluster=" << last_active_cluster
+                               << " status=" << cloud::ClusterStatus_Name(status)
+                               << " status_mtime=" << status_mtime << " elapsed=" << elapsed
+                               << "ms <= timeout=" << timeout << "ms"
+                               << ", my_cluster=" << my_cluster << ", waiting for takeover";
         return true;
     }
 }

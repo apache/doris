@@ -1183,9 +1183,9 @@ void scan_tmp_rowset(
 
 // Update the last active cluster info for a tablet
 void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
-                                        const std::string& cluster_id,
-                                        std::unique_ptr<Transaction>& txn,
-                                        MetaServiceCode& code, std::string& msg) {
+                                       const std::string& cluster_id,
+                                       std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
+                                       std::string& msg) {
     if (!config::enable_compaction_rw_separation || cluster_id.empty()) {
         return;
     }
@@ -1200,8 +1200,8 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
             return;
         }
         code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get tablet stats for cluster update, err={} tablet_id={}",
-                          err, std::get<4>(info));
+        msg = fmt::format("failed to get tablet stats for cluster update, err={} tablet_id={}", err,
+                          std::get<4>(info));
         return;
     }
 
@@ -1219,8 +1219,8 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
 
     stats_pb.SerializeToString(&val);
     txn->put(key, val);
-    LOG(INFO) << "update last_active_cluster, key=" << hex(key)
-              << " cluster_id=" << cluster_id << " tablet_id=" << std::get<4>(info);
+    LOG(INFO) << "update last_active_cluster, key=" << hex(key) << " cluster_id=" << cluster_id
+              << " tablet_id=" << std::get<4>(info);
 }
 
 void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,

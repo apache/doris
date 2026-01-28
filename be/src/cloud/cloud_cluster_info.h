@@ -33,8 +33,8 @@ class CloudTablet;
 
 // Cached cluster status information
 struct ClusterStatusCache {
-    int32_t status {0};  // ClusterStatus enum value
-    int64_t mtime_ms {0};  // Timestamp when status was last changed
+    int32_t status {0};   // ClusterStatus enum value
+    int64_t mtime_ms {0}; // Timestamp when status was last changed
 };
 
 class CloudClusterInfo : public ClusterInfo {

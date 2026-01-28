@@ -2263,8 +2263,7 @@ Status CloudMetaMgr::get_cluster_status(
     GetClusterStatusResponse resp;
     req.add_cloud_unique_ids(config::cloud_unique_id);
 
-    Status s = retry_rpc("get cluster status", req, &resp,
-                         &MetaService_Stub::get_cluster_status);
+    Status s = retry_rpc("get cluster status", req, &resp, &MetaService_Stub::get_cluster_status);
     if (!s.ok()) {
         return s;
     }
@@ -2273,9 +2272,8 @@ Status CloudMetaMgr::get_cluster_status(
     for (const auto& detail : resp.details()) {
         for (const auto& cluster : detail.clusters()) {
             // Store cluster status and mtime
-            (*result)[cluster.cluster_id()] = {
-                    static_cast<int32_t>(cluster.cluster_status()),
-                    cluster.mtime()};
+            (*result)[cluster.cluster_id()] = {static_cast<int32_t>(cluster.cluster_status()),
+                                               cluster.mtime()};
         }
     }
 

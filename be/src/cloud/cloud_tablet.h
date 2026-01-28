@@ -485,7 +485,6 @@ private:
     int64_t _last_active_time_ms {0};
 };
 
-
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
 
 } // namespace doris
