@@ -27,22 +27,22 @@ suite("query_cache_with_context") {
         set enable_query_cache=true;
         """
 
-    def test_session_variable_change = {
-        def getDigest = { def sqlStr ->
-            AtomicReference<String> result = new AtomicReference<>()
-            explain {
-                sql sqlStr
+    def getDigest = { def sqlStr ->
+        AtomicReference<String> result = new AtomicReference<>()
+        explain {
+            sql sqlStr
 
-                check {exp ->
-                    def digests = exp.split("\n").findAll { line -> line.contains("DIGEST") }
-                    if (!digests.isEmpty()) {
-                        result.set(digests.get(0).split(":")[1].trim())
-                    }
+            check {exp ->
+                def digests = exp.split("\n").findAll { line -> line.contains("DIGEST") }
+                if (!digests.isEmpty()) {
+                    result.set(digests.get(0).split(":")[1].trim())
                 }
             }
-            return result.get()
         }
+        return result.get()
+    }
 
+    def test_session_variable_change = {
         sql "set enable_decimal256=true"
         def digest1 = getDigest("select id from query_cache_with_context group by id")
         sql "set enable_decimal256=false"
