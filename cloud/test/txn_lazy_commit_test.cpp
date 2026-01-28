@@ -58,6 +58,7 @@ void repair_tablet_index(
         bool is_versioned_write);
 };
 
+static std::shared_ptr<TxnKv> txn_kv;
 static doris::cloud::RecyclerThreadPoolGroup thread_group;
 
 int main(int argc, char** argv) {
@@ -239,6 +240,10 @@ static std::shared_ptr<TxnKv> get_mem_txn_kv() {
 }
 
 static std::shared_ptr<TxnKv> get_fdb_txn_kv() {
+    if (txn_kv) {
+        return txn_kv;
+    }
+
     int ret = 0;
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
@@ -247,6 +252,7 @@ static std::shared_ptr<TxnKv> get_fdb_txn_kv() {
         [&] { ASSERT_EQ(ret, 0); }();
     }
     [&] { ASSERT_NE(fdb_txn_kv.get(), nullptr); }();
+    txn_kv = fdb_txn_kv;
     return fdb_txn_kv;
 }
 
