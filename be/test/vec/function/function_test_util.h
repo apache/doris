@@ -59,8 +59,8 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_varbinary.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/exprs/function_context.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
