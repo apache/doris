@@ -1570,6 +1570,10 @@ Status CloudTablet::sync_meta() {
         _tablet_meta->set_time_series_compaction_level_threshold(
                 new_time_series_compaction_level_threshold);
     }
+    auto new_rows_of_segment = tablet_meta->rows_of_segment();
+    if (_tablet_meta->rows_of_segment() != new_rows_of_segment) {
+        _tablet_meta->set_rows_of_segment(new_rows_of_segment);
+    }
 
     return Status::OK();
 }

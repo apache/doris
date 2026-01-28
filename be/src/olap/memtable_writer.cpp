@@ -66,11 +66,13 @@ MemTableWriter::~MemTableWriter() {
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
                             TabletSchemaSPtr tablet_schema,
                             std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                            std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow) {
+                            std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow,
+                            int64_t rows_of_segment) {
     _rowset_writer = rowset_writer;
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
+    _rows_of_segment = rows_of_segment;
     _resource_ctx = thread_context()->resource_ctx();
 
     _reset_mem_table();
@@ -115,6 +117,10 @@ Status MemTableWriter::write(const vectorized::Block* block,
     }
 
     _total_received_rows += row_idxs.size();
+    LOG_INFO(
+            "MemTableWriter received block: tablet_id={}, input_block_rows={}, row_idxs_size={}, "
+            "total_received_rows={}",
+            _req.tablet_id, block->rows(), row_idxs.size(), _total_received_rows);
     auto st = _mem_table->insert(block, row_idxs);
 
     // Reset memtable immediately after insert failure to prevent potential flush operations.
@@ -138,6 +144,8 @@ Status MemTableWriter::write(const vectorized::Block* block,
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
+        LOG_INFO("Going to flush memtable: tablet_id={}, memtable rows: {}", _req.tablet_id,
+                 _mem_table->raw_rows());
         RETURN_IF_ERROR(_flush_memtable());
     }
 
@@ -163,6 +171,7 @@ Status MemTableWriter::_flush_memtable_async() {
         memtable->update_mem_type(MemType::WRITE_FINISHED);
         _freezed_mem_tables.push_back(memtable);
     }
+    LOG_INFO("Create a memtbl flush token and submit");
     return _flush_token->submit(memtable);
 }
 
@@ -214,7 +223,8 @@ void MemTableWriter::_reset_mem_table() {
     {
         std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
         _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema, _req.slots, _req.tuple_desc,
-                                      _unique_key_mow, _partial_update_info.get(), _resource_ctx));
+                                      _unique_key_mow, _partial_update_info.get(), _resource_ctx,
+                                      _rows_of_segment));
     }
 
     _segment_num++;
@@ -235,7 +245,8 @@ Status MemTableWriter::close() {
                      << " load_id=" << _req.load_id;
         return Status::OK();
     }
-
+    LOG_INFO("Flushing memtable before closing: tablet_id={}, memtable size: {}", _req.tablet_id,
+             PrettyPrinter::print_bytes(_mem_table->memory_usage()));
     auto s = _flush_memtable_async();
     {
         std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);

@@ -52,12 +52,13 @@ using namespace ErrorCode;
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-                   const std::shared_ptr<ResourceContext>& resource_ctx)
+                   const std::shared_ptr<ResourceContext>& resource_ctx, int64_t rows_of_segment)
         : _mem_type(MemType::ACTIVE),
           _tablet_id(tablet_id),
           _enable_unique_key_mow(enable_unique_key_mow),
           _keys_type(tablet_schema->keys_type()),
           _tablet_schema(tablet_schema),
+          _rows_of_segment(rows_of_segment),
           _resource_ctx(resource_ctx),
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
@@ -246,6 +247,11 @@ Status MemTable::insert(const vectorized::Block* input_block,
     }
 
     _stat.raw_rows += num_rows;
+
+    LOG(INFO) << "MemTable::insert block to memtable: tablet_id=" << _tablet_id
+              << ", input_block_rows=" << input_block->rows() << ", inserted_rows=" << num_rows
+              << ", memtable_total_rows=" << _stat.raw_rows
+              << ", memtable_memory=" << memory_usage();
     return Status::OK();
 }
 
@@ -707,6 +713,17 @@ void MemTable::shrink_memtable_by_agg() {
 
 bool MemTable::need_flush() const {
     DBUG_EXECUTE_IF("MemTable.need_flush", { return true; });
+
+    // If rows_of_segment is set in table properties, prioritize row-based flush
+    if (_rows_of_segment > 0 && _stat.raw_rows.load() >= _rows_of_segment) {
+        return true;
+    } else {
+        LOG_INFO("Do not flush memtable because rows_of_segment is not set or not reached")
+                .tag("tablet_id", _tablet_id)
+                .tag("rows_of_segment", _rows_of_segment)
+                .tag("current_rows", _stat.raw_rows.load());
+    }
+
     auto max_size = _adaptive_write_buffer_size();
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;

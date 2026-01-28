@@ -467,6 +467,15 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     size_t task_bytes = 0;
     uint32_t task_rows = 0;
     int32_t segid;
+
+    // If max_rows_per_segment is configured, use it as the limit for segment compaction
+    // to prevent merging segments that would exceed the row limit
+    uint32_t max_rows_limit = _context.max_rows_per_segment;
+    // If max_rows_per_segment is not set (INT32_MAX) or 0, use the default config
+    if (max_rows_limit == 0 || max_rows_limit >= INT32_MAX) {
+        max_rows_limit = config::segcompaction_task_max_rows;
+    }
+
     for (segid = _segcompacted_point;
          segid < last_segment && segments->size() < config::segcompaction_batch_size; segid++) {
         segment_v2::SegmentSharedPtr segment;
@@ -490,8 +499,10 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
                 break;
             }
         }
+        // Check both the default task limit and the user-configured max_rows_per_segment
         bool is_task_full = task_rows + segment_rows > config::segcompaction_task_max_rows ||
-                            task_bytes + segment_bytes > config::segcompaction_task_max_bytes;
+                            task_bytes + segment_bytes > config::segcompaction_task_max_bytes ||
+                            task_rows + segment_rows > max_rows_limit;
         if (is_task_full) {
             break;
         }

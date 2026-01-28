@@ -24,10 +24,12 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <filesystem>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -46,7 +48,9 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -124,6 +128,15 @@ Status DeltaWriterV2::init() {
     context.partial_update_info = _partial_update_info;
     context.memtable_on_sink_support_index_v2 = true;
     context.encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
+    // Get rows_of_segment from local tablet meta (same as DeltaWriter)
+    int64_t rows_of_segment = 0;
+    TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
+    RETURN_IF_ERROR(
+            ExecEnv::GetInstance()->storage_engine().get_tablet_meta(_req.tablet_id, &tablet_meta));
+    if (tablet_meta != nullptr) {
+        rows_of_segment = tablet_meta->rows_of_segment();
+    }
+    context.max_rows_per_segment = cast_set<uint32_t>(rows_of_segment);
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
@@ -131,8 +144,10 @@ Status DeltaWriterV2::init() {
     if (_state->get_query_ctx()) {
         wg_sptr = _state->get_query_ctx()->workload_group();
     }
+
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
-                                           wg_sptr, _streams[0]->enable_unique_mow(_req.index_id)));
+                                           wg_sptr, _streams[0]->enable_unique_mow(_req.index_id),
+                                           rows_of_segment));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     _streams.clear();

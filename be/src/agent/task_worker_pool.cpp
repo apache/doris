@@ -1027,6 +1027,10 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     tablet_meta_info.skip_write_index_on_load);
             need_to_save = true;
         }
+        if (tablet_meta_info.__isset.rows_of_segment) {
+            tablet->tablet_meta()->set_rows_of_segment(tablet_meta_info.rows_of_segment);
+            need_to_save = true;
+        }
         if (need_to_save) {
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->save_meta();

@@ -811,6 +811,11 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
     if (segment_size >= MAX_SEGMENT_SIZE || _num_rows_written >= _opts.max_rows_per_segment)
             [[unlikely]] {
+        LOG(INFO) << "segment needs flush: tablet_id=" << (_tablet ? _tablet->tablet_id() : 0)
+                  << ", segment_id=" << _segment_id << ", num_rows_written=" << _num_rows_written
+                  << ", max_rows_per_segment=" << _opts.max_rows_per_segment
+                  << ", segment_size=" << segment_size << ", MAX_SEGMENT_SIZE=" << MAX_SEGMENT_SIZE
+                  << ", reason=" << (segment_size >= MAX_SEGMENT_SIZE ? "size_limit" : "row_limit");
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;

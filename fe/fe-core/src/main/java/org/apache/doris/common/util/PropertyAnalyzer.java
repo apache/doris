@@ -184,6 +184,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD =
             "time_series_compaction_level_threshold";
 
+    public static final String PROPERTIES_ROWS_OF_SEGMENT = "rows_of_segment";
+
     public static final String PROPERTIES_MUTABLE = "mutable";
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
@@ -255,6 +257,7 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
+    public static final long ROWS_OF_SEGMENT_DEFAULT_VALUE = 0;
 
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
 
@@ -1890,6 +1893,37 @@ public class PropertyAnalyzer {
         }
 
         return groupCommitDataBytes;
+    }
+
+    public static long analyzeRowsOfSegment(Map<String, String> properties) throws AnalysisException {
+        return analyzeRowsOfSegment(properties, null);
+    }
+
+    public static long analyzeRowsOfSegment(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        long rowsOfSegment = ROWS_OF_SEGMENT_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_ROWS_OF_SEGMENT)) {
+            String rowsOfSegmentStr = properties.get(PROPERTIES_ROWS_OF_SEGMENT);
+            try {
+                rowsOfSegment = Long.parseLong(rowsOfSegmentStr);
+            } catch (Exception e) {
+                throw new AnalysisException("parse rows_of_segment format error");
+            }
+
+            if (rowsOfSegment < 0) {
+                throw new AnalysisException("rows_of_segment must be greater than or equal to 0");
+            }
+
+            // rows_of_segment is only allowed for DUPLICATE KEY tables
+            if (rowsOfSegment > 0 && keysType != null && keysType != KeysType.DUP_KEYS) {
+                throw new AnalysisException("rows_of_segment property is only supported for "
+                        + "DUPLICATE KEY tables, not allowed for " + keysType.name() + " tables");
+            }
+
+            properties.remove(PROPERTIES_ROWS_OF_SEGMENT);
+        }
+
+        return rowsOfSegment;
     }
 
     /**

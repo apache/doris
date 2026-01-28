@@ -112,6 +112,9 @@ public:
     int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
+    // Get max rows per segment from context
+    uint32_t max_rows_per_segment() const { return _context.max_rows_per_segment; }
+
     Status close();
 
 public:

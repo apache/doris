@@ -247,6 +247,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROWS_OF_SEGMENT)) {
+            throw new AnalysisException("Property "
+                    + PropertyAnalyzer.PROPERTIES_ROWS_OF_SEGMENT
+                    + " is not allowed to be modified after table creation");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             if (properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")) {
                 throw new AnalysisException(

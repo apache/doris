@@ -125,6 +125,8 @@ public class TableProperty implements GsonPostProcessable {
     private long timeSeriesCompactionLevelThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
 
+    private long rowsOfSegment = PropertyAnalyzer.ROWS_OF_SEGMENT_DEFAULT_VALUE;
+
     private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
 
     private TEncryptionAlgorithm encryptionAlgorithm = TEncryptionAlgorithm.PLAINTEXT;
@@ -473,6 +475,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public long timeSeriesCompactionLevelThreshold() {
         return timeSeriesCompactionLevelThreshold;
+    }
+
+    public TableProperty buildRowsOfSegment() {
+        rowsOfSegment = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_ROWS_OF_SEGMENT,
+                    String.valueOf(PropertyAnalyzer.ROWS_OF_SEGMENT_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long rowsOfSegment() {
+        return rowsOfSegment;
     }
 
     public TableProperty buildMinLoadReplicaNum() {
@@ -887,6 +900,7 @@ public class TableProperty implements GsonPostProcessable {
         buildEnableSingleReplicaCompaction();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
+        buildRowsOfSegment();
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();

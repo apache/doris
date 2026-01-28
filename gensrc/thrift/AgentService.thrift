@@ -228,6 +228,7 @@ struct TCreateTabletReq {
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
+    31: optional i64 rows_of_segment = 0
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -542,6 +543,7 @@ struct TTabletMetaInfo {
     16: optional bool disable_auto_compaction
     17: optional i64 time_series_compaction_empty_rowsets_threshold
     18: optional i64 time_series_compaction_level_threshold
+    19: optional i64 rows_of_segment
 }
 
 struct TUpdateTabletMetaInfoReq {

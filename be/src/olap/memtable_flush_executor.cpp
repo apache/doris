@@ -182,9 +182,9 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
 }
 
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
-    VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
-                  << ", memsize: " << PrettyPrinter::print_bytes(memtable->memory_usage())
-                  << ", rows: " << memtable->stat().raw_rows;
+    LOG(INFO) << "begin to flush memtable for tablet: " << memtable->tablet_id()
+              << ", memsize: " << PrettyPrinter::print_bytes(memtable->memory_usage())
+              << ", rows: " << memtable->stat().raw_rows;
     memtable->update_mem_type(MemType::FLUSH);
     int64_t duration_ns = 0;
     {
@@ -207,14 +207,18 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
         }};
         std::unique_ptr<vectorized::Block> block;
         RETURN_IF_ERROR(memtable->to_block(&block));
+        LOG(INFO) << "MemTable to_block completed, ready to flush segment: tablet_id="
+                  << memtable->tablet_id() << ", segment_id=" << segment_id
+                  << ", block_rows=" << block->rows() << ", block_bytes=" << block->bytes()
+                  << ", memtable_raw_rows=" << memtable->stat().raw_rows;
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
         memtable->set_flush_success();
     }
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
-                  << ", flushsize: " << PrettyPrinter::print_bytes(*flush_size);
+    LOG(INFO) << "after flush memtable for tablet: " << memtable->tablet_id()
+              << ", flushsize: " << PrettyPrinter::print_bytes(*flush_size);
     return Status::OK();
 }
 
