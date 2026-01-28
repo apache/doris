@@ -3816,4 +3816,8 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"是否开启批量设置系统变量的失败回退",
+        "Whether to enable rollback after session variables set failed"})
+    public static boolean enable_rollback_after_bulk_session_variables_set_failed = false;
 }
