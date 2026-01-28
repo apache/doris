@@ -235,7 +235,7 @@ public class MTMVTask extends AbstractTask {
             }
             MetaLockUtils.readLockTables(tableIfs);
             try {
-                context = MTMVRefreshContext.buildContext(mtmv);
+                context = MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap());
                 this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);

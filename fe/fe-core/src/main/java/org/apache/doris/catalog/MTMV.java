@@ -56,6 +56,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -468,14 +469,16 @@ public class MTMV extends OlapTable {
      * @return mvPartitionName ==> pctTable ==> pctPartitionName
      * @throws AnalysisException
      */
-    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns());
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
+                        queryUsedBaseTablePartitionMap);
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),

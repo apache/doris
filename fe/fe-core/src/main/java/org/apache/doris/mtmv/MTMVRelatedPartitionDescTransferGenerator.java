@@ -44,7 +44,8 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult, List<Column> partitionColumns) throws AnalysisException {
+            RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
+                      Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
         Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs = lastResult.getDescs();
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {

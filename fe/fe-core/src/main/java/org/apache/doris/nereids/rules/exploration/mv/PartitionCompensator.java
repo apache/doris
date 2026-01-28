@@ -101,7 +101,7 @@ public class PartitionCompensator {
                     rewrittenPlanUsePartitionNameSet.add(olapScan.getTable().getPartition(id).getName()));
         }
         Map<MTMVRelatedTableIf, Map<String, Set<String>>> mtmvRelatedTableIfMapMap
-                = materializationContext.calculatePartitionMappings();
+                = materializationContext.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
         boolean allCompensateIsNull = true;
 
         Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
