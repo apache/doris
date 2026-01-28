@@ -21,11 +21,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -126,12 +130,6 @@ public class KillUtils {
                 return;
             }
         }
-
-        // 3. Query not found in any FE, try cancel the query in BE.
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("not found query '{}' in any FE, try to kill it in BE. Messages: {}",
-                    queryId, errMsgs);
-        }
         ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_QUERY, queryId);
     }
 
@@ -156,6 +154,15 @@ public class KillUtils {
             }
             killCtx.kill(false);
             ctx.getState().setOk();
+            return true;
+        }
+        // query not found in connect context, try to find in coordinator
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, queryId);
+        }
+        Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(DebugUtil.parseTUniqueIdFromString(queryId));
+        if (coordinator != null) {
+            coordinator.cancel(new Status(TStatusCode.CANCELLED, "User Cancelled"));
             return true;
         }
         return false;
