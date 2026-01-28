@@ -2095,7 +2095,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             KeysType keysType = indexMeta.getKeysType();
             List<Index> indexes = indexId == tbl.getBaseIndexId() ? tbl.getCopiedIndexes() : null;
             int totalTaskNum = index.getTablets().size() * totalReplicaNum;
-            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
+            MarkedCountDownLatch<String, Long> countDownLatch = new MarkedCountDownLatch<String, Long>();
             AgentBatchTask batchTask = new AgentBatchTask();
             List<String> rowStoreColumns = tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {
@@ -2103,7 +2103,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Replica replica : tablet.getReplicas()) {
                     long backendId = replica.getBackendIdWithoutException();
                     long replicaId = replica.getId();
-                    countDownLatch.addMark(backendId, tabletId);
+                    String markKey = String.format("%s-%s", backendId, replicaId);
+                    countDownLatch.addMark(markKey, tabletId);
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tbl.getId(), partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             realStorageMedium, schema, bfColumns, tbl.getBfFpp(), countDownLatch,
@@ -2167,8 +2168,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (countDownLatch.getStatus().getErrorCode() == TStatusCode.TIMEOUT) {
                         SystemInfoService infoService = Env.getCurrentSystemInfo();
                         Set<String> downBeSet = countDownLatch.getLeftMarks().stream()
-                                .map(item -> infoService.getBackend(item.getKey()))
-                                .filter(backend -> !backend.isAlive())
+                                .map(item -> {
+                                    long backendId = Long.parseLong(item.getKey().split("-")[0]);
+                                    return infoService.getBackend(backendId);
+                                }
+                                ).filter(backend -> !backend.isAlive())
                                 .map(Backend::getHost)
                                 .collect(Collectors.toSet());
                         if (null != downBeSet || downBeSet.size() != 0) {

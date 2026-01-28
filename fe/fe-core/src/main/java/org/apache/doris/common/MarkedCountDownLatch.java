@@ -24,73 +24,133 @@ import com.google.common.collect.Multimap;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
-public class MarkedCountDownLatch<K, V> extends CountDownLatch {
+public class MarkedCountDownLatch<K, V>  {
+
+    private final Object lock = new Object();
 
     private Multimap<K, V> marks;
     private Multimap<K, V> failedMarks;
     private Status st = Status.OK;
-    private int markCount = 0;
+    private int markCount;
+    private CountDownLatch downLatch;
 
-    public MarkedCountDownLatch(int count) {
-        super(count);
-        this.markCount = count;
+
+    public MarkedCountDownLatch() {
         marks = HashMultimap.create();
         failedMarks = HashMultimap.create();
+        markCount = 0;
+        downLatch = null;
     }
 
     public int getMarkCount() {
-        return markCount;
-    }
-
-    public synchronized void addMark(K key, V value) {
-        marks.put(key, value);
-    }
-
-    public synchronized boolean markedCountDown(K key, V value) {
-        if (marks.remove(key, value)) {
-            super.countDown();
-            return true;
+        synchronized (lock) {
+            return markCount;
         }
-        return false;
     }
 
-    public synchronized boolean markedCountDownWithStatus(K key, V value, Status status) {
+    public void addMark(K key, V value) {
+        synchronized (lock) {
+            if (downLatch != null) {
+                throw new IllegalStateException("downLatch must initialize after mark.");
+            }
+            marks.put(key, value);
+            markCount++;
+        }
+    }
+
+    public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
+        synchronized (lock) {
+            if (downLatch == null) {
+                this.downLatch = new CountDownLatch(markCount);
+            }
+        }
+        return downLatch.await(timeout, unit);
+    }
+
+    public void await() throws InterruptedException {
+        synchronized (lock) {
+            if (downLatch == null) {
+                this.downLatch = new CountDownLatch(markCount);
+            }
+        }
+        downLatch.await();
+    }
+
+    public boolean markedCountDown(K key, V value) {
+        synchronized (lock) {
+            if (downLatch == null) {
+                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
+            }
+            if (marks.remove(key, value)) {
+                markCount--;
+                downLatch.countDown();
+                return true;
+            }
+            return false;
+        }
+    }
+
+    public boolean markedCountDownWithStatus(K key, V value, Status status) {
         // update status first before countDown.
         // so that the waiting thread will get the correct status.
-        if (st.ok()) {
-            st = status;
-        }
+        synchronized (lock) {
+            if (downLatch == null) {
+                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
+            }
 
-        // Since marks are used to determine whether a task is completed, we should not remove
-        // a mark if the task has failed rather than finished. To maintain the idempotency of
-        // this method, we store failed marks in a separate map.
-        //
-        // Search `getLeftMarks` for details.
-        if (!failedMarks.containsEntry(key, value)) {
-            failedMarks.put(key, value);
-            super.countDown();
-            return true;
-        }
-        return false;
-    }
+            if (st.ok()) {
+                st = status;
+            }
 
-    public synchronized List<Entry<K, V>> getLeftMarks() {
-        return Lists.newArrayList(marks.entries());
-    }
-
-    public synchronized Status getStatus() {
-        return st;
-    }
-
-    public synchronized void countDownToZero(Status status) {
-        // update status first before countDown.
-        // so that the waiting thread will get the correct status.
-        if (st.ok()) {
-            st = status;
-        }
-        while (getCount() > 0) {
-            super.countDown();
+            // Since marks are used to determine whether a task is completed, we should not remove
+            // a mark if the task has failed rather than finished. To maintain the idempotency of
+            // this method, we store failed marks in a separate map.
+            //
+            // Search `getLeftMarks` for details.
+            if (!failedMarks.containsEntry(key, value)) {
+                failedMarks.put(key, value);
+                marks.remove(key, value);
+                markCount--;
+                downLatch.countDown();
+                return true;
+            }
+            return false;
         }
     }
+
+    public void countDownToZero(Status status) {
+        synchronized (lock) {
+            if (downLatch == null) {
+                throw new IllegalStateException("downLatch is not initialize checkout usage is valid.");
+            }
+            // update status first before countDown.
+            // so that the waiting thread will get the correct status.
+            if (st.ok()) {
+                st = status;
+            }
+            while (downLatch.getCount() > 0) {
+                markCount--;
+                downLatch.countDown();
+            }
+
+            //clear up the marks list
+            marks.clear();
+        }
+    }
+
+    public List<Entry<K, V>> getLeftMarks() {
+        synchronized (lock) {
+            return Lists.newArrayList(marks.entries());
+        }
+    }
+
+    public Status getStatus() {
+        synchronized (lock) {
+            return st;
+        }
+    }
+
+
 }

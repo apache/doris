@@ -303,7 +303,7 @@ public class MasterImpl {
                 Env.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(),
                         request.getReportVersion(), task.getDbId(), task.getTableId(), true);
 
-                createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
+                createReplicaTask.countDownLatch(task.getBackendId(), task.getTableId(), task.getSignature());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
                             tabletId, task.getBackendId(), request.getReportVersion());

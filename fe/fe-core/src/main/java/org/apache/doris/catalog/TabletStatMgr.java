@@ -75,7 +75,7 @@ public class TabletStatMgr extends MasterDaemon {
         // no need to get tablet stat if backend is not alive
         List<Backend> aliveBackends = backends.values().stream().filter(Backend::isAlive)
                 .collect(Collectors.toList());
-        updateTabletStatsLatch = new MarkedCountDownLatch<>(aliveBackends.size());
+        updateTabletStatsLatch = new MarkedCountDownLatch<>();
         aliveBackends.forEach(backend -> {
             updateTabletStatsLatch.addMark(backend.getId(), backend);
             executor.submit(() -> {
@@ -322,7 +322,7 @@ public class TabletStatMgr extends MasterDaemon {
         try {
             if (!updateTabletStatsLatch.await(600, TimeUnit.SECONDS)) {
                 LOG.info("timeout waiting {} update tablet stats tasks finish after {} seconds.",
-                        updateTabletStatsLatch.getCount(), 600);
+                        updateTabletStatsLatch.getMarkCount(), 600);
                 ok = false;
             }
         } catch (InterruptedException e) {

@@ -891,7 +891,7 @@ public class Coordinator implements CoordInterface {
             } // end for fragments
 
             // Init the mark done in order to track the finished state of the query
-            fragmentsDoneLatch = new MarkedCountDownLatch<>(backendFragments.size());
+            fragmentsDoneLatch = new MarkedCountDownLatch<>();
             for (Pair<PlanFragmentId, Long> pair : backendFragments) {
                 fragmentsDoneLatch.addMark(pair.first.asInt(), pair.second);
             }
@@ -1365,7 +1365,7 @@ public class Coordinator implements CoordInterface {
         }
 
         // Init instancesDoneLatch, it will be used to track if the instances has finished for insert stmt
-        instancesDoneLatch = new MarkedCountDownLatch<>(instanceIds.size());
+        instancesDoneLatch = new MarkedCountDownLatch<>();
         for (TUniqueId instanceId : instanceIds) {
             instancesDoneLatch.addMark(instanceId, -1L /* value is meaningless */);
         }
@@ -2556,9 +2556,9 @@ public class Coordinator implements CoordInterface {
 
     public boolean isDone() {
         if (fragmentsDoneLatch != null) {
-            return fragmentsDoneLatch.getCount() == 0;
+            return fragmentsDoneLatch.getMarkCount() == 0;
         } else {
-            return instancesDoneLatch.getCount() == 0;
+            return instancesDoneLatch.getMarkCount() == 0;
         }
     }
 

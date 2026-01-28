@@ -86,7 +86,7 @@ public class CreateReplicaTask extends AgentTask {
     private TTabletType tabletType;
 
     // used for synchronous process
-    private MarkedCountDownLatch<Long, Long> latch;
+    private MarkedCountDownLatch<String, Long> latch;
 
     private boolean inRestoreMode = false;
 
@@ -143,7 +143,7 @@ public class CreateReplicaTask extends AgentTask {
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
+                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<String, Long> latch,
                              List<Index> indexes,
                              boolean isInMemory,
                              TTabletType tabletType,
@@ -228,12 +228,13 @@ public class CreateReplicaTask extends AgentTask {
         return isRecoverTask;
     }
 
-    public void countDownLatch(long backendId, long tabletId) {
+    public void countDownLatch(long backendId, long replicaId, long tabletId) {
         if (this.latch != null) {
-            if (latch.markedCountDown(backendId, tabletId)) {
+            String markKey = String.format("%s-%s", backendId, replicaId);
+            if (latch.markedCountDown(markKey, tabletId)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
-                              latch.getCount(), backendId, tabletId);
+                              latch.getMarkCount(), backendId, tabletId);
                 }
             }
         }
@@ -258,7 +259,8 @@ public class CreateReplicaTask extends AgentTask {
         // CreateReplicaTask need to be awakened.
         if (this.latch != null) {
             Status s = new Status(TStatusCode.CANCELLED, errMsg);
-            latch.markedCountDownWithStatus(getBackendId(), getTabletId(), s);
+            String markKey = String.format("%s-%s", getBackendId(), getReplicaId());
+            latch.markedCountDownWithStatus(markKey, getTabletId(), s);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("CreateReplicaTask failed with msg: {}, tablet: {}, backend: {}",
                         errMsg, getTabletId(), getBackendId());
@@ -266,7 +268,7 @@ public class CreateReplicaTask extends AgentTask {
         }
     }
 
-    public void setLatch(MarkedCountDownLatch<Long, Long> latch) {
+    public void setLatch(MarkedCountDownLatch<String, Long> latch) {
         this.latch = latch;
     }
 
@@ -289,6 +291,10 @@ public class CreateReplicaTask extends AgentTask {
 
     public void setClusterKeyUids(List<Integer> clusterKeyUids) {
         this.clusterKeyUids = clusterKeyUids;
+    }
+
+    public long getReplicaId() {
+        return replicaId;
     }
 
     public TCreateTabletReq toThrift() {

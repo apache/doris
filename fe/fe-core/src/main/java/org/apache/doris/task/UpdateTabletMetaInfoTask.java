@@ -103,7 +103,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
             if (latch.markedCountDown(backendId, tablets)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("UpdateTabletMetaInfoTask current latch count: {}, backend: {}, tablets:{}",
-                            latch.getCount(), backendId, tablets);
+                            latch.getMarkCount(), backendId, tablets);
                 }
             }
         }
