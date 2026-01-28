@@ -63,6 +63,9 @@ Status RuntimePredicate::init_target(
     }
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     check_target_node_id(target_node_id);
+    // order by abs(col1) limit x;
+    // cannot be used min-max filter, no need create predicate.
+    // but can used in VTopNPred.execute_column
     if (target_is_slot(target_node_id)) {
         _contexts[target_node_id].col_name =
                 slot_id_to_slot_desc[get_texpr(target_node_id).nodes[0].slot_ref.slot_id]
@@ -214,6 +217,20 @@ Status RuntimePredicate::update(const Field& value) {
     for (auto p : _contexts) {
         auto ctx = p.second;
         if (ctx.predicate == nullptr) {
+            // 1. `init_target` will not create predicate. example : `order by abs(col1) limit x;`
+            // So don't need create new `ColumnPredicate`,
+            // but need update `_orderby_extrem` for  `VTopNPred.execute_column`
+            // 2. this `RuntimePredicate` will associate multiple scan nodes.
+            // When the sort node is updated, some scan nodes may not have called `init_target` yet.
+            // example:
+            //SELECT subq1.pk AS pk1 FROM (
+            //    ( SELECT t1.pk  FROM tb AS t1 )
+            //    UNION ALL
+            //    ( SELECT t1.pk  FROM tb AS t1  ORDER BY t1.pk ))
+            //    subq1
+            //WHERE subq1.pk <> (
+            //    SELECT t1.pk  FROM tb AS t1  ORDER BY t1.pk LIMIT 1
+            //) ORDER BY 1 LIMIT 1 ;
             continue;
         }
         auto str_ref = _get_string_ref(_orderby_extrem, _type);
