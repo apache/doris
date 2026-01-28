@@ -2066,6 +2066,7 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 }
 
 Status PipelineFragmentContext::wait_close(bool close) {
+    SCOPED_ATTACH_TASK(_query_ctx.get());
     if (_exec_env->new_load_stream_mgr()->get(_query_id) != nullptr) {
         return Status::InternalError("stream load do not support reset");
     }
@@ -2095,12 +2096,13 @@ Status PipelineFragmentContext::wait_close(bool close) {
 }
 
 Status PipelineFragmentContext::set_to_rerun() {
+    SCOPED_ATTACH_TASK(_query_ctx.get());
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
-        for (size_t i = 0; i < _tasks.size(); i++) {
-            if (!_tasks[i].empty()) {
-                _tasks[i].front().first->runtime_state()->reset_to_rerun();
+        for (auto& _task : _tasks) {
+            if (!_task.empty()) {
+                _task.front().first->runtime_state()->reset_to_rerun();
             }
         }
     }
@@ -2110,6 +2112,7 @@ Status PipelineFragmentContext::set_to_rerun() {
 }
 
 Status PipelineFragmentContext::rebuild(ThreadPool* thread_pool) {
+    SCOPED_ATTACH_TASK(_query_ctx.get());
     _submitted = false;
     _is_fragment_instance_closed = false;
     return _build_and_prepare_full_pipeline(thread_pool);

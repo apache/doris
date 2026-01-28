@@ -176,6 +176,7 @@ private:
     }
 
     Status _send_rerun_fragments(RuntimeState* state, PRerunFragmentParams_Opcode stage) const {
+        auto st = Status::OK();
         for (auto fragment : _fragments_to_reset) {
             auto stub =
                     state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
@@ -193,15 +194,15 @@ private:
             stub->rerun_fragment(&controller, &request, &result, brpc::DoNothing());
             brpc::Join(controller.call_id());
             if (controller.Failed()) {
-                return Status::InternalError(controller.ErrorText());
+                st = Status::InternalError(controller.ErrorText());
             }
 
             auto rpc_st = Status::create(result.status());
             if (!rpc_st.ok()) {
-                return rpc_st;
+                st = rpc_st;
             }
         }
-        return Status::OK();
+        return st;
     }
 
     friend class RecCTESourceLocalState;
