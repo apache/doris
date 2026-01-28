@@ -352,7 +352,7 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, GetTabletRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest, ListSnapshotRequest,
-                                  GetInstanceRequest>) {
+                                  GetInstanceRequest, GetClusterStatusRequest>) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());

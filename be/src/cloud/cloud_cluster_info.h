@@ -49,15 +49,15 @@ public:
         std::shared_lock lock(_mutex);
         return _my_cluster_id;
     }
-    void set_my_cluster_id(const std::string& cluster_id) {
+    void set_my_cluster_id(const std::string& id) {
         std::unique_lock lock(_mutex);
-        _my_cluster_id = cluster_id;
+        _my_cluster_id = id;
     }
 
     // Get cached cluster status, returns false if not found
-    bool get_cluster_status(const std::string& cluster_id, ClusterStatusCache* cache) const {
+    bool get_cluster_status(const std::string& id, ClusterStatusCache* cache) const {
         std::shared_lock lock(_mutex);
-        auto it = _cluster_status_cache.find(cluster_id);
+        auto it = _cluster_status_cache.find(id);
         if (it != _cluster_status_cache.end()) {
             *cache = it->second;
             return true;
@@ -66,9 +66,9 @@ public:
     }
 
     // Update cluster status cache
-    void set_cluster_status(const std::string& cluster_id, int32_t status, int64_t mtime_ms) {
+    void set_cluster_status(const std::string& id, int32_t status, int64_t mtime_ms) {
         std::unique_lock lock(_mutex);
-        _cluster_status_cache[cluster_id] = {status, mtime_ms};
+        _cluster_status_cache[id] = {status, mtime_ms};
     }
 
     // Clear all cached cluster status

@@ -78,12 +78,8 @@ void CloudClusterInfo::_bg_worker_func() {
 }
 
 void CloudClusterInfo::_refresh_cluster_status() {
-    auto* engine = ExecEnv::GetInstance()->storage_engine();
-    if (!engine) {
-        return;
-    }
-
-    auto* cloud_engine = dynamic_cast<CloudStorageEngine*>(engine);
+    auto* cloud_engine =
+            dynamic_cast<CloudStorageEngine*>(&ExecEnv::GetInstance()->storage_engine());
     if (!cloud_engine) {
         return;
     }
