@@ -285,6 +285,11 @@ public final class LineageUtils {
             StmtExecutor executor) {
         String queryId = ctx.queryId() == null ? EMPTY_STRING : DebugUtil.printId(ctx.queryId());
         String queryText = executor == null ? EMPTY_STRING : executor.getOriginStmtInString();
+        Map<String, String> connectAttributes = ctx.getConnectAttributes();
+        String scheduleInfo = connectAttributes == null ? EMPTY_STRING : connectAttributes.get("scheduleInfo");
+        if (scheduleInfo != null && !scheduleInfo.isEmpty()) {
+            queryText = "/* scheduleInfo=" + scheduleInfo + " */ " + queryText;
+        }
         String user = safeString(ctx.getQualifiedUser());
         String database = safeString(ctx.getDatabase());
         long timestampMs = System.currentTimeMillis();
