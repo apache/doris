@@ -373,6 +373,9 @@ public class Profile {
      * @return YAML formatted profile string
      */
     public String getProfileAsYaml() {
+        // Wait for profile to complete if query is finished
+        waitProfileCompleteIfNeeded();
+
         Map<String, Object> yamlRoot = new LinkedHashMap<>();
 
         // Format version for future compatibility
@@ -395,32 +398,51 @@ public class Profile {
             yamlRoot.put("execution_summary", executionSummaryMap);
         }
 
-        // Build merged profile section (if available)
-        if (this.executionProfiles.size() == 1) {
-            try {
-                RuntimeProfile mergedProfile = this.executionProfiles.get(0)
-                        .getAggregatedFragmentsProfile(planNodeMap);
-                if (mergedProfile != null) {
-                    Map<String, Object> mergedProfileMap = mergedProfile.toStructuredMap();
-                    if (!mergedProfileMap.isEmpty()) {
-                        yamlRoot.put("merged_profile", mergedProfileMap);
+        // Check if profile has been stored to disk (memory released)
+        if (profileHasBeenStored()) {
+            // Profile has been spilled to disk and memory released
+            // Add a note about where to find the detailed profile
+            Map<String, Object> note = new LinkedHashMap<>();
+            note.put("message", "Profile has been stored to disk. Detailed execution profiles "
+                    + "are available in storage.");
+            note.put("storage_path", profileStoragePath);
+            yamlRoot.put("note", note);
+        } else if (executionProfiles.isEmpty()) {
+            // Execution profiles not yet available
+            Map<String, Object> note = new LinkedHashMap<>();
+            note.put("message", "Execution profiles are not yet available. "
+                    + "This may occur if the query is still executing or profile data has not been reported.");
+            yamlRoot.put("note", note);
+        } else {
+            // Profile is still in memory, build full structure
+            // Build merged profile section (if available)
+            if (this.executionProfiles.size() == 1) {
+                try {
+                    RuntimeProfile mergedProfile = this.executionProfiles.get(0)
+                            .getAggregatedFragmentsProfile(planNodeMap);
+                    if (mergedProfile != null) {
+                        Map<String, Object> mergedProfileMap = mergedProfile.toStructuredMap();
+                        if (!mergedProfileMap.isEmpty()) {
+                            yamlRoot.put("merged_profile", mergedProfileMap);
+                        }
                     }
+                } catch (Exception e) {
+                    LOG.warn("Failed to build merged profile for YAML output, query id: {}, error: {}",
+                            getId(), e.getMessage(), e);
                 }
-            } catch (Exception e) {
-                LOG.warn("Failed to build merged profile for YAML output: {}", e.getMessage());
             }
-        }
 
-        // Build detail profile section (execution profiles)
-        List<Map<String, Object>> detailProfiles = new ArrayList<>();
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            RuntimeProfile root = executionProfile.getRoot();
-            if (root != null) {
-                detailProfiles.add(root.toStructuredMap());
+            // Build detail profile section (execution profiles)
+            List<Map<String, Object>> detailProfiles = new ArrayList<>();
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                RuntimeProfile root = executionProfile.getRoot();
+                if (root != null) {
+                    detailProfiles.add(root.toStructuredMap());
+                }
             }
-        }
-        if (!detailProfiles.isEmpty()) {
-            yamlRoot.put("detail_profiles", detailProfiles);
+            if (!detailProfiles.isEmpty()) {
+                yamlRoot.put("detail_profiles", detailProfiles);
+            }
         }
 
         // Configure YAML dumper for pretty output
