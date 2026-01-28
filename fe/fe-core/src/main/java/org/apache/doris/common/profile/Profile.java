@@ -592,11 +592,11 @@ public class Profile {
     private Yaml createYamlDumper() {
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
-        options.setPrettyFlow(true);
+        options.setPrettyFlow(false);  // Disable pretty flow to keep everything on one line
         options.setIndent(2);
         options.setIndicatorIndent(0);
         options.setDefaultScalarStyle(DumperOptions.ScalarStyle.PLAIN);
-        options.setWidth(120);
+        options.setWidth(Integer.MAX_VALUE);  // Set to max value to prevent line wrapping
         options.setAllowUnicode(true);
         options.setExplicitStart(true);
 
