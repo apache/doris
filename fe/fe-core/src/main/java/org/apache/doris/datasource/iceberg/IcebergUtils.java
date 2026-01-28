@@ -1232,7 +1232,9 @@ public class IcebergUtils {
     public static IcebergSnapshot getLatestIcebergSnapshot(Table table) {
         Snapshot snapshot = table.currentSnapshot();
         long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : snapshot.snapshotId();
-        long schemaId = snapshot == null ? table.schema().schemaId() : snapshot.schemaId();
+        // Use the latest table schema even if the current snapshot doesn't advance its schemaId,
+        // e.g. schema-only changes without a new snapshot.
+        long schemaId = table.schema().schemaId();
         return new IcebergSnapshot(snapshotId, schemaId);
     }
 
