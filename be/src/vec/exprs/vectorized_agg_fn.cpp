@@ -267,35 +267,43 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
+    _function->add_batch_single_place(block->rows(), place, _agg_raw_input_columns.data(), arena);
+    _reset_input_columns();
     return Status::OK();
 }
 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena& arena, bool agg_many) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
+    _function->add_batch(block->rows(), places, offset, _agg_raw_input_columns.data(), arena,
+                         agg_many);
+    _reset_input_columns();
     return Status::OK();
 }
 
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
+    _function->add_batch_selected(block->rows(), places, offset, _agg_raw_input_columns.data(),
+                                  arena);
+    _reset_input_columns();
     return Status::OK();
 }
 
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
                                                const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
+    _function->streaming_agg_serialize(_agg_raw_input_columns.data(), buf, num_rows, arena);
+    _reset_input_columns();
     return Status::OK();
 }
 
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
+    _function->streaming_agg_serialize_to_column(_agg_raw_input_columns.data(), dst, num_rows,
+                                                 arena);
+    _reset_input_columns();
     return Status::OK();
 }
 
@@ -332,21 +340,26 @@ std::string AggFnEvaluator::debug_string() const {
     return out.str();
 }
 
-Status AggFnEvaluator::_calc_argument_columns(Block* block) {
+Status AggFnEvaluator::_calc_argument_columns(const Block* block) {
     SCOPED_TIMER(_expr_timer);
-    _agg_columns.resize(_input_exprs_ctxs.size());
-    std::vector<int> column_ids(_input_exprs_ctxs.size());
+    _agg_input_columns.resize(_input_exprs_ctxs.size(), nullptr);
+    _agg_raw_input_columns.resize(_input_exprs_ctxs.size(), nullptr);
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
-        column_ids[i] = column_id;
-    }
-    materialize_block_inplace(*block, column_ids.data(),
-                              column_ids.data() + _input_exprs_ctxs.size());
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        _agg_columns[i] = block->get_by_position(column_ids[i]).column.get();
+        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, _agg_input_columns[i]));
+        _agg_input_columns[i] = _agg_input_columns[i]->convert_to_full_column_if_const();
+        _agg_raw_input_columns[i] = _agg_input_columns[i].get();
     }
     return Status::OK();
+}
+
+void AggFnEvaluator::_reset_input_columns() {
+    SCOPED_TIMER(_expr_timer);
+    for (auto& col : _agg_input_columns) {
+        col = nullptr;
+    }
+    for (auto& col : _agg_raw_input_columns) {
+        col = nullptr;
+    }
 }
 
 AggFnEvaluator* AggFnEvaluator::clone(RuntimeState* state, ObjectPool* pool) {
@@ -366,7 +379,8 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _data_type(evaluator._data_type),
           _function(evaluator._function),
           _expr_name(evaluator._expr_name),
-          _agg_columns(evaluator._agg_columns) {
+          _agg_input_columns(evaluator._agg_input_columns),
+          _agg_raw_input_columns(evaluator._agg_raw_input_columns) {
     if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         DataTypes tmp_argument_types;
         tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());
