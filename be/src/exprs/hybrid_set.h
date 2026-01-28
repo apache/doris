@@ -605,7 +605,6 @@ public:
                     update_value(i);
                 }
             }
-            return;
         } else {
             for (size_t i = 0; i < rows; ++i) {
                 update_value(i);
@@ -816,7 +815,6 @@ public:
                 }
                 data += len;
             }
-            return;
         } else {
             for (size_t i = 0; i < rows; ++i) {
                 uint32_t len = offset[i] - offset[i - 1];
