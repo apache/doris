@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 
 #include "olap/base_tablet.h"
 #include "olap/partial_update_info.h"
@@ -256,8 +257,9 @@ public:
     int64_t base_size() const { return _base_size; }
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
-    Result<RowsetSharedPtr> pick_a_rowset_for_index_change(int schema_version,
-                                                           bool& is_base_rowset);
+    Result<RowsetSharedPtr> pick_a_rowset_for_index_change(
+            int schema_version, bool& is_base_rowset,
+            const std::set<int64_t>& index_ids = std::set<int64_t>());
     Status check_rowset_schema_for_build_index(std::vector<TColumn>& columns, int schema_version);
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }

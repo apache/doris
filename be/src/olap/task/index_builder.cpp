@@ -285,7 +285,9 @@ Status IndexBuilder::update_inverted_index_info() {
                             st = Status::Error<ErrorCode::INIT_FAILED>(
                                     "debug point: reader init error");
                         })
-                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+                // Allow empty index file (INVERTED_INDEX_BYPASS) for skip_write_index_on_load case
+                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() &&
+                    !st.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
                     return st;
                 }
                 _index_file_readers.emplace(

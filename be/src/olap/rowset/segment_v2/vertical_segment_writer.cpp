@@ -220,11 +220,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         skip_inverted_index =
                 _opts.rowset_ctx->columns_to_do_index_compaction.contains(column.unique_id());
     }
-    // skip write inverted index on load if skip_write_index_on_load is true
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
-        tablet_schema->skip_write_index_on_load()) {
-        skip_inverted_index = true;
-    }
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {
@@ -235,11 +230,16 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     }
     opts.index_file_writer = _index_file_writer;
 
-    if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
-        opts.ann_index = index;
-        opts.need_ann_index = true;
-        DCHECK(_index_file_writer != nullptr);
-        opts.index_file_writer = _index_file_writer;
+    // skip write ann index on load if skip_write_index_on_load is true
+    bool skip_ann_index = _opts.write_type == DataWriteType::TYPE_DIRECT &&
+                          tablet_schema->skip_write_index_on_load();
+    if (!skip_ann_index) {
+        if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
+            opts.ann_index = index;
+            opts.need_ann_index = true;
+            DCHECK(_index_file_writer != nullptr);
+            opts.index_file_writer = _index_file_writer;
+        }
     }
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \

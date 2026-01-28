@@ -74,8 +74,15 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
         DorisMetrics::instance()->ann_index_load_cnt->increment(1);
 
         try {
-            RETURN_IF_ERROR(
-                    _index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
+            auto st = _index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx);
+            // If index file is empty or not found, return INVERTED_INDEX_BYPASS
+            // This can happen when skip_write_index_on_load=true skips ANN index construction
+            if (st.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+                st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                        "ANN index file is empty or not found, will fallback to brute force");
+            }
+            RETURN_IF_ERROR(st);
             Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> compound_dir;
             compound_dir = _index_file_reader->open(&_index_meta, io_ctx);
             if (!compound_dir.has_value()) {

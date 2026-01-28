@@ -228,7 +228,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                     tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.getTimeSeriesCompactionLevelThreshold(),
-                                    tbl.disableAutoCompaction(),
+                                    tbl.disableAutoCompaction(), tbl.skipWriteIndexOnLoad(),
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     null,
                                     tbl.rowStorePageSize(),
