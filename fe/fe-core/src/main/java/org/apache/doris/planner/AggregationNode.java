@@ -60,6 +60,8 @@ public class AggregationNode extends PlanNode {
 
     private SortInfo sortByGroupKey;
 
+    private boolean queryCacheCandidate;
+
     /**
      * Create an agg node that is not an intermediate node.
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
@@ -243,5 +245,13 @@ public class AggregationNode extends PlanNode {
 
     public void setSortByGroupKey(SortInfo sortByGroupKey) {
         this.sortByGroupKey = sortByGroupKey;
+    }
+
+    public boolean isQueryCacheCandidate() {
+        return queryCacheCandidate;
+    }
+
+    public void setQueryCacheCandidate(boolean queryCacheCandidate) {
+        this.queryCacheCandidate = queryCacheCandidate;
     }
 }
