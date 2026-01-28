@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
+import org.apache.doris.nereids.trees.expressions.functions.table.Brokers;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
@@ -131,5 +132,9 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitQuery(Query query, C context) {
         return visitTableValuedFunction(query, context);
+    }
+
+    default R visitBrokers(Brokers brokers, C context) {
+        return visitTableValuedFunction(brokers, context);
     }
 }

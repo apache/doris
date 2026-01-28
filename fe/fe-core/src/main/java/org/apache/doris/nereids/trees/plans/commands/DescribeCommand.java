@@ -52,6 +52,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
+import org.apache.doris.tablefunction.BrokersTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 
 import com.google.common.base.Preconditions;
@@ -181,7 +182,8 @@ public class DescribeCommand extends ShowCommand {
     private void validateTableValuedFunction(ConnectContext ctx, String funcName) throws AnalysisException {
         // check privilege for backends/local tvf
         if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)
-                || funcName.equalsIgnoreCase(LocalTableValuedFunction.NAME)) {
+                || funcName.equalsIgnoreCase(LocalTableValuedFunction.NAME)
+                || funcName.equalsIgnoreCase(BrokersTableValuedFunction.NAME)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx,
                     PrivPredicate.OPERATOR)) {
