@@ -56,6 +56,8 @@ import com.google.gson.GsonBuilder;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -66,8 +68,12 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -358,6 +364,140 @@ public class Profile {
         }
 
         return builder.toString();
+    }
+
+    /**
+     * Get the profile content in YAML format.
+     * This provides a structured, machine-readable format that is also human-friendly.
+     *
+     * @return YAML formatted profile string
+     */
+    public String getProfileAsYaml() {
+        Map<String, Object> yamlRoot = new LinkedHashMap<>();
+
+        // Format version for future compatibility
+        yamlRoot.put("format_version", "1.0");
+
+        // Add generated timestamp
+        String generatedAt = DateTimeFormatter.ISO_INSTANT
+                .format(Instant.now().atZone(ZoneId.of("UTC")));
+        yamlRoot.put("generated_at", generatedAt);
+
+        // Build summary section
+        Map<String, Object> summaryMap = buildSummarySection();
+        if (!summaryMap.isEmpty()) {
+            yamlRoot.put("summary", summaryMap);
+        }
+
+        // Build execution summary section
+        Map<String, Object> executionSummaryMap = buildExecutionSummarySection();
+        if (!executionSummaryMap.isEmpty()) {
+            yamlRoot.put("execution_summary", executionSummaryMap);
+        }
+
+        // Build merged profile section (if available)
+        if (this.executionProfiles.size() == 1) {
+            try {
+                RuntimeProfile mergedProfile = this.executionProfiles.get(0)
+                        .getAggregatedFragmentsProfile(planNodeMap);
+                if (mergedProfile != null) {
+                    Map<String, Object> mergedProfileMap = mergedProfile.toStructuredMap();
+                    if (!mergedProfileMap.isEmpty()) {
+                        yamlRoot.put("merged_profile", mergedProfileMap);
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to build merged profile for YAML output: {}", e.getMessage());
+            }
+        }
+
+        // Build detail profile section (execution profiles)
+        List<Map<String, Object>> detailProfiles = new ArrayList<>();
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            RuntimeProfile root = executionProfile.getRoot();
+            if (root != null) {
+                detailProfiles.add(root.toStructuredMap());
+            }
+        }
+        if (!detailProfiles.isEmpty()) {
+            yamlRoot.put("detail_profiles", detailProfiles);
+        }
+
+        // Configure YAML dumper for pretty output
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
+        options.setPrettyFlow(true);
+        options.setIndent(2);
+        options.setIndicatorIndent(0);
+        options.setDefaultScalarStyle(DumperOptions.ScalarStyle.PLAIN);
+        options.setWidth(120);
+        options.setAllowUnicode(true);
+        options.setExplicitStart(true);
+
+        Yaml yaml = new Yaml(options);
+        return yaml.dump(yamlRoot);
+    }
+
+    /**
+     * Build the summary section for YAML output.
+     */
+    private Map<String, Object> buildSummarySection() {
+        Map<String, Object> summary = new LinkedHashMap<>();
+
+        RuntimeProfile summaryRuntimeProfile = summaryProfile.getSummary();
+        Map<String, String> infoStrings = summaryRuntimeProfile.getInfoStrings();
+
+        // Add key summary fields with cleaner names
+        addIfPresent(summary, "profile_id", infoStrings, SummaryProfile.PROFILE_ID);
+        addIfPresent(summary, "task_type", infoStrings, SummaryProfile.TASK_TYPE);
+        addIfPresent(summary, "start_time", infoStrings, SummaryProfile.START_TIME);
+        addIfPresent(summary, "end_time", infoStrings, SummaryProfile.END_TIME);
+        addIfPresent(summary, "total_time", infoStrings, SummaryProfile.TOTAL_TIME);
+        addIfPresent(summary, "task_state", infoStrings, SummaryProfile.TASK_STATE);
+        addIfPresent(summary, "user", infoStrings, SummaryProfile.USER);
+        addIfPresent(summary, "default_catalog", infoStrings, SummaryProfile.DEFAULT_CATALOG);
+        addIfPresent(summary, "default_db", infoStrings, SummaryProfile.DEFAULT_DB);
+        addIfPresent(summary, "is_nereids", infoStrings, SummaryProfile.IS_NEREIDS);
+        addIfPresent(summary, "sql_statement", infoStrings, SummaryProfile.SQL_STATEMENT);
+
+        return summary;
+    }
+
+    /**
+     * Build the execution summary section for YAML output.
+     */
+    private Map<String, Object> buildExecutionSummarySection() {
+        Map<String, Object> executionSummary = new LinkedHashMap<>();
+
+        RuntimeProfile execSummaryProfile = summaryProfile.getExecutionSummary();
+        Map<String, String> infoStrings = execSummaryProfile.getInfoStrings();
+
+        // Add execution summary fields
+        addIfPresent(executionSummary, "workload_group", infoStrings, SummaryProfile.WORKLOAD_GROUP);
+        addIfPresent(executionSummary, "parse_sql_time", infoStrings, SummaryProfile.PARSE_SQL_TIME);
+        addIfPresent(executionSummary, "plan_time", infoStrings, SummaryProfile.PLAN_TIME);
+        addIfPresent(executionSummary, "schedule_time", infoStrings, SummaryProfile.SCHEDULE_TIME);
+        addIfPresent(executionSummary, "wait_fetch_result_time", infoStrings, SummaryProfile.WAIT_FETCH_RESULT_TIME);
+        addIfPresent(executionSummary, "fetch_result_time", infoStrings, SummaryProfile.FETCH_RESULT_TIME);
+        addIfPresent(executionSummary, "write_result_time", infoStrings, SummaryProfile.WRITE_RESULT_TIME);
+        addIfPresent(executionSummary, "doris_version", infoStrings, SummaryProfile.DORIS_VERSION);
+        addIfPresent(executionSummary, "is_cached", infoStrings, SummaryProfile.IS_CACHED);
+        addIfPresent(executionSummary, "total_instances_num", infoStrings, SummaryProfile.TOTAL_INSTANCES_NUM);
+        addIfPresent(executionSummary, "parallel_fragment_exec_instance",
+                infoStrings, SummaryProfile.PARALLEL_FRAGMENT_EXEC_INSTANCE);
+
+        return executionSummary;
+    }
+
+    /**
+     * Helper method to add a value to the map if it exists and is not "N/A".
+     */
+    private void addIfPresent(Map<String, Object> map, String targetKey,
+                              Map<String, String> source, String sourceKey) {
+        String value = source.get(sourceKey);
+        if (value != null && !value.isEmpty() && !"N/A".equals(value)) {
+            map.put(targetKey, value);
+        }
     }
 
     // If the query is already finished, and user wants to get the profile, we should check

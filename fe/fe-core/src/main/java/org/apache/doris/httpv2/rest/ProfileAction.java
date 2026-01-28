@@ -52,6 +52,17 @@ public class ProfileAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Missing query_id");
         }
 
+        String format = request.getParameter("format");
+        if ("yaml".equalsIgnoreCase(format)) {
+            String yamlProfile = ProfileManager.getInstance().getProfileAsYaml(queryId);
+            if (yamlProfile == null) {
+                return ResponseEntityBuilder.okWithCommonError("query id " + queryId + " not found.");
+            }
+            Map<String, String> result = Maps.newHashMap();
+            result.put("profile", yamlProfile);
+            return ResponseEntityBuilder.ok(result);
+        }
+
         String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
         if (queryProfileStr == null) {
             return ResponseEntityBuilder.okWithCommonError("query id " + queryId + " not found.");
@@ -70,6 +81,15 @@ public class ProfileAction extends RestBaseController {
         String queryId = request.getParameter("query_id");
         if (Strings.isNullOrEmpty(queryId)) {
             queryId = ProfileManager.getInstance().getLastProfileId();
+        }
+
+        String format = request.getParameter("format");
+        if (!"yaml".equalsIgnoreCase(format)) {
+            String yamlProfile = ProfileManager.getInstance().getProfileAsYaml(queryId);
+            if (yamlProfile == null) {
+                return "query id " + queryId + " not found";
+            }
+            return yamlProfile;
         }
 
         String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);

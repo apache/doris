@@ -103,6 +103,10 @@ public class ProfileManager extends MasterDaemon {
             return profile.getProfileByLevel();
         }
 
+        public String getProfileContentAsYaml() {
+            return profile.getProfileAsYaml();
+        }
+
         public String getProfileBrief() {
             return profile.getProfileBrief();
         }
@@ -466,6 +470,42 @@ public class ProfileManager extends MasterDaemon {
             }
 
             return element.getProfileContent();
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    /**
+     * Get profile in YAML format by query ID.
+     * This fetches real-time profile from BEs first (same as getProfile),
+     * then returns the profile content in structured YAML format.
+     */
+    public String getProfileAsYaml(String id) {
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
+        TNetworkAddress dummyAddr = new TNetworkAddress();
+        for (Future<TGetRealtimeExecStatusResponse> future : futures) {
+            try {
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                if (resp != null) {
+                    QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), dummyAddr);
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get real-time profile for YAML, id {}, error: {}", id, e.getMessage(), e);
+            }
+        }
+
+        if (!futures.isEmpty()) {
+            LOG.info("Get real-time exec status finished (YAML), id {}", id);
+        }
+
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(id);
+            if (element == null) {
+                return null;
+            }
+
+            return element.getProfileContentAsYaml();
         } finally {
             readLock.unlock();
         }
