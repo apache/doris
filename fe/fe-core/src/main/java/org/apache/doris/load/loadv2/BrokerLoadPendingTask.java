@@ -102,9 +102,12 @@ public class BrokerLoadPendingTask extends LoadTask {
                         boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
                         List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
                         for (TBrokerFileStatus fstatus : fileStatuses) {
-                            if (fstatus.getSize() == 0 && isBinaryFileFormat) {
+                            boolean isSuccessFile = fstatus.path.endsWith("/_SUCCESS")
+                                    || fstatus.path.endsWith("_SUCCESS");
+                            if (fstatus.getSize() == 0 && (isBinaryFileFormat || isSuccessFile)) {
                                 // For parquet or orc file, if it is an empty file, ignore it.
                                 // Because we can not read an empty parquet or orc file.
+                                // For _SUCCESS file, it is a metadata file, ignore it.
                                 if (LOG.isDebugEnabled()) {
                                     LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                                             .add("empty file", fstatus).build());

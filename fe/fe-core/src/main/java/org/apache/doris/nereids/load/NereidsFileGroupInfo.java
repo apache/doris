@@ -274,16 +274,14 @@ public class NereidsFileGroupInfo {
                 TBrokerFileStatus fileStatus = fileStatuses.get(i);
                 TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
                         fileStatus.path);
-                context.params.setFormatType(formatType);
                 TFileCompressType compressType = Util.getOrInferCompressType(
                         context.fileGroup.getFileFormatProperties().getCompressionType(),
                         fileStatus.path);
-                context.params.setCompressType(compressType);
                 List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                         context.fileGroup.getColumnNamesFromPath());
                 List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
                 TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size, columnsFromPath,
-                        columnsFromPathKeys);
+                        columnsFromPathKeys, formatType, compressType);
                 locations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             }
             scanRangeLocations.add(locations);
@@ -326,11 +324,9 @@ public class NereidsFileGroupInfo {
             // header_type
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
                     fileStatus.path);
-            context.params.setFormatType(formatType);
             TFileCompressType compressType = Util.getOrInferCompressType(
                     context.fileGroup.getFileFormatProperties().getCompressionType(),
                     fileStatus.path);
-            context.params.setCompressType(compressType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
@@ -339,7 +335,7 @@ public class NereidsFileGroupInfo {
             if (tmpBytes > bytesPerInstance && jobType != FileGroupInfo.JobType.STREAM_LOAD) {
                 long rangeBytes = bytesPerInstance - curInstanceBytes;
                 TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
-                        columnsFromPath, columnsFromPathKeys);
+                        columnsFromPath, columnsFromPathKeys, formatType, compressType);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset += rangeBytes;
 
@@ -349,7 +345,7 @@ public class NereidsFileGroupInfo {
                 curInstanceBytes = 0;
             } else {
                 TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath,
-                        columnsFromPathKeys);
+                        columnsFromPathKeys, formatType, compressType);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
@@ -420,8 +416,11 @@ public class NereidsFileGroupInfo {
     }
 
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,
-            List<String> columnsFromPath, List<String> columnsFromPathKeys) {
+            List<String> columnsFromPath, List<String> columnsFromPathKeys,
+            TFileFormatType formatType, TFileCompressType compressType) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setFormatType(formatType);
+        rangeDesc.setCompressType(compressType);
         if (jobType == FileGroupInfo.JobType.BULK_LOAD) {
             rangeDesc.setPath(fileStatus.path);
             rangeDesc.setStartOffset(curFileOffset);

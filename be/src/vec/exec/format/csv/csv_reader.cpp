@@ -186,7 +186,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _line_reader_eof(false),
           _skip_lines(0),
           _io_ctx(io_ctx) {
-    _file_format_type = _params.format_type;
+    _file_format_type = _range.__isset.format_type ? _range.format_type : _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     if (_range.__isset.compress_type) {
         // for compatibility
