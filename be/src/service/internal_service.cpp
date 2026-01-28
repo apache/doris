@@ -825,11 +825,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
         std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-        io::IOContext io_ctx;
-        io::FileCacheStatistics file_cache_statis;
-        io_ctx.file_cache_stats = &file_cache_statis;
-        io::FileReaderStats file_reader_stats;
-        io_ctx.file_reader_stats = &file_reader_stats;
+        auto io_ctx = std::make_shared<io::IOContext>();
+        auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
+        auto file_reader_stats = std::make_shared<io::FileReaderStats>();
+        io_ctx->file_cache_stats = file_cache_statis.get();
+        io_ctx->file_reader_stats = file_reader_stats.get();
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -842,30 +842,30 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                          range, file_slots, &io_ctx);
+                                                          range, file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
             reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                           range, file_slots, &io_ctx);
+                                                           range, file_slots, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = vectorized::ParquetReader::create_unique(params, range, &io_ctx, nullptr);
+            reader = vectorized::ParquetReader::create_unique(params, range, io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
+            reader = vectorized::OrcReader::create_unique(params, range, "", io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = vectorized::NativeReader::create_unique(profile.get(), params, range, &io_ctx,
-                                                             nullptr);
+            reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
+                                                             io_ctx.get(), nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
-                                                              file_slots, &io_ctx);
+                                                              file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
