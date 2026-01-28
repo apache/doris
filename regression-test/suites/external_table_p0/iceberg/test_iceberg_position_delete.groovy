@@ -165,6 +165,16 @@ suite("test_iceberg_position_delete", "p0,external,doris,external_docker,externa
         assertTrue(iceberg_position_gen_7.size() == 5632)
 
         // sql """drop catalog ${catalog_name}"""
+
+        def test_explain_verbose = {
+            explain {
+                sql ("select name from iceberg_position_gen_data where id != 5;")
+                verbose (true)
+                contains "deleteFileNum"
+            }
+        }
+        test_explain_verbose()
+
 }
 /*
 
