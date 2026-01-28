@@ -3198,6 +3198,13 @@ public class Config extends ConfigBase {
             "Profile will be spilled to storage after query has finished for this time"})
     public static int profile_waiting_time_for_spill_seconds = 10;
 
+    // Profile output format: text or yaml
+    @ConfField(mutable = true, description = {
+            "Profile 输出格式。可选值：text, yaml。默认为 yaml。此配置决定 Profile 写入磁盘和读取时使用的格式。",
+            "Profile output format. Options: text, yaml. Default is yaml. "
+                    + "This configuration determines the format used when writing profiles to disk and reading them."})
+    public static String profile_format = "yaml";
+
     // Enable profile archive feature. When enabled, profiles exceeding storage limits
     // will be archived to compressed ZIP files instead of being directly deleted.
     @ConfField(mutable = true, description = {"是否启用 profile 归档功能。启用后，超过存储限制的 profile 将被归档到压缩文件而不是直接删除",

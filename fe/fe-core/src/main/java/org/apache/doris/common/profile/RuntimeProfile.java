@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -399,6 +400,96 @@ public class RuntimeProfile {
         }
 
         return brief;
+    }
+
+    /**
+     * Convert this RuntimeProfile to a structured map for YAML serialization.
+     * The map uses the profile name as the key, providing compact output without "name:" prefix.
+     * Format: {ProfileName: {counters: {...}, children: [...]}}
+     * This provides cleaner YAML output where profile names appear as keys directly.
+     */
+    public Map<String, Object> toStructuredMap() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> content = new LinkedHashMap<>();
+
+        // Add info strings
+        infoStringsLock.readLock().lock();
+        try {
+            if (!infoStrings.isEmpty()) {
+                Map<String, String> infoStringsMap = new LinkedHashMap<>();
+                for (String key : this.infoStringsDisplayOrder) {
+                    String value = this.infoStrings.get(key);
+                    if (value != null) {
+                        infoStringsMap.put(key, value);
+                    }
+                }
+                if (!infoStringsMap.isEmpty()) {
+                    content.put("info_strings", infoStringsMap);
+                }
+            }
+        } finally {
+            infoStringsLock.readLock().unlock();
+        }
+
+        // Add counters with hierarchy
+        counterLock.readLock().lock();
+        try {
+            Map<String, Object> countersMap = getCountersMapRecursive(ROOT_COUNTER);
+            if (!countersMap.isEmpty()) {
+                content.put("counters", countersMap);
+            }
+        } finally {
+            counterLock.readLock().unlock();
+        }
+
+        // Add child profiles recursively
+        childLock.readLock().lock();
+        try {
+            if (!childList.isEmpty()) {
+                List<Map<String, Object>> childrenList = new ArrayList<>();
+                for (Pair<RuntimeProfile, Boolean> pair : childList) {
+                    childrenList.add(pair.first.toStructuredMap());
+                }
+                content.put("children", childrenList);
+            }
+        } finally {
+            childLock.readLock().unlock();
+        }
+
+        // Wrap with profile name as key
+        result.put(this.name, content);
+        return result;
+    }
+
+    /**
+     * Recursively get counters as a structured map, maintaining hierarchy.
+     * @param parentCounterName the parent counter name (use ROOT_COUNTER for top-level)
+     * @return map of counter names to their structured data
+     */
+    private Map<String, Object> getCountersMapRecursive(String parentCounterName) {
+        Map<String, Object> countersMap = new LinkedHashMap<>();
+        Set<String> childCounterSet = childCounterMap.get(parentCounterName);
+
+        if (childCounterSet == null) {
+            return countersMap;
+        }
+
+        for (String childCounterName : childCounterSet) {
+            Counter counter = this.counterMap.get(childCounterName);
+            if (counter != null) {
+                Map<String, Object> counterData = counter.toMap();
+
+                // Check if this counter has children
+                Map<String, Object> childCounters = getCountersMapRecursive(childCounterName);
+                if (!childCounters.isEmpty()) {
+                    counterData.put("children", childCounters);
+                }
+
+                countersMap.put(childCounterName, counterData);
+            }
+        }
+
+        return countersMap;
     }
 
     // Print the profile:
