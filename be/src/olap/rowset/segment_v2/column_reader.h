@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 #include <sys/types.h>
 
 #include <cstddef> // for size_t
@@ -403,12 +404,65 @@ public:
 
     virtual void remove_pruned_sub_iterators() {};
 
+    enum class ReadingMode : int {
+        NORMAL, // default mode
+        PREDICATE,
+        LAZY
+    };
+
+    virtual void set_reading_mode(ReadingMode mode) { _reading_mode = mode; }
+
+    virtual bool need_to_read() const {
+        switch (_reading_mode) {
+        case ReadingMode::NORMAL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadingMode::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadingMode::LAZY:
+            return _reading_flag == ReadingFlag::NEED_TO_READ;
+        default:
+            return false;
+        }
+    }
+
+    // Whether need to read meta columns, such as null map column, offset column.
+    bool need_to_read_meta_columns() const {
+        if (_reading_flag == ReadingFlag::SKIP_READING) {
+            return false;
+        }
+        switch (_reading_mode) {
+        case ReadingMode::NORMAL:
+        case ReadingMode::PREDICATE:
+            return true;
+        case ReadingMode::LAZY:
+            return _reading_flag != ReadingFlag::READING_FOR_PREDICATE;
+        }
+        return false;
+    }
+
+    virtual void finalize_lazy_mode(vectorized::MutableColumnPtr& dst) {
+        _recovery_from_place_holder_column(dst);
+    }
+
+    virtual void set_reading_flag_recursively(ReadingFlag flag) { set_reading_flag(flag); }
+
+    bool is_pruned() const { return _pruned; }
+
 protected:
-    Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
+    void _convert_to_place_holder_column(vectorized::MutableColumnPtr& dst, size_t count);
+
+    void _recovery_from_place_holder_column(vectorized::MutableColumnPtr& dst);
+
+    Result<TColumnAccessPaths> _process_sub_access_paths(const TColumnAccessPaths& access_paths,
+                                                         const bool is_predicate);
     ColumnIteratorOptions _opts;
 
     ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
+    ReadingMode _reading_mode {ReadingMode::NORMAL};
     std::string _column_name;
+    bool _pruned {false};
+
+    std::set<vectorized::IColumn*> _place_holder_columns;
 };
 
 // This iterator is used to read column data from file
@@ -560,6 +614,33 @@ public:
 
     void remove_pruned_sub_iterators() override;
 
+    void set_reading_mode(ReadingMode mode) override;
+
+    bool need_to_read() const override {
+        switch (_reading_mode) {
+        case ReadingMode::NORMAL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadingMode::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadingMode::LAZY:
+            // For lazy mode, maybe some of key/value columns are needed to be read.
+            // For example:
+            // Map<Key, Value> the reading flags are:
+            //  - Key: NEED_TO_READ
+            //  - Value: READING_FOR_PREDICATE
+            // So the reading flag of the map column should be READING_FOR_PREDICATE.
+            // Thus when the reading mode is LAZY, we need to read the Key.
+            return _reading_flag == ReadingFlag::NEED_TO_READ ||
+                   _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        default:
+            return false;
+        }
+    }
+
+    void finalize_lazy_mode(vectorized::MutableColumnPtr& dst) override;
+
+    void set_reading_flag_recursively(ReadingFlag flag) override;
+
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -596,6 +677,33 @@ public:
 
     void remove_pruned_sub_iterators() override;
 
+    void set_reading_mode(ReadingMode mode) override;
+
+    bool need_to_read() const override {
+        switch (_reading_mode) {
+        case ReadingMode::NORMAL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadingMode::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadingMode::LAZY:
+            // For lazy mode, maybe some of sub-columns are needed to be read.
+            // For example:
+            // struct<col1, col2, col3> the reading flags are:
+            //  - col1: NEED_TO_READ
+            //  - col2: SKIP_READING
+            //  - col3: READING_FOR_PREDICATE
+            // So the reading flag of the struct column should be READING_FOR_PREDICATE.
+            // Thus when the reading mode is LAZY, we need to read the col1.
+            return _reading_flag == ReadingFlag::NEED_TO_READ ||
+                   _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        default:
+            return false;
+        }
+    }
+
+    void finalize_lazy_mode(vectorized::MutableColumnPtr& dst) override;
+    void set_reading_flag_recursively(ReadingFlag flag) override;
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -629,6 +737,33 @@ public:
     void set_need_to_read() override;
 
     void remove_pruned_sub_iterators() override;
+
+    void set_reading_mode(ReadingMode mode) override;
+
+    bool need_to_read() const override {
+        switch (_reading_mode) {
+        case ReadingMode::NORMAL:
+            return _reading_flag != ReadingFlag::SKIP_READING;
+        case ReadingMode::PREDICATE:
+            return _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        case ReadingMode::LAZY:
+            // For lazy mode, maybe some of key/value columns are needed to be read.
+            // For example:
+            // Map<Key, Value> the reading flags are:
+            //  - Key: NEED_TO_READ
+            //  - Value: READING_FOR_PREDICATE
+            // So the reading flag of the map column should be READING_FOR_PREDICATE.
+            // Thus when the reading mode is LAZY, we need to read the Key.
+            return _reading_flag == ReadingFlag::NEED_TO_READ ||
+                   _reading_flag == ReadingFlag::READING_FOR_PREDICATE;
+        default:
+            return false;
+        }
+    }
+
+    void finalize_lazy_mode(vectorized::MutableColumnPtr& dst) override;
+
+    void set_reading_flag_recursively(ReadingFlag flag) override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;
