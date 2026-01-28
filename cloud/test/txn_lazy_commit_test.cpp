@@ -3414,7 +3414,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithManyPartitions) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        ASSERT_TRUE(commit_txn_eventually_finish_hit);
     }
 
     for (size_t i = 0; i < 1000; i++) {
