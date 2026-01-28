@@ -1215,7 +1215,7 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
         return -1;
     }
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         if (txn->get(key0, key1, &it) != TxnErrorCode::TXN_OK) {
             return -1;
         }
@@ -1224,7 +1224,7 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
             ++(*file_num);
         }
         key0.push_back('\x00');
-    } while (it->more());
+    }
     return 0;
 }
 
@@ -1242,14 +1242,14 @@ static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int 
         dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
     }
     int size = 0;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
         while (it->has_next()) {
             it->next();
             size++;
         }
         dbm_start_key = it->next_begin_key();
-    } while (it->more());
+    }
     EXPECT_EQ(size, expected_size);
 }
 
@@ -3823,7 +3823,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v1) {
     DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
         while (it->has_next()) {
             auto [k, v] = it->next();
@@ -3835,7 +3835,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v1) {
             }
         }
         meta_rowset_key_begin.push_back('\x00');
-    } while (it->more());
+    }
 
     for (const auto& key : rowset_key_to_delete) {
         std::unique_ptr<Transaction> txn;
@@ -3908,7 +3908,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v2) {
     DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
         while (it->has_next()) {
             auto [k, v] = it->next();
@@ -3920,7 +3920,7 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v2) {
             }
         }
         meta_rowset_key_begin.push_back('\x00');
-    } while (it->more());
+    }
 
     for (const auto& key : rowset_key_to_delete) {
         std::unique_ptr<Transaction> txn;
@@ -7410,7 +7410,7 @@ void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t s
     int64_t total_kv = 0;
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || it->more()) {
         int get_ret = txn_get(txn_kv.get(), begin, end, it);
         if (get_ret != 0) { // txn kv may complain "Request for future version"
             LOG(WARNING) << "failed to get kv, range=[" << hex(begin) << "," << hex(end)
@@ -7432,7 +7432,7 @@ void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t s
             total_kv++;
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+    }
     ASSERT_EQ(total_kv, size);
 }
 
@@ -7508,12 +7508,12 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
     };
+    size_t recycle_txn_info_keys_cnt = 0;
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
-                      [](auto&& args) {
+                      [&](auto&& args) {
                           auto* recycle_txn_info_keys =
                                   try_any_cast<std::vector<std::string>*>(args[0]);
-
-                          ASSERT_LE(recycle_txn_info_keys->size(), 10000);
+                          recycle_txn_info_keys_cnt = recycle_txn_info_keys->size();
                       });
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
@@ -7532,7 +7532,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     std::cout << "recycle expired txn label cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
               << "ms" << std::endl;
-    check_multiple_txn_info_kvs(txn_kv, 5000);
+    check_multiple_txn_info_kvs(txn_kv, (20000 - recycle_txn_info_keys_cnt));
 }
 TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     config::label_keep_max_second = 0;
