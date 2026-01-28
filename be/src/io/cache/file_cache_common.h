@@ -57,6 +57,11 @@ struct UInt128Wrapper {
 
     uint64_t high() const { return static_cast<uint64_t>(value_ >> 64); }
     uint64_t low() const { return static_cast<uint64_t>(value_); }
+
+    friend std::ostream& operator<<(std::ostream& os, const UInt128Wrapper& wrapper) {
+        os << "UInt128Wrapper(" << wrapper.high() << ", " << wrapper.low() << ")";
+        return os;
+    }
 };
 
 struct ReadStatistics {
@@ -86,7 +91,7 @@ struct FileCacheAllocatorBuilder {
     uint64_t _expiration_time;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache; // Only one ref, the lifetime is owned by FileCache
-    FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size) const;
+    FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size, int64_t tablet_id) const;
 };
 
 struct KeyHash {
@@ -105,6 +110,7 @@ struct KeyAndOffsetHash {
 struct KeyMeta {
     uint64_t expiration_time; // absolute time
     FileCacheType type;
+    int64_t tablet_id {0};
 };
 
 struct FileCacheKey {
@@ -164,6 +170,7 @@ struct CacheContext {
     bool is_cold_data {false};
     ReadStatistics* stats;
     bool is_warmup {false};
+    int64_t tablet_id {0};
 };
 
 template <class Lock>
@@ -224,6 +231,8 @@ public:
 
     void move_to_end(Iterator queue_it, std::lock_guard<std::mutex>& cache_lock);
 
+    void resize(Iterator queue_it, size_t new_size, std::lock_guard<std::mutex>& cache_lock);
+
     std::string to_string(std::lock_guard<std::mutex>& cache_lock) const;
 
     bool contains(const UInt128Wrapper& hash, size_t offset,
@@ -255,5 +264,18 @@ public:
     size_t cache_size = 0;
     int64_t hot_data_interval {0};
 };
+
+struct FileCacheInfo {
+    UInt128Wrapper hash {0};
+    uint64_t expiration_time {0};
+    uint64_t size {0};
+    size_t offset {0};
+    bool is_tmp {false};
+    FileCacheType cache_type {NORMAL};
+
+    std::string to_string() const;
+};
+
+std::optional<int64_t> get_tablet_id(std::string file_path);
 
 } // namespace doris::io

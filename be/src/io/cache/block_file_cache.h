@@ -32,6 +32,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -145,6 +146,7 @@ struct FileBlockCell {
 
     size_t size() const { return file_block->_block_range.size(); }
 
+    FileBlockCell() = default;
     FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
     FileBlockCell(FileBlockCell&& other) noexcept
             : file_block(std::move(other.file_block)),
@@ -181,9 +183,6 @@ public:
         if (_cache_background_monitor_thread.joinable()) {
             _cache_background_monitor_thread.join();
         }
-        if (_cache_background_ttl_gc_thread.joinable()) {
-            _cache_background_ttl_gc_thread.join();
-        }
         if (_cache_background_gc_thread.joinable()) {
             _cache_background_gc_thread.join();
         }
@@ -212,6 +211,9 @@ public:
     size_t try_release();
 
     [[nodiscard]] const std::string& get_base_path() const { return _cache_base_path; }
+
+    // Get storage for inspection
+    FileCacheStorage* get_storage() const { return _storage.get(); }
 
     /**
          * Given an `offset` and `size` representing [offset, offset + size) bytes interval,
@@ -248,6 +250,7 @@ public:
     std::string reset_capacity(size_t new_capacity);
 
     std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
+
     /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
@@ -265,9 +268,6 @@ public:
     // remove all blocks that belong to the key
     void remove_if_cached(const UInt128Wrapper& key);
     void remove_if_cached_async(const UInt128Wrapper& key);
-
-    // modify the expiration time about the key
-    void modify_expiration_time(const UInt128Wrapper& key, uint64_t new_expiration_time);
 
     // Shrink the block size. old_size is always larged than new_size.
     void reset_range(const UInt128Wrapper&, size_t offset, size_t old_size, size_t new_size,
@@ -451,11 +451,7 @@ private:
 
     bool need_to_move(FileCacheType cell_type, FileCacheType query_type) const;
 
-    bool remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, bool remove_directly,
-                                   std::lock_guard<std::mutex>&, bool sync);
-
     void run_background_monitor();
-    void run_background_ttl_gc();
     void run_background_gc();
     void run_background_lru_log_replay();
     void run_background_lru_dump();
@@ -478,9 +474,6 @@ private:
                      bool evict_in_advance) const;
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
-
-    void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
-                                                std::lock_guard<std::mutex>&);
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
@@ -511,7 +504,6 @@ private:
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
     std::thread _cache_background_monitor_thread;
-    std::thread _cache_background_ttl_gc_thread;
     std::thread _cache_background_gc_thread;
     std::thread _cache_background_evict_in_advance_thread;
     std::thread _cache_background_lru_dump_thread;
@@ -548,6 +540,7 @@ private:
 
     std::unique_ptr<LRUQueueRecorder> _lru_recorder;
     std::unique_ptr<CacheLRUDumper> _lru_dumper;
+    std::unique_ptr<BlockFileCacheTtlMgr> _ttl_mgr;
 
     // metrics
     std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
@@ -597,6 +590,7 @@ private:
     std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
     std::shared_ptr<bvar::Status<size_t>> _need_evict_cache_in_advance_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _meta_store_write_queue_size_metrics;
 
     std::shared_ptr<bvar::LatencyRecorder> _cache_lock_wait_time_us;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_us;
