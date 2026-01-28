@@ -287,6 +287,9 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::PARTITION_VALUES:
         RETURN_IF_ERROR(_build_partition_values_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::BROKERS:
+        RETURN_IF_ERROR(_build_brokers_metadata_request(meta_scan_range, &request));
+        break;
     default:
         _meta_eos = true;
         return Status::OK();
@@ -524,6 +527,24 @@ Status MetaScanner::_build_partition_values_metadata_request(
     metadata_table_params.__set_metadata_type(TMetadataType::PARTITION_VALUES);
     metadata_table_params.__set_partition_values_metadata_params(
             meta_scan_range.partition_values_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+Status MetaScanner::_build_brokers_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                    TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_brokers_metadata_request";
+    if (!meta_scan_range.__isset.brokers_params) {
+        return Status::InternalError("Can not find TBrokersMetadataParams from meta_scan_range.");
+    }
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::BROKERS);
+    metadata_table_params.__set_brokers_metadata_params(meta_scan_range.brokers_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

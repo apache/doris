@@ -278,6 +278,9 @@ public class MetadataGenerator {
             case PARTITION_VALUES:
                 result = partitionValuesMetadataResult(params);
                 break;
+            case BROKERS:
+                result = brokersMetadataResult(params);
+                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
@@ -1915,6 +1918,28 @@ public class MetadataGenerator {
             dataBatch.add(trow);
         }
         return dataBatch;
+    }
+
+    private static TFetchSchemaTableDataResult brokersMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetBrokersMetadataParams()) {
+            return errorResult("brokers metadata param is not set.");
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<List<String>> infos = Env.getCurrentEnv().getBrokerMgr().getBrokersInfo();
+        for (List<String> info : infos) {
+            TRow trow = new TRow();
+            for (String item : info) {
+                trow.addToColumnValue(new TCell().setStringVal(item));
+            }
+            dataBatch.add(trow);
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
     }
 
 }
