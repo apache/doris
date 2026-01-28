@@ -3351,6 +3351,10 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithManyPartitions) {
     std::atomic_bool commit_txn_eventually_finish_hit = false;
 
     auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
     sp->set_call_back("commit_txn_eventually::task->wait", [&](auto&& args) {
         auto [code, msg] = *try_any_cast<std::pair<MetaServiceCode, std::string>*>(args[0]);
         ASSERT_EQ(code, MetaServiceCode::OK);
@@ -3420,10 +3424,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithManyPartitions) {
             break;
         }
     }
-
-    sp->clear_all_call_backs();
-    sp->clear_trace();
-    sp->disable_processing();
 }
 
 } // namespace doris::cloud
