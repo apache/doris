@@ -600,11 +600,11 @@ public class Profile {
         options.setAllowUnicode(true);
         options.setExplicitStart(true);
 
-        // Create custom representer to handle FlowStyleMap
+        // Create custom representer to handle FlowStyleMap (compact single-line output)
         org.yaml.snakeyaml.representer.Representer representer =
                 new org.yaml.snakeyaml.representer.Representer(options) {
             @Override
-            protected org.yaml.snakeyaml.nodes.Node representMapping(
+            protected org.yaml.snakeyaml.nodes.MappingNode representMapping(
                     org.yaml.snakeyaml.nodes.Tag tag,
                     Map<?, ?> mapping,
                     org.yaml.snakeyaml.DumperOptions.FlowStyle flowStyle) {
