@@ -132,4 +132,59 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     EXPECT_EQ(count.load(), 3);
 }
 
+TEST(TaskWorkerPoolTest, ReportTabletCallbackWithDebugPoint) {
+    bool original_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+
+    ExecEnv::GetInstance()->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
+
+    ClusterInfo cluster_info;
+    cluster_info.master_fe_addr.__set_port(9030);
+
+    Defer defer {[] {
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        DorisMetrics::instance()->report_all_tablets_requests_skip->set_value(0);
+        DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->set_value(0);
+    }};
+
+    {
+        // debug point report_tablet_callback.skip is enabled
+        DebugPoints::instance()->add("WorkPoolReportTablet.report_tablet_callback.skip");
+        EXPECT_TRUE(DebugPoints::instance()->is_enable(
+                "WorkPoolReportTablet.report_tablet_callback.skip"));
+        report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
+        EXPECT_EQ(DorisMetrics::instance()->report_all_tablets_requests_skip->value(), 1);
+        EXPECT_EQ(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
+        // debug point report_tablet_callback.skip is removed
+        DebugPoints::instance()->remove("WorkPoolReportTablet.report_tablet_callback.skip");
+        EXPECT_FALSE(DebugPoints::instance()->is_enable(
+                "WorkPoolReportTablet.report_tablet_callback.skip"));
+    }
+
+    {
+        // debug point report.fail is enabled
+        DebugPoints::instance()->add("MasterServerClient::report.fail");
+        EXPECT_TRUE(DebugPoints::instance()->is_enable("MasterServerClient::report.fail"));
+        report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
+        EXPECT_GT(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
+        EXPECT_GT(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
+        // debug point report.fail is removed
+        DebugPoints::instance()->remove("MasterServerClient::report.fail");
+        EXPECT_FALSE(DebugPoints::instance()->is_enable("MasterServerClient::report.fail"));
+    }
+
+    {
+        report_tablet_callback(ExecEnv::GetInstance()->storage_engine().to_local(), &cluster_info);
+        EXPECT_EQ(DorisMetrics::instance()->tablet_report_continuous_failure_duration_s->value(),
+                  0);
+    }
+
+    config::enable_debug_points = original_enable_debug_points;
+}
+
 } // namespace doris
