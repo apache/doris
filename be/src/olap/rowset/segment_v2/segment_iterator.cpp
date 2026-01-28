@@ -796,12 +796,17 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 
     size_t pre_size = _row_bitmap.cardinality();
     size_t rows_of_segment = _segment->num_rows();
-    if (static_cast<double>(pre_size) < static_cast<double>(rows_of_segment) * 0.3) {
+    double min_input_rows_ratio = 0.3;
+    if (_opts.runtime_state) {
+        min_input_rows_ratio = _opts.runtime_state->query_options().ann_topn_min_input_rows_ratio;
+    }
+
+    if (static_cast<double>(pre_size) <
+        static_cast<double>(rows_of_segment) * min_input_rows_ratio) {
         VLOG_DEBUG << fmt::format(
-                "Ann topn predicate input rows {} < 30% of segment rows {}, will not use ann index "
-                "to "
-                "filter",
-                pre_size, rows_of_segment);
+                "Ann topn predicate input rows {} < {:.2f}% of segment rows {}, will not use ann "
+                "index to filter",
+                pre_size, min_input_rows_ratio * 100.0, rows_of_segment);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
         return Status::OK();
