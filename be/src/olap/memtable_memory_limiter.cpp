@@ -19,6 +19,8 @@
 
 #include <bvar/bvar.h>
 
+#include <set>
+
 #include "common/config.h"
 #include "olap/memtable.h"
 #include "olap/memtable_writer.h"
@@ -288,6 +290,8 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _active_mem_usage = 0;
     _active_writers.clear();
     int64_t total_write_tracker_usage = 0;
+    // Use set to deduplicate write_trackers (multiple writers may share the same one)
+    std::set<void*> unique_write_trackers;
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
             // The memtable is currently used by writer to insert blocks.
@@ -303,8 +307,12 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
             auto write_usage = writer->mem_consumption(MemType::WRITE_FINISHED);
             _queue_mem_usage += write_usage;
 
-            // Collect write_tracker consumption for comparison
-            total_write_tracker_usage += writer->write_tracker_consumption();
+            // Collect write_tracker consumption (deduplicated)
+            auto* wt_ptr = writer->write_tracker_ptr();
+            if (wt_ptr && unique_write_trackers.find(wt_ptr) == unique_write_trackers.end()) {
+                unique_write_trackers.insert(wt_ptr);
+                total_write_tracker_usage += writer->write_tracker_consumption();
+            }
             ++it;
         } else {
             *it = std::move(_writers.back());
@@ -324,7 +332,8 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
               << PrettyPrinter::print_bytes(total_write_tracker_usage)
               << ", diff: "
               << PrettyPrinter::print_bytes(total_write_tracker_usage - _mem_usage)
-              << ", writers: " << _writers.size();
+              << ", writers: " << _writers.size()
+              << ", unique_trackers: " << unique_write_trackers.size();
     _mem_tracker->set_consumption(_mem_usage);
     if (!_hard_limit_reached()) {
         _hard_limit_end_cond.notify_all();

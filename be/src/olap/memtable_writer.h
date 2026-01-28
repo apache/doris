@@ -119,6 +119,16 @@ public:
         return 0;
     }
 
+    // Get write_tracker pointer for deduplication
+    void* write_tracker_ptr() const {
+        if (_resource_ctx && _resource_ctx->memory_context() &&
+            _resource_ctx->memory_context()->mem_tracker() &&
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker()) {
+            return _resource_ctx->memory_context()->mem_tracker()->write_tracker().get();
+        }
+        return nullptr;
+    }
+
 private:
     Status _flush_memtable();
     // push a full memtable to flush executor
