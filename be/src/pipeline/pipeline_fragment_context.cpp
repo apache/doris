@@ -176,9 +176,16 @@ void PipelineFragmentContext::cancel(const Status reason) {
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks >= _total_tasks) {
+            if (_need_notify_close) {
+                // if fragment cancelled and waiting for notify to close, need to remove from fragment mgr
+                _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+                _need_notify_close = false;
+            }
             // All tasks in this PipelineXFragmentContext already closed.
             return;
         }
+        // make fragment release by self after cancel
+        _need_notify_close = false;
     }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
@@ -2069,9 +2076,6 @@ Status PipelineFragmentContext::wait_close(bool close) {
     if (_exec_env->new_load_stream_mgr()->get(_query_id) != nullptr) {
         return Status::InternalError("stream load do not support reset");
     }
-    if (!_need_notify_close) {
-        return Status::InternalError("_need_notify_close is false, do not support reset");
-    }
 
     {
         std::unique_lock<std::mutex> lock(_task_mutex);
@@ -2080,6 +2084,10 @@ Status PipelineFragmentContext::wait_close(bool close) {
                 return Status::Cancelled("Query has been cancelled");
             }
             _notify_cv.wait_for(lock, std::chrono::seconds(1));
+        }
+        // if fragment cancelled, no need to remove_pipeline_context again
+        if (!_need_notify_close) {
+            return Status::OK();
         }
     }
 
