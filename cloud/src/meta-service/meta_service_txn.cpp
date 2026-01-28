@@ -1181,7 +1181,7 @@ void scan_tmp_rowset(
     return;
 }
 
-// [compaction_rw_separation] Update the last active cluster info for a tablet
+// Update the last active cluster info for a tablet
 void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
                                         const std::string& cluster_id,
                                         std::unique_ptr<Transaction>& txn,
@@ -1219,7 +1219,7 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
 
     stats_pb.SerializeToString(&val);
     txn->put(key, val);
-    LOG(INFO) << "[compaction_rw_separation] update last_active_cluster, key=" << hex(key)
+    LOG(INFO) << "update last_active_cluster, key=" << hex(key)
               << " cluster_id=" << cluster_id << " tablet_id=" << std::get<4>(info);
 }
 
@@ -1846,7 +1846,7 @@ void MetaServiceImpl::commit_txn_immediately(
                       << " versioned tablet stats, txn_id=" << txn_id;
         }
 
-        // [compaction_rw_separation] Get cluster_id for updating last active cluster
+        // Get cluster_id for updating last active cluster
         std::string requester_cluster_id;
         if (config::enable_compaction_rw_separation && request->has_cloud_unique_id()) {
             std::vector<NodeInfo> nodes;
@@ -1865,7 +1865,7 @@ void MetaServiceImpl::commit_txn_immediately(
             update_tablet_stats(info, stats, txn, code, msg);
             if (code != MetaServiceCode::OK) return;
 
-            // [compaction_rw_separation] Update last active cluster if load has data
+            // Update last active cluster if load has data
             if (!requester_cluster_id.empty() && stats.num_segs > 0) {
                 update_tablet_last_active_cluster(info, requester_cluster_id, txn, code, msg);
                 if (code != MetaServiceCode::OK) return;
@@ -2916,7 +2916,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                       << " versioned tablet stats, txn_id=" << txn_id;
         }
 
-        // [compaction_rw_separation] Get cluster_id for updating last active cluster
+        // Get cluster_id for updating last active cluster
         std::string requester_cluster_id_ev;
         if (config::enable_compaction_rw_separation && request->has_cloud_unique_id()) {
             std::vector<NodeInfo> nodes;

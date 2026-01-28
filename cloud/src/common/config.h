@@ -432,7 +432,7 @@ CONF_Bool(enable_instance_update_watcher, "true");
 CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
 CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
 
-// [compaction_rw_separation] Enable compaction read-write separation feature
+// Enable compaction read-write separation feature
 // When enabled, only the "last active" cluster (the one that most recently performed load or
 // compaction) is allowed to compact a tablet, preventing read clusters from compacting
 CONF_mBool(enable_compaction_rw_separation, "false");

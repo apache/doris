@@ -21,7 +21,7 @@ namespace doris {
 
 class CloudTablet;
 
-// [compaction_rw_separation] Check if this cluster should do compaction for the given tablet.
+// Check if this cluster should do compaction for the given tablet.
 // Returns true if:
 //   1. No active cluster record exists (any cluster can compact)
 //   2. This cluster is the last active cluster

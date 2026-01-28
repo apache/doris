@@ -776,7 +776,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
 
-            // [compaction_rw_separation] Sync cluster info for compaction read-write separation
+            // Sync cluster info for compaction read-write separation
             if (config::enable_compaction_rw_separation) {
                 if (resp.has_requester_cluster_id()) {
                     tablet->set_my_cluster_id(resp.requester_cluster_id());

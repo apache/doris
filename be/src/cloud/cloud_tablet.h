@@ -246,6 +246,39 @@ public:
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
+    std::string my_cluster_id() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _my_cluster_id;
+    }
+    void set_my_cluster_id(const std::string& cluster_id) {
+        std::unique_lock lock(_cluster_info_mutex);
+        _my_cluster_id = cluster_id;
+    }
+    std::string last_active_cluster_id() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_cluster_id;
+    }
+    int64_t last_active_time_ms() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_time_ms;
+    }
+    int32_t last_active_cluster_status() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_cluster_status;
+    }
+    int64_t last_active_cluster_status_mtime_ms() const {
+        std::shared_lock lock(_cluster_info_mutex);
+        return _last_active_cluster_status_mtime_ms;
+    }
+    void set_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms,
+                                      int32_t status, int64_t status_mtime_ms) {
+        std::unique_lock lock(_cluster_info_mutex);
+        _last_active_cluster_id = cluster_id;
+        _last_active_time_ms = time_ms;
+        _last_active_cluster_status = status;
+        _last_active_cluster_status_mtime_ms = status_mtime_ms;
+    }
+
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
     inline Version max_version() const {
@@ -306,40 +339,6 @@ public:
     int64_t last_cumu_compaction_success_time_ms = 0;
     int64_t last_cumu_no_suitable_version_ms = 0;
     int64_t last_access_time_ms = 0;
-
-    // [compaction_rw_separation] Cluster info from last sync_rowsets
-    std::string my_cluster_id() const {
-        std::shared_lock lock(_cluster_info_mutex);
-        return _my_cluster_id;
-    }
-    void set_my_cluster_id(const std::string& cluster_id) {
-        std::unique_lock lock(_cluster_info_mutex);
-        _my_cluster_id = cluster_id;
-    }
-    std::string last_active_cluster_id() const {
-        std::shared_lock lock(_cluster_info_mutex);
-        return _last_active_cluster_id;
-    }
-    int64_t last_active_time_ms() const {
-        std::shared_lock lock(_cluster_info_mutex);
-        return _last_active_time_ms;
-    }
-    int32_t last_active_cluster_status() const {
-        std::shared_lock lock(_cluster_info_mutex);
-        return _last_active_cluster_status;
-    }
-    int64_t last_active_cluster_status_mtime_ms() const {
-        std::shared_lock lock(_cluster_info_mutex);
-        return _last_active_cluster_status_mtime_ms;
-    }
-    void set_last_active_cluster_info(const std::string& cluster_id, int64_t time_ms,
-                                      int32_t status, int64_t status_mtime_ms) {
-        std::unique_lock lock(_cluster_info_mutex);
-        _last_active_cluster_id = cluster_id;
-        _last_active_time_ms = time_ms;
-        _last_active_cluster_status = status;
-        _last_active_cluster_status_mtime_ms = status_mtime_ms;
-    }
 
     std::atomic<int64_t> local_read_time_us = 0;
     std::atomic<int64_t> remote_read_time_us = 0;
@@ -498,7 +497,7 @@ private:
     mutable std::shared_mutex _warmed_up_rowsets_mutex;
     std::unordered_set<RowsetId> _warmed_up_rowsets;
 
-    // [compaction_rw_separation] Cluster info for compaction read-write separation
+    // Cluster info for compaction read-write separation
     mutable std::shared_mutex _cluster_info_mutex;
     std::string _my_cluster_id;  // This BE's cluster ID
     std::string _last_active_cluster_id;

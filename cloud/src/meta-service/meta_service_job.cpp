@@ -736,7 +736,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
 int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, TabletStatsPB* stats,
                                    MetaServiceCode& code, std::string& msg, int64_t now,
                                    const std::string& cluster_id = "") {
-    // [compaction_rw_separation] Update last active cluster info if enabled
+    // Update last active cluster info if enabled
     if (config::enable_compaction_rw_separation && !cluster_id.empty()) {
         stats->set_last_active_cluster_id(cluster_id);
         stats->set_last_active_time_ms(now * 1000);
@@ -1002,7 +1002,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         }
     }
 
-    // [compaction_rw_separation] Get cluster_id for updating last active cluster
+    // Get cluster_id for updating last active cluster
     std::string compaction_cluster_id;
     if (config::enable_compaction_rw_separation && request->has_cloud_unique_id()) {
         std::vector<NodeInfo> nodes;

@@ -3306,7 +3306,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
 
         response->mutable_stats()->CopyFrom(tablet_stat);
 
-        // [compaction_rw_separation] Fill cluster info for compaction read-write separation
+        // Fill cluster info for compaction read-write separation
         if (config::enable_compaction_rw_separation) {
             // Fill requester's cluster_id
             std::vector<NodeInfo> nodes;

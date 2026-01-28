@@ -31,7 +31,7 @@ bool should_do_compaction_for_cluster(CloudTablet* tablet) {
 
     // Case 1: No active cluster record, any cluster can compact
     if (last_active_cluster.empty()) {
-        LOG(DEBUG) << "[compaction_rw_separation] tablet " << tablet->tablet_id()
+        LOG(DEBUG) << "tablet " << tablet->tablet_id()
                    << " has no active cluster record, allow compaction";
         return true;
     }
@@ -47,7 +47,7 @@ bool should_do_compaction_for_cluster(CloudTablet* tablet) {
 
     // Case 3: Original cluster is NORMAL (still active), cannot takeover
     if (status == cloud::ClusterStatus::NORMAL) {
-        LOG(INFO) << "[compaction_rw_separation] skip compaction for tablet " << tablet->tablet_id()
+        LOG(INFO) << "skip compaction for tablet " << tablet->tablet_id()
                   << ": write cluster (" << last_active_cluster << ") is still active (status=NORMAL)"
                   << ", this read cluster (" << my_cluster << ") should not compact";
         return false;
@@ -59,14 +59,14 @@ bool should_do_compaction_for_cluster(CloudTablet* tablet) {
 
     if (elapsed > timeout) {
         // Takeover successful
-        LOG(INFO) << "[compaction_rw_separation] takeover compaction for tablet " << tablet->tablet_id()
+        LOG(INFO) << "takeover compaction for tablet " << tablet->tablet_id()
                   << ": write cluster (" << last_active_cluster << ") is unavailable (status=" << status << ")"
                   << ", unavailable since " << status_mtime << " (" << elapsed << "ms ago)"
                   << ", this cluster (" << my_cluster << ") takes over (timeout=" << timeout << "ms)";
         return true;
     } else {
         // Timeout not reached yet, waiting
-        LOG(INFO) << "[compaction_rw_separation] skip compaction for tablet " << tablet->tablet_id()
+        LOG(INFO) << "skip compaction for tablet " << tablet->tablet_id()
                   << ": write cluster (" << last_active_cluster << ") is unavailable (status=" << status << ")"
                   << ", but timeout not reached yet (elapsed=" << elapsed << "ms, timeout=" << timeout << "ms)"
                   << ", waiting before takeover by this cluster (" << my_cluster << ")";

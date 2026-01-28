@@ -88,7 +88,7 @@ Status CloudCumulativeCompaction::prepare_compact() {
         RETURN_IF_ERROR(st);
     }
 
-    // [compaction_rw_separation] Check if this cluster should do compaction
+    // Check if this cluster should do compaction
     if (config::enable_compaction_rw_separation) {
         if (!should_do_compaction_for_cluster(cloud_tablet().get())) {
             st = Status::Error<ErrorCode::NOT_MASTER>(
