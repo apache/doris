@@ -262,22 +262,6 @@ protected:
     bool original_enable_;
 };
 
-// Test: get_rowset returns requester_cluster_id
-TEST_F(CompactionRWSeparationTest, GetRowsetReturnsRequesterClusterId) {
-    int64_t tablet_id = 10001;
-    create_tablet(100, 100, 100, tablet_id);
-
-    // Get rowset from write cluster
-    auto res = get_rowset(tablet_id, "cloud_unique_id_write");
-    EXPECT_EQ(res.status().code(), MetaServiceCode::OK);
-    EXPECT_EQ(res.requester_cluster_id(), "cluster_write");
-
-    // Get rowset from read cluster
-    res = get_rowset(tablet_id, "cloud_unique_id_read");
-    EXPECT_EQ(res.status().code(), MetaServiceCode::OK);
-    EXPECT_EQ(res.requester_cluster_id(), "cluster_read");
-}
-
 // Test: commit_txn updates last_active_cluster_id when load has data
 TEST_F(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
     int64_t tablet_id = 10002;
@@ -293,31 +277,10 @@ TEST_F(CompactionRWSeparationTest, CommitTxnUpdatesLastActiveCluster) {
     EXPECT_EQ(res.status().code(), MetaServiceCode::OK);
     EXPECT_TRUE(res.stats().has_last_active_cluster_id());
     EXPECT_EQ(res.stats().last_active_cluster_id(), "cluster_write");
-    EXPECT_EQ(res.stats().last_active_cluster_status(), ClusterStatus::NORMAL);
 }
 
-// Test: get_rowset fills last_active_cluster_status from cluster info
-TEST_F(CompactionRWSeparationTest, GetRowsetFillsLastActiveClusterStatus) {
-    int64_t tablet_id = 10003;
-    create_tablet(100, 100, 100, tablet_id);
-
-    // First load from write cluster
-    int64_t txn_id = begin_txn(1, "label_2", 100, "cloud_unique_id_write");
-    prepare_rowset(txn_id, tablet_id, 100, "cloud_unique_id_write");
-    commit_txn(1, txn_id, "cloud_unique_id_write");
-
-    // Change cluster status to SUSPENDED
-    resource_mgr_->add_cluster("cluster_write", ClusterStatus::SUSPENDED);
-
-    // Get rowset should return updated status
-    auto res = get_rowset(tablet_id, "cloud_unique_id_read");
-    EXPECT_EQ(res.status().code(), MetaServiceCode::OK);
-    EXPECT_EQ(res.stats().last_active_cluster_id(), "cluster_write");
-    EXPECT_EQ(res.stats().last_active_cluster_status(), ClusterStatus::SUSPENDED);
-}
-
-// Test: Feature disabled should not fill cluster info
-TEST_F(CompactionRWSeparationTest, FeatureDisabledNoClusterInfo) {
+// Test: Feature disabled should not update last_active_cluster_id
+TEST_F(CompactionRWSeparationTest, FeatureDisabledNoClusterUpdate) {
     config::enable_compaction_rw_separation = false;
 
     int64_t tablet_id = 10004;
@@ -328,11 +291,10 @@ TEST_F(CompactionRWSeparationTest, FeatureDisabledNoClusterInfo) {
     prepare_rowset(txn_id, tablet_id, 100, "cloud_unique_id_write");
     commit_txn(1, txn_id, "cloud_unique_id_write");
 
-    // Get rowset should not have requester_cluster_id when feature is disabled
+    // Get rowset should not have last_active_cluster_id when feature is disabled
     auto res = get_rowset(tablet_id, "cloud_unique_id_read");
     EXPECT_EQ(res.status().code(), MetaServiceCode::OK);
-    // When disabled, requester_cluster_id should not be set
-    EXPECT_FALSE(res.has_requester_cluster_id());
+    EXPECT_FALSE(res.stats().has_last_active_cluster_id());
 }
 
 // Test: Different clusters loading to different tablets
@@ -358,6 +320,36 @@ TEST_F(CompactionRWSeparationTest, DifferentClustersLoadDifferentTablets) {
 
     auto res2 = get_rowset(tablet_id_2, "cloud_unique_id_write");
     EXPECT_EQ(res2.stats().last_active_cluster_id(), "cluster_read");
+}
+
+// Test: get_cluster_status RPC returns all cluster status
+TEST_F(CompactionRWSeparationTest, GetClusterStatusRpc) {
+    brpc::Controller cntl;
+    GetClusterStatusRequest req;
+    GetClusterStatusResponse res;
+    req.add_cloud_unique_ids("cloud_unique_id_write");
+
+    meta_service_->get_cluster_status(&cntl, &req, &res, nullptr);
+    EXPECT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // Should have at least one detail with clusters
+    ASSERT_GE(res.details_size(), 1);
+    bool found_write_cluster = false;
+    bool found_read_cluster = false;
+    for (const auto& detail : res.details()) {
+        for (const auto& cluster : detail.clusters()) {
+            if (cluster.cluster_id() == "cluster_write") {
+                found_write_cluster = true;
+                EXPECT_EQ(cluster.cluster_status(), ClusterStatus::NORMAL);
+            }
+            if (cluster.cluster_id() == "cluster_read") {
+                found_read_cluster = true;
+                EXPECT_EQ(cluster.cluster_status(), ClusterStatus::NORMAL);
+            }
+        }
+    }
+    EXPECT_TRUE(found_write_cluster);
+    EXPECT_TRUE(found_read_cluster);
 }
 
 } // namespace doris::cloud

@@ -776,17 +776,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
 
-            // Sync cluster info for compaction read-write separation
-            if (config::enable_compaction_rw_separation) {
-                if (resp.has_requester_cluster_id()) {
-                    tablet->set_my_cluster_id(resp.requester_cluster_id());
-                }
-                if (stats.has_last_active_cluster_id()) {
-                    tablet->set_last_active_cluster_info(
-                            stats.last_active_cluster_id(), stats.last_active_time_ms(),
-                            static_cast<int32_t>(stats.last_active_cluster_status()),
-                            stats.last_active_cluster_status_mtime_ms());
-                }
+            // Sync last active cluster info for compaction read-write separation
+            if (config::enable_compaction_rw_separation && stats.has_last_active_cluster_id()) {
+                tablet->set_last_active_cluster_info(stats.last_active_cluster_id(),
+                                                     stats.last_active_time_ms());
             }
         }
         return Status::OK();
@@ -2262,6 +2255,31 @@ Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path
     // Make RPC call using retry pattern
     return retry_rpc("update packed file info", req, &resp,
                      &cloud::MetaService_Stub::update_packed_file_info);
+}
+
+Status CloudMetaMgr::get_cluster_status(
+        std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result) {
+    GetClusterStatusRequest req;
+    GetClusterStatusResponse resp;
+    req.add_cloud_unique_ids(config::cloud_unique_id);
+
+    Status s = retry_rpc("get cluster status", req, &resp,
+                         &MetaService_Stub::get_cluster_status);
+    if (!s.ok()) {
+        return s;
+    }
+
+    result->clear();
+    for (const auto& detail : resp.details()) {
+        for (const auto& cluster : detail.clusters()) {
+            // Store cluster status and mtime
+            (*result)[cluster.cluster_id()] = {
+                    static_cast<int32_t>(cluster.cluster_status()),
+                    cluster.mtime()};
+        }
+    }
+
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

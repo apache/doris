@@ -34,6 +34,7 @@ suite('test_compaction_rw_separation', 'docker') {
     options.beConfigs += [
         'enable_compaction_rw_separation=true',
         'compaction_cluster_takeover_timeout_ms=60000',  // 60 seconds for testing
+        'cluster_status_cache_refresh_interval_sec=5',   // 5 seconds for faster testing
         'file_cache_enter_disk_resource_limit_mode_percent=99',
     ]
     options.msConfigs += [

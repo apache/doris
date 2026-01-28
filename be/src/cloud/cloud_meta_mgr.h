@@ -169,6 +169,10 @@ public:
                                    int64_t& max_reserved_snapshots,
                                    int64_t& snapshot_interval_seconds);
 
+    // Get all cluster status for the instance
+    // Returns cluster_id -> (status, mtime_ms)
+    Status get_cluster_status(std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result);
+
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
                                             std::ranges::range auto&& rs_metas,

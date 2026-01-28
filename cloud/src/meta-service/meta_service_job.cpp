@@ -734,15 +734,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
 }
 
 int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, TabletStatsPB* stats,
-                                   MetaServiceCode& code, std::string& msg, int64_t now,
-                                   const std::string& cluster_id = "") {
-    // Update last active cluster info if enabled
-    if (config::enable_compaction_rw_separation && !cluster_id.empty()) {
-        stats->set_last_active_cluster_id(cluster_id);
-        stats->set_last_active_time_ms(now * 1000);
-        stats->clear_last_active_cluster_status_mtime_ms();
-    }
-
+                                   MetaServiceCode& code, std::string& msg, int64_t now) {
     if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
         stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
         stats->set_cumulative_point(compaction.output_cumulative_point());
@@ -1002,17 +994,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         }
     }
 
-    // Get cluster_id for updating last active cluster
-    std::string compaction_cluster_id;
-    if (config::enable_compaction_rw_separation && request->has_cloud_unique_id()) {
-        std::vector<NodeInfo> nodes;
-        std::string node_err = resource_mgr->get_node(request->cloud_unique_id(), &nodes);
-        if (node_err.empty() && !nodes.empty()) {
-            compaction_cluster_id = nodes[0].cluster_id;
-        }
-    }
-
-    if (compaction_update_tablet_stats(compaction, stats, code, msg, now, compaction_cluster_id) == -1) {
+    if (compaction_update_tablet_stats(compaction, stats, code, msg, now) == -1) {
         return;
     }
 

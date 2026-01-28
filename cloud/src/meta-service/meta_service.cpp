@@ -3306,47 +3306,6 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
 
         response->mutable_stats()->CopyFrom(tablet_stat);
 
-        // Fill cluster info for compaction read-write separation
-        if (config::enable_compaction_rw_separation) {
-            // Fill requester's cluster_id
-            std::vector<NodeInfo> nodes;
-            std::string err = resource_mgr_->get_node(request->cloud_unique_id(), &nodes);
-            if (err.empty() && !nodes.empty()) {
-                response->set_requester_cluster_id(nodes[0].cluster_id);
-            }
-
-            // Fill last_active_cluster's status if present
-            auto* stats = response->mutable_stats();
-            if (stats->has_last_active_cluster_id()) {
-                std::string last_active_cluster_id = stats->last_active_cluster_id();
-                InstanceInfoPB instance;
-                auto [ec, emsg] = resource_mgr_->get_instance(nullptr, instance_id, &instance);
-                if (ec == TxnErrorCode::TXN_OK) {
-                    bool cluster_found = false;
-                    for (const auto& cluster : instance.clusters()) {
-                        if (cluster.cluster_id() == last_active_cluster_id) {
-                            cluster_found = true;
-                            stats->set_last_active_cluster_status(cluster.cluster_status());
-                            stats->set_last_active_cluster_status_mtime_ms(cluster.mtime());
-                            break;
-                        }
-                    }
-                    if (!cluster_found) {
-                        // Cluster has been deleted
-                        // Only persist mtime when first detecting deletion
-                        if (!stats->has_last_active_cluster_status_mtime_ms() ||
-                            stats->last_active_cluster_status() != ClusterStatus::UNKNOWN) {
-                            int64_t deleted_mtime = ::time(nullptr) * 1000;
-                            stats->set_last_active_cluster_status_mtime_ms(deleted_mtime);
-                            // Note: We need to persist this to tablet stats in FDB
-                            // For now, setting in response; actual persistence requires separate logic
-                        }
-                        stats->set_last_active_cluster_status(ClusterStatus::UNKNOWN);
-                    }
-                }
-            }
-        }
-
         int64_t req_start = request->start_version();
         int64_t req_end = request->end_version();
         req_end = req_end < 0 ? std::numeric_limits<int64_t>::max() - 1 : req_end;
