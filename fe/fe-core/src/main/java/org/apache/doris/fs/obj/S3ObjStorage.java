@@ -18,6 +18,7 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
@@ -652,6 +653,19 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         if (hasLimits && reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
                             reachLimit = true;
                             break;
+                        }
+
+                        // Check max file count limit from Config
+                        if (Config.max_s3_list_objects_count > 0
+                                && result.size() >= Config.max_s3_list_objects_count) {
+                            LOG.warn("Reached max S3 list objects count limit: {}, current file count: {}, path: {}",
+                                    Config.max_s3_list_objects_count, result.size(), remotePath);
+                            return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
+                                    String.format("Too many files in directory %s (>= %d). "
+                                            + "The max file count limit is enforced to avoid OOM (Out of Memory). "
+                                            + "Please check if the directory is correct or adjust the FE config "
+                                            + "'max_s3_list_objects_count'.",
+                                            remotePath, Config.max_s3_list_objects_count)));
                         }
 
                         objPath = objPath.getParent();
