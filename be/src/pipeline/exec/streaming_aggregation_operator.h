@@ -219,6 +219,9 @@ public:
         _spill_streaming_agg_mem_limit = 1024 * 1024;
     }
     DataDistribution required_data_distribution(RuntimeState* state) const override {
+        if (state->enable_streaming_agg_force_passthrough()) {
+            return DataDistribution(ExchangeType::PASSTHROUGH);
+        }
         if (!state->get_query_ctx()->should_be_shuffled_agg(
                     StatefulOperatorX<StreamingAggLocalState>::node_id())) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
