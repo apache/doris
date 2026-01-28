@@ -58,11 +58,25 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
+
+    // Cached credential providers to prevent thread leak
+    // Each credential provider creates internal ScheduledExecutorService threads for credential refresh.
+    // Without caching, every call creates new threads that are never cleaned up.
+    private static volatile AwsCredentialsProvider cachedDefaultChainProvider = null;
+    private static volatile DefaultCredentialsProvider cachedDefaultCredentialsProvider = null;
+    private static volatile AwsCredentialsProvider cachedV2ChainProvider = null;
+    private static final Object LOCK = new Object();
+
+    // Cache for role-based credential providers, keyed by roleArn:externalId
+    private static final ConcurrentMap<String, AwsCredentialsProvider> ROLE_CREDENTIALS_CACHE =
+            new ConcurrentHashMap<>();
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
         AwsCredentials awsCredential;
@@ -75,12 +89,20 @@ public class S3Util {
         }
 
         if (!credential.isWhole()) {
-            awsCredentialsProvider = AwsCredentialsProviderChain.of(
-                    SystemPropertyCredentialsProvider.create(),
-                    EnvironmentVariableCredentialsProvider.create(),
-                    WebIdentityTokenFileCredentialsProvider.create(),
-                    ProfileCredentialsProvider.create(),
-                    InstanceProfileCredentialsProvider.create());
+            // Use cached provider chain to avoid thread leak
+            if (cachedDefaultChainProvider == null) {
+                synchronized (LOCK) {
+                    if (cachedDefaultChainProvider == null) {
+                        cachedDefaultChainProvider = AwsCredentialsProviderChain.of(
+                                SystemPropertyCredentialsProvider.create(),
+                                EnvironmentVariableCredentialsProvider.create(),
+                                WebIdentityTokenFileCredentialsProvider.create(),
+                                ProfileCredentialsProvider.create(),
+                                InstanceProfileCredentialsProvider.create());
+                    }
+                }
+            }
+            awsCredentialsProvider = cachedDefaultChainProvider;
         } else {
             awsCredentialsProvider = StaticCredentialsProvider.create(awsCredential);
         }
@@ -148,20 +170,55 @@ public class S3Util {
         }
 
         if (!Strings.isNullOrEmpty(roleArn)) {
-            StsClient stsClient = StsClient.builder()
-                    .credentialsProvider(DefaultCredentialsProvider.create())
-                    .build();
+            // Cache role-based credentials by region:roleArn:externalId
+            // Region is included to prevent cross-region credential sharing
+            String cacheKey = "v1:" + (region != null ? region : "") + ":" + roleArn + ":"
+                    + (externalId != null ? externalId : "");
+            return ROLE_CREDENTIALS_CACHE.computeIfAbsent(cacheKey, k -> {
+                // Note: StsClient is intentionally not closed as it's cached for the FE process lifetime
+                StsClient stsClient = StsClient.builder()
+                        .credentialsProvider(getCachedDefaultCredentialsProvider())
+                        .build();
 
-            return StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(builder -> {
-                        builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
-                        if (!Strings.isNullOrEmpty(externalId)) {
-                            builder.externalId(externalId);
-                        }
-                    }).build();
+                return StsAssumeRoleCredentialsProvider.builder()
+                        .stsClient(stsClient)
+                        .refreshRequest(builder -> {
+                            builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
+                            if (!Strings.isNullOrEmpty(externalId)) {
+                                builder.externalId(externalId);
+                            }
+                        }).build();
+            });
         }
-        return DefaultCredentialsProvider.create();
+        return getCachedDefaultCredentialsProvider();
+    }
+
+    private static DefaultCredentialsProvider getCachedDefaultCredentialsProvider() {
+        if (cachedDefaultCredentialsProvider == null) {
+            synchronized (LOCK) {
+                if (cachedDefaultCredentialsProvider == null) {
+                    cachedDefaultCredentialsProvider = DefaultCredentialsProvider.create();
+                }
+            }
+        }
+        return cachedDefaultCredentialsProvider;
+    }
+
+    private static AwsCredentialsProvider getCachedV2ChainProvider() {
+        if (cachedV2ChainProvider == null) {
+            synchronized (LOCK) {
+                if (cachedV2ChainProvider == null) {
+                    cachedV2ChainProvider = AwsCredentialsProviderChain.of(
+                            WebIdentityTokenFileCredentialsProvider.create(),
+                            ContainerCredentialsProvider.create(),
+                            InstanceProfileCredentialsProvider.create(),
+                            SystemPropertyCredentialsProvider.create(),
+                            EnvironmentVariableCredentialsProvider.create(),
+                            ProfileCredentialsProvider.create());
+                }
+            }
+        }
+        return cachedV2ChainProvider;
     }
 
     private static AwsCredentialsProvider getAwsCredencialsProviderV2(URI endpoint, String region, String accessKey,
@@ -177,32 +234,27 @@ public class S3Util {
         }
 
         if (!Strings.isNullOrEmpty(roleArn)) {
-            StsClient stsClient = StsClient.builder()
-                    .credentialsProvider(AwsCredentialsProviderChain.of(
-                            WebIdentityTokenFileCredentialsProvider.create(),
-                            ContainerCredentialsProvider.create(),
-                            InstanceProfileCredentialsProvider.create(),
-                            SystemPropertyCredentialsProvider.create(),
-                            EnvironmentVariableCredentialsProvider.create(),
-                            ProfileCredentialsProvider.create()))
-                    .build();
+            // Cache role-based credentials by region:roleArn:externalId
+            // Region is included to prevent cross-region credential sharing
+            String cacheKey = "v2:" + (region != null ? region : "") + ":" + roleArn + ":"
+                    + (externalId != null ? externalId : "");
+            return ROLE_CREDENTIALS_CACHE.computeIfAbsent(cacheKey, k -> {
+                // Note: StsClient is intentionally not closed as it's cached for the FE process lifetime
+                StsClient stsClient = StsClient.builder()
+                        .credentialsProvider(getCachedV2ChainProvider())
+                        .build();
 
-            return StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(builder -> {
-                        builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
-                        if (!Strings.isNullOrEmpty(externalId)) {
-                            builder.externalId(externalId);
-                        }
-                    }).build();
+                return StsAssumeRoleCredentialsProvider.builder()
+                        .stsClient(stsClient)
+                        .refreshRequest(builder -> {
+                            builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
+                            if (!Strings.isNullOrEmpty(externalId)) {
+                                builder.externalId(externalId);
+                            }
+                        }).build();
+            });
         }
-        return AwsCredentialsProviderChain.of(
-                            WebIdentityTokenFileCredentialsProvider.create(),
-                            ContainerCredentialsProvider.create(),
-                            InstanceProfileCredentialsProvider.create(),
-                            SystemPropertyCredentialsProvider.create(),
-                            EnvironmentVariableCredentialsProvider.create(),
-                            ProfileCredentialsProvider.create());
+        return getCachedV2ChainProvider();
     }
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(URI endpoint, String region, String accessKey,
