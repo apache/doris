@@ -21,14 +21,23 @@ Suite.metaClass.get_table_replica_num = {String tb_name /* param */ ->
     Suite suite = delegate as Suite
     def result = sql """ show create table ${tb_name} """
     def createTbl = result[0][1].toString()
+
+    // Try replication_allocation format first (newer format)
     def regexPattern = /"replication_allocation" = "tag.location.default: (\d+)"/
     def matcher = (createTbl =~ regexPattern)
-    //assertTrue(matcher.find())
     if (matcher.find()) {
         return matcher.group(1).toInteger()
-    } else {
-        return 1
     }
+
+    // Fall back to replication_num format (older format)
+    regexPattern = /"replication_num"\s*=\s*"(\d+)"/
+    matcher = (createTbl =~ regexPattern)
+    if (matcher.find()) {
+        return matcher.group(1).toInteger()
+    }
+
+    // Default to 1 if neither format is found
+    return 1
 }
 
 logger.info("Added 'get_table_replica_num' function to Suite") 
