@@ -35,18 +35,28 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * show backends command
  */
 public class ShowBackendsCommand extends ShowCommand {
 
+    private final List<Long> backendIds;
+
     /**
      * constructor
      */
     public ShowBackendsCommand() {
+        this(null);
+    }
+
+    public ShowBackendsCommand(List<Long> backendIds) {
         super(PlanType.SHOW_BACKENDS_COMMAND);
+        this.backendIds = backendIds;
     }
 
     public ShowResultSetMetaData getMetaData() {
@@ -66,6 +76,12 @@ public class ShowBackendsCommand extends ShowCommand {
         }
 
         List<List<String>> backendInfos = BackendsProcDir.getBackendInfos();
+        if (backendIds != null && !backendIds.isEmpty()) {
+            Set<Long> idSet = new HashSet<>(backendIds);
+            backendInfos = backendInfos.stream()
+                .filter(info -> idSet.contains(Long.parseLong(info.get(0))))
+                .collect(Collectors.toList());
+        }
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {

@@ -421,6 +421,7 @@ supportedShowStatement
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWarningErrorCount
     | SHOW BACKENDS                                                                 #showBackends
+    | SHOW BACKENDS backendIds+=INTEGER_VALUE (COMMA backendIds+=INTEGER_VALUE)*    #showBackendsWithIds
     | SHOW STAGES                                                                   #showStages
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
