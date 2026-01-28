@@ -420,7 +420,6 @@ TIMSORT_NAME="timsort.hpp"
 TIMSORT_FILE="timsort.hpp"
 TIMSORT_MD5SUM="000db489fb9c39a1cfb64a034f16b04d"
 
-
 # benchmark
 BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
 BENCHMARK_NAME=benchmark-v1.8.0.tar.gz
@@ -564,10 +563,9 @@ PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 # Using git clone since there's no official release yet
 # We'll use a specific commit or tag for reproducibility
 PAIMON_CPP_GIT_URL="https://github.com/alibaba/paimon-cpp.git"
-PAIMON_CPP_GIT_TAG="43d9d0271b7416fa85f1674586efa94f384a6b5c"
+PAIMON_CPP_GIT_TAG="fa80570a41020852f7c39b27e702d735306a4055"
 PAIMON_CPP_NAME=paimon-cpp
 PAIMON_CPP_SOURCE=paimon-cpp
-PAIMON_CPP_MD5SUM=""  # Not applicable for git repos
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
