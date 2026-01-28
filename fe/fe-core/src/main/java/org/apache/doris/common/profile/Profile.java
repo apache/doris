@@ -602,27 +602,29 @@ public class Profile {
 
         // Create custom representer to handle FlowStyleMap (compact single-line output)
         org.yaml.snakeyaml.representer.Representer representer =
-                new org.yaml.snakeyaml.representer.Representer(options);
+                new org.yaml.snakeyaml.representer.Representer(options) {
+            {
+                // Register custom representer for FlowStyleMap in the initializer block
+                this.representers.put(AggCounter.FlowStyleMap.class,
+                        new org.yaml.snakeyaml.representer.Represent() {
+                    @Override
+                    public org.yaml.snakeyaml.nodes.Node representData(Object data) {
+                        @SuppressWarnings("unchecked")
+                        Map<Object, Object> map = (Map<Object, Object>) data;
+                        // Call the protected representMapping method via the outer class instance
+                        return representFlowStyleMapping(map);
+                    }
+                });
+            }
 
-        // Register custom representer for FlowStyleMap to use flow style
-        representer.addClassTag(AggCounter.FlowStyleMap.class, org.yaml.snakeyaml.nodes.Tag.MAP);
-        representer.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
-
-        // Add custom Represent for FlowStyleMap
-        representer.getPropertyUtils().setSkipMissingProperties(true);
-        org.yaml.snakeyaml.representer.Represent representFlowStyleMap =
-                new org.yaml.snakeyaml.representer.Represent() {
-            @Override
-            public org.yaml.snakeyaml.nodes.Node representData(Object data) {
-                @SuppressWarnings("unchecked")
-                Map<Object, Object> map = (Map<Object, Object>) data;
-                return representer.representMapping(
+            // Helper method to call protected representMapping with FLOW style
+            protected org.yaml.snakeyaml.nodes.Node representFlowStyleMapping(Map<Object, Object> map) {
+                return representMapping(
                         org.yaml.snakeyaml.nodes.Tag.MAP,
                         map,
                         org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
             }
         };
-        representer.representers.put(AggCounter.FlowStyleMap.class, representFlowStyleMap);
 
         return new Yaml(representer, options);
     }
