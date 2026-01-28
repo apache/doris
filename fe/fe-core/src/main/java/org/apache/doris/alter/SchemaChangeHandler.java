@@ -2691,7 +2691,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
                                     null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
-                                    disableAutoCompaction);
+                                    disableAutoCompaction, -1);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2740,7 +2740,8 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String partitionName : partitionNames) {
             try {
                 updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId,
-                                                                            isInMemory, null, null, null, -1, -1, -1);
+                                                                            isInMemory, null, null, null,
+                                                                            -1, -1, -1, -1);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2757,7 +2758,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
                                           int enableSingleCompaction, int skipWriteIndexOnLoad,
-                                          int disableAutoCompaction) throws UserException {
+                                          int disableAutoCompaction, long rowsOfSegment) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -2791,7 +2792,7 @@ public class SchemaChangeHandler extends AlterHandler {
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
                                             timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad,
-                                            disableAutoCompaction);
+                                            disableAutoCompaction, rowsOfSegment);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -3660,7 +3661,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                    newBinlogConfig, null, null, -1, -1, -1);
+                    newBinlogConfig, null, null, -1, -1, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();

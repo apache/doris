@@ -587,6 +587,29 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;
 
+    // Log input rowsets segment row counts for debugging rows_of_segment feature
+    if (tablet()->tablet_meta()->rows_of_segment() > 0) {
+        for (const auto& rowset : _input_rowsets) {
+            std::vector<uint32_t> segment_rows;
+            auto* beta_rowset = dynamic_cast<BetaRowset*>(rowset.get());
+            if (beta_rowset != nullptr) {
+                OlapReaderStatistics stats;
+                auto st = beta_rowset->get_segment_num_rows(&segment_rows, false, &stats);
+                if (st.ok()) {
+                    std::string rows_str;
+                    for (size_t i = 0; i < segment_rows.size(); i++) {
+                        if (i > 0) rows_str += ",";
+                        rows_str += std::to_string(segment_rows[i]);
+                    }
+                    LOG(INFO) << "compaction input rowset_id=" << rowset->rowset_id()
+                              << ", version=" << rowset->version()
+                              << ", num_segments=" << rowset->num_segments() << ", segment_rows=["
+                              << rows_str << "]";
+                }
+            }
+        }
+    }
+
     RETURN_IF_ERROR(merge_input_rowsets());
 
     // Currently, updates are only made in the time_series.
@@ -1193,6 +1216,14 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
     ctx.allow_packed_file = false;
+    // Set max_rows_per_segment from tablet property if configured
+    if (tablet()->tablet_meta()->rows_of_segment() > 0) {
+        ctx.max_rows_per_segment = static_cast<uint32_t>(std::min(
+                tablet()->tablet_meta()->rows_of_segment(), static_cast<int64_t>(UINT32_MAX)));
+        LOG(INFO) << "compaction tablet_id=" << _tablet->tablet_id()
+                  << " rows_of_segment property is set, max_rows_per_segment="
+                  << ctx.max_rows_per_segment;
+    }
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1520,6 +1551,29 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;
 
+    // Log input rowsets segment row counts for debugging rows_of_segment feature
+    if (VLOG_IS_ON(1) || _tablet->tablet_meta()->rows_of_segment() > 0) {
+        for (const auto& rowset : _input_rowsets) {
+            std::vector<uint32_t> segment_rows;
+            auto* beta_rowset = dynamic_cast<BetaRowset*>(rowset.get());
+            if (beta_rowset != nullptr) {
+                OlapReaderStatistics stats;
+                auto st = beta_rowset->get_segment_num_rows(&segment_rows, false, &stats);
+                if (st.ok()) {
+                    std::string rows_str;
+                    for (size_t i = 0; i < segment_rows.size(); i++) {
+                        if (i > 0) rows_str += ",";
+                        rows_str += std::to_string(segment_rows[i]);
+                    }
+                    LOG(INFO) << "cloud compaction input rowset_id=" << rowset->rowset_id()
+                              << ", version=" << rowset->version()
+                              << ", num_segments=" << rowset->num_segments() << ", segment_rows=["
+                              << rows_str << "]";
+                }
+            }
+        }
+    }
+
     RETURN_IF_ERROR(merge_input_rowsets());
 
     DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.wrong_rowset_id", {
@@ -1741,6 +1795,14 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
     ctx.allow_packed_file = false;
+    // Set max_rows_per_segment from tablet property if configured
+    if (_tablet->tablet_meta()->rows_of_segment() > 0) {
+        ctx.max_rows_per_segment = static_cast<uint32_t>(std::min(
+                _tablet->tablet_meta()->rows_of_segment(), static_cast<int64_t>(UINT32_MAX)));
+        LOG(INFO) << "cloud compaction tablet_id=" << _tablet->tablet_id()
+                  << " rows_of_segment property is set, max_rows_per_segment="
+                  << ctx.max_rows_per_segment;
+    }
 
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.

@@ -2116,6 +2116,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             tbl.getTimeSeriesCompactionLevelThreshold(),
+                            tbl.getRowsOfSegment(),
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
@@ -2944,6 +2945,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
             olapTable.setEncryptionAlgorithm(tdeAlgorithm);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        try {
+            long rowsOfSegment = PropertyAnalyzer.analyzeRowsOfSegment(properties, olapTable.getKeysType());
+            olapTable.setRowsOfSegment(rowsOfSegment);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }

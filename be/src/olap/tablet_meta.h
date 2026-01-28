@@ -114,7 +114,7 @@ public:
                int64_t time_series_compaction_file_count_threshold = 2000,
                int64_t time_series_compaction_time_threshold_seconds = 3600,
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
-               int64_t time_series_compaction_level_threshold = 1,
+               int64_t time_series_compaction_level_threshold = 1, int64_t rows_of_segment = 0,
                TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
                        TInvertedIndexFileStorageFormat::V2,
                TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT,
@@ -296,6 +296,9 @@ public:
         return _time_series_compaction_level_threshold;
     }
 
+    void set_rows_of_segment(int64_t rows_of_segment) { _rows_of_segment = rows_of_segment; }
+    int64_t rows_of_segment() const { return _rows_of_segment; }
+
     int64_t ttl_seconds() const {
         std::shared_lock rlock(_meta_lock);
         return _ttl_seconds;
@@ -366,6 +369,7 @@ private:
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
+    int64_t _rows_of_segment = 0;
 
     int64_t _avg_rs_meta_serialize_size = 0;
 

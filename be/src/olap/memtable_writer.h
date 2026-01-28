@@ -62,7 +62,8 @@ public:
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
+                std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false,
+                int64_t rows_of_segment = 0);
 
     Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
 
@@ -128,6 +129,8 @@ private:
     std::shared_ptr<MemTable> _mem_table;
     TabletSchemaSPtr _tablet_schema;
     bool _unique_key_mow = false;
+    // Maximum rows per segment, 0 means no limit (use memory-based flush)
+    int64_t _rows_of_segment = 0;
 
     // This variable is accessed from writer thread and token flush thread
     // use a shared ptr to avoid use after free problem.

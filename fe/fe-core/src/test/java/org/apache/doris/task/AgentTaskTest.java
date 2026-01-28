@@ -115,8 +115,9 @@ public class AgentTaskTest {
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
-                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
-                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>());
+                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, 0, false, null, null,
+                objectPool, rowStorePageSize, false, storagePageSize, TEncryptionAlgorithm.PLAINTEXT,
+                storageDictPageSize, new HashMap<>());
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);

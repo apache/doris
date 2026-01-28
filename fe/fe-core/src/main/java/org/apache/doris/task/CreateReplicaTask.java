@@ -126,6 +126,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private long timeSeriesCompactionLevelThreshold;
 
+    private long rowsOfSegment;
+
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
@@ -159,6 +161,7 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionTimeThresholdSeconds,
                              long timeSeriesCompactionEmptyRowsetsThreshold,
                              long timeSeriesCompactionLevelThreshold,
+                             long rowsOfSegment,
                              boolean storeRowColumn,
                              BinlogConfig binlogConfig,
                              List<Integer> rowStoreColumnUniqueIds,
@@ -209,6 +212,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
         this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
         this.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
+        this.rowsOfSegment = rowsOfSegment;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
         this.objectPool = objectPool;
@@ -444,6 +448,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         createTabletReq.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+        createTabletReq.setRowsOfSegment(rowsOfSegment);
         createTabletReq.setTdeAlgorithm(tdeAlgorithm);
 
         if (binlogConfig != null) {

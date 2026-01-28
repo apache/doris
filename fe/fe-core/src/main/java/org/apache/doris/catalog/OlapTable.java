@@ -2728,6 +2728,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
     }
 
+    public void setRowsOfSegment(long rowsOfSegment) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROWS_OF_SEGMENT,
+                                                Long.valueOf(rowsOfSegment).toString());
+        tableProperty.buildRowsOfSegment();
+    }
+
+    public Long getRowsOfSegment() {
+        if (tableProperty != null) {
+            return tableProperty.rowsOfSegment();
+        }
+        return PropertyAnalyzer.ROWS_OF_SEGMENT_DEFAULT_VALUE;
+    }
+
     public int getIndexSchemaVersion(long indexId) {
         MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
         return indexMeta.getSchemaVersion();
