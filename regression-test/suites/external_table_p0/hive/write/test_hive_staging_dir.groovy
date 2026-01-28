@@ -98,7 +98,6 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
             Hdfs hdfs = new Hdfs(hdfsUri, hdfsUser, context.config.dataPath + "/")
             fs = hdfs.fs
 
-            fs.delete(new Path(stagingDefaultWithUser), true)
             fs.delete(new Path(stagingRelPath), true)
             fs.delete(new Path(stagingAbsWithUser), true)
 
@@ -116,7 +115,6 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
             order_qt_q01 """ select * from `${tableRel}`"""
             assertTrue(fs.exists(new Path(stagingDefaultWithUser)),
                     "default staging dir not created: ${stagingDefaultWithUser}")
-            fs.delete(new Path(stagingDefaultWithUser), true)
 
             sql """alter catalog ${catalogName} set properties ('hive.staging_dir' = '${stagingRelBase}')"""
             sql """refresh catalog ${catalogName}"""
@@ -138,9 +136,6 @@ suite("test_hive_staging_dir", "p0,external,hive,external_docker,external_docker
             try_hive_docker """drop table if exists `${dbName}`.`${tableAbs}`"""
             try_sql """drop catalog if exists ${catalogName}"""
             if (fs != null) {
-                if (stagingDefaultWithUser != null) {
-                    fs.delete(new Path(stagingDefaultWithUser), true)
-                }
                 if (stagingRelPath != null) {
                     fs.delete(new Path(stagingRelPath), true)
                 }
