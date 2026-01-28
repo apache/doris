@@ -218,9 +218,6 @@ SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
-if(TARGET orc AND NOT TARGET orc::orc)
-    add_library(orc::orc ALIAS orc)
-endif()
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
 option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
