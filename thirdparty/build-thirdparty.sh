@@ -153,11 +153,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-if [[ "${#packages[@]}" -eq 0 ]]; then
-    eval "${TP_DIR}/download-thirdparty.sh"
-else
-    eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
-fi
+eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -435,16 +431,15 @@ build_protobuf() {
     cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
-        ldflags="-L${TP_LIB_DIR} -pthread"
+        ldflags="-L${TP_LIB_DIR}"
     else
-        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create -pthread"
+        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create"
     fi
 
     mkdir -p cmake/build
     cd cmake/build
 
-    CFLAGS="-O2 -I${TP_INCLUDE_DIR} -pthread" \
-        CXXFLAGS="-O2 -I${TP_INCLUDE_DIR} -pthread" \
+    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_BUILD_TYPE=Release \

@@ -82,34 +82,3 @@ add_custom_command(TARGET packed_file_tool POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:packed_file_tool>.dbg $<TARGET_FILE:packed_file_tool>
     )
 endif()
-
-if (ENABLE_PAIMON_CPP)
-add_executable(paimon_cpp_demo
-    paimon_cpp_demo.cpp
-)
-
-pch_reuse(paimon_cpp_demo)
-
-set_target_properties(paimon_cpp_demo PROPERTIES ENABLE_EXPORTS 1)
-
-if (COMPILER_CLANG)
-    target_compile_options(paimon_cpp_demo PRIVATE
-    -Wno-implicit-int-conversion
-    -Wno-shorten-64-to-32
-    )
-endif()
-
-target_link_libraries(paimon_cpp_demo
-    ${DORIS_LINK_LIBS}
-)
-
-install(TARGETS paimon_cpp_demo DESTINATION ${OUTPUT_DIR}/lib/)
-
-if (NOT OS_MACOSX)
-add_custom_command(TARGET paimon_cpp_demo POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:paimon_cpp_demo> $<TARGET_FILE:paimon_cpp_demo>.dbg
-    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:paimon_cpp_demo>
-    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:paimon_cpp_demo>.dbg $<TARGET_FILE:paimon_cpp_demo>
-    )
-endif()
-endif()

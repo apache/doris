@@ -136,7 +136,7 @@ static void help() {
 
 static std::string build_info() {
     std::stringstream ss;
-    // clang-format off
+// clang-format off
 #if defined(NDEBUG)
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-release}"
 #else
