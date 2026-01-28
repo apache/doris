@@ -532,6 +532,8 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
                 "no suitable versions: only one rowset and not overlapping");
     }
+
+    apply_txn_size_truncation_and_log("CloudCumulativeCompaction");
     return Status::OK();
 }
 

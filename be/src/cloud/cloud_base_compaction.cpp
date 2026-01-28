@@ -226,6 +226,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
                     << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
                     << ", base_compaction_num_cumulative_rowsets="
                     << config::base_compaction_min_rowset_num;
+        apply_txn_size_truncation_and_log("CloudBaseCompaction");
         return Status::OK();
     }
 
@@ -251,6 +252,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
                     << ", base_size=" << base_size
                     << ", cumulative_base_ratio=" << cumulative_base_ratio
                     << ", policy_ratio=" << base_cumulative_delta_ratio;
+        apply_txn_size_truncation_and_log("CloudBaseCompaction");
         return Status::OK();
     }
 
@@ -263,6 +265,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
                     << ", interval_since_last_base_compaction="
                     << interval_since_last_base_compaction
                     << ", interval_threshold=" << interval_threshold;
+        apply_txn_size_truncation_and_log("CloudBaseCompaction");
         return Status::OK();
     }
 
