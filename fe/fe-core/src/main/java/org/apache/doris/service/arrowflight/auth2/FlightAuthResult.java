@@ -14,21 +14,30 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
 
-package org.apache.doris.mysql.authenticate.password;
+package org.apache.doris.service.arrowflight.auth2;
 
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.MysqlAuthPacket;
-import org.apache.doris.mysql.MysqlHandshakePacket;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.analysis.UserIdentity;
 
-import java.io.IOException;
-import java.util.Optional;
+import org.immutables.value.Value;
 
-public interface PasswordResolver {
-    Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel,
-            MysqlSerializer serializer,
-            MysqlAuthPacket authPacket,
-            MysqlHandshakePacket handshakePacket) throws IOException;
+/**
+ * Result of Authentication.
+ */
+@Value.Immutable
+public interface FlightAuthResult {
+    String getUserName();
+
+    UserIdentity getUserIdentity();
+
+    String getRemoteIp();
+
+    static FlightAuthResult of(String userName, UserIdentity userIdentity, String remoteIp) {
+        return ImmutableFlightAuthResult.builder()
+                .userName(userName)
+                .userIdentity(userIdentity)
+                .remoteIp(remoteIp)
+                .build();
+    }
 }

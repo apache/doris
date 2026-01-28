@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Configuration for protocol handlers.
@@ -37,6 +38,15 @@ import java.util.Optional;
  *   <li>{@code ssl.keystore.path} - SSL keystore path</li>
  * </ul>
  * 
+ * <h3>MySQL-Specific Configuration Keys:</h3>
+ * <ul>
+ *   <li>{@code mysql.io.threads} - IO thread count</li>
+ *   <li>{@code mysql.backlog} - TCP backlog size</li>
+ *   <li>{@code mysql.keep.alive} - Enable TCP keep-alive</li>
+ *   <li>{@code mysql.bind.ipv6} - Bind to IPv6 address</li>
+ *   <li>{@code mysql.task.executor} - External executor service</li>
+ * </ul>
+ * 
  * @since 2.0.0
  */
 public class ProtocolConfig {
@@ -47,6 +57,21 @@ public class ProtocolConfig {
     /** Standard key for Arrow Flight port */
     public static final String KEY_ARROWFLIGHT_PORT = "arrowflight.port";
     
+    /** Arrow Flight host to bind */
+    public static final String KEY_ARROWFLIGHT_HOST = "arrowflight.host";
+
+    /** Arrow Flight token cache size */
+    public static final String KEY_ARROWFLIGHT_TOKEN_CACHE_SIZE = "arrowflight.token.cache.size";
+
+    /** Arrow Flight token TTL in minutes */
+    public static final String KEY_ARROWFLIGHT_TOKEN_TTL_MINUTES = "arrowflight.token.ttl.minutes";
+    
+    /** Arrow Flight FlightSqlProducer instance */
+    public static final String KEY_ARROWFLIGHT_PRODUCER = "arrowflight.producer";
+    
+    /** Arrow Flight CallHeaderAuthenticator instance */
+    public static final String KEY_ARROWFLIGHT_AUTHENTICATOR = "arrowflight.authenticator";
+    
     /** Standard key for SSL enabled flag */
     public static final String KEY_SSL_ENABLED = "ssl.enabled";
     
@@ -55,6 +80,29 @@ public class ProtocolConfig {
     
     /** Standard key for connection scheduler */
     public static final String KEY_CONNECT_SCHEDULER = "connect.scheduler";
+    
+    // ==================== MySQL-Specific Configuration Keys ====================
+    
+    /** MySQL IO threads count (default: 4) */
+    public static final String KEY_MYSQL_IO_THREADS = "mysql.io.threads";
+    
+    /** MySQL backlog size for accept queue (default: 1024) */
+    public static final String KEY_MYSQL_BACKLOG = "mysql.backlog";
+    
+    /** Enable TCP keep-alive for MySQL connections (default: false) */
+    public static final String KEY_MYSQL_KEEP_ALIVE = "mysql.keep.alive";
+    
+    /** Bind to IPv6 address (default: false) */
+    public static final String KEY_MYSQL_BIND_IPV6 = "mysql.bind.ipv6";
+    
+    /** External executor service for MySQL task threads */
+    public static final String KEY_MYSQL_TASK_EXECUTOR = "mysql.task.executor";
+    
+    /** Max task threads for MySQL service */
+    public static final String KEY_MYSQL_MAX_TASK_THREADS = "mysql.max.task.threads";
+    
+    /** MySQL worker name prefix */
+    public static final String KEY_MYSQL_WORKER_NAME = "mysql.worker.name";
     
     private final Map<String, Object> properties;
     
@@ -209,6 +257,51 @@ public class ProtocolConfig {
     }
     
     /**
+     * Gets the Arrow Flight host.
+     *
+     * @return host to bind (default "::0")
+     */
+    public String getArrowFlightHost() {
+        return getString(KEY_ARROWFLIGHT_HOST, "::0");
+    }
+
+    /**
+     * Gets the Arrow Flight token cache size.
+     *
+     * @return cache size (default 1024)
+     */
+    public int getArrowFlightTokenCacheSize() {
+        return getInt(KEY_ARROWFLIGHT_TOKEN_CACHE_SIZE, 1024);
+    }
+
+    /**
+     * Gets the Arrow Flight token TTL in minutes.
+     *
+     * @return TTL (default 60 minutes)
+     */
+    public int getArrowFlightTokenTtlMinutes() {
+        return getInt(KEY_ARROWFLIGHT_TOKEN_TTL_MINUTES, 60);
+    }
+    
+    /**
+     * Gets the Arrow Flight FlightSqlProducer instance.
+     *
+     * @return producer instance, or null if not set
+     */
+    public Object getArrowFlightProducer() {
+        return properties.get(KEY_ARROWFLIGHT_PRODUCER);
+    }
+
+    /**
+     * Gets the Arrow Flight CallHeaderAuthenticator instance.
+     *
+     * @return authenticator instance, or null if not set
+     */
+    public Object getArrowFlightAuthenticator() {
+        return properties.get(KEY_ARROWFLIGHT_AUTHENTICATOR);
+    }
+    
+    /**
      * Gets the connection scheduler.
      * 
      * @param <T> scheduler type
@@ -217,5 +310,71 @@ public class ProtocolConfig {
     @SuppressWarnings("unchecked")
     public <T> T getConnectScheduler() {
         return (T) properties.get(KEY_CONNECT_SCHEDULER);
+    }
+    
+    // ==================== MySQL-Specific Convenience Methods ====================
+    
+    /**
+     * Gets the MySQL IO threads count.
+     * 
+     * @return IO threads count (default: 4)
+     */
+    public int getMysqlIoThreads() {
+        return getInt(KEY_MYSQL_IO_THREADS, 4);
+    }
+    
+    /**
+     * Gets the MySQL backlog size.
+     * 
+     * @return backlog size (default: 1024)
+     */
+    public int getMysqlBacklog() {
+        return getInt(KEY_MYSQL_BACKLOG, 1024);
+    }
+    
+    /**
+     * Checks if TCP keep-alive is enabled for MySQL.
+     * 
+     * @return true if keep-alive is enabled
+     */
+    public boolean isMysqlKeepAlive() {
+        return getBoolean(KEY_MYSQL_KEEP_ALIVE, false);
+    }
+    
+    /**
+     * Checks if MySQL should bind to IPv6 address.
+     * 
+     * @return true if bind to IPv6
+     */
+    public boolean isMysqlBindIPv6() {
+        return getBoolean(KEY_MYSQL_BIND_IPV6, false);
+    }
+    
+    /**
+     * Gets the external executor service for MySQL.
+     * 
+     * @return executor service, or null if not set
+     */
+    public ExecutorService getMysqlTaskExecutor() {
+        Object value = properties.get(KEY_MYSQL_TASK_EXECUTOR);
+        return value instanceof ExecutorService ? (ExecutorService) value : null;
+    }
+    
+    /**
+     * Gets the max task threads for MySQL service.
+     * 
+     * @return max task threads (default: 4096)
+     */
+    public int getMysqlMaxTaskThreads() {
+        return getInt(KEY_MYSQL_MAX_TASK_THREADS, 4096);
+    }
+    
+    /**
+     * Gets the MySQL worker name prefix.
+     * 
+     * @return worker name prefix
+     */
+    public String getMysqlWorkerName() {
+        return getString(KEY_MYSQL_WORKER_NAME, "doris-mysql-nio");
     }
 }

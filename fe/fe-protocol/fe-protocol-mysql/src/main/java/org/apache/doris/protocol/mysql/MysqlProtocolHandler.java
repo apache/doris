@@ -23,6 +23,7 @@ import org.apache.doris.protocol.ProtocolHandler;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.xnio.ChannelListener;
 import org.xnio.OptionMap;
 import org.xnio.Options;
 import org.xnio.StreamConnection;
@@ -32,6 +33,7 @@ import org.xnio.channels.AcceptingChannel;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -39,8 +41,17 @@ import java.util.function.Consumer;
  * MySQL Protocol Handler - SPI implementation for MySQL wire protocol.
  * 
  * <p>This handler implements the MySQL client/server protocol, allowing
- * MySQL clients to connect to Doris. It delegates to the existing MySQL
- * protocol implementation while providing the SPI interface.
+ * MySQL clients to connect to Doris. It uses XNIO for non-blocking IO.
+ * 
+ * <h3>Configuration Parameters (from ProtocolConfig):</h3>
+ * <ul>
+ *   <li>{@code mysql.port} - MySQL protocol port</li>
+ *   <li>{@code mysql.io.threads} - IO thread count (default: 4)</li>
+ *   <li>{@code mysql.backlog} - TCP backlog size (default: 1024)</li>
+ *   <li>{@code mysql.keep.alive} - Enable TCP keep-alive (default: false)</li>
+ *   <li>{@code mysql.bind.ipv6} - Bind to IPv6 address (default: false)</li>
+ *   <li>{@code mysql.task.executor} - External executor for task threads</li>
+ * </ul>
  * 
  * <h3>Protocol Features:</h3>
  * <ul>
@@ -59,8 +70,6 @@ import java.util.function.Consumer;
  *   <li>Handshake sequence unchanged</li>
  *   <li>All MySQL commands supported</li>
  * </ul>
- * 
- * @since 2.0.0
  */
 public class MysqlProtocolHandler implements ProtocolHandler {
     
@@ -72,15 +81,20 @@ public class MysqlProtocolHandler implements ProtocolHandler {
     /** Default MySQL protocol version */
     public static final String PROTOCOL_VERSION = "5.7";
     
-    /** Default backlog for accept queue */
-    private static final int DEFAULT_BACKLOG = 1024;
-    
     private int port = -1;
     private ProtocolConfig config;
     private Consumer<Object> acceptor;
     private XnioWorker xnioWorker;
     private AcceptingChannel<StreamConnection> server;
+    private ExecutorService taskService;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    
+    // Configuration parameters (restored from original MysqlServer)
+    private int ioThreadsNum;
+    private int backlogNum;
+    private boolean enableKeepAlive;
+    private boolean bindIPv6;
+    private String workerName;
     
     @Override
     public String getProtocolName() {
@@ -102,16 +116,41 @@ public class MysqlProtocolHandler implements ProtocolHandler {
             return;
         }
         
-        LOG.info("Initializing MySQL protocol handler on port {}", port);
+        // Load MySQL-specific configuration parameters
+        this.ioThreadsNum = config.getMysqlIoThreads();
+        this.backlogNum = config.getMysqlBacklog();
+        this.enableKeepAlive = config.isMysqlKeepAlive();
+        this.bindIPv6 = config.isMysqlBindIPv6();
+        this.workerName = config.getMysqlWorkerName();
+        
+        // Get external executor service (if provided by fe-core)
+        this.taskService = config.getMysqlTaskExecutor();
+        
+        LOG.info("Initializing MySQL protocol handler: port={}, ioThreads={}, backlog={}, "
+                + "keepAlive={}, bindIPv6={}, workerName={}", 
+                port, ioThreadsNum, backlogNum, enableKeepAlive, bindIPv6, workerName);
         
         try {
-            // Initialize XNIO worker
+            // Initialize XNIO worker with external executor service
             Xnio xnio = Xnio.getInstance();
-            xnioWorker = xnio.createWorker(OptionMap.builder()
-                    .set(Options.WORKER_IO_THREADS, Runtime.getRuntime().availableProcessors() * 2)
+            OptionMap.Builder workerOptions = OptionMap.builder()
+                    .set(Options.WORKER_IO_THREADS, ioThreadsNum)
                     .set(Options.TCP_NODELAY, true)
-                    .set(Options.WORKER_NAME, "mysql-protocol")
-                    .getMap());
+                    .set(Options.WORKER_NAME, workerName);
+            
+            if (taskService != null) {
+                // Use external executor service (from ThreadPoolManager)
+                xnioWorker = xnio.createWorkerBuilder()
+                        .setWorkerName(workerName)
+                        .setWorkerIoThreads(ioThreadsNum)
+                        .setExternalExecutorService(taskService)
+                        .build();
+                LOG.info("MySQL protocol using external executor service");
+            } else {
+                // Fallback: create worker without external executor
+                xnioWorker = xnio.createWorker(workerOptions.getMap());
+                LOG.info("MySQL protocol using internal worker threads");
+            }
         } catch (Exception e) {
             throw ProtocolException.initError("Failed to create XNIO worker", e);
         }
@@ -130,24 +169,37 @@ public class MysqlProtocolHandler implements ProtocolHandler {
         }
         
         if (acceptor == null) {
-            LOG.error("Connection acceptor not set");
+            LOG.error("Connection acceptor not set for MySQL protocol");
             return false;
         }
         
         try {
-            server = xnioWorker.createStreamConnectionServer(
-                    new InetSocketAddress(port),
-                    this::onAccept,
-                    OptionMap.builder()
-                            .set(Options.BACKLOG, DEFAULT_BACKLOG)
-                            .set(Options.REUSE_ADDRESSES, true)
-                            .set(Options.TCP_NODELAY, true)
-                            .getMap());
+            // Build socket options (restored from original MysqlServer)
+            OptionMap socketOptions = OptionMap.builder()
+                    .set(Options.TCP_NODELAY, true)
+                    .set(Options.BACKLOG, backlogNum)
+                    .set(Options.KEEP_ALIVE, enableKeepAlive)
+                    .getMap();
             
+            // Create server channel with IPv6 support
+            InetSocketAddress bindAddress;
+            if (bindIPv6) {
+                bindAddress = new InetSocketAddress("::0", port);
+                LOG.info("MySQL protocol binding to IPv6 address [::0]:{}", port);
+            } else {
+                bindAddress = new InetSocketAddress(port);
+                LOG.info("MySQL protocol binding to port {}", port);
+            }
+            
+            // Create accept listener
+            ChannelListener<AcceptingChannel<StreamConnection>> acceptListener = 
+                    this::handleAccept;
+            
+            server = xnioWorker.createStreamConnectionServer(bindAddress, acceptListener, socketOptions);
             server.resumeAccepts();
             running.set(true);
             
-            LOG.info("MySQL protocol handler started on port {}", port);
+            LOG.info("MySQL protocol handler started successfully on port {}", port);
             return true;
         } catch (IOException e) {
             LOG.error("Failed to start MySQL protocol handler on port {}", port, e);
@@ -156,7 +208,21 @@ public class MysqlProtocolHandler implements ProtocolHandler {
     }
     
     /**
-     * Callback when a new connection is accepted.
+     * Callback when the server channel accepts a new connection.
+     */
+    private void handleAccept(AcceptingChannel<StreamConnection> channel) {
+        try {
+            StreamConnection connection;
+            while ((connection = channel.accept()) != null) {
+                onAccept(connection);
+            }
+        } catch (IOException e) {
+            LOG.warn("Error accepting MySQL connection", e);
+        }
+    }
+    
+    /**
+     * Handles a newly accepted connection.
      */
     private void onAccept(StreamConnection connection) {
         if (LOG.isDebugEnabled()) {
@@ -198,7 +264,7 @@ public class MysqlProtocolHandler implements ProtocolHandler {
      * @return true if successful
      */
     private boolean handleProxyProtocol(StreamConnection connection) {
-        // Delegate to existing ProxyProtocolHandler
+        // Delegate to existing ProxyProtocolHandler in fe-core
         // This preserves the existing proxy protocol implementation
         return true;
     }
@@ -212,7 +278,7 @@ public class MysqlProtocolHandler implements ProtocolHandler {
             try {
                 server.close();
             } catch (IOException e) {
-                LOG.warn("Error closing MySQL server", e);
+                LOG.warn("Error closing MySQL server channel", e);
             }
             server = null;
         }
@@ -221,6 +287,8 @@ public class MysqlProtocolHandler implements ProtocolHandler {
             xnioWorker.shutdown();
             xnioWorker = null;
         }
+        
+        // Note: taskService is managed externally by ThreadPoolManager, don't shutdown here
         
         LOG.info("MySQL protocol handler stopped");
     }
@@ -244,5 +312,12 @@ public class MysqlProtocolHandler implements ProtocolHandler {
     public int getPriority() {
         // MySQL has highest priority as it's the primary protocol
         return 100;
+    }
+    
+    /**
+     * Returns the XNIO worker (for testing/debugging).
+     */
+    public XnioWorker getXnioWorker() {
+        return xnioWorker;
     }
 }

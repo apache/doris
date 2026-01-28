@@ -29,7 +29,6 @@ under the License.
     </parent>
     
     <artifactId>fe-protocol-arrowflight</artifactId>
-    <packaging>jar</packaging>
     <name>fe-protocol-arrowflight</name>
     <description>Arrow Flight SQL Protocol Implementation</description>
     
@@ -38,11 +37,6 @@ under the License.
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-protocol-api</artifactId>
-        </dependency>
-        
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>fe-common</artifactId>
         </dependency>
         
         <!-- Arrow Flight -->

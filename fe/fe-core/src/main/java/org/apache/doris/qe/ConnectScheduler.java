@@ -17,23 +17,23 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.qe.ConnectContext.ThreadInfo;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectPoolMgr;
+import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.TimerTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -44,9 +44,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 // TODO(zhaochun): We should consider if the number of local file connection can >= maximum connections later.
 public class ConnectScheduler {
     private static final Logger LOG = LogManager.getLogger(ConnectScheduler.class);
+    private final int maxConnections;
+    private final AtomicInteger numberConnection;
     private final AtomicInteger nextConnectionId;
+    private final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
+    private final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
+    private final Map<String, Integer> flightToken2ConnectionId = Maps.newConcurrentMap();
+
+    // valid trace id -> query id
+    private final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
+
+    // MySQL connection pool manager
     private final ConnectPoolMgr connectPoolMgr;
-    private final FlightSqlConnectPoolMgr flightSqlConnectPoolMgr;
+
+    // Arrow Flight SQL connection pool manager
+    private  FlightSqlConnectPoolMgr flightSqlConnectPoolMgr;
 
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
@@ -55,23 +67,45 @@ public class ConnectScheduler {
     private final ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "connect-scheduler-check-timer", true);
 
-    public ConnectScheduler(int commonMaxConnections, int flightSqlMaxConnections) {
+    public ConnectScheduler(int maxConnections, int maxArrowFlightConnections) {
+        this.maxConnections = maxConnections;
+        numberConnection = new AtomicInteger(0);
         nextConnectionId = new AtomicInteger(0);
-        this.connectPoolMgr = new ConnectPoolMgr(commonMaxConnections);
-        this.flightSqlConnectPoolMgr = new FlightSqlConnectPoolMgr(flightSqlMaxConnections);
+        
+        // Initialize MySQL connection pool manager
+        this.connectPoolMgr = new ConnectPoolMgr(maxConnections);
+        
+        // Initialize Arrow Flight SQL connection pool manager
+        this.flightSqlConnectPoolMgr = new FlightSqlConnectPoolMgr(maxArrowFlightConnections);
+        
         checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000L, TimeUnit.MILLISECONDS);
     }
 
-    public ConnectScheduler(int commonMaxConnections) {
-        this(commonMaxConnections, Config.arrow_flight_max_connections);
+    public ConnectScheduler(int maxConnections) {
+        this.maxConnections = maxConnections;
+        numberConnection = new AtomicInteger(0);
+        nextConnectionId = new AtomicInteger(0);
+
+        // Initialize MySQL connection pool manager
+        this.connectPoolMgr = new ConnectPoolMgr(maxConnections);
+        checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000L, TimeUnit.MILLISECONDS);
     }
 
-    public ConnectPoolMgr getConnectPoolMgr() {
-        return connectPoolMgr;
-    }
-
-    public FlightSqlConnectPoolMgr getFlightSqlConnectPoolMgr() {
-        return flightSqlConnectPoolMgr;
+    private class TimeoutChecker extends TimerTask {
+        @Override
+        public void run() {
+            long now = System.currentTimeMillis();
+            // Check timeout for MySQL connections
+            for (ConnectContext connectContext : connectionMap.values()) {
+                connectContext.checkTimeout(now);
+            }
+            // Check timeout for MySQL connection pool
+            connectPoolMgr.timeoutChecker(now);
+            // Check timeout for Arrow Flight SQL connections
+            if (flightSqlConnectPoolMgr != null) {
+                flightSqlConnectPoolMgr.timeoutChecker(now);
+            }
+        }
     }
 
     // submit one MysqlContext to this scheduler.
@@ -86,83 +120,126 @@ public class ConnectScheduler {
         return true;
     }
 
-    public ConnectContext getContext(int connectionId) {
-        ConnectContext ctx = connectPoolMgr.getContext(connectionId);
-        if (ctx == null) {
-            ctx = flightSqlConnectPoolMgr.getContext(connectionId);
+    // Register one connection with its connection id.
+    public boolean registerConnection(ConnectContext ctx) {
+        if (numberConnection.incrementAndGet() > maxConnections) {
+            numberConnection.decrementAndGet();
+            return false;
         }
-        return ctx;
+        // Check user
+        connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
+        AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
+        if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+            conns.decrementAndGet();
+            numberConnection.decrementAndGet();
+            return false;
+        }
+        connectionMap.put(ctx.getConnectionId(), ctx);
+        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+            flightToken2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
+        }
+        return true;
+    }
+
+    public void unregisterConnection(ConnectContext ctx) {
+        ctx.closeTxn();
+        if (connectionMap.remove(ctx.getConnectionId()) != null) {
+            AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
+            if (conns != null) {
+                conns.decrementAndGet();
+            }
+            numberConnection.decrementAndGet();
+            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+                flightToken2ConnectionId.remove(ctx.getPeerIdentity());
+            }
+        }
+    }
+
+    public ConnectContext getContext(int connectionId) {
+        return connectionMap.get(connectionId);
     }
 
     public ConnectContext getContextWithQueryId(String queryId) {
-        ConnectContext ctx = connectPoolMgr.getContextWithQueryId(queryId);
-        if (ctx == null) {
-            ctx = flightSqlConnectPoolMgr.getContextWithQueryId(queryId);
+        for (ConnectContext context : connectionMap.values()) {
+            if (queryId.equals(DebugUtil.printId(context.queryId))) {
+                return context;
+            }
         }
-        return ctx;
+        return null;
+    }
+
+    public ConnectContext getContext(String flightToken) {
+        if (flightToken2ConnectionId.containsKey(flightToken)) {
+            int connectionId = flightToken2ConnectionId.get(flightToken);
+            return getContext(connectionId);
+        }
+        return null;
     }
 
     public boolean cancelQuery(String queryId, Status cancelReason) {
-        boolean ret = connectPoolMgr.cancelQuery(queryId, cancelReason);
-        if (!ret) {
-            ret = flightSqlConnectPoolMgr.cancelQuery(queryId, cancelReason);
+        for (ConnectContext ctx : connectionMap.values()) {
+            TUniqueId qid = ctx.queryId();
+            if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
+                ctx.cancelQuery(cancelReason);
+                return true;
+            }
         }
-        return ret;
+        return false;
     }
 
     public int getConnectionNum() {
-        return connectPoolMgr.getConnectionNum() + flightSqlConnectPoolMgr.getConnectionNum();
+        return numberConnection.get();
     }
 
-    public List<ThreadInfo> listConnection(String user, boolean isFull) {
+    public List<ConnectContext.ThreadInfo> listConnection(String user, boolean isFull) {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
-        infos.addAll(connectPoolMgr.listConnection(user, isFull));
-        infos.addAll(flightSqlConnectPoolMgr.listConnection(user, isFull));
+        for (ConnectContext ctx : connectionMap.values()) {
+            // Check auth
+            if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                continue;
+            }
+
+            infos.add(ctx.toThreadInfo(isFull));
+        }
         return infos;
     }
 
-    // used for thrift
-    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
-            Optional<String> timeZone) {
-        List<List<String>> list = new ArrayList<>();
-        list.addAll(connectPoolMgr.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
-        list.addAll(flightSqlConnectPoolMgr.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
-        return list;
+    public void putTraceId2QueryId(String traceId, TUniqueId queryId) {
+        traceId2QueryId.put(traceId, queryId);
     }
 
     public String getQueryIdByTraceId(String traceId) {
-        String queryId = connectPoolMgr.getQueryIdByTraceId(traceId);
-        if (Strings.isNullOrEmpty(queryId)) {
-            queryId = flightSqlConnectPoolMgr.getQueryIdByTraceId(traceId);
-        }
-        return queryId;
+        TUniqueId queryId = traceId2QueryId.get(traceId);
+        return queryId == null ? "" : DebugUtil.printId(queryId);
     }
 
     public void removeOldTraceId(String traceId) {
-        connectPoolMgr.removeTraceId(traceId);
-        flightSqlConnectPoolMgr.removeTraceId(traceId);
+        if (traceId != null) {
+            traceId2QueryId.remove(traceId);
+        }
     }
 
-    public Map<Integer, ConnectContext> getConnectionMap() {
-        Map<Integer, ConnectContext> map = Maps.newConcurrentMap();
-        map.putAll(connectPoolMgr.getConnectionMap());
-        map.putAll(flightSqlConnectPoolMgr.getConnectionMap());
-        return map;
+    public ConnectPoolMgr getConnectPoolMgr() {
+        return connectPoolMgr;
+    }
+
+    public FlightSqlConnectPoolMgr getFlightSqlConnectPoolMgr() {
+        return flightSqlConnectPoolMgr;
+    }
+
+    public List<List<String>> listConnectionForRpc(
+            org.apache.doris.analysis.UserIdentity userIdentity,
+            boolean isShowFullSql,
+            java.util.Optional<String> timeZone) {
+        return connectPoolMgr.listConnectionForRpc(userIdentity, isShowFullSql, timeZone);
     }
 
     public Map<String, AtomicInteger> getUserConnectionMap() {
-        Map<String, AtomicInteger> map = Maps.newConcurrentMap();
-        map.putAll(connectPoolMgr.getUserConnectionMap());
-        map.putAll(flightSqlConnectPoolMgr.getUserConnectionMap());
-        return map;
+        return connByUser;
     }
 
-    private class TimeoutChecker extends TimerTask {
-        @Override
-        public void run() {
-            long now = System.currentTimeMillis();
-            connectPoolMgr.timeoutChecker(now);
-            flightSqlConnectPoolMgr.timeoutChecker(now);
-        }
+    public Map<Integer, ConnectContext> getConnectionMap() {
+        return connectionMap;
     }
 }

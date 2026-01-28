@@ -20,9 +20,12 @@ package org.apache.doris.protocol.arrowflight;
 import org.apache.doris.protocol.ProtocolConfig;
 import org.apache.doris.protocol.ProtocolException;
 import org.apache.doris.protocol.ProtocolHandler;
+import org.apache.doris.protocol.arrowflight.DorisFlightSqlService;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.arrow.flight.auth2.CallHeaderAuthenticator;
+import org.apache.arrow.flight.sql.FlightSqlProducer;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -78,8 +81,10 @@ public class ArrowFlightProtocolHandler implements ProtocolHandler {
     private Consumer<Object> acceptor;
     private final AtomicBoolean running = new AtomicBoolean(false);
     
-    // Flight server instance (will be set when integrated with actual Arrow Flight)
-    private Object flightServer;
+    private String host = "::0";
+    private FlightSqlProducer producer;
+    private CallHeaderAuthenticator authenticator;
+    private DorisFlightSqlService flightService;
     
     @Override
     public String getProtocolName() {
@@ -105,6 +110,17 @@ public class ArrowFlightProtocolHandler implements ProtocolHandler {
         
         // Validate configuration
         validateConfig(config);
+        host = config.getArrowFlightHost();
+        Object producerObj = config.getArrowFlightProducer();
+        Object authenticatorObj = config.getArrowFlightAuthenticator();
+        if (!(producerObj instanceof FlightSqlProducer)) {
+            throw ProtocolException.configError("Arrow Flight producer is not configured");
+        }
+        if (!(authenticatorObj instanceof CallHeaderAuthenticator)) {
+            throw ProtocolException.configError("Arrow Flight authenticator is not configured");
+        }
+        producer = (FlightSqlProducer) producerObj;
+        authenticator = (CallHeaderAuthenticator) authenticatorObj;
     }
     
     /**
@@ -160,18 +176,12 @@ public class ArrowFlightProtocolHandler implements ProtocolHandler {
      * <p>This method integrates with the existing DorisFlightSqlService.
      */
     private void startFlightServer() throws Exception {
-        // In the full implementation, this would:
-        // 1. Create a FlightServer.Builder
-        // 2. Configure SSL if enabled
-        // 3. Set up the FlightSqlProducer
-        // 4. Start the server
-        //
-        // Example (pseudo-code):
-        // Location location = Location.forGrpcInsecure("0.0.0.0", port);
-        // FlightServer server = FlightServer.builder(allocator, location, producer).build();
-        // server.start();
-        
-        LOG.info("Flight server would be started here (integration point)");
+        if (flightService == null) {
+            flightService = new DorisFlightSqlService(host, port, producer, authenticator);
+        }
+        if (!flightService.start()) {
+            throw new ProtocolException("Arrow Flight SQL service failed to start");
+        }
     }
     
     @Override
@@ -179,15 +189,9 @@ public class ArrowFlightProtocolHandler implements ProtocolHandler {
         LOG.info("Stopping Arrow Flight SQL protocol handler");
         running.set(false);
         
-        if (flightServer != null) {
-            try {
-                // Close the Flight server
-                LOG.info("Closing Flight server");
-                // flightServer.close();
-            } catch (Exception e) {
-                LOG.warn("Error closing Flight server", e);
-            }
-            flightServer = null;
+        if (flightService != null) {
+            flightService.stop();
+            flightService = null;
         }
         
         LOG.info("Arrow Flight SQL protocol handler stopped");

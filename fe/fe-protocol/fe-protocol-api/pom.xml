@@ -37,6 +37,7 @@ under the License.
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-common</artifactId>
+            <scope>provided</scope>
         </dependency>
         
         <dependency>
