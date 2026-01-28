@@ -123,6 +123,10 @@ public abstract class UniqueFunction extends ScalarFunction {
 
     public abstract UniqueFunction withIgnoreUniqueId(boolean ignoreUniqueId);
 
+    public ExprId getUniqueId() {
+        return uniqueId;
+    }
+
     @Override
     protected UniqueFunctionParams getFunctionParams(List<Expression> arguments) {
         return new UniqueFunctionParams(this, getName(), uniqueId, ignoreUniqueId, arguments, isInferred());
