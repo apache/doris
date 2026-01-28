@@ -276,6 +276,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             new EliminateSemiJoin()
                                     )
                             ),
+                            // Auto cast variant element access based on schema template
+                            // This must run before NormalizeSort which converts ORDER BY expressions to slots
+                            topic("variant schema cast before normalize",
+                                    custom(RuleType.VARIANT_SCHEMA_CAST, VariantSchemaCast::new)
+                            ),
                             // The rule modification needs to be done after the subquery is unnested,
                             // because for scalarSubQuery, the connection condition is stored in apply in
                             // the analyzer phase,
@@ -512,6 +517,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateSemiJoin(),
                                 new SimplifyEncodeDecode()
                         )
+                ),
+                // Auto cast variant element access based on schema template
+                // This must run before NormalizeSort which converts ORDER BY expressions to slots
+                topic("variant schema cast before normalize",
+                        custom(RuleType.VARIANT_SCHEMA_CAST, VariantSchemaCast::new)
                 ),
                 // The rule modification needs to be done after the subquery is unnested,
                 // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
@@ -913,14 +923,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // so that ElementAt expressions from search can be processed
                 rewriteJobs.addAll(jobs(
                         bottomUp(new RewriteSearchToSlots())
-                ));
-
-                // Auto cast variant element access based on schema template
-                // This should run before VariantSubPathPruning
-                rewriteJobs.addAll(jobs(
-                        topic("variant schema cast",
-                                custom(RuleType.VARIANT_SCHEMA_CAST, VariantSchemaCast::new)
-                        )
                 ));
 
                 if (needSubPathPushDown) {

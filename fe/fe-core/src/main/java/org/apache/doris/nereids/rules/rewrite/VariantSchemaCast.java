@@ -19,13 +19,13 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -61,26 +61,29 @@ public class VariantSchemaCast implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        return plan.accept(PlanRewriter.INSTANCE, null);
+        return plan.accept(new PlanRewriter(), null);
     }
 
     private static class PlanRewriter extends DefaultPlanRewriter<Void> {
-        public static final PlanRewriter INSTANCE = new PlanRewriter();
 
-        private static final Function<Expression, Expression> EXPRESSION_REWRITER = expr -> {
-            if (!(expr instanceof ElementAt)) {
-                return expr;
+        private final Function<Expression, Expression> expressionRewriter = expr -> {
+            // Handle ElementAt expressions
+            if (expr instanceof ElementAt) {
+                return rewriteElementAt((ElementAt) expr);
             }
-            ElementAt elementAt = (ElementAt) expr;
+            return expr;
+        };
+
+        private Expression rewriteElementAt(ElementAt elementAt) {
             Expression left = elementAt.left();
             Expression right = elementAt.right();
 
             // Only process if left is VariantType and right is a string literal
             if (!(left.getDataType() instanceof VariantType)) {
-                return expr;
+                return elementAt;
             }
             if (!(right instanceof StringLikeLiteral)) {
-                return expr;
+                return elementAt;
             }
 
             VariantType variantType = (VariantType) left.getDataType();
@@ -89,17 +92,25 @@ public class VariantSchemaCast implements CustomRewriter {
             // Find matching field in schema template
             Optional<VariantField> matchingField = variantType.findMatchingField(fieldName);
             if (!matchingField.isPresent()) {
-                return expr;
+                return elementAt;
             }
 
             DataType targetType = matchingField.get().getDataType();
-
-            // Wrap with Cast
             return new Cast(elementAt, targetType);
-        };
+        }
 
         private Expression rewriteExpression(Expression expr) {
-            return expr.rewriteDownShortCircuit(EXPRESSION_REWRITER);
+            return expr.rewriteDownShortCircuit(expressionRewriter);
+        }
+
+        private NamedExpression rewriteNamedExpression(NamedExpression expr) {
+            Expression rewritten = rewriteExpression(expr);
+            if (rewritten instanceof NamedExpression) {
+                return (NamedExpression) rewritten;
+            }
+            // If the result is not a NamedExpression (e.g., Cast), wrap it in an Alias
+            // Preserve the original ExprId to maintain consistency
+            return new Alias(expr.getExprId(), rewritten, expr.getName());
         }
 
         @Override
@@ -115,7 +126,7 @@ public class VariantSchemaCast implements CustomRewriter {
         public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
             project = (LogicalProject<? extends Plan>) super.visit(project, context);
             List<NamedExpression> newProjects = project.getProjects().stream()
-                    .map(expr -> (NamedExpression) rewriteExpression(expr))
+                    .map(this::rewriteNamedExpression)
                     .collect(ImmutableList.toImmutableList());
             return project.withProjects(newProjects);
         }
@@ -152,18 +163,6 @@ public class VariantSchemaCast implements CustomRewriter {
                     .collect(ImmutableList.toImmutableList());
             return join.withJoinConjuncts(newHashConditions, newOtherConditions,
                     newMarkConditions, join.getJoinReorderContext());
-        }
-
-        @Override
-        public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
-            aggregate = (LogicalAggregate<? extends Plan>) super.visit(aggregate, context);
-            List<Expression> newGroupByKeys = aggregate.getGroupByExpressions().stream()
-                    .map(this::rewriteExpression)
-                    .collect(ImmutableList.toImmutableList());
-            List<NamedExpression> newOutputs = aggregate.getOutputExpressions().stream()
-                    .map(expr -> (NamedExpression) rewriteExpression(expr))
-                    .collect(ImmutableList.toImmutableList());
-            return aggregate.withGroupByAndOutput(newGroupByKeys, newOutputs);
         }
     }
 }
