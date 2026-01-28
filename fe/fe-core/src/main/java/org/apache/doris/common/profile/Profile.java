@@ -602,18 +602,27 @@ public class Profile {
 
         // Create custom representer to handle FlowStyleMap (compact single-line output)
         org.yaml.snakeyaml.representer.Representer representer =
-                new org.yaml.snakeyaml.representer.Representer(options) {
+                new org.yaml.snakeyaml.representer.Representer(options);
+
+        // Register custom representer for FlowStyleMap to use flow style
+        representer.addClassTag(AggCounter.FlowStyleMap.class, org.yaml.snakeyaml.nodes.Tag.MAP);
+        representer.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
+
+        // Add custom Represent for FlowStyleMap
+        representer.getPropertyUtils().setSkipMissingProperties(true);
+        org.yaml.snakeyaml.representer.Represent representFlowStyleMap =
+                new org.yaml.snakeyaml.representer.Represent() {
             @Override
-            protected org.yaml.snakeyaml.nodes.Node representData(Object data) {
-                // Force flow style (single line) for FlowStyleMap
-                if (data instanceof AggCounter.FlowStyleMap) {
-                    org.yaml.snakeyaml.nodes.Tag tag = new org.yaml.snakeyaml.nodes.Tag(Map.class);
-                    return representMapping(tag, (Map<?, ?>) data,
-                            org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
-                }
-                return super.representData(data);
+            public org.yaml.snakeyaml.nodes.Node representData(Object data) {
+                @SuppressWarnings("unchecked")
+                Map<Object, Object> map = (Map<Object, Object>) data;
+                return representer.representMapping(
+                        org.yaml.snakeyaml.nodes.Tag.MAP,
+                        map,
+                        org.yaml.snakeyaml.DumperOptions.FlowStyle.FLOW);
             }
         };
+        representer.representers.put(AggCounter.FlowStyleMap.class, representFlowStyleMap);
 
         return new Yaml(representer, options);
     }
