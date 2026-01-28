@@ -26,9 +26,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
+import org.apache.doris.tablefunction.FrontendsTableValuedFunction;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,18 +45,6 @@ import java.util.List;
 public class FrontendsProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
 
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
-            .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
-            .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat").add("IsHelper").add("ErrMsg")
-            .add("Version").add("CurrentConnected").add("LiveSince")
-            .build();
-
-    public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("DirType").add("Dir").add("Filesystem")
-            .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
-            .build();
-
     private Env env;
 
     public FrontendsProcNode(Env env) {
@@ -66,7 +54,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     @Override
     public ProcResult fetchResult() {
         BaseProcResult result = new BaseProcResult();
-        result.setNames(TITLE_NAMES);
+        result.setNames(FrontendsTableValuedFunction.getFrontendsTitleNames());
 
         List<List<String>> infos = Lists.newArrayList();
 
