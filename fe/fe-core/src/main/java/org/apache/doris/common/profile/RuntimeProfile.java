@@ -404,15 +404,13 @@ public class RuntimeProfile {
 
     /**
      * Convert this RuntimeProfile to a structured map for YAML serialization.
-     * The map includes:
-     * - name: profile name
-     * - info_strings: key-value pairs of info strings
-     * - counters: structured counter data with hierarchy
-     * - children: list of child profiles (recursive)
+     * The map uses the profile name as the key, providing compact output without "name:" prefix.
+     * Format: {ProfileName: {counters: {...}, children: [...]}}
+     * This provides cleaner YAML output where profile names appear as keys directly.
      */
     public Map<String, Object> toStructuredMap() {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("name", this.name);
+        Map<String, Object> content = new LinkedHashMap<>();
 
         // Add info strings
         infoStringsLock.readLock().lock();
@@ -426,7 +424,7 @@ public class RuntimeProfile {
                     }
                 }
                 if (!infoStringsMap.isEmpty()) {
-                    result.put("info_strings", infoStringsMap);
+                    content.put("info_strings", infoStringsMap);
                 }
             }
         } finally {
@@ -438,7 +436,7 @@ public class RuntimeProfile {
         try {
             Map<String, Object> countersMap = getCountersMapRecursive(ROOT_COUNTER);
             if (!countersMap.isEmpty()) {
-                result.put("counters", countersMap);
+                content.put("counters", countersMap);
             }
         } finally {
             counterLock.readLock().unlock();
@@ -452,12 +450,14 @@ public class RuntimeProfile {
                 for (Pair<RuntimeProfile, Boolean> pair : childList) {
                     childrenList.add(pair.first.toStructuredMap());
                 }
-                result.put("children", childrenList);
+                content.put("children", childrenList);
             }
         } finally {
             childLock.readLock().unlock();
         }
 
+        // Wrap with profile name as key
+        result.put(this.name, content);
         return result;
     }
 

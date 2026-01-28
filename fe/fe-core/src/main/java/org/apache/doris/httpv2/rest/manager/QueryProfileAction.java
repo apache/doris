@@ -291,6 +291,8 @@ public class QueryProfileAction extends RestBaseController {
             return getTextProfile(request, queryId, isAllNode);
         } else if (format.equals("json")) {
             return getJsonProfile(request, queryId, isAllNode);
+        } else if (format.equals("yaml")) {
+            return getYamlProfile(request, queryId, isAllNode);
         } else {
             return ResponseEntityBuilder.badRequest("Invalid profile format: " + format);
         }
@@ -406,6 +408,22 @@ public class QueryProfileAction extends RestBaseController {
         } else {
             try {
                 String brief = ProfileManager.getInstance().getProfileBrief(queryId);
+                graph.put("profile", brief);
+            } catch (Exception e) {
+                LOG.warn("get profile graph error, queryId:{}", queryId, e);
+            }
+        }
+        return ResponseEntityBuilder.ok(graph);
+    }
+
+    @NotNull
+    private ResponseEntity getYamlProfile(HttpServletRequest request, String queryId, boolean isAllNode) {
+        Map<String, String> graph = Maps.newHashMap();
+        if (isAllNode) {
+            return getProfileFromAllFrontends(request, "json", queryId, null, null);
+        } else {
+            try {
+                String brief = ProfileManager.getInstance().getProfileAsYaml(queryId);
                 graph.put("profile", brief);
             } catch (Exception e) {
                 LOG.warn("get profile graph error, queryId:{}", queryId, e);

@@ -96,11 +96,16 @@ public class ProfileManager extends MasterDaemon {
         public StatsErrorEstimator statsErrorEstimator;
 
         // lazy load profileContent because sometimes profileContent is very large
-        public String getProfileContent() {
+        public String getProfileContent(String format) {
             // Not cache the profile content because it may change during insert
             // into select statement, we need use this to check process.
             // And also, cache the content will double usage of the memory in FE.
-            return profile.getProfileByLevel();
+            switch (format) {
+                case "yaml":
+                    return profile.getProfileAsYaml();
+                default:
+                    return profile.getProfileByLevel();
+            }
         }
 
         public String getProfileContentAsYaml() {
@@ -442,7 +447,7 @@ public class ProfileManager extends MasterDaemon {
         return summary;
     }
 
-    public String getProfile(String id) {
+    public String getProfile(String id, String format) {
         List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
@@ -469,7 +474,7 @@ public class ProfileManager extends MasterDaemon {
                 return null;
             }
 
-            return element.getProfileContent();
+            return element.getProfileContent(format);
         } finally {
             readLock.unlock();
         }

@@ -45,12 +45,13 @@ public class QueryProfileController extends BaseController {
     private static final Logger LOG = LogManager.getLogger(QueryProfileController.class);
 
     private static final String ID = "id";
+    private static final String FORMAT = "format";
     private static final String DETAIL_COL = "Detail";
     private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Load");
 
     @RequestMapping(path = "/query_profile/{" + ID + "}", method = RequestMethod.GET)
     public Object profile(@PathVariable(value = ID) String id) {
-        String profile = ProfileManager.getInstance().getProfile(id);
+        String profile = ProfileManager.getInstance().getProfile(id, "yaml");
         if (profile == null) {
             return ResponseEntityBuilder.okWithCommonError("ID " + id + " does not exist");
         }
@@ -59,9 +60,9 @@ public class QueryProfileController extends BaseController {
         return ResponseEntityBuilder.ok(profile);
     }
 
-    @RequestMapping(path = "/query_profile/text/{" + ID + "}", method = RequestMethod.GET)
-    public Object text_profile(@PathVariable(value = ID) String id) {
-        String profile = ProfileManager.getInstance().getProfile(id);
+    @RequestMapping(path = "/query_profile/{"+FORMAT+"}/{" + ID + "}", method = RequestMethod.GET)
+    public Object text_profile(@PathVariable(value = FORMAT) String format, @PathVariable(value = ID) String id) {
+        String profile = ProfileManager.getInstance().getProfile(id, format);
         if (profile == null) {
             return ResponseEntityBuilder.okWithCommonError("ID " + id + " does not exist");
         }

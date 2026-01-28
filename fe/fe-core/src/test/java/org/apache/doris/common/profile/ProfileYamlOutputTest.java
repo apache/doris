@@ -176,17 +176,22 @@ public class ProfileYamlOutputTest {
         Map<String, Object> map = runtimeProfile.toStructuredMap();
 
         Assertions.assertNotNull(map);
-        Assertions.assertEquals("TestProfile", map.get("name"));
+        // New format: profile name is the key
+        Assertions.assertTrue(map.containsKey("TestProfile"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> content = (Map<String, Object>) map.get("TestProfile");
+        Assertions.assertNotNull(content);
 
         // Check info_strings
         @SuppressWarnings("unchecked")
-        Map<String, String> infoStrings = (Map<String, String>) map.get("info_strings");
+        Map<String, String> infoStrings = (Map<String, String>) content.get("info_strings");
         Assertions.assertNotNull(infoStrings);
         Assertions.assertEquals("TestValue", infoStrings.get("TestKey"));
 
         // Check counters
         @SuppressWarnings("unchecked")
-        Map<String, Object> counters = (Map<String, Object>) map.get("counters");
+        Map<String, Object> counters = (Map<String, Object>) content.get("counters");
         Assertions.assertNotNull(counters);
         Assertions.assertTrue(counters.containsKey("Counter1"));
     }
@@ -210,9 +215,14 @@ public class ProfileYamlOutputTest {
 
         Map<String, Object> map = runtimeProfile.toStructuredMap();
 
+        // Get content from profile name key
+        @SuppressWarnings("unchecked")
+        Map<String, Object> content = (Map<String, Object>) map.get("TestProfile");
+        Assertions.assertNotNull(content);
+
         // Check counter hierarchy
         @SuppressWarnings("unchecked")
-        Map<String, Object> counters = (Map<String, Object>) map.get("counters");
+        Map<String, Object> counters = (Map<String, Object>) content.get("counters");
         Assertions.assertNotNull(counters);
         Assertions.assertTrue(counters.containsKey("Parent"));
 
@@ -251,16 +261,22 @@ public class ProfileYamlOutputTest {
 
         Map<String, Object> map = runtimeProfile.toStructuredMap();
 
+        // Get content from profile name key
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> children = (List<Map<String, Object>>) map.get("children");
+        Map<String, Object> content = (Map<String, Object>) map.get("TestProfile");
+        Assertions.assertNotNull(content);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> children = (List<Map<String, Object>>) content.get("children");
         Assertions.assertNotNull(children);
         Assertions.assertEquals(2, children.size());
 
+        // Each child is now a map with profile name as key
         Map<String, Object> firstChild = children.get(0);
-        Assertions.assertEquals("Child1", firstChild.get("name"));
+        Assertions.assertTrue(firstChild.containsKey("Child1"));
 
         Map<String, Object> secondChild = children.get(1);
-        Assertions.assertEquals("Child2", secondChild.get("name"));
+        Assertions.assertTrue(secondChild.containsKey("Child2"));
     }
 
     /**
@@ -365,7 +381,7 @@ public class ProfileYamlOutputTest {
             @SuppressWarnings("unchecked")
             Map<String, Object> mergedProfile = (Map<String, Object>) rootMap.get("merged_profile");
             Assertions.assertNotNull(mergedProfile);
-            Assertions.assertTrue(mergedProfile.containsKey("name"));
+            Assertions.assertTrue(mergedProfile.containsKey("Fragments"));
         }
     }
 
@@ -386,11 +402,6 @@ public class ProfileYamlOutputTest {
                     (List<Map<String, Object>>) rootMap.get("detail_profiles");
             Assertions.assertNotNull(detailProfiles);
             Assertions.assertTrue(detailProfiles.size() > 0);
-
-            // Each detail profile should have a name
-            for (Map<String, Object> detailProfile : detailProfiles) {
-                Assertions.assertTrue(detailProfile.containsKey("name"));
-            }
         }
     }
 
@@ -471,8 +482,13 @@ public class ProfileYamlOutputTest {
 
         Map<String, Object> map = runtimeProfile.toStructuredMap();
 
+        // Get content from profile name key
         @SuppressWarnings("unchecked")
-        Map<String, String> infoStrings = (Map<String, String>) map.get("info_strings");
+        Map<String, Object> content = (Map<String, Object>) map.get("TestProfile");
+        Assertions.assertNotNull(content);
+
+        @SuppressWarnings("unchecked")
+        Map<String, String> infoStrings = (Map<String, String>) content.get("info_strings");
         Assertions.assertNotNull(infoStrings);
         Assertions.assertEquals(3, infoStrings.size());
         Assertions.assertEquals("Value1", infoStrings.get("Key1"));
@@ -489,10 +505,16 @@ public class ProfileYamlOutputTest {
         Map<String, Object> map = emptyProfile.toStructuredMap();
 
         Assertions.assertNotNull(map);
-        Assertions.assertEquals("EmptyProfile", map.get("name"));
-        Assertions.assertFalse(map.containsKey("info_strings"));
-        Assertions.assertFalse(map.containsKey("counters"));
-        Assertions.assertFalse(map.containsKey("children"));
+        Assertions.assertTrue(map.containsKey("EmptyProfile"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> content = (Map<String, Object>) map.get("EmptyProfile");
+        Assertions.assertNotNull(content);
+
+        // Empty profile should not have these keys
+        Assertions.assertFalse(content.containsKey("info_strings"));
+        Assertions.assertFalse(content.containsKey("counters"));
+        Assertions.assertFalse(content.containsKey("children"));
     }
 
     /**
