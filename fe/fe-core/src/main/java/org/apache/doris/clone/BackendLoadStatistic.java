@@ -439,7 +439,7 @@ public class BackendLoadStatistic {
             // if this is a supplement task, ignore the storage medium
             if (!isSupplement && medium != null && pathStatistic.getStorageMedium() != medium) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
+                    LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium",
                             beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
                 }
                 continue;

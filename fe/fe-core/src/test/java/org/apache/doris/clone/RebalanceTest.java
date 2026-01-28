@@ -287,7 +287,7 @@ public class RebalanceTest {
                 TFinishTaskRequest fakeReq = new TFinishTaskRequest();
                 fakeReq.task_status = new TStatus(TStatusCode.OK);
                 fakeReq.finish_tablet_infos = Lists.newArrayList(new TTabletInfo(tabletSchedCtx.getTabletId(), 5, 1, 0, 0, 0));
-                tabletSchedCtx.finishCloneTask((CloneTask) task, fakeReq);
+                tabletSchedCtx.finishCloneTask(tabletScheduler, (CloneTask) task, fakeReq);
             } catch (SchedException e) {
                 e.printStackTrace();
             }

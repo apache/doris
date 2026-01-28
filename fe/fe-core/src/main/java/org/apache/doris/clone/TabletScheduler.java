@@ -445,18 +445,24 @@ public class TabletScheduler extends MasterDaemon {
                         stat.counterTabletScheduledFailed.incrementAndGet();
                         addBackToPendingTablets(tabletCtx);
                     }
+                    continue;
                 } else if (e.getStatus() == Status.FINISHED) {
                     // schedule redundant tablet or scheduler disabled will throw this exception
                     stat.counterTabletScheduledSucceeded.incrementAndGet();
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, e.getStatus(), e.getMessage());
+                    continue;
+                } else if (e.getStatus() == Status.SUBMITTED) {
+                    // The SUBMITTED status will only occur when scheduling tablets that are of
+                    // the REDUNDANT or FORCE_REDUNDANT.
+                    continue;
                 } else {
                     Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
                     // discard
                     stat.counterTabletScheduledDiscard.incrementAndGet();
                     tabletCtx.setSchedFailedCode(e.getSubCode());
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
+                    continue;
                 }
-                continue;
             } catch (Exception e) {
                 LOG.warn("got unexpected exception, discard this schedule. tablet: {}",
                         tabletCtx.getTabletId(), e);
@@ -524,7 +530,7 @@ public class TabletScheduler extends MasterDaemon {
         OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
                 s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
                         "tbl " + tabletCtx.getTblId() + " does not exist"));
-        tbl.writeLockOrException(new SchedException(Status.UNRECOVERABLE,
+        tbl.readLockOrException(new SchedException(Status.UNRECOVERABLE,
                     "table " + tbl.getName() + " does not exist"));
         try {
             long tabletId = tabletCtx.getTabletId();
@@ -649,7 +655,7 @@ public class TabletScheduler extends MasterDaemon {
 
             handleTabletByTypeAndStatus(tabletHealth.status, tabletCtx, batchTask);
         } finally {
-            tbl.writeUnlock();
+            tbl.readUnlock();
         }
     }
 
@@ -896,9 +902,9 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaOnUrgentHighDisk(tabletCtx, force)
                 || deleteFromScaleInDropReplicas(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
-            // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
-            // to remove this tablet from the pendingTablets(consider it as finished)
-            throw new SchedException(Status.FINISHED, "redundant replica is deleted");
+            // if we will delete at least one redundant replica, an async task will be created to handle it.
+            // we need to throw a SchedException with status SUBMITTED to indicate the task has been submitted.
+            throw new SchedException(Status.SUBMITTED, "redundant replica task is submitted");
         }
         throw new SchedException(Status.UNRECOVERABLE, "unable to delete any redundant replicas");
     }
@@ -1154,7 +1160,7 @@ public class TabletScheduler extends MasterDaemon {
 
             // If the replica is not in ColocateBackendsSet or is bad, delete it.
             deleteReplicaInternal(tabletCtx, replica, "colocate redundant", false);
-            throw new SchedException(Status.FINISHED, "colocate redundant replica is deleted");
+            throw new SchedException(Status.SUBMITTED, "delete colocate redundant replica task is submitted");
         }
         throw new SchedException(Status.UNRECOVERABLE, "unable to delete any colocate redundant replicas");
     }
@@ -1284,10 +1290,18 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.getTabletId(),
                 beId);
 
-        Env.getCurrentEnv().getEditLog().logDeleteReplica(info);
-
-        LOG.info("delete replica. tablet id: {}, backend id: {}. reason: {}, force: {}",
-                tabletCtx.getTabletId(), beId, reason, force);
+        EditLogExecutor.submit(() -> {
+            Env.getCurrentEnv().getEditLog().logDeleteReplica(info);
+            LOG.info("delete replica. tablet id: {}, backend id: {}. reason: {}, force: {}",
+                    tabletCtx.getTabletId(), beId, reason, force);
+            stat.counterTabletScheduledSucceeded.incrementAndGet();
+            gatherStatistics(tabletCtx);
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "write edit log finished");
+        }, () -> {
+            stat.counterTabletScheduledFailed.incrementAndGet();
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.SCHEDULE_FAILED,
+                    "failed to write edit log");
+        });
     }
 
     private void sendDeleteReplicaTask(long backendId, long tabletId, long replicaId, int schemaHash) {
@@ -1638,7 +1652,7 @@ public class TabletScheduler extends MasterDaemon {
         addTablet(tabletCtx, true /* force */);
     }
 
-    private void finalizeTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state, Status status, String reason) {
+    void finalizeTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state, Status status, String reason) {
         if (state == TabletSchedCtx.State.CANCELLED || state == TabletSchedCtx.State.UNEXPECTED) {
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE
                     && tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
@@ -1866,7 +1880,7 @@ public class TabletScheduler extends MasterDaemon {
 
         Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING, tabletCtx.getState());
         try {
-            tabletCtx.finishCloneTask(cloneTask, request);
+            tabletCtx.finishCloneTask(this, cloneTask, request);
         } catch (SchedException e) {
             tabletCtx.setErrMsg(e.getMessage());
             if (e.getStatus() == Status.RUNNING_FAILED) {
@@ -1889,6 +1903,9 @@ public class TabletScheduler extends MasterDaemon {
                 // unrecoverable
                 stat.counterTabletScheduledDiscard.incrementAndGet();
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
+                return true;
+            } else if (e.getStatus() == Status.SUBMITTED) {
+                // no finalizeTabletCtx
                 return true;
             } else if (e.getStatus() == Status.FINISHED) {
                 // tablet is already healthy, just remove
@@ -1915,7 +1932,7 @@ public class TabletScheduler extends MasterDaemon {
      * It will be evaluated for future strategy.
      * This should only be called when the tablet is down with state FINISHED.
      */
-    private void gatherStatistics(TabletSchedCtx tabletCtx) {
+    void gatherStatistics(TabletSchedCtx tabletCtx) {
         if (tabletCtx.getCopySize() > 0 && tabletCtx.getCopyTimeMs() > 0) {
             if (tabletCtx.getSrcBackendId() != -1 && tabletCtx.getSrcPathHash() != -1) {
                 PathSlot pathSlot = backendsWorkingSlots.get(tabletCtx.getSrcBackendId());

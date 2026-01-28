@@ -271,6 +271,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return this.rwLock.writeLock().isHeldByCurrentThread();
     }
 
+    public <E extends Exception> void readLockOrException(E e) throws E {
+        readLock();
+        if (isDropped) {
+            readUnlock();
+            throw e;
+        }
+    }
+
     public <E extends Exception> void writeLockOrException(E e) throws E {
         writeLock();
         if (isDropped) {

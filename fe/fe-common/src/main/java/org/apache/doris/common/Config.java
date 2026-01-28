@@ -357,6 +357,10 @@ public class Config extends ConfigBase {
             "Num of thread to handle agent task in agent task thread-pool"})
     public static int max_agent_task_threads_num = 4096;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"EditLog任务线程池的线程数",
+            "Num of thread to handle editlog task in editlog task thread-pool"})
+    public static int editlog_task_threads_num = 8;
+
     @ConfField(description = {"BDBJE 重加入集群时，最多回滚的事务数。如果回滚的事务数超过这个值，"
             + "则 BDBJE 将无法重加入集群，需要手动清理 BDBJE 的数据。",
             "The max txn number which bdbje can rollback when trying to rejoin the group. "

@@ -1085,7 +1085,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      * 1. SCHEDULE_FAILED: will keep the tablet RUNNING.
      * 2. UNRECOVERABLE: will remove the tablet from runningTablets.
      */
-    public void finishCloneTask(CloneTask cloneTask, TFinishTaskRequest request)
+    public void finishCloneTask(TabletScheduler scheduler, CloneTask cloneTask, TFinishTaskRequest request)
             throws SchedException {
         Preconditions.checkState(state == State.RUNNING, state);
         Preconditions.checkArgument(cloneTask.getTaskVersion() == CloneTask.VERSION_2);
@@ -1120,7 +1120,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         OlapTable olapTable = (OlapTable) db.getTableOrException(tblId,
                 s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
                         "tbl " + tabletId + " does not exist"));
-        olapTable.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table "
+        olapTable.readLockOrException(new SchedException(Status.UNRECOVERABLE, "table "
                 + olapTable.getName() + " does not exist"));
         try {
             Partition partition = olapTable.getPartition(partitionId);
@@ -1223,29 +1223,55 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     replica.getLastFailedVersion(),
                     replica.getLastSuccessVersion());
 
+            Runnable onFailure = () -> {
+                scheduler.getStat().counterTabletScheduledFailed.incrementAndGet();
+                scheduler.finalizeTabletCtx(this, TabletSchedCtx.State.CANCELLED, Status.SCHEDULE_FAILED,
+                        "failed to submit edit log task");
+            };
+
             if (replica.getState() == ReplicaState.CLONE) {
                 replica.setState(ReplicaState.NORMAL);
-                Env.getCurrentEnv().getEditLog().logAddReplica(info);
+
+                EditLogExecutor.submit(() -> {
+                    Env.getCurrentEnv().getEditLog().logDeleteReplica(info);
+                    scheduler.getStat().counterCloneTaskSucceeded.incrementAndGet();
+                    scheduler.gatherStatistics(this);
+                    scheduler.finalizeTabletCtx(this, TabletSchedCtx.State.FINISHED, Status.FINISHED,
+                            "log delete replica finished");
+                    LOG.info("clone finished: {}, replica {}, replica old version {}, need further repair {},"
+                                    + " is catchup {}",
+                            this, replica, destOldVersion, replica.needFurtherRepair(), isCatchup);
+                }, onFailure);
             } else {
                 // if in VERSION_INCOMPLETE, replica is not newly created, thus the state is not CLONE
                 // so we keep it state unchanged, and log update replica
-                Env.getCurrentEnv().getEditLog().logUpdateReplica(info);
+                EditLogExecutor.submit(() -> {
+                    Env.getCurrentEnv().getEditLog().logUpdateReplica(info);
+                    scheduler.getStat().counterCloneTaskSucceeded.incrementAndGet();
+                    scheduler.gatherStatistics(this);
+                    scheduler.finalizeTabletCtx(this, TabletSchedCtx.State.FINISHED, Status.FINISHED,
+                            "log update replica finished");
+                    LOG.info("clone finished: {}, replica {}, replica old version {}, need further repair {},"
+                                    + " is catchup {}",
+                            this, replica, destOldVersion, replica.needFurtherRepair(), isCatchup);
+                }, onFailure);
             }
 
-            state = State.FINISHED;
-            LOG.info("clone finished: {}, replica {}, replica old version {}, need further repair {}, is catchup {}",
-                    this, replica, destOldVersion, replica.needFurtherRepair(), isCatchup);
+            // TabletScheduler::finishCloneTask will handle this exception. If the task status is SUBMITTED,
+            // no need to run finalizeTabletCtx
+            throw new SchedException(Status.SUBMITTED, "edit log task is submitted");
         } finally {
-            olapTable.writeUnlock();
+            olapTable.readUnlock();
+
+            if (request.isSetCopySize()) {
+                this.copySize = request.getCopySize();
+            }
+
+            if (request.isSetCopyTimeMs()) {
+                this.copyTimeMs = request.getCopyTimeMs();
+            }
         }
 
-        if (request.isSetCopySize()) {
-            this.copySize = request.getCopySize();
-        }
-
-        if (request.isSetCopyTimeMs()) {
-            this.copyTimeMs = request.getCopyTimeMs();
-        }
     }
 
     public boolean isTimeout() {
