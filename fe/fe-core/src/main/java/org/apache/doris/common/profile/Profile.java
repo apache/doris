@@ -401,10 +401,17 @@ public class Profile {
         // Check if profile has been stored to disk (memory released)
         if (profileHasBeenStored()) {
             // Profile has been spilled to disk and memory released
-            // Add a note about where to find the detailed profile
+            // If stored format is YAML, read from storage
+            if ("yaml".equalsIgnoreCase(Config.profile_format)) {
+                String yamlFromStorage = getOnStorageProfileAsYaml();
+                if (yamlFromStorage != null) {
+                    return yamlFromStorage;
+                }
+            }
+            // Otherwise, add a note about where to find the detailed profile
             Map<String, Object> note = new LinkedHashMap<>();
-            note.put("message", "Profile has been stored to disk. Detailed execution profiles "
-                    + "are available in storage.");
+            note.put("message", "Profile has been stored to disk in TEXT format. "
+                    + "To get full YAML output, set profile_format=yaml in config.");
             note.put("storage_path", profileStoragePath);
             yamlRoot.put("note", note);
         } else if (executionProfiles.isEmpty()) {
@@ -433,6 +440,82 @@ public class Profile {
             }
 
             // Build detail profile section (execution profiles)
+            List<Map<String, Object>> detailProfiles = new ArrayList<>();
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                RuntimeProfile root = executionProfile.getRoot();
+                if (root != null) {
+                    detailProfiles.add(root.toStructuredMap());
+                }
+            }
+            if (!detailProfiles.isEmpty()) {
+                yamlRoot.put("detail_profiles", detailProfiles);
+            }
+        }
+
+        // Configure YAML dumper for pretty output
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.AUTO);
+        options.setPrettyFlow(true);
+        options.setIndent(2);
+        options.setIndicatorIndent(0);
+        options.setDefaultScalarStyle(DumperOptions.ScalarStyle.PLAIN);
+        options.setWidth(120);
+        options.setAllowUnicode(true);
+        options.setExplicitStart(true);
+
+        Yaml yaml = new Yaml(options);
+        return yaml.dump(yamlRoot);
+    }
+
+    /**
+     * Generate YAML content for storage.
+     * This method generates the full YAML content without storage-related notes,
+     * as it's used when writing profiles to disk.
+     *
+     * @return YAML formatted profile string for storage
+     */
+    private String generateYamlContent() {
+        Map<String, Object> yamlRoot = new LinkedHashMap<>();
+
+        // Format version for future compatibility
+        yamlRoot.put("format_version", "1.0");
+
+        // Add generated timestamp
+        String generatedAt = DateTimeFormatter.ISO_INSTANT
+                .format(Instant.now().atZone(ZoneId.of("UTC")));
+        yamlRoot.put("generated_at", generatedAt);
+
+        // Build summary section
+        Map<String, Object> summaryMap = buildSummarySection();
+        if (!summaryMap.isEmpty()) {
+            yamlRoot.put("summary", summaryMap);
+        }
+
+        // Build execution summary section
+        Map<String, Object> executionSummaryMap = buildExecutionSummarySection();
+        if (!executionSummaryMap.isEmpty()) {
+            yamlRoot.put("execution_summary", executionSummaryMap);
+        }
+
+        // Build merged profile section (if available)
+        if (!executionProfiles.isEmpty() && this.executionProfiles.size() == 1) {
+            try {
+                RuntimeProfile mergedProfile = this.executionProfiles.get(0)
+                        .getAggregatedFragmentsProfile(planNodeMap);
+                if (mergedProfile != null) {
+                    Map<String, Object> mergedProfileMap = mergedProfile.toStructuredMap();
+                    if (!mergedProfileMap.isEmpty()) {
+                        yamlRoot.put("merged_profile", mergedProfileMap);
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to build merged profile for YAML storage, query id: {}, error: {}",
+                        getId(), e.getMessage(), e);
+            }
+        }
+
+        // Build detail profile section (execution profiles)
+        if (!executionProfiles.isEmpty()) {
             List<Map<String, Object>> detailProfiles = new ArrayList<>();
             for (ExecutionProfile executionProfile : executionProfiles) {
                 RuntimeProfile root = executionProfile.getRoot();
@@ -832,10 +915,20 @@ public class Profile {
             // Write summary profile and execution profile content to memory
             this.summaryProfile.write(memoryDataStream);
 
-            SafeStringBuilder builder = new SafeStringBuilder();
-            getChangedSessionVars(builder);
-            getExecutionProfileContent(builder);
-            byte[] executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
+            byte[] executionProfileBytes;
+            // Check profile format configuration
+            if ("yaml".equalsIgnoreCase(Config.profile_format)) {
+                // Generate YAML format
+                String yamlContent = generateYamlContent();
+                executionProfileBytes = yamlContent.getBytes(StandardCharsets.UTF_8);
+            } else {
+                // Default: TEXT format
+                SafeStringBuilder builder = new SafeStringBuilder();
+                getChangedSessionVars(builder);
+                getExecutionProfileContent(builder);
+                executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
+            }
+
             memoryDataStream.writeInt(executionProfileBytes.length);
             memoryDataStream.write(executionProfileBytes);
             memoryDataStream.flush();
@@ -1020,6 +1113,71 @@ public class Profile {
         } catch (Exception e) {
             LOG.error("Failed to read profile from storage: {}", profileStoragePath, e);
             builder.append("Failed to read profile from " + profileStoragePath);
+        } finally {
+            if (fileInputStream != null) {
+                try {
+                    fileInputStream.close();
+                } catch (Exception e) {
+                    LOG.warn("Close profile {} failed", profileStoragePath, e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Read profile from storage and return as YAML string.
+     * This is used when profile_format is set to "yaml".
+     *
+     * @return YAML formatted profile string from storage, or error message if failed
+     */
+    String getOnStorageProfileAsYaml() {
+        if (!profileHasBeenStored()) {
+            return null;
+        }
+
+        LOG.info("Profile {} has been stored to storage, reading YAML from storage", getId());
+        FileInputStream fileInputStream = null;
+        ZipInputStream zipIn = null;
+
+        try {
+            fileInputStream = createPorfileFileInputStream(profileStoragePath);
+            if (fileInputStream == null) {
+                return "Failed to read profile from " + profileStoragePath;
+            }
+
+            // Directly create ZipInputStream from file input stream
+            zipIn = new ZipInputStream(fileInputStream);
+            ZipEntry entry = zipIn.getNextEntry();
+            String expectedEntryName = summaryProfile.getProfileId() + PROFILE_ENTRY_SUFFIX;
+            if (entry == null || !entry.getName().equals(expectedEntryName)) {
+                throw new IOException("Invalid zip file format - missing entry: " + expectedEntryName);
+            }
+
+            // Read zip entry content into memory
+            ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024 * 50];
+            int readBytes;
+            while ((readBytes = zipIn.read(buffer)) != -1) {
+                entryContent.write(buffer, 0, readBytes);
+            }
+
+            // Parse profile data using memory stream
+            DataInputStream memoryDataInput = new DataInputStream(
+                    new ByteArrayInputStream(entryContent.toByteArray()));
+
+            // Skip summary profile data
+            Text.readString(memoryDataInput);
+
+            // Read execution profile length and content
+            int executionProfileLength = memoryDataInput.readInt();
+            byte[] executionProfileBytes = new byte[executionProfileLength];
+            memoryDataInput.readFully(executionProfileBytes);
+
+            // Return YAML content as string
+            return new String(executionProfileBytes, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            LOG.error("Failed to read YAML profile from storage: {}", profileStoragePath, e);
+            return "Failed to read profile from " + profileStoragePath;
         } finally {
             if (fileInputStream != null) {
                 try {

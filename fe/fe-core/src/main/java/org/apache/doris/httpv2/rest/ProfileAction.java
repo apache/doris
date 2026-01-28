@@ -84,7 +84,7 @@ public class ProfileAction extends RestBaseController {
         }
 
         String format = request.getParameter("format");
-        if (!"yaml".equalsIgnoreCase(format)) {
+        if ("yaml".equalsIgnoreCase(format)) {
             String yamlProfile = ProfileManager.getInstance().getProfileAsYaml(queryId);
             if (yamlProfile == null) {
                 return "query id " + queryId + " not found";
