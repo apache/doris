@@ -153,6 +153,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.lineage.LineageEventProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
@@ -580,6 +581,8 @@ public class Env {
 
     private AgentTaskCleanupDaemon agentTaskCleanupDaemon;
 
+    private LineageEventProcessor lineageEventProcessor;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -801,6 +804,7 @@ public class Env {
 
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
+        this.lineageEventProcessor = new LineageEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.indexPolicyMgr = new IndexPolicyMgr();
@@ -961,6 +965,10 @@ public class Env {
 
     public AuditEventProcessor getAuditEventProcessor() {
         return auditEventProcessor;
+    }
+
+    public LineageEventProcessor getLineageEventProcessor() {
+        return lineageEventProcessor;
     }
 
     public ComputeGroupMgr getComputeGroupMgr() {
