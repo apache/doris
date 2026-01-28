@@ -916,7 +916,8 @@ TEST(FunctionJsonbTEST, JsonContains) {
 
 TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
     std::string func_name = "jsonb_extract_string";
-    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}, Nullable {PrimitiveType::TYPE_VARCHAR}};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                Nullable {PrimitiveType::TYPE_VARCHAR}};
 
     DataSet data_set = {
             {{Null(), STRING("$.k1")}, Null()},
