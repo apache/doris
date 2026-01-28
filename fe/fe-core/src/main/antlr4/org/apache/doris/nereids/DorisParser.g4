@@ -374,9 +374,10 @@ supportedShowStatement
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
-    | SHOW FULL? BUILTIN? FUNCTIONS
+    | SHOW FULL? FUNCTIONS
         ((FROM | IN) database=multipartIdentifier)? (LIKE STRING_LITERAL)?          #showFunctions
     | SHOW GLOBAL FULL? FUNCTIONS (LIKE STRING_LITERAL)?                            #showGlobalFunctions
+    | SHOW FULL? BUILTIN FUNCTIONS (LIKE STRING_LITERAL)?                           #showBuiltinFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW CREATE USER userIdentify                                                 #showCreateUser
