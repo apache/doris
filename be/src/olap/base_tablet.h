@@ -400,6 +400,11 @@ public:
     std::mutex sample_info_lock;
     std::vector<CompactionSampleInfo> sample_infos;
     Status last_compaction_status = Status::OK();
+
+    // Density ratio for sparse optimization (non_null_cells / total_cells)
+    // Value range: [0.0, 1.0], smaller value means more sparse
+    // Default 1.0 means no history data, will not enable sparse optimization initially
+    std::atomic<double> compaction_density {1.0};
 };
 
 struct CaptureRowsetOps {

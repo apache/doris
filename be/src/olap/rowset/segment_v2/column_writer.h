@@ -250,6 +250,7 @@ public:
         _new_page_callback = flush_page_callback;
     }
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
 
     // used for append not null data. When page is full, will append data not reach num_rows.
     Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
@@ -265,6 +266,12 @@ private:
     Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
 
 private:
+    struct NullRun {
+        bool is_null;
+        uint32_t len;
+    };
+
+    std::vector<NullRun> _null_run_buffer;
     std::unique_ptr<PageBuilder> _page_builder;
 
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
