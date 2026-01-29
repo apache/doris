@@ -322,7 +322,7 @@ public:
     // but its type is different from column's data type (int64 vs uint64), so that during column
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
-    void insert(const Field& x) override;
+    void insert(const Field& x) override { data.push_back(x.get<T>()); }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -356,6 +356,18 @@ public:
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 
+    // Optimized batch version using memcpy for continuous range
+    void replace_column_data_range(const IColumn& src, size_t src_start, size_t count,
+                                   size_t self_start) override {
+        DCHECK(size() >= self_start + count);
+        const auto& src_col = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src);
+        DCHECK(src_col.size() >= src_start + count);
+        memcpy(data.data() + self_start, src_col.data.data() + src_start,
+               count * sizeof(value_type));
+    }
+
+    bool support_replace_column_data_range() const override { return true; }
+
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     bool support_replace_column_null_data() const override { return true; }
@@ -382,9 +394,6 @@ public:
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
-
-protected:
-    uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
@@ -395,6 +404,8 @@ protected:
         }
     }
 
+protected:
+    uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     Container data;
 };
 

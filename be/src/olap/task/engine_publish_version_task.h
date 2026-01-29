@@ -101,6 +101,10 @@ public:
     void add_error_tablet_id(int64_t tablet_id);
 
 private:
+    void _handle_publish_version_not_continuous(int64_t partition_id, const TabletInfo& tablet_info,
+                                                const TabletSharedPtr& tablet,
+                                                const Version& version, int64_t max_version,
+                                                bool first_time_update, Status& res);
     void _calculate_tbl_num_delta_rows(
             const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
 

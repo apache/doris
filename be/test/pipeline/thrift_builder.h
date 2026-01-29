@@ -24,7 +24,6 @@
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/sink/writer/vhive_utils.h"
 
 namespace doris {

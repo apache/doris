@@ -38,7 +38,7 @@ struct IOContext;
 class BrokerFileReader final : public FileReader {
 public:
     BrokerFileReader(const TNetworkAddress& broker_addr, Path path, size_t file_size, TBrokerFD fd,
-                     std::shared_ptr<BrokerServiceConnection> connection);
+                     std::shared_ptr<BrokerServiceConnection> connection, int64_t mtime = 0);
 
     ~BrokerFileReader() override;
 
@@ -49,6 +49,8 @@ public:
     size_t size() const override { return _file_size; }
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
+
+    int64_t mtime() const override { return _mtime; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -62,6 +64,7 @@ private:
     TBrokerFD _fd;
 
     std::shared_ptr<BrokerServiceConnection> _connection;
+    int64_t _mtime;
     std::atomic<bool> _closed = false;
 };
 } // namespace doris::io

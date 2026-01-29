@@ -183,10 +183,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         _condition_cache_digest = 0;
     }
 
-    _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
-    for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
-    }
     RETURN_IF_ERROR(_process_conjuncts(state));
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
@@ -216,20 +212,16 @@ static std::string predicates_to_string(
     return fmt::to_string(debug_string_buffer);
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
-    auto& p = _parent->cast<typename Derived::Parent>();
-    // The conjuncts is always on output tuple, so use _output_tuple_desc;
-    std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
-
-    auto init_value_range = [&](SlotDescriptor* slot, const vectorized::DataTypePtr type_desc) {
-        switch (type_desc->get_primitive_type()) {
+static void init_slot_value_range(
+        phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
+        SlotDescriptor* slot, const vectorized::DataTypePtr type_desc) {
+    switch (type_desc->get_primitive_type()) {
 #define M(NAME)                                                                        \
     case TYPE_##NAME: {                                                                \
         ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),     \
                                             cast_set<int>(type_desc->get_precision()), \
                                             cast_set<int>(type_desc->get_scale()));    \
-        _slot_id_to_value_range[slot->id()] = std::move(range);                        \
+        slot_id_to_value_range[slot->id()] = std::move(range);                         \
         break;                                                                         \
     }
 #define APPLY_FOR_SCALAR_TYPE(M) \
@@ -257,26 +249,32 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     M(BOOLEAN)                   \
     M(IPV4)                      \
     M(IPV6)
-            APPLY_FOR_SCALAR_TYPE(M)
+        APPLY_FOR_SCALAR_TYPE(M)
 #undef M
-        default: {
-            break;
-        }
-        }
-    };
+    default: {
+        break;
+    }
+    }
+}
+
+template <typename Derived>
+Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
+    auto& p = _parent->cast<typename Derived::Parent>();
+    // The conjuncts is always on output tuple, so use _output_tuple_desc;
+    std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
     for (auto& slot : slots) {
-        init_value_range(slot, slot->type());
+        init_slot_value_range(_slot_id_to_value_range, slot, slot->type());
         _slot_id_to_predicates.insert(
                 {slot->id(), std::vector<std::shared_ptr<ColumnPredicate>>()});
     }
 
     get_cast_types_for_variants();
     for (const auto& [colname, type] : _cast_types_for_variants) {
-        init_value_range(p._slot_id_to_slot_desc[p._colname_to_slot_id[colname]], type);
+        auto* slot = p._slot_id_to_slot_desc[p._colname_to_slot_id[colname]];
+        init_slot_value_range(_slot_id_to_value_range, slot, type);
         _slot_id_to_predicates.insert(
-                {p._slot_id_to_slot_desc[p._colname_to_slot_id[colname]]->id(),
-                 std::vector<std::shared_ptr<ColumnPredicate>>()});
+                {slot->id(), std::vector<std::shared_ptr<ColumnPredicate>>()});
     }
 
     RETURN_IF_ERROR(_get_topn_filters(state));
@@ -295,7 +293,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                     continue;
                 }
             } else { // All conjuncts are pushed down as predicate column
-                _stale_expr_ctxs.emplace_back(conjunct);
+                _stale_expr_ctxs.emplace_back(
+                        conjunct); // avoid function context and constant str being freed
                 it = _conjuncts.erase(it);
                 continue;
             }
@@ -461,6 +460,9 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BLOOM_PRED == root->node_type());
@@ -487,6 +489,9 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(root->is_topn_filter());
@@ -511,6 +516,9 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
@@ -575,6 +583,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VEx
     }
     auto sid_to_range = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == sid_to_range) {
+        return false;
+    }
+    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -659,6 +670,9 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -757,6 +771,9 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
 
@@ -934,6 +951,9 @@ Status ScanLocalState<Derived>::_normalize_is_null_predicate(
         if (pred) {
             DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
             predicates.emplace_back(pred);
+        } else {
+            // If exception occurs during processing, do not push down
+            *pdt = PushDownType::UNACCEPTABLE;
         }
     };
     DCHECK(!root->is_rf_wrapper()) << root->debug_string();
@@ -1220,6 +1240,9 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
+            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
+                continue;
+            }
             auto col_name = s->col_name();
             cid = get_column_id(col_name);
         }

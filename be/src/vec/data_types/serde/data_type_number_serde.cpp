@@ -709,7 +709,7 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
     }
 }
 
-template <PrimitiveType PT>
+template <PrimitiveType PT, bool is_strict_mode>
 bool try_parse_impl(typename PrimitiveTypeTraits<PT>::CppType& x, const StringRef& str_ref,
                     CastParameters& params) {
     if constexpr (is_float_or_double(PT)) {
@@ -717,7 +717,7 @@ bool try_parse_impl(typename PrimitiveTypeTraits<PT>::CppType& x, const StringRe
     } else if constexpr (PT == TYPE_BOOLEAN) {
         return CastToBool::from_string(str_ref, x, params);
     } else if constexpr (is_int(PT)) {
-        return CastToInt::from_string(str_ref, x, params);
+        return CastToInt::from_string<is_strict_mode>(str_ref, x, params);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "try_parse_impl not implemented for type: {}", type_to_string(PT));
@@ -731,7 +731,7 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
     typename PrimitiveTypeTraits<T>::CppType val;
     CastParameters params;
     params.is_strict = false;
-    if (!try_parse_impl<T>(val, str, params)) {
+    if (!try_parse_impl<T, false>(val, str, params)) {
         return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -745,7 +745,7 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& 
     typename PrimitiveTypeTraits<T>::CppType val;
     CastParameters params;
     params.is_strict = true;
-    if (!try_parse_impl<T>(val, str, params)) {
+    if (!try_parse_impl<T, true>(val, str, params)) {
         return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -773,7 +773,7 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
         size_t string_size = next_offset - current_offset;
 
         StringRef str_ref(&(*chars)[current_offset], string_size);
-        null_map[i] = !try_parse_impl<T>(vec_to[i], str_ref, params);
+        null_map[i] = !try_parse_impl<T, false>(vec_to[i], str_ref, params);
         current_offset = next_offset;
     }
     return Status::OK();
@@ -802,7 +802,7 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         size_t string_size = next_offset - current_offset;
 
         StringRef str_ref(&(*chars)[current_offset], string_size);
-        if (!try_parse_impl<T>(vec_to[i], str_ref, params)) {
+        if (!try_parse_impl<T, true>(vec_to[i], str_ref, params)) {
             return Status::InvalidArgument(
                     "parse number fail, string: '{}'",
                     std::string((char*)&(*chars)[current_offset], string_size));

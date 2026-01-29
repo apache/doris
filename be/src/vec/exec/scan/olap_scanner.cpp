@@ -54,7 +54,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -553,7 +553,7 @@ Status OlapScanner::_init_variant_columns() {
             }
         }
     }
-    schema_util::inherit_column_attributes(tablet_schema);
+    variant_util::inherit_column_attributes(tablet_schema);
     return Status::OK();
 }
 
@@ -828,6 +828,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.variant_subtree_hierarchical_iter_count);
     COUNTER_UPDATE(local_state->_variant_subtree_sparse_iter_count,
                    stats.variant_subtree_sparse_iter_count);
+    COUNTER_UPDATE(local_state->_variant_doc_value_column_iter_count,
+                   stats.variant_doc_value_column_iter_count);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),

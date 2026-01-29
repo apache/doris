@@ -37,7 +37,6 @@
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -48,6 +47,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -267,7 +267,8 @@ size_t VectorizedFnCall::estimate_memory(const size_t rows) {
 }
 
 Status VectorizedFnCall::execute_runtime_filter(VExprContext* context, const Block* block,
-                                                size_t count, ColumnPtr& result_column,
+                                                const uint8_t* __restrict filter, size_t count,
+                                                ColumnPtr& result_column,
                                                 ColumnPtr* arg_column) const {
     return _do_execute(context, block, count, result_column, arg_column);
 }

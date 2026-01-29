@@ -21,7 +21,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        for (String hivePrefix : ["hive2"]) {
+        for (String hivePrefix : ["hive3"]) {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
@@ -36,7 +36,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                 'iceberg.catalog.type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                 'fs.defaultFS' = '${default_fs}',
-                'warehouse' = '${warehouse}'
+                'warehouse' = '${warehouse}',
+                'iceberg.manifest.cache.enable' = 'true'
             );
             """
             sql """switch ${catalog_name}"""
@@ -74,6 +75,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                     'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                     'fs.defaultFS' = '${default_fs}',
                     'warehouse' = '${warehouse}',
+                    'iceberg.manifest.cache.enable' = 'false',
                     'iceberg.table.meta.cache.ttl-second' = '-2'
                 );
                 """
@@ -88,6 +90,7 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                 'fs.defaultFS' = '${default_fs}',
                 'warehouse' = '${warehouse}',
+                'iceberg.manifest.cache.enable' = 'false',
                 'iceberg.table.meta.cache.ttl-second' = '0'
             );
             """
@@ -122,7 +125,8 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
                 'iceberg.catalog.type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
                 'fs.defaultFS' = '${default_fs}',
-                'warehouse' = '${warehouse}'
+                'warehouse' = '${warehouse}',
+                'iceberg.manifest.cache.enable' = 'false'
             );
             """
             sql """switch ${catalog_name_no_cache}"""
@@ -165,4 +169,3 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
         }
     }
 }
-

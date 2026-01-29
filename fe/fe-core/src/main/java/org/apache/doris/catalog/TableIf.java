@@ -450,8 +450,7 @@ public interface TableIf {
         HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE,
-        RECURSIVE_CTE_TEMP_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -494,8 +493,6 @@ public interface TableIf {
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
                     return "External_Doris";
-                case RECURSIVE_CTE_TEMP_TABLE:
-                    return "RecursiveCteTempTable";
                 default:
                     return null;
             }
@@ -535,7 +532,6 @@ public interface TableIf {
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
-                case RECURSIVE_CTE_TEMP_TABLE:
                     return "BASE TABLE";
                 default:
                     return null;

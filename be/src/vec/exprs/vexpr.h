@@ -38,7 +38,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
 #include "util/date_func.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -48,6 +47,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/cast/cast_to_string.h"
@@ -175,7 +175,8 @@ public:
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
-    virtual Status execute_runtime_filter(VExprContext* context, const Block* block, size_t count,
+    virtual Status execute_runtime_filter(VExprContext* context, const Block* block,
+                                          const uint8_t* __restrict filter, size_t count,
                                           ColumnPtr& result_column, ColumnPtr* arg_column) const {
         return execute_column(context, block, count, result_column);
     };

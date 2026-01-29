@@ -60,18 +60,6 @@ public:
         _detected_source = true;
     }
 
-    Status set_tablet_schema(int32_t target_node_id, TabletSchemaSPtr tablet_schema) {
-        std::unique_lock<std::shared_mutex> wlock(_rwlock);
-        check_target_node_id(target_node_id);
-        if (_contexts[target_node_id].tablet_schema) {
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(tablet_schema->have_column(_contexts[target_node_id].col_name));
-        _contexts[target_node_id].tablet_schema = tablet_schema;
-        DCHECK(_contexts[target_node_id].predicate != nullptr);
-        return Status::OK();
-    }
-
     std::shared_ptr<ColumnPredicate> get_predicate(int32_t target_node_id) {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         check_target_node_id(target_node_id);
@@ -130,14 +118,8 @@ private:
     struct TargetContext {
         TExpr expr;
         std::string col_name;
-        // TODO(gabriel): remove this
-        TabletSchemaSPtr tablet_schema;
+        vectorized::DataTypePtr col_data_type;
         std::shared_ptr<ColumnPredicate> predicate;
-
-        Result<int32_t> get_field_index() {
-            const auto& column = *DORIS_TRY(tablet_schema->column(col_name));
-            return tablet_schema->field_index(column.unique_id());
-        }
 
         bool target_is_slot() const {
             return expr.nodes[0].node_type == TExprNodeType::SLOT_REF &&

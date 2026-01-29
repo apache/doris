@@ -388,6 +388,8 @@ private:
     std::string _load_error_url;
     std::string _first_error_msg;
 
+    // file cache context holders
+    std::vector<io::BlockFileCache::QueryFileCacheContextHolderPtr> _query_context_holders;
     // instance id + node id -> cte scan
     std::map<std::pair<TUniqueId, int>, pipeline::RecCTEScanLocalState*> _cte_scan;
     std::mutex _cte_scan_lock;

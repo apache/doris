@@ -373,108 +373,99 @@ Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
-    _total_tasks = 0;
-    _closed_tasks = 0;
-    const auto target_size = _params.local_params.size();
-    _tasks.resize(target_size);
-    _runtime_filter_mgr_map.resize(target_size);
-    for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
-        _pip_id_to_pipeline[_pipelines[pip_idx]->id()] = _pipelines[pip_idx].get();
-    }
-    auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
-
-    auto pre_and_submit = [&](int i, PipelineFragmentContext* ctx) {
-        const auto& local_params = _params.local_params[i];
-        auto fragment_instance_id = local_params.fragment_instance_id;
-        auto runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(false);
-        std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
-        auto get_shared_state = [&](PipelinePtr pipeline)
-                -> std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
-                                           std::vector<std::shared_ptr<Dependency>>>> {
-            std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
-                                    std::vector<std::shared_ptr<Dependency>>>>
-                    shared_state_map;
-            for (auto& op : pipeline->operators()) {
-                auto source_id = op->operator_id();
-                if (auto iter = _op_id_to_shared_state.find(source_id);
-                    iter != _op_id_to_shared_state.end()) {
-                    shared_state_map.insert({source_id, iter->second});
-                }
-            }
-            for (auto sink_to_source_id : pipeline->sink()->dests_id()) {
-                if (auto iter = _op_id_to_shared_state.find(sink_to_source_id);
-                    iter != _op_id_to_shared_state.end()) {
-                    shared_state_map.insert({sink_to_source_id, iter->second});
-                }
-            }
-            return shared_state_map;
-        };
-
-        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
-            auto& pipeline = _pipelines[pip_idx];
-            if (pipeline->num_tasks() > 1 || i == 0) {
-                auto task_runtime_state = RuntimeState::create_unique(
-                        local_params.fragment_instance_id, _params.query_id, _params.fragment_id,
-                        _params.query_options, _query_ctx->query_globals, _exec_env,
-                        _query_ctx.get());
-                {
-                    // Initialize runtime state for this task
-                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
-
-                    task_runtime_state->set_task_execution_context(shared_from_this());
-                    task_runtime_state->set_be_number(local_params.backend_num);
-                    if (_need_notify_close) {
-                        // rec cte require child rf to wait infinitely to make sure all rpc done
-                        task_runtime_state->set_force_make_rf_wait_infinite();
-                    }
-
-                    if (_params.__isset.backend_id) {
-                        task_runtime_state->set_backend_id(_params.backend_id);
-                    }
-                    if (_params.__isset.import_label) {
-                        task_runtime_state->set_import_label(_params.import_label);
-                    }
-                    if (_params.__isset.db_name) {
-                        task_runtime_state->set_db_name(_params.db_name);
-                    }
-                    if (_params.__isset.load_job_id) {
-                        task_runtime_state->set_load_job_id(_params.load_job_id);
-                    }
-                    if (_params.__isset.wal_id) {
-                        task_runtime_state->set_wal_id(_params.wal_id);
-                    }
-                    if (_params.__isset.content_length) {
-                        task_runtime_state->set_content_length(_params.content_length);
-                    }
-
-                    task_runtime_state->set_desc_tbl(_desc_tbl);
-                    task_runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
-                    task_runtime_state->set_num_per_fragment_instances(_params.num_senders);
-                    task_runtime_state->resize_op_id_to_local_state(max_operator_id());
-                    task_runtime_state->set_max_operator_id(max_operator_id());
-                    task_runtime_state->set_load_stream_per_node(_params.load_stream_per_node);
-                    task_runtime_state->set_total_load_streams(_params.total_load_streams);
-                    task_runtime_state->set_num_local_sink(_params.num_local_sink);
-
-                    task_runtime_state->set_runtime_filter_mgr(runtime_filter_mgr.get());
-                }
-                auto cur_task_id = _total_tasks++;
-                task_runtime_state->set_task_id(cur_task_id);
-                task_runtime_state->set_task_num(pipeline->num_tasks());
-                auto task = std::make_shared<PipelineTask>(
-                        pipeline, cur_task_id, task_runtime_state.get(),
-                        std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
-                        pipeline_id_to_profile[pip_idx].get(), get_shared_state(pipeline), i);
-                pipeline->incr_created_tasks(i, task.get());
-                pipeline_id_to_task.insert({pipeline->id(), task.get()});
-                _tasks[i].emplace_back(
-                        std::pair<std::shared_ptr<PipelineTask>, std::unique_ptr<RuntimeState>> {
-                                std::move(task), std::move(task_runtime_state)});
+Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
+        int instance_idx,
+        const std::vector<std::shared_ptr<RuntimeProfile>>& pipeline_id_to_profile) {
+    const auto& local_params = _params.local_params[instance_idx];
+    auto fragment_instance_id = local_params.fragment_instance_id;
+    auto runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(false);
+    std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
+    auto get_shared_state = [&](PipelinePtr pipeline)
+            -> std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                       std::vector<std::shared_ptr<Dependency>>>> {
+        std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                std::vector<std::shared_ptr<Dependency>>>>
+                shared_state_map;
+        for (auto& op : pipeline->operators()) {
+            auto source_id = op->operator_id();
+            if (auto iter = _op_id_to_shared_state.find(source_id);
+                iter != _op_id_to_shared_state.end()) {
+                shared_state_map.insert({source_id, iter->second});
             }
         }
+        for (auto sink_to_source_id : pipeline->sink()->dests_id()) {
+            if (auto iter = _op_id_to_shared_state.find(sink_to_source_id);
+                iter != _op_id_to_shared_state.end()) {
+                shared_state_map.insert({sink_to_source_id, iter->second});
+            }
+        }
+        return shared_state_map;
+    };
 
-        /**
+    for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+        auto& pipeline = _pipelines[pip_idx];
+        if (pipeline->num_tasks() > 1 || instance_idx == 0) {
+            auto task_runtime_state = RuntimeState::create_unique(
+                    local_params.fragment_instance_id, _params.query_id, _params.fragment_id,
+                    _params.query_options, _query_ctx->query_globals, _exec_env, _query_ctx.get());
+            {
+                // Initialize runtime state for this task
+                task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
+
+                task_runtime_state->set_task_execution_context(shared_from_this());
+                task_runtime_state->set_be_number(local_params.backend_num);
+                if (_need_notify_close) {
+                    // rec cte require child rf to wait infinitely to make sure all rpc done
+                    task_runtime_state->set_force_make_rf_wait_infinite();
+                }
+
+                if (_params.__isset.backend_id) {
+                    task_runtime_state->set_backend_id(_params.backend_id);
+                }
+                if (_params.__isset.import_label) {
+                    task_runtime_state->set_import_label(_params.import_label);
+                }
+                if (_params.__isset.db_name) {
+                    task_runtime_state->set_db_name(_params.db_name);
+                }
+                if (_params.__isset.load_job_id) {
+                    task_runtime_state->set_load_job_id(_params.load_job_id);
+                }
+                if (_params.__isset.wal_id) {
+                    task_runtime_state->set_wal_id(_params.wal_id);
+                }
+                if (_params.__isset.content_length) {
+                    task_runtime_state->set_content_length(_params.content_length);
+                }
+
+                task_runtime_state->set_desc_tbl(_desc_tbl);
+                task_runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
+                task_runtime_state->set_num_per_fragment_instances(_params.num_senders);
+                task_runtime_state->resize_op_id_to_local_state(max_operator_id());
+                task_runtime_state->set_max_operator_id(max_operator_id());
+                task_runtime_state->set_load_stream_per_node(_params.load_stream_per_node);
+                task_runtime_state->set_total_load_streams(_params.total_load_streams);
+                task_runtime_state->set_num_local_sink(_params.num_local_sink);
+
+                task_runtime_state->set_runtime_filter_mgr(runtime_filter_mgr.get());
+            }
+            auto cur_task_id = _total_tasks++;
+            task_runtime_state->set_task_id(cur_task_id);
+            task_runtime_state->set_task_num(pipeline->num_tasks());
+            auto task = std::make_shared<PipelineTask>(
+                    pipeline, cur_task_id, task_runtime_state.get(),
+                    std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
+                    pipeline_id_to_profile[pip_idx].get(), get_shared_state(pipeline),
+                    instance_idx);
+            pipeline->incr_created_tasks(instance_idx, task.get());
+            pipeline_id_to_task.insert({pipeline->id(), task.get()});
+            _tasks[instance_idx].emplace_back(
+                    std::pair<std::shared_ptr<PipelineTask>, std::unique_ptr<RuntimeState>> {
+                            std::move(task), std::move(task_runtime_state)});
+        }
+    }
+
+    /**
          * Build DAG for pipeline tasks.
          * For example, we have
          *
@@ -491,47 +482,59 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
          * Finally, we have two upstream dependencies in Pipeline1 corresponding to JoinProbeOperator1
          * and JoinProbeOperator2.
          */
-        for (auto& _pipeline : _pipelines) {
-            if (pipeline_id_to_task.contains(_pipeline->id())) {
-                auto* task = pipeline_id_to_task[_pipeline->id()];
-                DCHECK(task != nullptr);
+    for (auto& _pipeline : _pipelines) {
+        if (pipeline_id_to_task.contains(_pipeline->id())) {
+            auto* task = pipeline_id_to_task[_pipeline->id()];
+            DCHECK(task != nullptr);
 
-                // If this task has upstream dependency, then inject it into this task.
-                if (_dag.contains(_pipeline->id())) {
-                    auto& deps = _dag[_pipeline->id()];
-                    for (auto& dep : deps) {
-                        if (pipeline_id_to_task.contains(dep)) {
-                            auto ss = pipeline_id_to_task[dep]->get_sink_shared_state();
-                            if (ss) {
-                                task->inject_shared_state(ss);
-                            } else {
-                                pipeline_id_to_task[dep]->inject_shared_state(
-                                        task->get_source_shared_state());
-                            }
+            // If this task has upstream dependency, then inject it into this task.
+            if (_dag.contains(_pipeline->id())) {
+                auto& deps = _dag[_pipeline->id()];
+                for (auto& dep : deps) {
+                    if (pipeline_id_to_task.contains(dep)) {
+                        auto ss = pipeline_id_to_task[dep]->get_sink_shared_state();
+                        if (ss) {
+                            task->inject_shared_state(ss);
+                        } else {
+                            pipeline_id_to_task[dep]->inject_shared_state(
+                                    task->get_source_shared_state());
                         }
                     }
                 }
             }
         }
-        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
-            if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
-                auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
-                DCHECK(pipeline_id_to_profile[pip_idx]);
-                std::vector<TScanRangeParams> scan_ranges;
-                auto node_id = _pipelines[pip_idx]->operators().front()->node_id();
-                if (local_params.per_node_scan_ranges.contains(node_id)) {
-                    scan_ranges = local_params.per_node_scan_ranges.find(node_id)->second;
-                }
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
-                        scan_ranges, local_params.sender_id, _params.fragment.output_sink));
+    }
+    for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+        if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
+            auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
+            DCHECK(pipeline_id_to_profile[pip_idx]);
+            std::vector<TScanRangeParams> scan_ranges;
+            auto node_id = _pipelines[pip_idx]->operators().front()->node_id();
+            if (local_params.per_node_scan_ranges.contains(node_id)) {
+                scan_ranges = local_params.per_node_scan_ranges.find(node_id)->second;
             }
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(scan_ranges, local_params.sender_id,
+                                                             _params.fragment.output_sink));
         }
-        {
-            std::lock_guard<std::mutex> l(_state_map_lock);
-            _runtime_filter_mgr_map[i] = std::move(runtime_filter_mgr);
-        }
-        return Status::OK();
-    };
+    }
+    {
+        std::lock_guard<std::mutex> l(_state_map_lock);
+        _runtime_filter_mgr_map[instance_idx] = std::move(runtime_filter_mgr);
+    }
+    return Status::OK();
+}
+
+Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
+    _total_tasks = 0;
+    _closed_tasks = 0;
+    const auto target_size = _params.local_params.size();
+    _tasks.resize(target_size);
+    _runtime_filter_mgr_map.resize(target_size);
+    for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+        _pip_id_to_pipeline[_pipelines[pip_idx]->id()] = _pipelines[pip_idx].get();
+    }
+    auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
+
     if (target_size > 1 &&
         (_runtime_state->query_options().__isset.parallel_prepare_threshold &&
          target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
@@ -543,7 +546,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
         for (int i = 0; i < target_size; i++) {
             submit_status = thread_pool->submit_func([&, i]() {
                 SCOPED_ATTACH_TASK(_query_ctx.get());
-                prepare_status[i] = pre_and_submit(i, this);
+                prepare_status[i] = _build_pipeline_tasks_for_instance(i, pipeline_id_to_profile);
                 latch.count_down();
             });
             if (LIKELY(submit_status.ok())) {
@@ -563,7 +566,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
         }
     } else {
         for (int i = 0; i < target_size; i++) {
-            RETURN_IF_ERROR(pre_and_submit(i, this));
+            RETURN_IF_ERROR(_build_pipeline_tasks_for_instance(i, pipeline_id_to_profile));
         }
     }
     _pipeline_parent_map.clear();
