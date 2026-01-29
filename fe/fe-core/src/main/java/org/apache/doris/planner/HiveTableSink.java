@@ -169,12 +169,8 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
     private String createTempPath(String location) {
         String user = ConnectContext.get().getCurrentUserIdentity().getUser();
-        String defaultStagingBaseDir = ".doris_staging";
         String stagingBaseDir = targetTable.getCatalog().getCatalogProperty()
-                .getOrDefault(HMSExternalCatalog.HIVE_STAGING_DIR, defaultStagingBaseDir);
-        if (Strings.isNullOrEmpty(stagingBaseDir)) {
-            stagingBaseDir = defaultStagingBaseDir;
-        }
+                .getOrDefault(HMSExternalCatalog.HIVE_STAGING_DIR, HMSExternalCatalog.DEFAULT_STAGING_BASE_DIR);
         String stagingDir = new Path(stagingBaseDir, user).toString();
         return LocationPath.getTempWritePath(location, stagingDir);
     }
