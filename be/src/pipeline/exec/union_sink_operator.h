@@ -134,14 +134,10 @@ public:
         local_state._shared_state->data_queue.set_low_memory_mode();
     }
 
-    bool is_shuffled_operator() const override {
-        return _followed_by_shuffled_operator;
-    }
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
-    int _get_first_materialized_child_idx() const {
-        return _first_materialized_child_idx;
-    }
+    int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
@@ -159,9 +155,7 @@ private:
     const int _child_size;
     const std::vector<TExpr> _distribute_exprs;
     const bool _require_bucket_distribution;
-    int children_count() const {
-        return _child_size;
-    }
+    int children_count() const { return _child_size; }
     bool is_child_passthrough(int child_idx) const {
         DCHECK_LT(child_idx, _child_size);
         return child_idx < _first_materialized_child_idx;
