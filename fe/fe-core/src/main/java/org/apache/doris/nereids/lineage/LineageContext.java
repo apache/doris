@@ -26,16 +26,21 @@ import java.util.Map;
  */
 public class LineageContext {
 
+    public static final long UNKNOWN_TIMESTAMP_MS = -1L;
+    public static final long UNKNOWN_DURATION_MS = -1L;
+
     private Class<? extends Command> sourceCommand;
     private String queryId;
     private String queryText;
     private String user;
+    private String clientIp;
+    private String state;
     // Current session database for the query context; not necessarily the target table database.
     private String database;
     // Current session catalog for the query context; not necessarily the target table catalog.
     private String catalog;
-    private long timestampMs;
-    private long durationMs;
+    private long timestampMs = UNKNOWN_TIMESTAMP_MS;
+    private long durationMs = UNKNOWN_DURATION_MS;
     // External catalog properties referenced by the query (sanitized).
     private Map<String, Map<String, String>> externalCatalogProperties;
 
@@ -49,14 +54,14 @@ public class LineageContext {
      * Create a lineage context with query metadata.
      */
     public LineageContext(Class<? extends Command> sourceCommand, String queryId, String queryText, String user,
-            String database, long timestampMs, long durationMs) {
+                          String database, long timestampMs, long durationMs) {
         this.sourceCommand = sourceCommand;
         this.queryId = queryId;
         this.queryText = queryText;
         this.user = user;
         this.database = database;
-        this.timestampMs = timestampMs;
-        this.durationMs = durationMs;
+        this.timestampMs = normalizeTimestamp(timestampMs);
+        this.durationMs = normalizeDuration(durationMs);
     }
 
     /**
@@ -116,6 +121,34 @@ public class LineageContext {
     }
 
     /**
+     * Get the client ip.
+     */
+    public String getClientIp() {
+        return clientIp;
+    }
+
+    /**
+     * Set the client ip.
+     */
+    public void setClientIp(String clientIp) {
+        this.clientIp = clientIp;
+    }
+
+    /**
+     * Get the query state.
+     */
+    public String getState() {
+        return state;
+    }
+
+    /**
+     * Set the query state.
+     */
+    public void setState(String state) {
+        this.state = state;
+    }
+
+    /**
      * Get the database name.
      */
     public String getDatabase() {
@@ -154,7 +187,7 @@ public class LineageContext {
      * Set the event timestamp in milliseconds.
      */
     public void setTimestampMs(long timestampMs) {
-        this.timestampMs = timestampMs;
+        this.timestampMs = normalizeTimestamp(timestampMs);
     }
 
     /**
@@ -168,7 +201,15 @@ public class LineageContext {
      * Set the query duration in milliseconds.
      */
     public void setDurationMs(long durationMs) {
-        this.durationMs = durationMs;
+        this.durationMs = normalizeDuration(durationMs);
+    }
+
+    private long normalizeTimestamp(long timestampMs) {
+        return timestampMs < 0 ? UNKNOWN_TIMESTAMP_MS : timestampMs;
+    }
+
+    private long normalizeDuration(long durationMs) {
+        return durationMs < 0 ? UNKNOWN_DURATION_MS : durationMs;
     }
 
     /**
@@ -193,6 +234,8 @@ public class LineageContext {
                 + ", database='" + database + '\''
                 + ", catalog='" + catalog + '\''
                 + ", user='" + user + '\''
+                + ", clientIp='" + clientIp + '\''
+                + ", state='" + state + '\''
                 + ", timestampMs=" + timestampMs
                 + ", durationMs=" + durationMs
                 + ", externalCatalogProperties=" + externalCatalogProperties

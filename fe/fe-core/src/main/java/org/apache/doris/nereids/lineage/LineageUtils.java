@@ -59,7 +59,6 @@ public final class LineageUtils {
     private static final String CATALOG_TYPE_KEY = "type";
     private static final int NO_PLUGINS = 0;
     private static final long UNKNOWN_START_TIME_MS = 0L;
-    private static final long UNKNOWN_DURATION_MS = 0L;
 
     private LineageUtils() {
     }
@@ -95,7 +94,7 @@ public final class LineageUtils {
      * @param executor statement executor for query text
      */
     public static LineageInfo buildLineageInfo(Plan plan, Class<? extends Command> sourceCommand,
-            ConnectContext ctx, StmtExecutor executor) {
+                                               ConnectContext ctx, StmtExecutor executor) {
         if (plan == null || ctx == null) {
             return null;
         }
@@ -103,8 +102,15 @@ public final class LineageUtils {
         if (LOG.isDebugEnabled()) {
             startNs = System.nanoTime();
         }
+        long eventTimeMs = System.currentTimeMillis();
+        long durationMs = LineageContext.UNKNOWN_DURATION_MS;
+        long startTimeMs = ctx.getStartTime();
+        if (startTimeMs > UNKNOWN_START_TIME_MS) {
+            long elapsed = eventTimeMs - startTimeMs;
+            durationMs = elapsed >= 0 ? elapsed : LineageContext.UNKNOWN_DURATION_MS;
+        }
         LineageInfo lineageInfo = LineageInfoExtractor.extractLineageInfo(plan);
-        LineageContext context = buildLineageContext(sourceCommand, ctx, executor);
+        LineageContext context = buildLineageContext(sourceCommand, ctx, executor, eventTimeMs, durationMs);
         String catalog = safeString(ctx.getDefaultCatalog());
         context.setCatalog(catalog);
         context.setExternalCatalogProperties(collectExternalCatalogProperties(lineageInfo));
@@ -138,8 +144,8 @@ public final class LineageUtils {
      * @param currentHandleClass current command class
      */
     public static void submitLineageEventIfNeeded(StmtExecutor executor, Optional<Plan> lineagePlan,
-                                            LogicalPlan currentPlan,
-                                            Class<? extends Command> currentHandleClass) {
+                                                  LogicalPlan currentPlan,
+                                                  Class<? extends Command> currentHandleClass) {
         if (!isLineagePluginConfigured()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Skip lineage: no plugin configured");
@@ -282,7 +288,7 @@ public final class LineageUtils {
     }
 
     private static LineageContext buildLineageContext(Class<? extends Command> sourceCommand, ConnectContext ctx,
-            StmtExecutor executor) {
+            StmtExecutor executor, long timestampMs, long durationMs) {
         String queryId = ctx.queryId() == null ? EMPTY_STRING : DebugUtil.printId(ctx.queryId());
         String queryText = executor == null ? EMPTY_STRING : executor.getOriginStmtInString();
         Map<String, String> connectAttributes = ctx.getConnectAttributes();
@@ -292,11 +298,11 @@ public final class LineageUtils {
         }
         String user = safeString(ctx.getQualifiedUser());
         String database = safeString(ctx.getDatabase());
-        long timestampMs = System.currentTimeMillis();
-        long durationMs = ctx.getStartTime() > UNKNOWN_START_TIME_MS
-                ? (timestampMs - ctx.getStartTime())
-                : UNKNOWN_DURATION_MS;
-        return new LineageContext(sourceCommand, queryId, queryText, user, database, timestampMs, durationMs);
+        LineageContext lineageContext =
+                new LineageContext(sourceCommand, queryId, queryText, user, database, timestampMs, durationMs);
+        lineageContext.setClientIp(safeString(ctx.getClientIP()));
+        lineageContext.setState(ctx.getState() == null ? EMPTY_STRING : ctx.getState().getStateType().name());
+        return lineageContext;
     }
 
     private static boolean isLineagePluginConfigured() {
