@@ -224,9 +224,7 @@ public:
     }
 
     bool is_colocated_operator() const override { return _is_colocate; }
-    bool is_shuffled_operator() const override {
-        return !_partition_by_eq_expr_ctxs.empty();
-    }
+    bool is_shuffled_operator() const override { return !_partition_by_eq_expr_ctxs.empty(); }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 

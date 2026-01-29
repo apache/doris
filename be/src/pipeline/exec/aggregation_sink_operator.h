@@ -135,9 +135,7 @@ public:
 
 #ifdef BE_TEST
     AggSinkOperatorX()
-            : DataSinkOperatorX<AggSinkLocalState>(1, 0, 2),
-              _is_first_phase(),
-              _is_colocate() {}
+            : DataSinkOperatorX<AggSinkLocalState>(1, 0, 2), _is_first_phase(), _is_colocate() {}
 #endif
 
     ~AggSinkOperatorX() override = default;
