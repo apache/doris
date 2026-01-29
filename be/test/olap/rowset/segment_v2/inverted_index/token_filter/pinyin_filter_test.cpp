@@ -761,4 +761,104 @@ TEST_F(PinyinFilterTest, TestTokenFilter_NonChineseCJK) {
     EXPECT_EQ(tokens2[0], "한글") << "Korean hangul should be preserved as-is";
 }
 
+TEST_F(PinyinFilterTest, TestBugFix_SpaceHandlingWithKeywordTokenizer) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_joined_full_pinyin"] = "true";
+    config["keep_none_chinese"] = "true";
+    config["keep_none_chinese_in_joined_full_pinyin"] = "true";
+    config["none_chinese_pinyin_tokenize"] = "false";
+    config["keep_original"] = "false";
+    config["keep_first_letter"] = "false";
+    config["keep_full_pinyin"] = "false";
+    config["lowercase"] = "false";
+    config["trim_whitespace"] = "false";
+    config["ignore_pinyin_offset"] = "true";
+
+    // Test case 1: Pure English with space
+    // Before fix: ["ALF", "Characters"] - space triggered buffer processing
+    // After fix: ["ALFCharacters"] - space is skipped, buffer continues accumulating
+    auto tokens1 = tokenizeWithFilter("ALF Characters", "keyword", config);
+    EXPECT_EQ(tokens1.size(), 1) << "Should produce one token (space should not split)";
+    EXPECT_EQ(tokens1[0], "ALFCharacters") << "Space should be ignored in joined output";
+
+    // Test case 2: English with multiple spaces
+    auto tokens2 = tokenizeWithFilter("Hello   World", "keyword", config);
+    EXPECT_EQ(tokens2.size(), 1) << "Multiple spaces should not split tokens";
+    EXPECT_EQ(tokens2[0], "HelloWorld") << "All spaces should be ignored";
+
+    // Test case 3: Mixed with punctuation
+    auto tokens3 = tokenizeWithFilter("Test-Case_123", "keyword", config);
+    EXPECT_EQ(tokens3.size(), 1) << "Punctuation should not split tokens";
+    EXPECT_EQ(tokens3[0], "TestCase123") << "Non-alphanumeric ASCII chars should be ignored";
+}
+
+// Test Bug #1: Space handling with Chinese-English mixed content
+TEST_F(PinyinFilterTest, TestBugFix_SpaceHandlingWithMixedContent) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_joined_full_pinyin"] = "true";
+    config["keep_none_chinese"] = "true";
+    config["keep_none_chinese_in_joined_full_pinyin"] = "true";
+    config["none_chinese_pinyin_tokenize"] = "false";
+    config["keep_original"] = "false";
+    config["keep_first_letter"] = "false";
+    config["keep_full_pinyin"] = "false";
+    config["lowercase"] = "true";
+    config["ignore_pinyin_offset"] = "true";
+
+    // Chinese-English mixed with spaces
+    // The space should be ignored, English letters should be preserved in joined output
+    auto tokens = tokenizeWithFilter("ALF 刘德华", "keyword", config);
+    EXPECT_GT(tokens.size(), 0) << "Should produce tokens";
+
+    // Check that English and pinyin are joined together
+    bool found_joined = false;
+    for (const auto& token : tokens) {
+        if (token.find("alf") != std::string::npos && token.find("liu") != std::string::npos) {
+            found_joined = true;
+            EXPECT_EQ(token, "alfliudehua") << "English and pinyin should be joined, space ignored";
+            break;
+        }
+    }
+    EXPECT_TRUE(found_joined) << "Should find joined English+Pinyin token";
+}
+
+// Test Bug #2: Fallback mechanism for pure English text
+// When keep_none_chinese=false and input is pure English, should preserve original token (ES behavior)
+TEST_F(PinyinFilterTest, TestBugFix_PureEnglishFallback) {
+    std::unordered_map<std::string, std::string> config;
+    config["keep_none_chinese"] = "false"; // Don't generate separate English tokens
+    config["keep_original"] = "false";
+    config["keep_first_letter"] = "false";
+    config["keep_full_pinyin"] = "false";
+    config["keep_joined_full_pinyin"] = "true";
+    config["ignore_pinyin_offset"] = "true";
+    config["lowercase"] = "false";       // Preserve original case for testing
+    config["trim_whitespace"] = "false"; // Preserve original whitespace
+    // CRITICAL: Must set these to false to trigger fallback correctly
+    config["keep_none_chinese_in_first_letter"] = "false";
+    config["keep_none_chinese_in_joined_full_pinyin"] = "false";
+
+    // Test case 1: Pure English text (no Chinese to convert)
+    // Before fix: [] - token was dropped because:
+    //   1. processCurrentToken() returned false (early return removed in fix #1)
+    //   2. Fallback checked first_letters_.empty() instead of will_output (fixed in this commit)
+    // After fix: ["Lanky Kong"] - original token preserved via improved fallback mechanism
+    //   The fallback now checks if ANY content WILL BE OUTPUT, not just if buffers have content
+    auto tokens1 = tokenizeWithFilter("Lanky Kong", "keyword", config);
+    EXPECT_EQ(tokens1.size(), 1) << "Pure English should be preserved via fallback";
+    EXPECT_EQ(tokens1[0], "Lanky Kong") << "Original token should be returned";
+
+    // Test case 2: Another pure English example
+    // ES behavior: fallback preserves original text INCLUDING spaces
+    // (trim_whitespace only removes leading/trailing, not middle spaces)
+    auto tokens2 = tokenizeWithFilter("ALF Characters", "keyword", config);
+    EXPECT_EQ(tokens2.size(), 1) << "Pure English with space should be preserved";
+    EXPECT_EQ(tokens2[0], "ALF Characters") << "Original token preserved as-is (ES behavior)";
+
+    // Test case 3: Pure numbers
+    auto tokens3 = tokenizeWithFilter("12345", "keyword", config);
+    EXPECT_EQ(tokens3.size(), 1) << "Pure numbers should be preserved";
+    EXPECT_EQ(tokens3[0], "12345");
+}
+
 } // namespace doris::segment_v2::inverted_index
