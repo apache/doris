@@ -95,7 +95,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
     }
 
@@ -154,39 +154,17 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
         }
-        LOG.info("Job {} read split records with offset: {}", baseReq.getJobId(), offsetMeta);
-
-        //  If there is an active split being consumed, reuse it directly;
-        //  Otherwise, create a new snapshot/stream split based on offset and start the reader.
-        SourceSplitBase split = null;
-        SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
-        if (currentSplitRecords == null) {
-            Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-            if (baseReq.isReload() || currentReader == null) {
-                LOG.info(
-                        "No current reader or reload {}, create new split reader for job {}",
-                        baseReq.isReload(),
-                        baseReq.getJobId());
-                // build split
-                Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
-                split = splitFlag.f0;
-                // closeBinlogReader();
-                currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
-                this.setCurrentSplitRecords(currentSplitRecords);
-                this.setCurrentSplit(split);
-            } else if (currentReader instanceof IncrementalSourceStreamFetcher) {
-                LOG.info("Continue poll records with current binlog reader");
-                // only for binlog reader
-                currentSplitRecords = pollSplitRecordsWithCurrentReader(currentReader);
-                split = this.getCurrentSplit();
-            } else {
-                throw new RuntimeException("Should not happen");
-            }
-        } else {
-            LOG.info(
-                    "Continue read records with current split records, splitId: {}",
-                    currentSplitRecords.getSplitId());
-        }
+        // Create a new snapshot/stream split based on offset and start the reader.
+        LOG.info(
+                "Create new split reader for job {} with offset {}",
+                baseReq.getJobId(),
+                offsetMeta);
+        // build split
+        Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
+        SourceSplitBase split = splitFlag.f0;
+        // it's necessary to ensure that the binlog reader is already closed.
+        this.currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
+        this.currentSplit = split;
 
         // build response with iterator
         SplitReadResult result = new SplitReadResult();

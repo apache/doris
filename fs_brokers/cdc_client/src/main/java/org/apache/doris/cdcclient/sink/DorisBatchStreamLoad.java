@@ -90,10 +90,10 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
     @Setter private String currentTaskId;
     private String targetDb;
-    private long jobId;
+    private String jobId;
     @Setter private String token;
 
-    public DorisBatchStreamLoad(long jobId, String targetDb) {
+    public DorisBatchStreamLoad(String jobId, String targetDb) {
         this.hostPort = Env.getCurrentEnv().getBackendHostPort();
         this.flushQueue = new LinkedBlockingDeque<>(1);
         // maxBlockedBytes is two times of FLUSH_MAX_BYTE_SIZE
@@ -311,9 +311,9 @@ public class DorisBatchStreamLoad implements Serializable {
     class LoadAsyncExecutor implements Runnable {
 
         private int flushQueueSize;
-        private long jobId;
+        private String jobId;
 
-        public LoadAsyncExecutor(int flushQueueSize, long jobId) {
+        public LoadAsyncExecutor(int flushQueueSize, String jobId) {
             this.flushQueueSize = flushQueueSize;
             this.jobId = jobId;
         }
