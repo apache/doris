@@ -79,10 +79,13 @@ private:
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
+    // _float_array is used to buffer the float data before training/adding to vector index
+    // if we dont do this, the performance(recall) will be very poor when adding small number of vectors one by one
     vectorized::PODArray<float> _float_array;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
+    bool _need_save_index = false;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -50,6 +50,7 @@
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_iterator.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_reader.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -759,6 +760,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 has_ann_index, has_common_expr_push_down, has_column_predicate);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
 
@@ -772,6 +774,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                     "Asc topn for inner product can not be evaluated by ann index");
             // Disable index-only scan on ann indexed column.
             _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
     } else {
@@ -779,6 +782,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
             VLOG_DEBUG << fmt::format("Desc topn for l2/cosine can not be evaluated by ann index");
             // Disable index-only scan on ann indexed column.
             _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
     }
@@ -791,6 +795,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 metric_to_string(ann_index_reader->get_metric_type()));
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
 
@@ -804,11 +809,30 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 pre_size, rows_of_segment);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
         return Status::OK();
     }
     vectorized::IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
+
+    // Try to load ANN index before search
+    auto ann_index_iterator_casted =
+            dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
+    if (ann_index_iterator_casted == nullptr) {
+        VLOG_DEBUG << "Failed to cast index iterator to AnnIndexIterator, fallback to brute force";
+        _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
+    }
+
+    if (!ann_index_iterator_casted->try_load_index()) {
+        VLOG_DEBUG << "Failed to load ANN index, fallback to brute force search";
+        _need_read_data_indices[src_cid] = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
+    }
+
     RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
                                                                   rows_of_segment, result_column,
                                                                   result_row_ids, ann_index_stats));

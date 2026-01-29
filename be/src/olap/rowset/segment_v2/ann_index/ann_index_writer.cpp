@@ -127,6 +127,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
             RETURN_IF_ERROR(
                     _vector_index->add(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
             _float_array.clear();
+            _need_save_index = true;
         }
     }
 
@@ -151,16 +152,45 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
+    vectorized::Int64 min_train_rows = _vector_index->get_min_train_rows();
+
+    // Check if we have enough rows to train the index
     // train/add the remaining data
-    if (!_float_array.empty()) {
+    if (_float_array.empty()) {
+        if (_need_save_index) {
+            return _vector_index->save(_dir.get());
+        } else {
+            LOG_ERROR("No remaining data to train/add and index is already saved.");
+            return Status::OK();
+        }
+    } else {
         DCHECK(_float_array.size() % _vector_index->get_dimension() == 0);
         vectorized::Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
-        RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
-        RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
-        _float_array.clear();
+
+        if (num_rows >= min_train_rows) {
+            RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
+            RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
+            return _vector_index->save(_dir.get());
+        } else {
+            // It happens to have not enough data to train.
+            // If we have data to add before, we still need to save the index.
+            if (_need_save_index) {
+                RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
+                return _vector_index->save(_dir.get());
+            } else {
+                // Not enough data to train and no data added before.
+                // Means this is a very small segment, we can skip the index building.
+                LOG_INFO(
+                        "Remaining data size {} is less than minimum {} rows required for ANN "
+                        "index "
+                        "training. Skipping index building for this segment.",
+                        _float_array.size(), min_train_rows * _vector_index->get_dimension());
+                return Status::OK();
+            }
+        }
     }
 
-    return _vector_index->save(_dir.get());
+    return Status::OK();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

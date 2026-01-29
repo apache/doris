@@ -209,6 +209,16 @@ public:
     doris::Status add(vectorized::Int64 n, const float* vec) override;
 
     /**
+     * @brief Returns the minimum number of rows required for training the index.
+     *
+     * For IVF index types, this returns ivf_nlist (the number of clusters).
+     * For HNSW, this returns 0 as it doesn't require minimum training data.
+     *
+     * @return Minimum number of rows required for training
+     */
+    vectorized::Int64 get_min_train_rows() const override;
+
+    /**
      * @brief Sets the build parameters for the index.
      *
      * This method must be called before adding vectors or performing searches.
