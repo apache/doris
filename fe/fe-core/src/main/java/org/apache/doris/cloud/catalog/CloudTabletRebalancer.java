@@ -1070,9 +1070,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
+                if (olapTable.getState() == OlapTable.OlapTableState.RESTORE) {
+                    continue;
+                }
                 table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
+                        if (partition.getState() == Partition.PartitionState.RESTORE) {
+                            continue;
+                        }
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             for (Map.Entry<String, List<Long>> entry : clusterToBes.entrySet()) {
                                 String cluster = entry.getKey();
