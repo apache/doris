@@ -83,14 +83,12 @@ public:
 
     friend class UnionSinkLocalState;
     UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
-                       const TPlanNode& tnode, const DescriptorTbl& descs,
-                       bool require_bucket_distribution);
+                       const TPlanNode& tnode, const DescriptorTbl& descs);
 #ifdef BE_TEST
     UnionSinkOperatorX(int child_size, int cur_child_id, int first_materialized_child_idx)
             : _first_materialized_child_idx(first_materialized_child_idx),
               _cur_child_id(cur_child_id),
-              _child_size(child_size),
-              _require_bucket_distribution(false) {}
+              _child_size(child_size) {}
 #endif
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
@@ -134,8 +132,6 @@ public:
         local_state._shared_state->data_queue.set_low_memory_mode();
     }
 
-    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
-
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
 
@@ -154,7 +150,6 @@ private:
     const int _cur_child_id;
     const int _child_size;
     const std::vector<TExpr> _distribute_exprs;
-    const bool _require_bucket_distribution;
     int children_count() const { return _child_size; }
     bool is_child_passthrough(int child_idx) const {
         DCHECK_LT(child_idx, _child_size);

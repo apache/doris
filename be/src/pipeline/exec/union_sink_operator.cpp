@@ -54,8 +54,7 @@ Status UnionSinkLocalState::open(RuntimeState* state) {
 }
 
 UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
-                                       const TPlanNode& tnode, const DescriptorTbl& descs,
-                                       bool require_bucket_distribution)
+                                       const TPlanNode& tnode, const DescriptorTbl& descs)
         : Base(sink_id, tnode.node_id, dest_id),
           _first_materialized_child_idx(
                   cast_set<int>(tnode.union_node.first_materialized_child_idx)),
@@ -64,8 +63,7 @@ UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, int dest_id, O
           _child_size(tnode.num_children),
           _distribute_exprs(tnode.__isset.distribute_expr_lists
                                     ? tnode.distribute_expr_lists[child_id]
-                                    : std::vector<TExpr> {}),
-          _require_bucket_distribution(require_bucket_distribution) {
+                                    : std::vector<TExpr> {}) {
     DCHECK(!tnode.__isset.distribute_expr_lists || tnode.distribute_expr_lists.size() > child_id);
 }
 

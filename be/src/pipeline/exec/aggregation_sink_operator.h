@@ -131,14 +131,13 @@ protected:
 class AggSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<AggSinkLocalState> {
 public:
     AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
-                     const DescriptorTbl& descs, bool require_bucket_distribution);
+                     const DescriptorTbl& descs);
 
 #ifdef BE_TEST
     AggSinkOperatorX()
             : DataSinkOperatorX<AggSinkLocalState>(1, 0, 2),
               _is_first_phase(),
-              _is_colocate(),
-              _require_bucket_distribution() {}
+              _is_colocate() {}
 #endif
 
     ~AggSinkOperatorX() override = default;
@@ -148,6 +147,8 @@ public:
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override;
 
     Status prepare(RuntimeState* state) override;
 
@@ -160,7 +161,7 @@ public:
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(
                                      state);
         }
-        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
+        return _is_colocate && _require_bucket_distribution
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
@@ -222,9 +223,8 @@ protected:
     std::vector<int> _null_directions;
 
     bool _have_conjuncts;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
-    const bool _require_bucket_distribution;
     RowDescriptor _agg_fn_output_row_descriptor;
 };
 

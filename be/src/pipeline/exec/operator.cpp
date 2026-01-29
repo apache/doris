@@ -562,6 +562,11 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 
@@ -660,6 +665,11 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 
