@@ -2740,7 +2740,10 @@ public class SessionVariable implements Serializable, Writable {
             }, checker = "checkSkewRewriteAggBucketNum")
     public int skewRewriteAggBucketNum = 1024;
 
-    @VariableMgr.VarAttr(name = AGG_SHUFFLE_USE_PARENT_KEY, needForward = false)
+    @VariableMgr.VarAttr(name = AGG_SHUFFLE_USE_PARENT_KEY, description = {
+            "在聚合算子进行 shuffle 时，是否使用父节点的分组键进行 shuffle",
+            "Whether to use the parent node's grouping key for shuffling during the aggregation operator"
+    }, needForward = false)
     public boolean aggShuffleUseParentKey = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
