@@ -634,17 +634,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
     echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
 
-    if [[ -z "${ENABLE_PAIMON_CPP:-}" ]]; then
-        ENABLE_PAIMON_CPP=ON
-    fi
-    if [[ "${ENABLE_PAIMON_CPP}" == "ON" && -z "${PAIMON_HOME:-}" ]]; then
-        _paimon_default_home="${DORIS_THIRDPARTY}/installed/paimon-cpp"
-        if [[ -f "${_paimon_default_home}/lib/cmake/Paimon/PaimonConfig.cmake" ]]; then
-            PAIMON_HOME="${_paimon_default_home}"
-        fi
-        unset _paimon_default_home
-    fi
-
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
     "${CMAKE_CMD}" -G "${GENERATOR}" \
@@ -675,8 +664,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
-        ${ENABLE_PAIMON_CPP:+-DENABLE_PAIMON_CPP="${ENABLE_PAIMON_CPP}"} \
-        ${PAIMON_HOME:+-DPAIMON_HOME="${PAIMON_HOME}"} \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
