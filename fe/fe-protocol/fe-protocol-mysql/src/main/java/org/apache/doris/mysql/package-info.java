@@ -17,58 +17,58 @@
 
 /**
  * MySQL Protocol Implementation Package.
- * 
+ *
  * <h2>Overview</h2>
  * <p>This package contains the MySQL wire protocol implementation for Apache Doris.
  * It provides all the necessary classes to handle MySQL client connections, including
  * packet serialization, capability negotiation, and command handling.
- * 
+ *
  * <h2>Package Contents</h2>
  * <ul>
  *   <li><b>Protocol Definitions</b>
  *     <ul>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlCapability} - Capability flags</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlCommand} - Protocol commands</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlServerStatusFlag} - Server status flags</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlColType} - Column type codes</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlCapability} - Capability flags</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlCommand} - Protocol commands</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlServerStatusFlag} - Server status flags</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlColType} - Column type codes</li>
  *     </ul>
  *   </li>
  *   <li><b>Packet Classes</b>
  *     <ul>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlPacket} - Base packet class</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlHandshakePacket} - Server handshake</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlAuthPacket} - Client auth response</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlAuthSwitchPacket} - Auth switch request</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlOkPacket} - OK response</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlErrPacket} - Error response</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlEofPacket} - EOF marker</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlClearTextPacket} - Clear text password</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlSslPacket} - SSL request</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlColDef} - Column definition</li>
- *       <li>{@link org.apache.doris.protocol.mysql.FieldInfo} - Column metadata</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlPacket} - Base packet class</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlHandshakePacket} - Server handshake</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlAuthPacket} - Client auth response</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlAuthSwitchPacket} - Auth switch request</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlOkPacket} - OK response</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlErrPacket} - Error response</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlEofPacket} - EOF marker</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlClearTextPacket} - Clear text password</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlSslPacket} - SSL request</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlColDef} - Column definition</li>
+ *       <li>{@link org.apache.doris.mysql.FieldInfo} - Column metadata</li>
  *     </ul>
  *   </li>
  *   <li><b>Serialization &amp; Protocol Utilities</b>
  *     <ul>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlSerializer} - Protocol serializer</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlProto} - Protocol read utilities</li>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlPassword} - Password handling</li>
- *       <li>{@link org.apache.doris.protocol.mysql.BytesChannel} - Channel interface</li>
- *       <li>{@link org.apache.doris.protocol.mysql.SslEngineHelper} - SSL utilities</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlSerializer} - Protocol serializer</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlProto} - Protocol read utilities</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlPassword} - Password handling</li>
+ *       <li>{@link org.apache.doris.mysql.BytesChannel} - Channel interface</li>
+ *       <li>{@link org.apache.doris.mysql.SslEngineHelper} - SSL utilities</li>
  *     </ul>
  *   </li>
  *   <li><b>SPI Implementation</b>
  *     <ul>
- *       <li>{@link org.apache.doris.protocol.mysql.MysqlProtocolHandler} - Protocol handler</li>
+ *       <li>{@link org.apache.doris.mysql.MysqlProtocolHandler} - Protocol handler</li>
  *     </ul>
  *   </li>
  * </ul>
- * 
+ *
  * <h2>Migration from fe-core</h2>
  * <p>Classes in this package are the canonical protocol definitions. The original
  * classes in {@code org.apache.doris.mysql} (fe-core) are kept for backward compatibility
  * and may extend or delegate to these classes.
- * 
+ *
  * <h3>Mapping Table</h3>
  * <table border="1">
  *   <tr><th>Protocol Module (New)</th><th>fe-core (Legacy)</th></tr>
@@ -77,7 +77,7 @@
  *   <tr><td>{@code o.a.d.protocol.mysql.MysqlPacket}</td><td>{@code o.a.d.mysql.MysqlPacket}</td></tr>
  *   <tr><td>{@code o.a.d.protocol.mysql.MysqlSerializer}</td><td>{@code o.a.d.mysql.MysqlSerializer}</td></tr>
  * </table>
- * 
+ *
  * <h2>Backward Compatibility</h2>
  * <p>This package guarantees:
  * <ul>
@@ -86,20 +86,20 @@
  *   <li>Handshake protocol unchanged</li>
  *   <li>All MySQL commands supported</li>
  * </ul>
- * 
+ *
  * <h2>Usage</h2>
  * <pre>{@code
  * // Creating a serializer
  * MysqlSerializer serializer = MysqlSerializer.newInstance();
- * 
+ *
  * // Writing protocol data
  * serializer.writeInt4(12345);
  * serializer.writeLenEncodedString("Hello");
- * 
+ *
  * // Getting the byte buffer
  * ByteBuffer buffer = serializer.toByteBuffer();
  * }</pre>
- * 
+ *
  * @since 2.0.0
  */
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;

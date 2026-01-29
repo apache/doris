@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
@@ -71,13 +70,12 @@ public class ConnectScheduler {
         this.maxConnections = maxConnections;
         numberConnection = new AtomicInteger(0);
         nextConnectionId = new AtomicInteger(0);
-        
+
         // Initialize MySQL connection pool manager
         this.connectPoolMgr = new ConnectPoolMgr(maxConnections);
-        
         // Initialize Arrow Flight SQL connection pool manager
         this.flightSqlConnectPoolMgr = new FlightSqlConnectPoolMgr(maxArrowFlightConnections);
-        
+
         checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000L, TimeUnit.MILLISECONDS);
     }
 

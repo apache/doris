@@ -168,7 +168,6 @@ under the License.
                         <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
                         <encoding>UTF-8</encoding>
                         <consoleOutput>true</consoleOutput>
-                        <skip>true</skip>
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>

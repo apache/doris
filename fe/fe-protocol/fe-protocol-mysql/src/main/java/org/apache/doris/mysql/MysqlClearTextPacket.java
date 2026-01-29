@@ -19,10 +19,21 @@ package org.apache.doris.mysql;
 
 import java.nio.ByteBuffer;
 
+/**
+ * MySQL Clear Text Password packet.
+ *
+ * <p>This packet is sent by the client when using the mysql_clear_password
+ * authentication plugin. The password is sent as a NULL-terminated string.
+ */
 public class MysqlClearTextPacket extends MysqlPacket {
 
     private String password = "";
 
+    /**
+     * Gets the password from the packet.
+     *
+     * @return clear text password
+     */
     public String getPassword() {
         return password;
     }
@@ -35,6 +46,6 @@ public class MysqlClearTextPacket extends MysqlPacket {
 
     @Override
     public void writeTo(MysqlSerializer serializer) {
-
+        // Not used - this packet is only read from client
     }
 }

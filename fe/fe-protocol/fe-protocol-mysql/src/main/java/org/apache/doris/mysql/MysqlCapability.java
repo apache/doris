@@ -15,25 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import java.util.EnumSet;
 
 /**
  * MySQL protocol capability flags.
- * 
+ *
  * <p>This class defines the capability flags used in the MySQL client/server protocol
  * handshake. These flags indicate which features are supported by the client and server.
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/group__group__cs__capabilities__flags.html
- * 
- * @since 2.0.0
  */
 public class MysqlCapability {
-    
-    /**
-     * Capability flag enumeration.
-     */
     public static enum Flag {
         CLIENT_LONG_PASSWORD(0x00000001, "CLIENT_LONG_PASSWORD"),
         CLIENT_FOUND_ROWS(0x00000002, "CLIENT_FOUND_ROWS"),
@@ -61,13 +55,13 @@ public class MysqlCapability {
         CLIENT_SESSION_TRACK(0x00800000, "CLIENT_SESSION_TRACK"),
         CLIENT_DEPRECATE_EOF(0x01000000, "CLIENT_DEPRECATE_EOF");
 
-        private final int flagBit;
-        private final String description;
-
-        Flag(int flagBit, String description) {
+        private Flag(int flagBit, String description) {
             this.flagBit = flagBit;
             this.description = description;
         }
+
+        private int flagBit;
+        private String description;
 
         public int getFlagBit() {
             return flagBit;
@@ -86,24 +80,16 @@ public class MysqlCapability {
     private static final EnumSet<Flag> FLAG_SET = EnumSet.allOf(Flag.class);
 
     private static final int DEFAULT_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
-            | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() 
-            | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
-            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() 
-            | Flag.CLIENT_LOCAL_FILES.getFlagBit() 
-            | Flag.CLIENT_LONG_FLAG.getFlagBit();
+            | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
+            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit() | Flag.CLIENT_LONG_FLAG
+            .getFlagBit();
 
     private static final int SSL_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
-            | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() 
-            | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
-            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() 
-            | Flag.CLIENT_LOCAL_FILES.getFlagBit()
-            | Flag.CLIENT_LONG_FLAG.getFlagBit() 
-            | Flag.CLIENT_SSL.getFlagBit();
+            | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
+            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit()
+            | Flag.CLIENT_LONG_FLAG.getFlagBit() | Flag.CLIENT_SSL.getFlagBit();
 
-    /** Default capability without SSL */
     public static final MysqlCapability DEFAULT_CAPABILITY = new MysqlCapability(DEFAULT_FLAGS);
-    
-    /** Capability with SSL support */
     public static final MysqlCapability SSL_CAPABILITY = new MysqlCapability(SSL_FLAGS);
 
     private int flags;
@@ -133,6 +119,7 @@ public class MysqlCapability {
                 idx++;
             }
         }
+
         return sb.toString();
     }
 
@@ -145,6 +132,7 @@ public class MysqlCapability {
     }
 
     public boolean isTransactions() {
+
         return (flags & Flag.CLIENT_TRANSACTIONS.getFlagBit()) != 0;
     }
 
@@ -189,11 +177,9 @@ public class MysqlCapability {
         if (!(obj instanceof MysqlCapability)) {
             return false;
         }
-        return flags == ((MysqlCapability) obj).flags;
-    }
-    
-    @Override
-    public int hashCode() {
-        return Integer.hashCode(flags);
+        if (flags != ((MysqlCapability) obj).flags) {
+            return false;
+        }
+        return true;
     }
 }

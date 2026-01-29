@@ -15,18 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 /**
  * MySQL column type codes.
- * 
+ *
  * <p>These codes are used in the column definition packets to indicate
  * the data type of a column. They correspond to the MySQL field types
  * as defined in mysql_com.h.
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/field__types_8h.html
- * 
- * @since 2.0.0
  */
 public enum MysqlColType {
     MYSQL_TYPE_DECIMAL(0),
@@ -69,7 +67,7 @@ public enum MysqlColType {
 
     /**
      * Gets the type code.
-     * 
+     *
      * @return MySQL type code
      */
     public int getCode() {
@@ -78,7 +76,7 @@ public enum MysqlColType {
 
     /**
      * Gets a type by its code.
-     * 
+     *
      * @param code MySQL type code
      * @return MysqlColType enum, or null if not found
      */

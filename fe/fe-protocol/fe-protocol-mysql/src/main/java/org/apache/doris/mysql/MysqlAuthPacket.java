@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
+
+import org.apache.doris.common.Config;
 
 import com.google.common.collect.Maps;
 
@@ -24,17 +26,15 @@ import java.util.Map;
 
 /**
  * MySQL Handshake Response (Authentication) packet.
- * 
+ *
  * <p>This packet is sent by the client in response to the server's handshake packet.
  * It contains the client's capability flags, authentication data, and optionally
  * the database name and connection attributes.
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_connection_phase_packets_protocol_handshake_response.html
- * 
- * @since 2.0.0
  */
+// MySQL protocol handshake response packet, which contain authenticate information.
 public class MysqlAuthPacket extends MysqlPacket {
-    
     private int maxPacketSize;
     private int characterSet;
     private String userName;
@@ -44,9 +44,6 @@ public class MysqlAuthPacket extends MysqlPacket {
     private MysqlCapability capability;
     private Map<String, String> connectAttributes;
     private byte[] randomString;
-    
-    // Optional: prefix for proxy authentication
-    private String proxyAuthMagicPrefix = null;
 
     public String getUser() {
         return userName;
@@ -75,56 +72,27 @@ public class MysqlAuthPacket extends MysqlPacket {
     public String getPluginName() {
         return pluginName;
     }
-    
-    public int getMaxPacketSize() {
-        return maxPacketSize;
-    }
-    
-    public int getCharacterSet() {
-        return characterSet;
-    }
-    
-    public Map<String, String> getConnectAttributes() {
-        return connectAttributes;
-    }
-    
-    /**
-     * Sets the proxy authentication magic prefix.
-     * If set, the reserved bytes will be checked for this prefix.
-     * 
-     * @param prefix the 3-character prefix to check
-     */
-    public void setProxyAuthMagicPrefix(String prefix) {
-        this.proxyAuthMagicPrefix = prefix;
-    }
 
     @Override
     public boolean readFrom(ByteBuffer buffer) {
-        // read capability four bytes, CLIENT_PROTOCOL_41 must be set
+        // read capability four byte, which CLIENT_PROTOCOL_41 must be set
         capability = new MysqlCapability(MysqlProto.readInt4(buffer));
         if (!capability.isProtocol41()) {
             return false;
         }
         // max packet size
         maxPacketSize = MysqlProto.readInt4(buffer);
-        // character set (only support 33 = utf-8)
+        // character set. only support 33(utf-8)?
         characterSet = MysqlProto.readInt1(buffer);
-        
         // reserved 23 bytes
-        // Check for proxy auth magic prefix in first 3 bytes
-        byte[] reserved3 = MysqlProto.readFixedString(buffer, 3);
-        if (proxyAuthMagicPrefix != null && new String(reserved3).equals(proxyAuthMagicPrefix)) {
+        if (new String(MysqlProto.readFixedString(buffer, 3)).equals(Config.proxy_auth_magic_prefix)) {
             randomString = new byte[MysqlPassword.SCRAMBLE_LENGTH];
             buffer.get(randomString);
         } else {
-            // Skip remaining 20 reserved bytes
             buffer.position(buffer.position() + 20);
         }
-        
-        // user name (NULL-terminated)
+        // user name
         userName = new String(MysqlProto.readNulTerminateString(buffer));
-        
-        // auth response
         if (capability.isPluginAuthDataLengthEncoded()) {
             authResponse = MysqlProto.readLenEncodedString(buffer);
         } else if (capability.isSecureConnection()) {
@@ -133,18 +101,16 @@ public class MysqlAuthPacket extends MysqlPacket {
         } else {
             authResponse = MysqlProto.readNulTerminateString(buffer);
         }
-        
-        // database (if CLIENT_CONNECT_WITH_DB is set)
+        // maybe no data anymore
+        // DB to use
         if (buffer.remaining() > 0 && capability.isConnectedWithDb()) {
             database = new String(MysqlProto.readNulTerminateString(buffer));
         }
-        
-        // plugin name (if CLIENT_PLUGIN_AUTH is set)
+        // plugin name to plugin
         if (buffer.remaining() > 0 && capability.isPluginAuth()) {
             pluginName = new String(MysqlProto.readNulTerminateString(buffer));
         }
-        
-        // connection attributes (if CLIENT_CONNECT_ATTRS is set)
+        // attribute map, no use now.
         if (buffer.remaining() > 0 && capability.isConnectAttrs()) {
             connectAttributes = Maps.newHashMap();
             long attrsLength = MysqlProto.readVInt(buffer);
@@ -156,11 +122,15 @@ public class MysqlAuthPacket extends MysqlPacket {
             }
         }
 
+        // Commented for JDBC
+        // if (buffer.remaining() != 0) {
+        //     return false;
+        // }
         return true;
     }
 
     @Override
     public void writeTo(MysqlSerializer serializer) {
-        // Auth packets are only read from client, not written
+
     }
 }

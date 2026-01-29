@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.mysql.BytesChannel;
 import org.apache.doris.mysql.ProxyProtocolHandler;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 

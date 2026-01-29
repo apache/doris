@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,39 +26,36 @@ import javax.net.ssl.SSLException;
 
 /**
  * Helper class for SSL engine operations.
- * 
+ *
  * <p>This class provides utility methods for handling SSL/TLS operations
  * in the MySQL protocol implementation.
- * 
- * @since 2.0.0
  */
 public final class SslEngineHelper {
-    
+
     private static final Logger LOG = LogManager.getLogger(SslEngineHelper.class);
-    
+
     private SslEngineHelper() {
         // Utility class
     }
 
     /**
      * Check if SSL engine operation has made progress when closed.
-     * 
-     * @param operation operation name for logging ("wrap" or "unwrap")
+     *
+     * @param operation       operation name for logging ("wrap" or "unwrap")
      * @param sslEngineResult the SSL engine result to check
-     * @param sslEngine the SSL engine instance
-     * @param closeInbound whether to close inbound (true for unwrap, false for wrap)
+     * @param sslEngine       the SSL engine instance
+     * @param closeInbound    whether to close inbound (true for unwrap, false for wrap)
      * @throws SSLException if no progress was made
      */
     public static void checkClosedProgress(String operation, SSLEngineResult sslEngineResult,
                                            SSLEngine sslEngine, boolean closeInbound) throws SSLException {
         int consumed = sslEngineResult.bytesConsumed();
         int produced = sslEngineResult.bytesProduced();
-        
+
         if (consumed == 0 && produced == 0) {
             LOG.warn("SSLEngine {} closed with no progress. status={}, handshake={}, "
                     + "bytesConsumed={}, bytesProduced={}", operation,
-                    sslEngineResult.getStatus(), sslEngineResult.getHandshakeStatus(),
-                    consumed, produced);
+                    sslEngineResult.getStatus(), sslEngineResult.getHandshakeStatus(), consumed, produced);
             if (closeInbound) {
                 try {
                     sslEngine.closeInbound();
@@ -68,10 +65,10 @@ public final class SslEngineHelper {
             }
             sslEngine.closeOutbound();
             throw new SSLException("SSL " + operation + " closed with no progress (handshakeStatus="
-                    + sslEngineResult.getHandshakeStatus() + ", bytesConsumed="
-                    + consumed + ", bytesProduced=" + produced + ")");
+                + sslEngineResult.getHandshakeStatus() + ", bytesConsumed="
+                + consumed + ", bytesProduced=" + produced + ")");
         }
-        
+
         if (closeInbound) {
             try {
                 sslEngine.closeInbound();

@@ -16,4 +16,4 @@
 # under the License.
 
 # MySQL Protocol Handler SPI Registration
-org.apache.doris.protocol.mysql.MysqlProtocolHandler
+org.apache.doris.mysql.MysqlProtocolHandler

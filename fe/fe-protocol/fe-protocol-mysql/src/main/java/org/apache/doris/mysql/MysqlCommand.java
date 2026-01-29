@@ -22,7 +22,14 @@ import com.google.common.collect.Maps;
 import java.util.EnumSet;
 import java.util.Map;
 
-// MySQL protocol text command
+/**
+ * MySQL protocol command types.
+ *
+ * <p>This enum defines all MySQL protocol commands as specified in the MySQL
+ * client/server protocol documentation. Reused by Arrow Flight SQL protocol.
+ *
+ * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_command_phase.html
+ */
 // Reused by arrow flight protocol
 public enum MysqlCommand {
     COM_SLEEP("Sleep", 0),

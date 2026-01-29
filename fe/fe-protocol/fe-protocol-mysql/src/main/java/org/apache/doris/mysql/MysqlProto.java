@@ -15,30 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import java.nio.ByteBuffer;
 
 /**
  * MySQL protocol utility functions.
- * 
+ *
  * <p>This class provides low-level byte reading functions for parsing
  * MySQL protocol packets. These are the building blocks for reading
  * integers, strings, and other data types from the wire protocol.
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_dt_integers.html
- * 
- * @since 2.0.0
  */
 public final class MysqlProto {
-    
+
     private MysqlProto() {
         // Utility class
     }
 
     /**
      * Reads a single byte from the buffer.
-     * 
+     *
      * @param buffer byte buffer
      * @return byte value
      */
@@ -48,9 +46,9 @@ public final class MysqlProto {
 
     /**
      * Reads a byte at a specific index without advancing position.
-     * 
+     *
      * @param buffer byte buffer
-     * @param index index to read from
+     * @param index  index to read from
      * @return byte value
      */
     public static byte readByteAt(ByteBuffer buffer, int index) {
@@ -59,7 +57,7 @@ public final class MysqlProto {
 
     /**
      * Reads a 1-byte unsigned integer (int<1>).
-     * 
+     *
      * @param buffer byte buffer
      * @return integer value (0-255)
      */
@@ -69,7 +67,7 @@ public final class MysqlProto {
 
     /**
      * Reads a 2-byte little-endian unsigned integer (int<2>).
-     * 
+     *
      * @param buffer byte buffer
      * @return integer value
      */
@@ -79,45 +77,45 @@ public final class MysqlProto {
 
     /**
      * Reads a 3-byte little-endian unsigned integer (int<3>).
-     * 
+     *
      * @param buffer byte buffer
      * @return integer value
      */
     public static int readInt3(ByteBuffer buffer) {
-        return (readByte(buffer) & 0xFF) 
-                | ((readByte(buffer) & 0xFF) << 8) 
-                | ((readByte(buffer) & 0xFF) << 16);
+        return (readByte(buffer) & 0xFF)
+            | ((readByte(buffer) & 0xFF) << 8)
+            | ((readByte(buffer) & 0xFF) << 16);
     }
 
     /**
      * Reads the lowest 4 bytes from buffer start without advancing position.
-     * 
+     *
      * @param buffer byte buffer
      * @return integer value
      */
     public static int readLowestInt4(ByteBuffer buffer) {
-        return (readByteAt(buffer, 0) & 0xFF) 
-                | ((readByteAt(buffer, 1) & 0xFF) << 8) 
-                | ((readByteAt(buffer, 2) & 0xFF) << 16) 
-                | ((readByteAt(buffer, 3) & 0XFF) << 24);
+        return (readByteAt(buffer, 0) & 0xFF)
+            | ((readByteAt(buffer, 1) & 0xFF) << 8)
+            | ((readByteAt(buffer, 2) & 0xFF) << 16)
+            | ((readByteAt(buffer, 3) & 0XFF) << 24);
     }
 
     /**
      * Reads a 4-byte little-endian integer (int<4>).
-     * 
+     *
      * @param buffer byte buffer
      * @return integer value
      */
     public static int readInt4(ByteBuffer buffer) {
-        return (readByte(buffer) & 0xFF) 
-                | ((readByte(buffer) & 0xFF) << 8) 
-                | ((readByte(buffer) & 0xFF) << 16) 
-                | ((readByte(buffer) & 0XFF) << 24);
+        return (readByte(buffer) & 0xFF)
+            | ((readByte(buffer) & 0xFF) << 8)
+            | ((readByte(buffer) & 0xFF) << 16)
+            | ((readByte(buffer) & 0XFF) << 24);
     }
 
     /**
      * Reads a 6-byte little-endian integer (int<6>).
-     * 
+     *
      * @param buffer byte buffer
      * @return long value
      */
@@ -127,7 +125,7 @@ public final class MysqlProto {
 
     /**
      * Reads an 8-byte little-endian integer (int<8>).
-     * 
+     *
      * @param buffer byte buffer
      * @return long value
      */
@@ -137,7 +135,7 @@ public final class MysqlProto {
 
     /**
      * Reads a length-encoded integer (int<lenenc>).
-     * 
+     *
      * @param buffer byte buffer
      * @return long value
      */
@@ -164,9 +162,9 @@ public final class MysqlProto {
 
     /**
      * Reads a fixed-length string (string<fix>).
-     * 
+     *
      * @param buffer byte buffer
-     * @param len string length
+     * @param len    string length
      * @return byte array containing the string
      */
     public static byte[] readFixedString(ByteBuffer buffer, int len) {
@@ -177,7 +175,7 @@ public final class MysqlProto {
 
     /**
      * Reads an EOF-terminated string (string<EOF>).
-     * 
+     *
      * @param buffer byte buffer
      * @return byte array containing the string
      */
@@ -189,7 +187,7 @@ public final class MysqlProto {
 
     /**
      * Reads a length-encoded string (string<lenenc>).
-     * 
+     *
      * @param buffer byte buffer
      * @return byte array containing the string
      */
@@ -202,7 +200,7 @@ public final class MysqlProto {
 
     /**
      * Reads a NULL-terminated string (string<NUL>).
-     * 
+     *
      * @param buffer byte buffer
      * @return byte array containing the string (without the NULL terminator)
      */

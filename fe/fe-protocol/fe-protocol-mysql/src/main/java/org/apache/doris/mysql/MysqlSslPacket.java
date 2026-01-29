@@ -15,20 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import java.nio.ByteBuffer;
 
 /**
  * MySQL SSL Connection Request packet.
- * 
+ *
  * <p>This packet is sent by the client when it wants to establish an SSL connection.
  * It contains capability flags, max packet size, and character set, but not
  * the full authentication data (that comes after SSL handshake).
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_connection_phase_packets_protocol_ssl_request.html
- * 
- * @since 2.0.0
  */
 public class MysqlSslPacket extends MysqlPacket {
 
@@ -36,29 +34,29 @@ public class MysqlSslPacket extends MysqlPacket {
     private int characterSet;
     private byte[] randomString;
     private MysqlCapability capability;
-    
+
     // Optional: prefix for proxy authentication
     private String proxyAuthMagicPrefix = null;
-    
+
     public int getMaxPacketSize() {
         return maxPacketSize;
     }
-    
+
     public int getCharacterSet() {
         return characterSet;
     }
-    
+
     public byte[] getRandomString() {
         return randomString;
     }
-    
+
     public MysqlCapability getCapability() {
         return capability;
     }
-    
+
     /**
      * Sets the proxy authentication magic prefix.
-     * 
+     *
      * @param prefix the 3-character prefix to check
      */
     public void setProxyAuthMagicPrefix(String prefix) {
@@ -76,7 +74,7 @@ public class MysqlSslPacket extends MysqlPacket {
         maxPacketSize = MysqlProto.readInt4(buffer);
         // character set (only support 33 = utf-8)
         characterSet = MysqlProto.readInt1(buffer);
-        
+
         // reserved 23 bytes
         byte[] reserved3 = MysqlProto.readFixedString(buffer, 3);
         if (proxyAuthMagicPrefix != null && new String(reserved3).equals(proxyAuthMagicPrefix)) {

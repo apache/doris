@@ -15,28 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import java.nio.ByteBuffer;
 
 /**
  * Base class for MySQL protocol packets.
- * 
+ *
  * <p>All MySQL protocol packets inherit from this class. The packet format
  * consists of a 4-byte header (3 bytes length + 1 byte sequence id) followed
  * by the packet payload.
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_packets.html
- * 
- * @since 2.0.0
  */
 public abstract class MysqlPacket {
-    
+
     /**
      * Reads packet content from a ByteBuffer.
-     * 
+     *
      * <p>This method is primarily used to read authentication packets from the client.
-     * 
+     *
      * @param buffer the byte buffer containing packet data
      * @return true if read was successful
      */
@@ -47,10 +45,10 @@ public abstract class MysqlPacket {
 
     /**
      * Writes packet content to a serializer.
-     * 
+     *
      * <p>This method must be implemented by all packet types to serialize
      * the packet content according to the MySQL protocol format.
-     * 
+     *
      * @param serializer the serializer to write packet data to
      */
     public abstract void writeTo(MysqlSerializer serializer);

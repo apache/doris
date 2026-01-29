@@ -17,13 +17,13 @@
 
 /**
  * Protocol SPI API Package.
- * 
+ *
  * <h2>Overview</h2>
  * <p>This package defines the Service Provider Interface (SPI) for database
  * protocol implementations in Apache Doris. The architecture allows multiple
  * protocols (MySQL, Arrow Flight SQL, PostgreSQL, etc.) to coexist and be
  * loaded dynamically.
- * 
+ *
  * <h2>Core Interfaces</h2>
  * <ul>
  *   <li>{@link org.apache.doris.protocol.ProtocolHandler} - Main protocol handler SPI</li>
@@ -31,7 +31,7 @@
  *   <li>{@link org.apache.doris.protocol.ProtocolContext} - Connection context</li>
  *   <li>{@link org.apache.doris.protocol.ProtocolLoader} - SPI loader utility</li>
  * </ul>
- * 
+ *
  * <h2>Design Principles</h2>
  * <ol>
  *   <li><strong>Protocol Independence</strong>: Each protocol is an independent module</li>
@@ -39,7 +39,7 @@
  *   <li><strong>Extensibility</strong>: New protocols can be added via SPI</li>
  *   <li><strong>Backward Compatibility</strong>: Existing protocol behavior is preserved</li>
  * </ol>
- * 
+ *
  * <h2>Module Structure</h2>
  * <pre>
  * fe-protocol/
@@ -47,7 +47,7 @@
  * ├── fe-protocol-mysql/      # MySQL protocol implementation
  * └── fe-protocol-arrowflight/ # Arrow Flight SQL implementation
  * </pre>
- * 
+ *
  * <h2>Adding a New Protocol</h2>
  * <ol>
  *   <li>Create a new module under fe-protocol/</li>
@@ -55,19 +55,19 @@
  *   <li>Register in META-INF/services/org.apache.doris.protocol.ProtocolHandler</li>
  *   <li>Add module dependency to fe-core</li>
  * </ol>
- * 
+ *
  * <h2>Usage Example</h2>
  * <pre>{@code
  * // In QeService (kernel)
  * ProtocolConfig config = new ProtocolConfig(mysqlPort, arrowFlightPort, scheduler);
  * List<ProtocolHandler> handlers = ProtocolLoader.loadConfiguredProtocols(config);
- * 
+ *
  * for (ProtocolHandler handler : handlers) {
  *     handler.setAcceptor(this::handleConnection);
  *     handler.start();
  * }
  * }</pre>
- * 
+ *
  * @since 2.0.0
  */
 package org.apache.doris.protocol;

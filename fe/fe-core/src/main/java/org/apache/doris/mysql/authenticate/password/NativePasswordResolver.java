@@ -18,11 +18,11 @@
 package org.apache.doris.mysql.authenticate.password;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.mysql.MysqlProto;
-import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlAuthPacket;
+import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
+import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.qe.ConnectContext;
 
 import java.io.IOException;
@@ -32,8 +32,8 @@ import java.util.Optional;
 public class NativePasswordResolver implements PasswordResolver {
     @Override
     public Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel, MysqlSerializer serializer,
-            MysqlAuthPacket authPacket,
-            MysqlHandshakePacket handshakePacket) throws IOException {
+                                              MysqlAuthPacket authPacket,
+                                              MysqlHandshakePacket handshakePacket) throws IOException {
         // Starting with MySQL 8.0.4, MySQL changed the default authentication plugin for MySQL client
         // from mysql_native_password to caching_sha2_password.
         // ref: https://mysqlserverteam.com/mysql-8-0-4-new-default-authentication-plugin-caching_sha2_password/

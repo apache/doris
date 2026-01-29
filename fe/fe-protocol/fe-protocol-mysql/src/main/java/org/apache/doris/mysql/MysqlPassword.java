@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,51 +28,57 @@ import java.util.Random;
 
 /**
  * MySQL password handling utilities.
- * 
+ *
  * <p>This class implements the MySQL native password authentication algorithm.
  * The algorithm uses SHA-1 hashing and XOR operations to create and verify
  * scrambled passwords without sending the actual password over the network.
- * 
+ *
  * <h3>Algorithm Overview:</h3>
  * <pre>
  * SERVER:  public_seed = create_random_string()
  *          send(public_seed)
- * 
+ *
  * CLIENT:  recv(public_seed)
  *          hash_stage1 = sha1("password")
  *          hash_stage2 = sha1(hash_stage1)
  *          reply = xor(hash_stage1, sha1(public_seed, hash_stage2))
  *          send(reply)
- * 
+ *
  * SERVER:  recv(reply)
  *          hash_stage1 = xor(reply, sha1(public_seed, hash_stage2))
  *          candidate_hash2 = sha1(hash_stage1)
  *          check(candidate_hash2 == hash_stage2)
  * </pre>
- * 
- * @since 2.0.0
  */
 public class MysqlPassword {
-    
+
     private static final Logger LOG = LogManager.getLogger(MysqlPassword.class);
-    
-    /** Empty password constant */
+
+    /**
+     * Empty password constant
+     */
     public static final byte[] EMPTY_PASSWORD = new byte[0];
-    
-    /** Length of the scramble string */
+
+    /**
+     * Length of the scramble string
+     */
     public static final int SCRAMBLE_LENGTH = 20;
-    
-    /** Length of the hex-encoded scramble string (with leading *) */
+
+    /**
+     * Length of the hex-encoded scramble string (with leading *)
+     */
     public static final int SCRAMBLE_LENGTH_HEX_LENGTH = 2 * SCRAMBLE_LENGTH + 1;
-    
-    /** Protocol version 4.1 password prefix character */
+
+    /**
+     * Protocol version 4.1 password prefix character
+     */
     public static final byte PVERSION41_CHAR = '*';
-    
+
     private static final byte[] DIG_VEC_UPPER = {
         '0', '1', '2', '3', '4', '5', '6', '7',
         '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
     };
-    
+
     private static final Random RANDOM = new SecureRandom();
 
     private MysqlPassword() {
@@ -81,7 +87,7 @@ public class MysqlPassword {
 
     /**
      * Creates a random string for the authentication challenge.
-     * 
+     *
      * @param len length of the random string
      * @return random byte array
      */
@@ -90,8 +96,7 @@ public class MysqlPassword {
         RANDOM.nextBytes(bytes);
         // NOTE: MySQL challenge string can't contain 0.
         for (int i = 0; i < len; ++i) {
-            if (!((bytes[i] >= 'a' && bytes[i] <= 'z')
-                    || (bytes[i] >= 'A' && bytes[i] <= 'Z'))) {
+            if (!((bytes[i] >= 'a' && bytes[i] <= 'z') || (bytes[i] >= 'A' && bytes[i] <= 'Z'))) {
                 bytes[i] = (byte) ('a' + (bytes[i] % 26));
             }
         }
@@ -114,9 +119,9 @@ public class MysqlPassword {
 
     /**
      * Verifies that a scrambled password matches the stored hash.
-     * 
-     * @param scramble the scrambled password from client
-     * @param message the random challenge string sent to client
+     *
+     * @param scramble   the scrambled password from client
+     * @param message    the random challenge string sent to client
      * @param hashStage2 the stored password hash (two-stage hash)
      * @return true if password is correct
      */
@@ -137,7 +142,7 @@ public class MysqlPassword {
         md.reset();
         md.update(hashStage1);
         byte[] candidateHash2 = md.digest();
-        
+
         // compare result2 and hashStage2
         return MessageDigest.isEqual(candidateHash2, hashStage2);
     }
@@ -145,8 +150,8 @@ public class MysqlPassword {
     /**
      * Creates a scrambled password from the seed and plain text password.
      * This is what the MySQL client sends to the server.
-     * 
-     * @param seed the random challenge from server
+     *
+     * @param seed     the random challenge from server
      * @param password the plain text password
      * @return scrambled password bytes
      */
@@ -171,7 +176,7 @@ public class MysqlPassword {
 
     /**
      * Creates the two-stage hash of a password for storage.
-     * 
+     *
      * @param password plain text password
      * @return two-stage SHA-1 hash
      */
@@ -204,8 +209,8 @@ public class MysqlPassword {
 
     private static int fromByte(int b) {
         return (b >= '0' && b <= '9') ? b - '0'
-                : (b >= 'A' && b <= 'F') ? b - 'A' + 10 
-                : b - 'a' + 10;
+            : (b >= 'A' && b <= 'F') ? b - 'A' + 10
+            : b - 'a' + 10;
     }
 
     /**
@@ -221,9 +226,9 @@ public class MysqlPassword {
 
     /**
      * Creates a scrambled password string for storage from plain text.
-     * 
+     *
      * <p>The format is: *[40 hex characters representing SHA1(SHA1(password))]
-     * 
+     *
      * @param plainPasswd plain text password
      * @return scrambled password bytes (41 bytes starting with '*')
      */
@@ -241,7 +246,7 @@ public class MysqlPassword {
 
     /**
      * Extracts the binary hash from a stored scrambled password.
-     * 
+     *
      * @param password stored password (hex format starting with '*')
      * @return binary hash (20 bytes)
      */
@@ -256,9 +261,9 @@ public class MysqlPassword {
 
     /**
      * Checks if a plain password matches a scrambled password.
-     * 
+     *
      * @param scrambledPass stored scrambled password
-     * @param plainPass plain text password to check
+     * @param plainPass     plain text password to check
      * @return true if passwords match
      */
     public static boolean checkPlainPass(byte[] scrambledPass, String plainPass) {
@@ -273,4 +278,116 @@ public class MysqlPassword {
         }
         return true;
     }
+
+    /**
+     * Validates a plain text password according to the specified policy.
+     *
+     * <p>Policy values:
+     * <ul>
+     *   <li>0: Disabled - no validation</li>
+     *   <li>2: STRONG - password must be at least 8 characters and contain
+     *       at least 3 types of: numbers, uppercase letters, lowercase letters,
+     *       and special characters</li>
+     * </ul>
+     *
+     * @param policy   the password validation policy (0 = disabled, 2 = STRONG)
+     * @param password the plain text password to validate
+     * @throws IllegalArgumentException if password does not meet policy requirements
+     */
+    public static void validatePlainPassword(long policy, String password) {
+        if (policy == 0) {
+            // Policy disabled, no validation
+            return;
+        }
+
+        if (policy == 2) {
+            // STRONG policy
+            if (password == null || password.length() < 8) {
+                throw new IllegalArgumentException(
+                    "Violate password validation policy: STRONG. The password must be at least 8 characters");
+            }
+
+            boolean hasDigit = false;
+            boolean hasUpper = false;
+            boolean hasLower = false;
+            boolean hasSpecial = false;
+
+            for (char c : password.toCharArray()) {
+                if (c >= '0' && c <= '9') {
+                    hasDigit = true;
+                } else if (c >= 'A' && c <= 'Z') {
+                    hasUpper = true;
+                } else if (c >= 'a' && c <= 'z') {
+                    hasLower = true;
+                } else {
+                    hasSpecial = true;
+                }
+            }
+
+            int typeCount = 0;
+            if (hasDigit) {
+                typeCount++;
+            }
+            if (hasUpper) {
+                typeCount++;
+            }
+            if (hasLower) {
+                typeCount++;
+            }
+            if (hasSpecial) {
+                typeCount++;
+            }
+
+            if (typeCount < 3) {
+                throw new IllegalArgumentException(
+                    "Violate password validation policy: STRONG. The password must contain "
+                    + "at least 3 types of numbers, uppercase letters, lowercase letters and special characters.");
+            }
+        } else {
+            throw new IllegalArgumentException("Unknown password validation policy: " + policy);
+        }
+    }
+
+    /**
+     * Validates and converts a scrambled password string to bytes.
+     *
+     * <p>The password string should be in the format: *[40 hex characters]
+     * representing SHA1(SHA1(password)).
+     *
+     * @param password scrambled password string (null or format: *[40 hex chars])
+     * @return password bytes (empty if input is null)
+     * @throws IllegalArgumentException if password format is invalid
+     */
+    public static byte[] checkPassword(String password) {
+        if (password == null || password.isEmpty()) {
+            return EMPTY_PASSWORD;
+        }
+
+        // Check length: should be 41 characters (* + 40 hex chars)
+        if (password.length() != SCRAMBLE_LENGTH_HEX_LENGTH) {
+            throw new IllegalArgumentException(
+                "Password length should be " + SCRAMBLE_LENGTH_HEX_LENGTH + " characters");
+        }
+
+        // Check first character should be '*'
+        if (password.charAt(0) != PVERSION41_CHAR) {
+            throw new IllegalArgumentException(
+                "Password should start with '*' character");
+        }
+
+        // Check remaining characters should be hex digits
+        byte[] passwordBytes = password.getBytes();
+        for (int i = 1; i < passwordBytes.length; i++) {
+            byte b = passwordBytes[i];
+            if (!((b >= '0' && b <= '9') || (b >= 'A' && b <= 'F') || (b >= 'a' && b <= 'f'))) {
+                throw new IllegalArgumentException(
+                    "Password contains invalid hex character at position " + i);
+            }
+        }
+
+        // Convert hex string to bytes
+        return passwordBytes;
+    }
 }
+
+

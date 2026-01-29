@@ -15,26 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import java.nio.ByteBuffer;
 
 /**
  * Interface for byte channel operations.
- * 
+ *
  * <p>This interface abstracts the byte reading operations needed by
  * the MySQL protocol implementation, allowing for different channel
  * implementations (socket-based, proxy, etc.).
- * 
- * @since 2.0.0
  */
 public interface BytesChannel {
-    
+
     /**
      * Reads bytes into the destination buffer.
-     * 
+     *
      * <p>This method will block until data is available or the channel is closed.
-     * 
+     *
      * @param dstBuf destination buffer
      * @return number of bytes read, or -1 if channel is closed
      */
@@ -42,11 +40,11 @@ public interface BytesChannel {
 
     /**
      * Tests if data can be read within a timeout.
-     * 
+     *
      * <p>This method attempts to read into the destination buffer with a timeout.
      * It's useful for checking if the client has sent data without blocking indefinitely.
-     * 
-     * @param dstBuf destination buffer (should have exactly 1 byte remaining)
+     *
+     * @param dstBuf    destination buffer (should have exactly 1 byte remaining)
      * @param timeoutMs timeout in milliseconds
      * @return number of bytes read, 0 if timeout, or -1 if channel is closed
      */

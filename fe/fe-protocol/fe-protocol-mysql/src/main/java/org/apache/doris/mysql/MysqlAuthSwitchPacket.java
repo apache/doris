@@ -15,44 +15,48 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 /**
  * MySQL Auth Switch Request packet.
- * 
+ *
  * <p>This packet is sent by the server to request the client to switch
  * to a different authentication method.
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_connection_phase_packets_protocol_auth_switch_request.html
- * 
- * @since 2.0.0
  */
 public class MysqlAuthSwitchPacket extends MysqlPacket {
-    
-    /** Status indicator for auth switch (0xFE) */
+
+    /**
+     * Status indicator for auth switch (0xFE)
+     */
     private static final int STATUS = 0xfe;
-    
-    /** Default authentication plugin name */
+
+    /**
+     * Default authentication plugin name
+     */
     private static final String DEFAULT_AUTH_PLUGIN_NAME = "mysql_clear_password";
-    
-    /** Default data (empty) */
+
+    /**
+     * Default data (empty)
+     */
     private static final String DEFAULT_DATA = "";
-    
+
     private final String authPluginName;
     private final String data;
-    
+
     /**
      * Creates an auth switch packet with default values.
      */
     public MysqlAuthSwitchPacket() {
         this(DEFAULT_AUTH_PLUGIN_NAME, DEFAULT_DATA);
     }
-    
+
     /**
      * Creates an auth switch packet with specified plugin and data.
-     * 
+     *
      * @param authPluginName authentication plugin name
-     * @param data plugin-specific data
+     * @param data           plugin-specific data
      */
     public MysqlAuthSwitchPacket(String authPluginName, String data) {
         this.authPluginName = authPluginName;
@@ -65,19 +69,19 @@ public class MysqlAuthSwitchPacket extends MysqlPacket {
         serializer.writeNulTerminateString(authPluginName);
         serializer.writeNulTerminateString(data);
     }
-    
+
     /**
      * Gets the authentication plugin name.
-     * 
+     *
      * @return plugin name
      */
     public String getAuthPluginName() {
         return authPluginName;
     }
-    
+
     /**
      * Gets the plugin-specific data.
-     * 
+     *
      * @return data string
      */
     public String getData() {

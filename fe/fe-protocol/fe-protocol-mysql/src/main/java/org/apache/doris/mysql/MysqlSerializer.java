@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.protocol.mysql;
+package org.apache.doris.mysql;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,24 +26,22 @@ import java.nio.ByteBuffer;
 
 /**
  * MySQL protocol serializer.
- * 
+ *
  * <p>This class provides methods for serializing data to the MySQL protocol
  * byte stream format. It handles the encoding of various MySQL data types
  * including integers, strings, and length-encoded values.
- * 
+ *
  * <p>Reference: https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_dt_integers.html
- * 
- * @since 2.0.0
  */
 public class MysqlSerializer {
     private static final Logger LOG = LogManager.getLogger(MysqlSerializer.class);
-    
+
     protected ByteArrayOutputStream out;
     protected MysqlCapability capability;
 
     /**
      * Creates a new serializer instance with default capability.
-     * 
+     *
      * @return new MysqlSerializer instance
      */
     public static MysqlSerializer newInstance() {
@@ -52,7 +50,7 @@ public class MysqlSerializer {
 
     /**
      * Creates a new serializer instance with specified capability.
-     * 
+     *
      * @param capability the MySQL capability flags
      * @return new MysqlSerializer instance
      */
@@ -67,7 +65,7 @@ public class MysqlSerializer {
 
     /**
      * Sets the capability after successful handshake.
-     * 
+     *
      * @param capability the MySQL capability flags
      */
     public void setCapability(MysqlCapability capability) {
@@ -76,7 +74,7 @@ public class MysqlSerializer {
 
     /**
      * Gets the current capability.
-     * 
+     *
      * @return MySQL capability flags
      */
     public MysqlCapability getCapability() {
@@ -85,7 +83,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a single byte.
-     * 
+     *
      * @param value byte value
      */
     public void writeByte(byte value) {
@@ -101,8 +99,8 @@ public class MysqlSerializer {
 
     /**
      * Writes bytes from an array.
-     * 
-     * @param value byte array
+     *
+     * @param value  byte array
      * @param offset start offset
      * @param length number of bytes to write
      */
@@ -119,7 +117,7 @@ public class MysqlSerializer {
 
     /**
      * Gets the serialized data as byte array.
-     * 
+     *
      * @return byte array
      */
     public byte[] toArray() {
@@ -128,7 +126,7 @@ public class MysqlSerializer {
 
     /**
      * Gets the serialized data as ByteBuffer.
-     * 
+     *
      * @return ByteBuffer
      */
     public ByteBuffer toByteBuffer() {
@@ -137,7 +135,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a byte array.
-     * 
+     *
      * @param value byte array
      */
     public void writeBytes(byte[] value) {
@@ -146,7 +144,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a 1-byte integer (int<1>).
-     * 
+     *
      * @param value integer value
      */
     public void writeInt1(int value) {
@@ -155,7 +153,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a 2-byte little-endian integer (int<2>).
-     * 
+     *
      * @param value integer value
      */
     public void writeInt2(int value) {
@@ -165,7 +163,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a 3-byte little-endian integer (int<3>).
-     * 
+     *
      * @param value integer value
      */
     public void writeInt3(int value) {
@@ -176,7 +174,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a 4-byte little-endian integer (int<4>).
-     * 
+     *
      * @param value integer value
      */
     public void writeInt4(int value) {
@@ -188,7 +186,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a 6-byte little-endian integer (int<6>).
-     * 
+     *
      * @param value long value
      */
     public void writeInt6(long value) {
@@ -198,7 +196,7 @@ public class MysqlSerializer {
 
     /**
      * Writes an 8-byte little-endian integer (int<8>).
-     * 
+     *
      * @param value long value
      */
     public void writeInt8(long value) {
@@ -208,7 +206,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a length-encoded integer (int<lenenc>).
-     * 
+     *
      * @param value long value
      */
     public void writeVInt(long value) {
@@ -228,7 +226,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a length-encoded string (string<lenenc>).
-     * 
+     *
      * @param value string value
      */
     public void writeLenEncodedString(String value) {
@@ -243,7 +241,7 @@ public class MysqlSerializer {
 
     /**
      * Writes length-encoded raw bytes without charset transcoding.
-     * 
+     *
      * @param buf byte array
      */
     public void writeLenEncodedBytes(byte[] buf) {
@@ -253,7 +251,7 @@ public class MysqlSerializer {
 
     /**
      * Writes an EOF-terminated string (string<EOF>).
-     * 
+     *
      * @param value string value
      */
     public void writeEofString(String value) {
@@ -267,7 +265,7 @@ public class MysqlSerializer {
 
     /**
      * Writes a NULL-terminated string (string<NUL>).
-     * 
+     *
      * @param value string value
      */
     public void writeNulTerminateString(String value) {
@@ -282,18 +280,18 @@ public class MysqlSerializer {
 
     /**
      * Writes a field definition with FieldInfo metadata.
-     * 
+     *
      * <p>This method writes the column definition in ColumnDefinition41 format.
-     * 
-     * @param fieldInfo field metadata
+     *
+     * @param fieldInfo     field metadata
      * @param mysqlTypeCode MySQL type code
-     * @param charsetIndex character set index
-     * @param columnLength column display length
-     * @param flags column flags
-     * @param decimals number of decimals
+     * @param charsetIndex  character set index
+     * @param columnLength  column display length
+     * @param flags         column flags
+     * @param decimals      number of decimals
      */
-    public void writeField(FieldInfo fieldInfo, int mysqlTypeCode, int charsetIndex, 
-            int columnLength, int flags, int decimals) {
+    public void writeField(FieldInfo fieldInfo, int mysqlTypeCode, int charsetIndex,
+                           int columnLength, int flags, int decimals) {
         // Catalog Name: length encoded string
         writeLenEncodedString("def");
         // Schema: length encoded string
@@ -321,19 +319,19 @@ public class MysqlSerializer {
         // filler: two byte integer
         writeInt2(0);
     }
-    
+
     /**
      * Writes a simple field definition with name only.
-     * 
-     * @param colName column name
+     *
+     * @param colName       column name
      * @param mysqlTypeCode MySQL type code
-     * @param charsetIndex character set index
-     * @param columnLength column display length
-     * @param flags column flags
-     * @param decimals number of decimals
+     * @param charsetIndex  character set index
+     * @param columnLength  column display length
+     * @param flags         column flags
+     * @param decimals      number of decimals
      */
     public void writeField(String colName, int mysqlTypeCode, int charsetIndex,
-            int columnLength, int flags, int decimals) {
+                           int columnLength, int flags, int decimals) {
         // Catalog Name: length encoded string
         writeLenEncodedString("def");
         // Schema: length encoded string
