@@ -424,8 +424,8 @@ struct TQueryOptions {
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
 
-
   185: optional bool enable_parquet_file_page_cache = true;
+  186: optional bool enable_aggregate_function_null_v2 = false;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

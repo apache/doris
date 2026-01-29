@@ -134,7 +134,7 @@ public:
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const override {
+                                 size_t num_rows) const {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = col.get_data().data();
         memcpy(places, data, sizeof(Data) * num_rows);
@@ -165,16 +165,6 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
             state.sum = typename PrimitiveTypeTraits<TResult>::CppType(src_data[i]);
-        }
-    }
-
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
-        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        const size_t num_rows = column.size();
-        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).sum += data[i].sum;
         }
     }
 

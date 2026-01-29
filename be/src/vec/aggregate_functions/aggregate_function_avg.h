@@ -235,7 +235,7 @@ public:
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const override {
+                                 size_t num_rows) const {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
         auto* data = col.get_data().data();
@@ -265,20 +265,6 @@ public:
             auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
             state.sum = typename Data::ResultType(src_data[i]);
             state.count = 1;
-        }
-    }
-
-    NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
-                                                                 const IColumn& column,
-                                                                 Arena&) const override {
-        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        const size_t num_rows = column.size();
-        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
-        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
-
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).sum += data[i].sum;
-            this->data(place).count += data[i].count;
         }
     }
 

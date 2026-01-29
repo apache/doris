@@ -187,17 +187,6 @@ public:
         }
     }
 
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
-        const auto& col = assert_cast<const ColumnBitmap&>(column);
-        const size_t num_rows = column.size();
-        const auto* data = col.get_data().data();
-
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).merge(data[i]);
-        }
-    }
-
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {
