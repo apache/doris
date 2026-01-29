@@ -247,7 +247,7 @@ static std::vector<std::string> _generate_sparse_jsons(size_t num_rows, size_t t
     return rows;
 }
 
-TEST(VariantUtilTest, DISABLED_PerfMaterializeDocsSparse) {
+TEST(VariantUtilTest, PerfMaterializeDocsSparse) {
     // Configuration: 100K rows, 500 distinct keys, 3 keys per row (~99.4% sparsity)
     constexpr size_t kNumRows = 100000;
     constexpr size_t kTotalKeys = 500;
@@ -276,8 +276,7 @@ TEST(VariantUtilTest, DISABLED_PerfMaterializeDocsSparse) {
     // Warmup
     for (int i = 0; i < kWarmupIters; ++i) {
         auto copy = variant_template->clone_resized(variant_template->size());
-        const auto& variant_ref =
-                assert_cast<const vectorized::ColumnVariant&>(*copy);
+        const auto& variant_ref = assert_cast<const vectorized::ColumnVariant&>(*copy);
         auto result = materialize_docs_to_subcolumns_map(variant_ref);
         ASSERT_GT(result.size(), 0);
     }
@@ -290,15 +289,13 @@ TEST(VariantUtilTest, DISABLED_PerfMaterializeDocsSparse) {
 
     for (int i = 0; i < kBenchIters; ++i) {
         auto copy = variant_template->clone_resized(variant_template->size());
-        const auto& variant_ref =
-                assert_cast<const vectorized::ColumnVariant&>(*copy);
+        const auto& variant_ref = assert_cast<const vectorized::ColumnVariant&>(*copy);
 
         auto start = std::chrono::high_resolution_clock::now();
         auto result = materialize_docs_to_subcolumns_map(variant_ref);
         auto end = std::chrono::high_resolution_clock::now();
 
-        int64_t elapsed =
-                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        int64_t elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
         total_ns += elapsed;
         min_ns = std::min(min_ns, elapsed);
         max_ns = std::max(max_ns, elapsed);
