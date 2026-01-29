@@ -128,7 +128,7 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
 
     // Initialize the instance data
     auto instance_data = std::make_unique<RpcInstance>(low_id);
-    instance_data->mutex = std::make_unique<std::mutex>();
+    instance_data->mutex = std::make_unique<bthread::Mutex>();
     instance_data->seq = 0;
     instance_data->package_queue =
             std::unordered_map<vectorized::Channel*,
@@ -170,7 +170,7 @@ Status ExchangeSinkBuffer::add_block(vectorized::Channel* channel, TransmitInfo&
     }
     bool send_now = false;
     {
-        std::unique_lock<std::mutex> lock(*instance_data.mutex);
+        std::unique_lock<bthread::Mutex> lock(*instance_data.mutex);
         // Do not have in process rpc, directly send
         if (instance_data.rpc_channel_is_idle) {
             send_now = true;
@@ -212,7 +212,7 @@ Status ExchangeSinkBuffer::add_block(vectorized::Channel* channel,
     }
     bool send_now = false;
     {
-        std::unique_lock<std::mutex> lock(*instance_data.mutex);
+        std::unique_lock<bthread::Mutex> lock(*instance_data.mutex);
         // Do not have in process rpc, directly send
         if (instance_data.rpc_channel_is_idle) {
             send_now = true;
@@ -232,7 +232,7 @@ Status ExchangeSinkBuffer::add_block(vectorized::Channel* channel,
 }
 
 Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
-    std::unique_lock<std::mutex> lock(*(instance_data.mutex));
+    std::unique_lock<bthread::Mutex> lock(*(instance_data.mutex));
 
     auto& q_map = instance_data.package_queue;
     auto& broadcast_q_map = instance_data.broadcast_package_queue;
@@ -518,7 +518,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
 }
 
 void ExchangeSinkBuffer::_ended(RpcInstance& ins) {
-    std::unique_lock<std::mutex> lock(*ins.mutex);
+    std::unique_lock<bthread::Mutex> lock(*ins.mutex);
     ins.running_sink_count--;
     if (ins.running_sink_count == 0) {
         _turn_off_channel(ins, lock);
@@ -533,7 +533,7 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
 }
 
 void ExchangeSinkBuffer::_set_receiver_eof(RpcInstance& ins) {
-    std::unique_lock<std::mutex> lock(*ins.mutex);
+    std::unique_lock<bthread::Mutex> lock(*ins.mutex);
     // When the receiving side reaches eof, it means the receiver has finished early.
     // The remaining data in the current rpc_channel does not need to be sent,
     // and the rpc_channel should be turned off immediately.
@@ -575,7 +575,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(RpcInstance& ins) {
 
 // The unused parameter `with_lock` is to ensure that the function is called when the lock is held.
 void ExchangeSinkBuffer::_turn_off_channel(RpcInstance& ins,
-                                           std::unique_lock<std::mutex>& /*with_lock*/) {
+                                           std::unique_lock<bthread::Mutex>& /*with_lock*/) {
     if (!ins.rpc_channel_is_idle) {
         ins.rpc_channel_is_idle = true;
     }
@@ -681,7 +681,7 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
 std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
     fmt::memory_buffer debug_string_buffer;
     for (auto& [id, instance_data] : _rpc_instances) {
-        std::unique_lock<std::mutex> lock(*instance_data->mutex);
+        std::unique_lock<bthread::Mutex> lock(*instance_data->mutex);
         auto queue_size = 0;
         for (auto& [_, list] : instance_data->package_queue) {
             queue_size += list.size();
