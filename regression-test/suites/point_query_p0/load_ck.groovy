@@ -120,15 +120,21 @@ suite("test_load_and_schema_change_row_store_ck", "p0") {
         CLUSTER BY(c_datev2, c_date, c_largeint, c_tinyint, c_varchar, c_char, c_datetimev2, c_int, c_decimalv3, k1, c_decimal)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+        PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "row_store_columns" = "k1,c_bool,c_tinyint,c_smallint,c_int,c_bigint,c_largeint,c_float,c_double,c_decimal,c_decimalv3,c_date,c_datetime,c_datev2,c_datetimev2,c_char,c_varchar,c_string"
+        );
         """
 
     wait_job_done.call(testTable)
     sql "INSERT INTO tbl_scalar_types_dup_ck_1 SELECT * from ${testTable}"
     sql """alter table tbl_scalar_types_dup_ck_1 set ("bloom_filter_columns" = "c_largeint")"""    
     wait_job_done.call("tbl_scalar_types_dup_ck_1")
-    sql """alter table tbl_scalar_types_dup_ck_1 set ("store_row_column" = "true")"""    
-    wait_job_done.call("tbl_scalar_types_dup_ck_1")
+    test {
+        sql """alter table tbl_scalar_types_dup_ck_1 set ("store_row_column" = "true")"""    
+        exception("Property store_row_column is not allowed to modify")
+    }
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_ck_1"
     sql """
          ALTER table tbl_scalar_types_dup_ck_1 ADD COLUMN new_column1 INT default "123";
@@ -141,22 +147,101 @@ suite("test_load_and_schema_change_row_store_ck", "p0") {
         sql("select /*+ SET_VAR(enable_nereids_planner=true)*/ * from tbl_scalar_types_dup_ck_1 where k1 = -2147303679")
         contains "SHORT-CIRCUIT"
     } 
-    sql """alter table tbl_scalar_types_dup_ck_1 set ("row_store_columns" = "k1,c_datetimev2")"""    
-    wait_job_done.call("tbl_scalar_types_dup_ck_1")
+    test {
+        sql """alter table tbl_scalar_types_dup_ck_1 set ("row_store_columns" = "k1,c_datetimev2")"""    
+        exception("Property row_store_columns is not allowed to modify")
+    }
+    sql """
+        DROP TABLE IF EXISTS tbl_scalar_types_dup_ck_1_tmp FORCE;
+        CREATE TABLE IF NOT EXISTS tbl_scalar_types_dup_ck_1_tmp (
+            `k1` bigint(11) NULL,
+            `c_bool` boolean NULL,
+            `c_tinyint` tinyint(4) NULL,
+            `c_smallint` smallint(6) NULL,
+            `c_int` int(11) NULL,
+            `c_bigint` bigint(20) NULL,
+            `c_largeint` largeint(40) NULL,
+            `c_float` float NULL,
+            `c_double` double NULL,
+            `c_decimal` decimal(20, 3) NULL,
+            `c_decimalv3` decimalv3(20, 3) NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
+            `c_datev2` datev2 NULL,
+            `c_datetimev2` datetimev2(0) NULL,
+            `c_char` char(15) NULL,
+            `c_varchar` varchar(100) NULL,
+            `c_string` text NULL,
+            `new_column1` int NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`)
+        CLUSTER BY(c_datev2, c_date, c_largeint, c_tinyint, c_varchar, c_char, c_datetimev2, c_int, c_decimalv3, k1, c_decimal)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "row_store_columns" = "k1,c_datetimev2"
+        );
+    """
+    sql """
+        INSERT INTO tbl_scalar_types_dup_ck_1_tmp
+        SELECT k1,c_bool,c_tinyint,c_smallint,c_int,c_bigint,c_largeint,c_float,c_double,c_decimal,c_decimalv3,c_date,c_datetime,c_datev2,c_datetimev2,c_char,c_varchar,c_string,new_column1
+        FROM tbl_scalar_types_dup_ck_1
+    """
+    sql "DROP TABLE IF EXISTS tbl_scalar_types_dup_ck_1 FORCE"
+    sql "ALTER TABLE tbl_scalar_types_dup_ck_1_tmp RENAME tbl_scalar_types_dup_ck_1"
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_ck_1"
-    // TODO
-    //test {
-    //    sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ * from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
-    //    exception("Not support column store")
-    //}
     explain {
         sql("select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_datetimev2 from tbl_scalar_types_dup_ck_1 where k1 = -2147303679")
         contains "SHORT-CIRCUIT"
     } 
     qt_sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_datetimev2 from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
 
-    sql """alter table tbl_scalar_types_dup_ck_1 set ("row_store_columns" = "k1,c_decimalv3")"""    
-    wait_job_done.call("tbl_scalar_types_dup_ck_1")
+    test {
+        sql """alter table tbl_scalar_types_dup_ck_1 set ("row_store_columns" = "k1,c_decimalv3")"""    
+        exception("Property row_store_columns is not allowed to modify")
+    }
+    sql """
+        DROP TABLE IF EXISTS tbl_scalar_types_dup_ck_1_tmp2 FORCE;
+        CREATE TABLE IF NOT EXISTS tbl_scalar_types_dup_ck_1_tmp2 (
+            `k1` bigint(11) NULL,
+            `c_bool` boolean NULL,
+            `c_tinyint` tinyint(4) NULL,
+            `c_smallint` smallint(6) NULL,
+            `c_int` int(11) NULL,
+            `c_bigint` bigint(20) NULL,
+            `c_largeint` largeint(40) NULL,
+            `c_float` float NULL,
+            `c_double` double NULL,
+            `c_decimal` decimal(20, 3) NULL,
+            `c_decimalv3` decimalv3(20, 3) NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
+            `c_datev2` datev2 NULL,
+            `c_datetimev2` datetimev2(0) NULL,
+            `c_char` char(15) NULL,
+            `c_varchar` varchar(100) NULL,
+            `c_string` text NULL,
+            `new_column1` int NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`)
+        CLUSTER BY(c_datev2, c_date, c_largeint, c_tinyint, c_varchar, c_char, c_datetimev2, c_int, c_decimalv3, k1, c_decimal)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "row_store_columns" = "k1,c_decimalv3"
+        );
+    """
+    sql """
+        INSERT INTO tbl_scalar_types_dup_ck_1_tmp2
+        SELECT k1,c_bool,c_tinyint,c_smallint,c_int,c_bigint,c_largeint,c_float,c_double,c_decimal,c_decimalv3,c_date,c_datetime,c_datev2,c_datetimev2,c_char,c_varchar,c_string,new_column1
+        FROM tbl_scalar_types_dup_ck_1
+    """
+    sql "DROP TABLE IF EXISTS tbl_scalar_types_dup_ck_1 FORCE"
+    sql "ALTER TABLE tbl_scalar_types_dup_ck_1_tmp2 RENAME tbl_scalar_types_dup_ck_1"
     test {
         sql "select /*+ SET_VAR(enable_nereids_planner=true, enable_short_circuit_query_access_column_store=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_ck_1 where k1 = -2147303679"
         exception("Not support column store")
