@@ -559,7 +559,7 @@ public class Profile {
 
     /**
      * Build the execution summary section for YAML output.
-     * Uses the RuntimeProfile's toStructuredMap() to preserve hierarchy.
+     * Extracts info_strings and children to top level, preserving hierarchy.
      */
     private Map<String, Object> buildExecutionSummarySection() {
         RuntimeProfile execSummaryProfile = summaryProfile.getExecutionSummary();
@@ -567,20 +567,34 @@ public class Profile {
         // Use toStructuredMap() to get the full hierarchical structure
         Map<String, Object> structuredMap = execSummaryProfile.toStructuredMap();
 
+        Map<String, Object> result = new BlockStyleMap();
+
         // Extract content from the wrapped format {profileName: {content}}
         if (structuredMap.size() == 1) {
             String profileName = structuredMap.keySet().iterator().next();
             @SuppressWarnings("unchecked")
             Map<String, Object> content = (Map<String, Object>) structuredMap.get(profileName);
             if (content != null) {
-                // Wrap in BlockStyleMap to ensure multi-line output
-                Map<String, Object> result = new BlockStyleMap();
-                result.putAll(content);
-                return result;
+                // Extract info_strings to top level
+                if (content.containsKey("info_strings")) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, String> infoStrings = (Map<String, String>) content.get("info_strings");
+                    result.putAll(infoStrings);
+                }
+
+                // Add counters if present
+                if (content.containsKey("counters")) {
+                    result.put("counters", content.get("counters"));
+                }
+
+                // Add children if present (preserving hierarchy)
+                if (content.containsKey("children")) {
+                    result.put("children", content.get("children"));
+                }
             }
         }
 
-        return new BlockStyleMap();
+        return result;
     }
 
     /**
